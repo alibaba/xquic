@@ -30,7 +30,7 @@
 #define XQC_BLOCK_MODE_LEN              5
 #define XQC_SYMBOL_CACHE_LEN            96
 #define XQC_MAX_RPR_KEY_SIZE            10
-#define XQC_MAX_SYMBOL_SIZE             XQC_MAX_PACKET_OUT_SIZE + XQC_ACK_SPACE - XQC_FEC_SPACE
+#define XQC_MAX_SYMBOL_SIZE             (XQC_MSS - XQC_FEC_SPACE)
 #define XQC_MAX_PM_SIZE                 288
 
 static const uint8_t fec_blk_size_v2[XQC_BLOCK_MODE_LEN] = {0, 0, 4, 10, 20};

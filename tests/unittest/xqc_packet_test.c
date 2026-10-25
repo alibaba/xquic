@@ -16,6 +16,8 @@
 #include "src/common/xqc_str.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_recv_record.h"
 
 
 #define XQC_TEST_SHORT_HEADER_PACKET_A "\x40\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
@@ -148,6 +150,155 @@ xqc_test_packet_out_remained_size(void)
     CU_ASSERT_EQUAL(xqc_get_po_remained_size(packet_out), 0);
 
     xqc_packet_out_destroy(packet_out);
+}
+
+/*
+ * An ACK may spill XQC_ACK_SPACE past po_buf_size, but never past XQC_MSS:
+ * a packet below the size cap keeps all of it, a packet at the cap has none.
+ * XQC_MSS plus the AEAD tag fills a 1500-byte IPv6 packet, and RFC 9000
+ * Section 14 forbids IP fragmentation of a QUIC datagram.
+ */
+void
+xqc_test_ack_room_capped_at_mss(void)
+{
+    xqc_packet_out_t *po;
+
+    CU_ASSERT_EQUAL(XQC_MAX_PACKET_OUT_SIZE, XQC_MSS);
+
+    po = xqc_packet_out_create(XQC_QUIC_MAX_MSS);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+
+    po->po_used_size = XQC_QUIC_MAX_MSS;
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size_with_ack_spc(po), XQC_ACK_SPACE);
+
+    /* bytes already spilled past po_buf_size count against the ACK room */
+    po->po_used_size = XQC_QUIC_MAX_MSS + 10;
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size_with_ack_spc(po),
+                    XQC_ACK_SPACE - 10);
+
+    po->po_buf_size = XQC_MAX_PACKET_OUT_SIZE;
+    po->po_used_size = XQC_MAX_PACKET_OUT_SIZE - 20;
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size_with_ack_spc(po), 20);
+
+    po->po_used_size = XQC_MAX_PACKET_OUT_SIZE;
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size_with_ack_spc(po), 0);
+
+    po->po_used_size = XQC_MAX_PACKET_OUT_SIZE - 4;
+    po->po_reserved_size = 8;
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size_with_ack_spc(po), 0);
+
+    xqc_packet_out_destroy(po);
+}
+
+/*
+ * A full packet at the size cap refuses an ACK with XQC_ENOBUF and is left
+ * untouched, so the ACK goes into a new packet; a full packet below the cap
+ * still takes one within XQC_MSS.
+ */
+void
+xqc_test_ack_refused_by_full_packet_at_cap(void)
+{
+    xqc_connection_t     *conn;
+    xqc_packet_out_t     *po;
+    xqc_recv_record_t     record;
+    xqc_packet_number_t   pn, largest_ack;
+    int                   has_gap;
+    ssize_t               ret;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&record, 0, sizeof(record));
+    xqc_init_list_head(&record.list_head);
+    for (pn = 1; pn <= 5; pn += 2) {
+        xqc_recv_record_add(&record, pn);
+    }
+
+    po = xqc_packet_out_create(XQC_MAX_PACKET_OUT_SIZE);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+
+    has_gap = 0;
+    largest_ack = 0;
+
+    po->po_used_size = XQC_MAX_PACKET_OUT_SIZE;
+    ret = xqc_gen_ack_frame(conn, po, 1000, 3, &record, 0, &has_gap,
+                            &largest_ack);
+    CU_ASSERT_EQUAL(ret, -XQC_ENOBUF);
+    CU_ASSERT_EQUAL(po->po_used_size, XQC_MAX_PACKET_OUT_SIZE);
+
+    po->po_buf_size = XQC_QUIC_MAX_MSS;
+    po->po_used_size = XQC_QUIC_MAX_MSS;
+    ret = xqc_gen_ack_frame(conn, po, 1000, 3, &record, 0, &has_gap,
+                            &largest_ack);
+    CU_ASSERT(ret > 0);
+    CU_ASSERT(po->po_used_size + ret <= XQC_MSS);
+    CU_ASSERT_EQUAL(largest_ack, 5);
+
+    conn->pkt_out_size = XQC_MAX_PACKET_OUT_SIZE;
+    CU_ASSERT_EQUAL(xqc_conn_get_mss(conn), XQC_MSS);
+    conn->pkt_out_size = XQC_QUIC_MAX_MSS;
+    CU_ASSERT_EQUAL(xqc_conn_get_mss(conn), XQC_MSS);
+
+    xqc_packet_out_destroy(po);
+    xqc_recv_record_destroy(&record);
+    xqc_engine_destroy(conn->engine);
+}
+
+void xqc_send_ctl_on_pmtud_ping_acked(xqc_send_ctl_t *send_ctl,
+    xqc_packet_out_t *po);
+
+/* acknowledge a PMTUD probe sized like the one the connection would send */
+static size_t
+xqc_test_pmtud_acked_pkt_out_size(size_t probing_pkt_out_size)
+{
+    xqc_engine_t           *engine;
+    xqc_connection_t       *conn;
+    xqc_path_ctx_t         *path;
+    xqc_packet_out_t       *po;
+    xqc_conn_settings_t     settings;
+    xqc_conn_ssl_config_t   ssl_config;
+    const xqc_cid_t        *cid;
+    size_t                  pkt_out_size;
+
+    engine = test_create_engine();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    settings.probing_pkt_out_size = probing_pkt_out_size;
+    memset(&ssl_config, 0, sizeof(ssl_config));
+    cid = xqc_connect(engine, &settings, NULL, 0, "", 0, &ssl_config,
+                      NULL, 0, "transport", NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cid);
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    path = conn->conn_initial_path;
+    po = xqc_packet_out_create(conn->probing_pkt_out_size);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+    po->po_path_id = path->path_id;
+    po->po_max_pkt_out_size = conn->max_pkt_out_size;
+
+    xqc_send_ctl_on_pmtud_ping_acked(path->path_send_ctl, po);
+    pkt_out_size = conn->pkt_out_size;
+
+    xqc_packet_out_destroy(po);
+    xqc_engine_destroy(engine);
+    return pkt_out_size;
+}
+
+/*
+ * An acknowledged PMTUD probe sets pkt_out_size, so a probing size above
+ * the cap is clamped to it: a probe at the cap is taken as is, and one as
+ * large as the packet buffer cannot raise pkt_out_size past XQC_MSS.
+ */
+void
+xqc_test_pmtud_probe_capped_at_mss(void)
+{
+    CU_ASSERT_EQUAL(xqc_test_pmtud_acked_pkt_out_size(XQC_MAX_PACKET_OUT_SIZE),
+                    XQC_MSS);
+    CU_ASSERT_EQUAL(xqc_test_pmtud_acked_pkt_out_size(XQC_PACKET_OUT_BUF_CAP),
+                    XQC_MSS);
 }
 
 

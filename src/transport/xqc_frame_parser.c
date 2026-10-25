@@ -485,7 +485,8 @@ xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
         if ((packet_out->po_frame_types & (XQC_FRAME_BIT_PATH_CHALLENGE | XQC_FRAME_BIT_PATH_RESPONSE))
             || (packet_out->po_flag & XQC_POF_PMTUD_PROBING))
         {
-            total_len = packet_out->po_buf_size + XQC_ACK_SPACE;
+            total_len = xqc_min(packet_out->po_buf_size + XQC_ACK_SPACE,
+                                XQC_MSS);
         }
     }
 

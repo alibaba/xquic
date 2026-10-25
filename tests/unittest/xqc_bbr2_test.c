@@ -23,10 +23,13 @@
  * convergence waits 1 + xqc_bbr2_fast_convergence_probe_round_base plus up
  * to xqc_bbr2_fast_convergence_probe_round_rand - 1 round trips.
  */
-#define BBR2_TEST_PROBE_BASE_US     2000000
-#define BBR2_TEST_PROBE_RAND_US     1000000
-#define BBR2_TEST_FC_MIN_ROUNDS     5
-#define BBR2_TEST_FC_MAX_ROUNDS     8
+#define XQC_BBR2_TEST_PROBE_BASE_US     2000000
+#define XQC_BBR2_TEST_PROBE_RAND_US     1000000
+#define XQC_BBR2_TEST_FC_MIN_ROUNDS     5
+#define XQC_BBR2_TEST_FC_MAX_ROUNDS     8
+
+static uint32_t bbr2_test_probe_wait(uint32_t cc_flags,
+    xqc_usec_t min_rtt_us);
 
 /*
  * Leave DRAIN on one ACK, nothing in flight, of a client connection whose
@@ -100,8 +103,8 @@ xqc_test_bbr2_probe_wait_fast_convergence(void)
     for (int i = 0; i < 16; i++) {
         uint32_t wait = bbr2_test_probe_wait(XQC_BBR2_FLAG_FAST_CONVERGENCE,
                                              20000);
-        CU_ASSERT(wait >= BBR2_TEST_FC_MIN_ROUNDS * 20000);
-        CU_ASSERT(wait <= BBR2_TEST_FC_MAX_ROUNDS * 20000);
+        CU_ASSERT(wait >= XQC_BBR2_TEST_FC_MIN_ROUNDS * 20000);
+        CU_ASSERT(wait <= XQC_BBR2_TEST_FC_MAX_ROUNDS * 20000);
     }
 #endif
 }
@@ -118,11 +121,11 @@ xqc_test_bbr2_probe_wait_bounds(void)
 
 #if XQC_BBR2_PLUS_ENABLED
     wait = bbr2_test_probe_wait(XQC_BBR2_FLAG_FAST_CONVERGENCE, 600000);
-    CU_ASSERT_EQUAL(wait, BBR2_TEST_PROBE_BASE_US);
+    CU_ASSERT_EQUAL(wait, XQC_BBR2_TEST_PROBE_BASE_US);
 #endif
 
     wait = bbr2_test_probe_wait(XQC_BBR2_FLAG_NONE, 20000);
-    CU_ASSERT(wait >= BBR2_TEST_PROBE_BASE_US);
-    CU_ASSERT(wait < BBR2_TEST_PROBE_BASE_US + BBR2_TEST_PROBE_RAND_US);
+    CU_ASSERT(wait >= XQC_BBR2_TEST_PROBE_BASE_US);
+    CU_ASSERT(wait < XQC_BBR2_TEST_PROBE_BASE_US + XQC_BBR2_TEST_PROBE_RAND_US);
 #endif
 }

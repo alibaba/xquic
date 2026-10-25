@@ -57,6 +57,7 @@
 #include "xqc_send_ctl_test.h"
 #include "xqc_vn_test.h"
 #include "xqc_frame_type_bit_test.h"
+#include "xqc_applimit_test.h"
 #include "xqc_flow_ctl_test.h"
 
 static int xqc_init_suite(void) { return 0; }
@@ -865,6 +866,40 @@ main(int argc, char *argv[])
                         xqc_test_alpn_server_cb_propagates_error)
         || !CU_add_test(pSuite, "xqc_test_alpn_client_handshake_no_alpn",
                         xqc_test_alpn_client_handshake_no_alpn)
+        || !CU_add_test(pSuite, "xqc_test_applimit_unfed_path_conn_logic",
+                        xqc_test_applimit_unfed_path_conn_logic)
+        || !CU_add_test(pSuite, "xqc_test_applimit_unfed_path_main_logic",
+                        xqc_test_applimit_unfed_path_main_logic)
+        || !CU_add_test(pSuite, "xqc_test_applimit_idle_path_conn_logic",
+                        xqc_test_applimit_idle_path_conn_logic)
+        || !CU_add_test(pSuite, "xqc_test_applimit_idle_path_main_logic",
+                        xqc_test_applimit_idle_path_main_logic)
+        || !CU_add_test(pSuite, "xqc_test_applimit_idle_path_batch_send",
+                        xqc_test_applimit_idle_path_batch_send)
+        || !CU_add_test(pSuite, "xqc_test_applimit_next_packet_flagged",
+                        xqc_test_applimit_next_packet_flagged)
+        || !CU_add_test(pSuite, "xqc_test_applimit_pacing_held_packet",
+                        xqc_test_applimit_pacing_held_packet)
+        || !CU_add_test(pSuite, "xqc_test_applimit_cwnd_full",
+                        xqc_test_applimit_cwnd_full)
+        || !CU_add_test(pSuite, "xqc_test_applimit_sndbuf_full",
+                        xqc_test_applimit_sndbuf_full)
+        || !CU_add_test(pSuite, "xqc_test_applimit_lingering_ack_only",
+                        xqc_test_applimit_lingering_ack_only)
+        || !CU_add_test(pSuite, "xqc_test_applimit_marker_value",
+                        xqc_test_applimit_marker_value)
+        || !CU_add_test(pSuite, "xqc_test_applimit_pacer_untouched",
+                        xqc_test_applimit_pacer_untouched)
+        || !CU_add_test(pSuite, "xqc_test_applimit_requeued_on_send_error",
+                        xqc_test_applimit_requeued_on_send_error)
+        || !CU_add_test(pSuite, "xqc_test_applimit_lost_packet_held",
+                        xqc_test_applimit_lost_packet_held)
+        || !CU_add_test(pSuite, "xqc_test_applimit_pto_probe_held",
+                        xqc_test_applimit_pto_probe_held)
+        || !CU_add_test(pSuite, "xqc_test_applimit_marker_kept_when_blocked",
+                        xqc_test_applimit_marker_kept_when_blocked)
+        || !CU_add_test(pSuite, "xqc_test_applimit_ack_clears_then_remarks",
+                        xqc_test_applimit_ack_clears_then_remarks)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

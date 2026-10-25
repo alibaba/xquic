@@ -133,6 +133,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_send_ctl_test.c
         ${UNIT_TEST_DIR}/xqc_vn_test.c
         ${UNIT_TEST_DIR}/xqc_frame_type_bit_test.c
+        ${UNIT_TEST_DIR}/xqc_applimit_test.c
         ${UNIT_TEST_DIR}/xqc_flow_ctl_test.c
     )
 

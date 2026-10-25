@@ -8,8 +8,13 @@
 #include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_frame.h"
+#include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_multipath.h"
+#include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_send_ctl.h"
+#include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_utils.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 
 #define XQC_TEST_CID_1 "xquictestconnid1"
 #define XQC_TEST_CID_2 "xquictestconnid2"
@@ -1044,6 +1049,411 @@ xqc_test_removed_scid_safety_net()
     CU_ASSERT(xqc_find_conns_hash(conn->engine->conns_hash, conn,
                                   removed_cid.cid_buf, removed_cid.cid_len) == NULL);
 
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A multipath connection whose own limit is local_max_path_id and whose peer
+ * announced remote_max_path_id, with the connection ID sets of the path IDs
+ * that both limits allow.
+ */
+static xqc_connection_t *
+xqc_test_mp_cid_conn(uint64_t local_max_path_id, uint64_t remote_max_path_id)
+{
+    xqc_connection_t *conn;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->enable_multipath = XQC_CONN_MP_ENABLED;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    conn->local_max_path_id = local_max_path_id;
+    conn->remote_max_path_id = remote_max_path_id;
+    conn->curr_max_path_id = xqc_min(local_max_path_id, remote_max_path_id);
+    CU_ASSERT_FATAL(xqc_conn_add_path_cid_sets(conn, XQC_INITIAL_PATH_ID + 1,
+                                               conn->curr_max_path_id)
+                    == XQC_OK);
+
+    return conn;
+}
+
+
+static xqc_int_t
+xqc_test_cid_recv_frame(xqc_connection_t *conn, unsigned char *frame,
+    unsigned char *end)
+{
+    xqc_packet_in_t packet_in;
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    packet_in.pos = frame;
+    packet_in.last = end;
+
+    return xqc_process_frames(conn, &packet_in);
+}
+
+
+/*
+ * Write a connection ID and a stateless reset token that are unique to
+ * path_id and seq_num, as a NEW_CONNECTION_ID frame carries them.
+ */
+static unsigned char *
+xqc_test_cid_put_new_cid(unsigned char *p, uint64_t path_id,
+    uint64_t seq_num)
+{
+    *p++ = XQC_DEFAULT_CID_LEN;
+    memset(p, 0x6d, XQC_DEFAULT_CID_LEN);
+    p[0] = (unsigned char) path_id;
+    p[1] = (unsigned char) seq_num;
+    p += XQC_DEFAULT_CID_LEN;
+
+    memset(p, 0xa5, XQC_STATELESS_RESET_TOKENLEN);
+    p[0] = (unsigned char) path_id;
+    p[1] = (unsigned char) seq_num;
+    return p + XQC_STATELESS_RESET_TOKENLEN;
+}
+
+
+static xqc_int_t
+xqc_test_cid_recv_mp_new_cid(xqc_connection_t *conn, uint64_t path_id,
+    uint64_t seq_num, uint64_t retire_prior_to)
+{
+    unsigned char  frame[64];
+    unsigned char *p = frame;
+
+    p = xqc_put_varint(p, XQC_TRANS_FRAME_TYPE_MP_NEW_CONN_ID);
+    p = xqc_put_varint(p, path_id);
+    p = xqc_put_varint(p, seq_num);
+    p = xqc_put_varint(p, retire_prior_to);
+    p = xqc_test_cid_put_new_cid(p, path_id, seq_num);
+
+    return xqc_test_cid_recv_frame(conn, frame, p);
+}
+
+
+static xqc_int_t
+xqc_test_cid_recv_mp_retire_cid(xqc_connection_t *conn, uint64_t path_id,
+    uint64_t seq_num)
+{
+    unsigned char  frame[16];
+    unsigned char *p = frame;
+
+    p = xqc_put_varint(p, XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID);
+    p = xqc_put_varint(p, path_id);
+    p = xqc_put_varint(p, seq_num);
+
+    return xqc_test_cid_recv_frame(conn, frame, p);
+}
+
+
+static xqc_int_t
+xqc_test_cid_recv_max_path_id(xqc_connection_t *conn, uint64_t max_path_id)
+{
+    unsigned char  frame[16];
+    unsigned char *p = frame;
+
+    p = xqc_put_varint(p, XQC_TRANS_FRAME_TYPE_MAX_PATH_ID);
+    p = xqc_put_varint(p, max_path_id);
+
+    return xqc_test_cid_recv_frame(conn, frame, p);
+}
+
+
+static xqc_int_t
+xqc_test_cid_recv_path_abandon(xqc_connection_t *conn, uint64_t path_id)
+{
+    unsigned char  frame[16];
+    unsigned char *p = frame;
+
+    p = xqc_put_varint(p, XQC_TRANS_FRAME_TYPE_MP_ABANDON);
+    p = xqc_put_varint(p, path_id);
+    p = xqc_put_varint(p, 0);  /* error code */
+    p = xqc_put_varint(p, 0);  /* reason phrase length */
+
+    return xqc_test_cid_recv_frame(conn, frame, p);
+}
+
+
+/* the number of packets queued for sending that carry frame_bit */
+static int
+xqc_test_cid_packets_with_frame(xqc_connection_t *conn,
+    xqc_frame_type_bit_t frame_bit)
+{
+    int                 count = 0;
+    xqc_list_head_t    *pos;
+    xqc_packet_out_t   *packet_out;
+    xqc_send_queue_t   *send_queue = conn->conn_send_queue;
+
+    xqc_list_for_each(pos, &send_queue->sndq_send_packets) {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (packet_out->po_frame_types & frame_bit) {
+            count++;
+        }
+    }
+
+    xqc_list_for_each(pos, &send_queue->sndq_send_packets_high_pri) {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (packet_out->po_frame_types & frame_bit) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+
+/*
+ * draft-ietf-quic-multipath-10 Section 3.5: the peer may issue connection IDs
+ * for any path ID up to our limit, and they can arrive before the MAX_PATH_ID
+ * that raises the peer's own limit. With our limit at 8 and the peer's at 2,
+ * the connection IDs that the peer issues for path IDs 3 and 8 are kept, not
+ * retired, and none of ours is issued for them. The peer's MAX_PATH_ID then
+ * adds the remaining connection ID sets and keeps the stored connection IDs.
+ */
+void
+xqc_test_mp_new_cid_above_curr_max_path_id()
+{
+    uint64_t            seq_num;
+    xqc_int_t           ret;
+    xqc_connection_t   *conn;
+
+    conn = xqc_test_mp_cid_conn(8, 2);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->dcid_set, 3) == NULL);
+
+    /* successive connection IDs for path ID 3 */
+    for (seq_num = 0; seq_num < 3; seq_num++) {
+        ret = xqc_test_cid_recv_mp_new_cid(conn, 3, seq_num, 0);
+        CU_ASSERT(ret == XQC_OK);
+    }
+    ret = xqc_test_cid_recv_mp_new_cid(conn, 8, 0, 0);
+    CU_ASSERT(ret == XQC_OK);
+
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID) == 0);
+    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->dcid_set, 3) == 3);
+    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->dcid_set, 8) == 1);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 3) == NULL);
+    CU_ASSERT(conn->curr_max_path_id == 2);
+
+    ret = xqc_test_cid_recv_max_path_id(conn, 8);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->curr_max_path_id == 8);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 3) != NULL);
+    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->dcid_set, 3) == 3);
+    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->dcid_set, 8) == 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A connection ID for a path ID above our limit is still a connection error
+ * (draft-ietf-quic-multipath-10 Section 7), and neither it nor a malformed
+ * frame for a path ID within the limit leaves a connection ID set behind.
+ */
+void
+xqc_test_mp_new_cid_rejected_without_cid_set()
+{
+    xqc_int_t           ret;
+    xqc_connection_t   *conn;
+
+    conn = xqc_test_mp_cid_conn(8, 2);
+    ret = xqc_test_cid_recv_mp_new_cid(conn, 9, 0, 0);
+    CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+    CU_ASSERT(conn->conn_err == TRA_MP_PROTOCOL_VIOLATION);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->dcid_set, 9) == NULL);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID) == 0);
+    xqc_engine_destroy(conn->engine);
+
+    /* RFC 9000 Section 19.15: Retire Prior To above the Sequence Number */
+    conn = xqc_test_mp_cid_conn(8, 2);
+    ret = xqc_test_cid_recv_mp_new_cid(conn, 3, 0, 1);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_FRAME_ENCODING_ERROR);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->dcid_set, 3) == NULL);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * draft-ietf-quic-multipath-10 Section 3.3: an abandoned path ID MUST NOT be
+ * reused, and Section 3.3.4 lets the peer abandon a path ID that no path
+ * used. With our limit at 8 and the peer's at 0, the peer abandons path ID 1
+ * before or after the connection ID it issued for it arrives. Once its
+ * MAX_PATH_ID allows path IDs up to 8, path ID 1 stays abandoned, and path
+ * ID 2 is the next one to get our connection IDs and to open a path.
+ */
+void
+xqc_test_mp_abandon_above_curr_max_path_id()
+{
+    int                     abandon_first;
+    uint64_t                path_id;
+    xqc_int_t               ret;
+    xqc_connection_t       *conn;
+    xqc_cid_set_inner_t    *inner_set;
+
+    for (abandon_first = 0; abandon_first <= 1; abandon_first++) {
+        conn = xqc_test_mp_cid_conn(8, 0);
+
+        if (abandon_first) {
+            ret = xqc_test_cid_recv_path_abandon(conn, 1);
+            CU_ASSERT(ret == XQC_OK);
+        }
+        ret = xqc_test_cid_recv_mp_new_cid(conn, 1, 0, 0);
+        CU_ASSERT(ret == XQC_OK);
+        ret = xqc_test_cid_recv_mp_new_cid(conn, 2, 0, 0);
+        CU_ASSERT(ret == XQC_OK);
+        if (!abandon_first) {
+            ret = xqc_test_cid_recv_path_abandon(conn, 1);
+            CU_ASSERT(ret == XQC_OK);
+        }
+
+        ret = xqc_test_cid_recv_max_path_id(conn, 8);
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(conn->conn_err == 0);
+        CU_ASSERT(conn->curr_max_path_id == 8);
+
+        inner_set = xqc_get_path_cid_set(&conn->dcid_set, 1);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+        CU_ASSERT(inner_set->set_state == XQC_CID_SET_ABANDONED);
+        inner_set = xqc_get_path_cid_set(&conn->scid_set, 1);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+        CU_ASSERT(inner_set->set_state == XQC_CID_SET_ABANDONED);
+
+        inner_set = xqc_get_next_unused_path_cid_set(&conn->scid_set);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+        CU_ASSERT(inner_set->path_id == 2);
+
+        ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, 2);
+        CU_ASSERT(ret == XQC_OK);
+        xqc_cid_set_on_cid_acked(&conn->scid_set, 2, 0);
+        ret = xqc_conn_get_available_path_id(conn, &path_id);
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(path_id == 2);
+
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+/*
+ * A PATH_ABANDON frame for a path ID above our limit is a connection error
+ * (draft-ietf-quic-multipath-10 Section 7), and neither it nor a truncated
+ * frame adds connection ID sets.
+ */
+void
+xqc_test_mp_abandon_rejected_without_cid_set()
+{
+    unsigned char       frame[16];
+    unsigned char      *p;
+    xqc_int_t           ret;
+    xqc_connection_t   *conn;
+
+    conn = xqc_test_mp_cid_conn(8, 0);
+    ret = xqc_test_cid_recv_path_abandon(conn, 9);
+    CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+    CU_ASSERT(conn->conn_err == TRA_MP_PROTOCOL_VIOLATION);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->dcid_set, 9) == NULL);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 9) == NULL);
+    xqc_engine_destroy(conn->engine);
+
+    /* the frame ends before its Error Code */
+    conn = xqc_test_mp_cid_conn(8, 0);
+    p = frame;
+    p = xqc_put_varint(p, XQC_TRANS_FRAME_TYPE_MP_ABANDON);
+    p = xqc_put_varint(p, 1);
+    ret = xqc_test_cid_recv_frame(conn, frame, p);
+    CU_ASSERT(ret != XQC_OK);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->dcid_set, 1) == NULL);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 1) == NULL);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 9000 Section 19.16, applied per path by draft-ietf-quic-multipath-10
+ * Section 7.6: retiring a sequence number greater than any sent is a
+ * PROTOCOL_VIOLATION. A connection ID issued for path ID 1 is retired, while
+ * path ID 3, within our limit but above the peer's, has none of ours.
+ */
+void
+xqc_test_mp_retire_cid_without_cid_set()
+{
+    xqc_int_t           ret;
+    xqc_cid_inner_t    *inner_cid;
+    xqc_connection_t   *conn;
+
+    conn = xqc_test_mp_cid_conn(8, 2);
+
+    ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, 1);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_test_cid_recv_mp_retire_cid(conn, 1, 0);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    inner_cid = xqc_get_inner_cid_by_seq(&conn->scid_set, 0, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_cid);
+    CU_ASSERT(inner_cid->state == XQC_CID_RETIRED);
+
+    ret = xqc_test_cid_recv_mp_retire_cid(conn, 3, 0);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_PROTOCOL_VIOLATION);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A failed connection ID set lookup is an internal error. It must neither
+ * retire the connection ID of a NEW_CONNECTION_ID frame nor accept a
+ * RETIRE_CONNECTION_ID frame. The sets of path ID 0 exist for the whole
+ * connection, so they are unlinked to make the lookups fail.
+ */
+void
+xqc_test_cid_set_lookup_error()
+{
+    xqc_int_t               ret;
+    unsigned char           frame[64];
+    unsigned char          *p;
+    xqc_connection_t       *conn;
+    xqc_cid_set_inner_t    *inner_set;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    inner_set = xqc_get_path_cid_set(&conn->dcid_set, XQC_INITIAL_PATH_ID);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+    xqc_list_del_init(&inner_set->next);
+
+    p = frame;
+    *p++ = 0x18;  /* NEW_CONNECTION_ID */
+    *p++ = 0x01;  /* sequence number */
+    *p++ = 0x00;  /* retire prior to */
+    p = xqc_test_cid_put_new_cid(p, XQC_INITIAL_PATH_ID, 1);
+    ret = xqc_test_cid_recv_frame(conn, frame, p);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_INTERNAL_ERROR);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_RETIRE_CONNECTION_ID) == 0);
+
+    xqc_list_add_tail(&inner_set->next, &conn->dcid_set.cid_set_list);
+    xqc_engine_destroy(conn->engine);
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    inner_set = xqc_get_path_cid_set(&conn->scid_set, XQC_INITIAL_PATH_ID);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+    xqc_list_del_init(&inner_set->next);
+
+    p = frame;
+    *p++ = 0x19;  /* RETIRE_CONNECTION_ID */
+    *p++ = 0x00;  /* sequence number */
+    ret = xqc_test_cid_recv_frame(conn, frame, p);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_INTERNAL_ERROR);
+
+    xqc_list_add_tail(&inner_set->next, &conn->scid_set.cid_set_list);
     xqc_engine_destroy(conn->engine);
 }
 

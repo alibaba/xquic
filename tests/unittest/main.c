@@ -317,6 +317,18 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_removed_scid_safety_net", xqc_test_removed_scid_safety_net)
         || !CU_add_test(pSuite, "xqc_test_conns_hash_remove_owned_entry", xqc_test_conns_hash_remove_owned_entry)
         || !CU_add_test(pSuite, "xqc_test_conns_hash_reject_non_owner", xqc_test_conns_hash_reject_non_owner)
+        || !CU_add_test(pSuite, "xqc_test_mp_new_cid_above_curr_max_path_id",
+                        xqc_test_mp_new_cid_above_curr_max_path_id)
+        || !CU_add_test(pSuite, "xqc_test_mp_new_cid_rejected_without_cid_set",
+                        xqc_test_mp_new_cid_rejected_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_abandon_above_curr_max_path_id",
+                        xqc_test_mp_abandon_above_curr_max_path_id)
+        || !CU_add_test(pSuite, "xqc_test_mp_abandon_rejected_without_cid_set",
+                        xqc_test_mp_abandon_rejected_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_retire_cid_without_cid_set",
+                        xqc_test_mp_retire_cid_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_cid_set_lookup_error",
+                        xqc_test_cid_set_lookup_error)
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
         || !CU_add_test(pSuite, "xqc_test_engine_drop_small_initial", xqc_test_engine_drop_small_initial)

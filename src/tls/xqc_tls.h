@@ -227,6 +227,9 @@ void xqc_tls_get_selected_alpn(xqc_tls_t *tls, const char **out_alpn,
 
 xqc_int_t xqc_tls_update_tp(xqc_tls_t *tls, uint8_t *tp_buf, size_t tp_len);
 
+xqc_int_t xqc_tls_update_early_data_tp(xqc_tls_t *tls,
+    uint64_t max_udp_payload_size);
+
 /**
  * @brief get SSL handler
  */

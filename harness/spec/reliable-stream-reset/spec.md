@@ -141,24 +141,33 @@ receive completion or closing notification.
 
 ## 0-RTT Session Tickets
 
-The early-data TP list currently contains only `reset_stream_at`, encoded as
-one byte (0 or 1). Context construction and ticket appdata share this encoding;
-additional TPs must extend both the encoding and the per-parameter checks.
-Either capability mismatch
-rejects only 0-RTT, retains valid session resumption, and lets rejected stream
-data replay in 1-RTT. Matching values add no rejection. Other transport
-parameters keep their existing policy; ticket encoding, authentication and
-keys remain native TLS. Missing or malformed reset bindings reject early data.
+The early-data TP binding contains `reset_stream_at` as one byte (0 or 1),
+followed by `max_udp_payload_size` as an 8-byte big-endian integer. Context
+construction and ticket appdata share this 9-byte encoding; additional TPs must
+extend both the encoding and the per-parameter checks. A reset capability
+mismatch or a decrease in the UDP payload limit rejects only 0-RTT, retains
+valid session resumption, and lets rejected stream and DATAGRAM data replay in
+1-RTT. Matching values add no rejection. BabaSSL accepts an increased UDP
+payload limit. BoringSSL's public native-context API supports equality rather
+than an ordering relation, so it conservatively rejects either limit change.
+Other transport parameters keep their existing policy; ticket encoding,
+authentication and keys remain native TLS. Missing, legacy, truncated, or
+malformed bindings reject early data without closing the resumed connection.
 
-BoringSSL appends the byte to the `xquic` early-data context. BabaSSL keeps
+BoringSSL appends the binding to the `xquic` early-data context. BabaSSL keeps
 the original fixed native context because it copies that context on renewal;
 its public TP ticket callbacks renew the authenticated TP data in ticket
 appdata, and `xqc_ssl_tp_allow_early_data_cb` validates its length and checks
-each included parameter before acceptance.
+each included parameter before acceptance. Local TP updates refresh both the
+encoded parameters and the early-data binding before the handshake decision.
 
 Every successful handshake installs and persists the newly received transport
-parameters, replacing the cached reset capability even after 0-RTT rejection.
-New tickets record the current capability for subsequent resumptions.
+parameters, replacing the cached reset capability and UDP payload limit even
+after 0-RTT rejection. New tickets record the current values for subsequent
+resumptions. Remembered peer limits can only tighten the active packet budget;
+formal parameters restore the configured PMTUD search bound, while successful
+probe acknowledgement remains the only operation that increases the active
+PMTU estimate.
 
 ## Validation Contract
 

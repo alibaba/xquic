@@ -1278,6 +1278,7 @@ xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_param
     char *p = tp_data;
     char *e = p + tp_data_len;
     xqc_bool_t reset_stream_at_seen = XQC_FALSE;
+    xqc_bool_t max_udp_payload_size_seen = XQC_FALSE;
     params->reset_stream_at = XQC_FALSE;
     while (*p != '\0' && p < e) {
         if (*p == ' ') {
@@ -1325,6 +1326,25 @@ xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_param
         } else if (strncmp(p, "max_datagram_frame_size=", xqc_lengthof("max_datagram_frame_size=")) == 0) {
             p += xqc_lengthof("max_datagram_frame_size=");
             params->max_datagram_frame_size = strtoul(p, NULL, XQC_DECIMAL);
+
+        } else if (strncmp(p, "max_udp_payload_size=",
+                           xqc_lengthof("max_udp_payload_size=")) == 0)
+        {
+            p += xqc_lengthof("max_udp_payload_size=");
+            if (p > e || max_udp_payload_size_seen) {
+                return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+            }
+            const char *end = memchr(p, '\n', e - p);
+            if (end == NULL) {
+                end = e;
+            }
+            if (xqc_remembered_tp_parse_decimal(p, end - p,
+                    &params->max_udp_payload_size) != XQC_OK
+                || params->max_udp_payload_size < XQC_MIN_UDP_PAYLOAD_SIZE)
+            {
+                return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+            }
+            max_udp_payload_size_seen = XQC_TRUE;
 
         } else if (strncmp(p, "reset_stream_at=",
                            xqc_lengthof("reset_stream_at=")) == 0)
@@ -1400,6 +1420,7 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
                                    "initial_max_stream_data_uni=%"PRIu64"\n"
                                    "initial_max_data=%"PRIu64"\n"
                                    "max_ack_delay=%"PRIu64"\n"
+                                   "max_udp_payload_size=%"PRIu64"\n"
                                    "active_connection_id_limit=%"PRIu64"\n"
                                    "%s"
                                    "%s",
@@ -1410,6 +1431,7 @@ xqc_write_transport_params(char *tp_buf, size_t cap, const xqc_transport_params_
                                    params->initial_max_stream_data_uni,
                                    params->initial_max_data,
                                    params->max_ack_delay,
+                                   params->max_udp_payload_size,
                                    params->active_connection_id_limit,
                                    reset_stream_at_tp_str,
                                    dgram_tp_str);

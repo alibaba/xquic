@@ -676,10 +676,187 @@ case_tls_reset_0rtt_enabled()
     case_tls_reset_0rtt_transition 912 1 1 1
 }
 
+max_udp_0rtt_saved_tp_matches()
+{
+    local expected="$1"
+    test -s tp_localhost && grep -qx "max_udp_payload_size=${expected}" tp_localhost
+}
+
+max_udp_0rtt_replay_is_clean()
+{
+    awk '
+        /xqc_conn_early_data_reject\|reject\|/ { rejected = 1 }
+        /xqc_send_ctl_on_packet_sent/ {
+            if (rejected && $0 ~ /pkt_type:0RTT\|frame:.*(STREAM|DATAGRAM)/) {
+                stale = 1
+            }
+            if ($0 ~ /pkt_type:SHORT_HEADER\|frame:.*STREAM/) {
+                stream = 1
+            }
+            if ($0 ~ /pkt_type:SHORT_HEADER\|frame:.*DATAGRAM/) {
+                datagram = 1
+            }
+        }
+        END { exit !(rejected && stream && datagram && !stale) }
+    ' clog
+}
+
+max_udp_0rtt_sizes_within()
+{
+    local limit="$1"
+    awk -v limit="${limit}" '
+        /xqc_send_ctl_on_packet_sent/ && /pkt_type:SHORT_HEADER/ {
+            if (match($0, /size:[0-9]+/)) {
+                size = substr($0, RSTART + 5, RLENGTH - 5) + 0
+                if (size > limit) {
+                    oversized = 1
+                }
+            }
+        }
+        END { exit oversized ? 1 : 0 }
+    ' clog
+}
+
+max_udp_0rtt_check_connection()
+{
+    local phase="$1" cached="$2" current="$3" early="$4" reused="$5"
+    local ready=1 ok=1
+    [[ "${phase}" = warmup ]] && ready=0
+
+    grep -Fq '[dgram]|echo_check|same_content:yes|' "${phase}.log" || ok=0
+    grep -Fq "[max-udp-0rtt]|cached:${cached}|early_ready:${ready}|" \
+        "${phase}.log" || ok=0
+    grep -Fq "[max-udp-0rtt]|negotiated:${current}|session_reused:${reused}|" \
+        "${phase}.log" || ok=0
+    grep -Fq '|conn_err:0|' "${phase}.log" || ok=0
+    if [[ "${early}" != any ]]; then
+        grep -Fq "early_data:${early}|" "${phase}.log" || ok=0
+    else
+        grep -Fq 'early_data_flag:' "${phase}.log" || ok=0
+    fi
+    max_udp_0rtt_saved_tp_matches "${current}" || ok=0
+
+    if [[ "${ready}" = 1 ]]; then
+        grep -Eq \
+            'xqc_send_ctl_on_packet_sent.*pkt_type:0RTT\|frame:.*STREAM' clog || ok=0
+        grep -Eq \
+            'xqc_send_ctl_on_packet_sent.*pkt_type:0RTT\|frame:.*DATAGRAM' clog || ok=0
+    fi
+    if [[ "${early}" = 2 ]]; then
+        max_udp_0rtt_replay_is_clean || ok=0
+    fi
+    max_udp_0rtt_sizes_within "${current}" || ok=0
+
+    if [[ "${ok}" != 1 ]]; then
+        echo "${phase}: max-udp-0rtt connection checks failed"
+        grep -E 'max-udp-0rtt|early_data_flag:|>>>>>>>> pass:|echo_check' \
+            "${phase}.log" || true
+        return 1
+    fi
+    return 0
+}
+
+case_tls_max_udp_0rtt_transition()
+{
+    local id="$1" saved="$2" current="$3" early="$4" body="$5" pmtud="$6"
+    local failed=0
+    local pmtud_args=()
+    [[ "${pmtud}" = 1 ]] && pmtud_args=(--pmtud 1)
+
+    # RFC 9000 Section 7.4.1: retain ticket keys while changing only this TP.
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    case_test_start_server stdbuf -oL ${SERVER_BIN} -l d -e -U 1 -Q 65535 \
+        -s "${body}" -x "${id}" "${pmtud_args[@]}" > server.log
+
+    ${CLIENT_BIN} -T 1 -s "${body}" -l d -t 3 -E -1 -U 1 -Q 65535 \
+        -x "${id}" "${pmtud_args[@]}" > warmup.log || failed=1
+    max_udp_0rtt_check_connection warmup 65527 "${saved}" 0 0 || failed=1
+    test -s test_session || failed=1
+
+    if ! case_test_wait_for_log server.log \
+        "server_ready:${current}|" 100 0.1; then
+        echo 'server did not finish the warmup connection'
+        cat server.log
+        case_test_stop_server
+        return 1
+    fi
+
+    clear_log
+    if [[ "${pmtud}" = 1 ]]; then
+        case_test_sudo ${CLIENT_BIN} -T 1 -s "${body}" -l d -t 3 -E -U 1 \
+            -Q 65535 -x "${id}" "${pmtud_args[@]}" > resume.log || failed=1
+    else
+        ${CLIENT_BIN} -T 1 -s "${body}" -l d -t 3 -E -U 1 -Q 65535 \
+            -x "${id}" > resume.log || failed=1
+    fi
+    max_udp_0rtt_check_connection resume "${saved}" "${current}" \
+        "${early}" 1 || failed=1
+    if [[ "${pmtud}" = 1 ]]; then
+        grep -Fq "[max-udp-0rtt]|cached:${saved}|early_ready:1|current:1168|max:1168|probe:1168|" \
+            resume.log || failed=1
+        grep -Fq "|current:1168|max:1368|probe:1368|path_current:1168|path_max:1368|" \
+            resume.log || failed=1
+        grep -Fq '[max-udp-0rtt]|pmtud_acked_mss:1352|current:1368|' \
+            resume.log || failed=1
+        grep -Eq \
+            'xqc_send_ctl_on_packet_sent.*enc_size:1400\|.*pkt_type:SHORT_HEADER\|frame:PADDING PING' \
+            clog || failed=1
+    fi
+    cp clog resume.clog
+
+    clear_log
+    if [[ "${pmtud}" = 1 ]]; then
+        case_test_sudo ${CLIENT_BIN} -T 1 -s "${body}" -l d -t 3 -E -U 1 \
+            -Q 65535 -x "${id}" "${pmtud_args[@]}" > refreshed.log || failed=1
+    else
+        ${CLIENT_BIN} -T 1 -s "${body}" -l d -t 3 -E -U 1 -Q 65535 \
+            -x "${id}" > refreshed.log || failed=1
+    fi
+    max_udp_0rtt_check_connection refreshed "${current}" "${current}" 1 1 || failed=1
+    case_test_stop_server
+
+    grep -Fxq "[max-udp-0rtt]|server_advertised:${saved}|early_data:0|" \
+        server.log || failed=1
+    if [[ "${early}" != any ]]; then
+        grep -Fxq "[max-udp-0rtt]|server_advertised:${current}|early_data:${early}|" \
+            server.log || failed=1
+    fi
+    grep -Fxq "[max-udp-0rtt]|server_advertised:${current}|early_data:1|" \
+        server.log || failed=1
+    return "${failed}"
+}
+
+case_tls_max_udp_0rtt_equal()
+{
+    case_tls_max_udp_0rtt_transition 751 1400 1400 1 4096 0
+}
+
+case_tls_max_udp_0rtt_reduce()
+{
+    case_tls_max_udp_0rtt_transition 752 1400 1200 2 1024 0
+}
+
+case_tls_max_udp_0rtt_pmtud()
+{
+    # BabaSSL accepts an increased limit; BoringSSL conservatively rejects it.
+    case_tls_max_udp_0rtt_transition 753 1200 1400 any 1024 1
+}
+
+case_tls_max_udp_0rtt_small()
+{
+    case_tls_max_udp_0rtt_transition 754 1400 1400 1 64 0
+}
+
 case_test_case "reset_0RTT_downgrade" --id 909 --run case_tls_reset_0rtt_downgrade
 case_test_case "reset_0RTT_upgrade" --id 910 --run case_tls_reset_0rtt_upgrade
 case_test_case "reset_0RTT_disabled" --id 911 --run case_tls_reset_0rtt_disabled
 case_test_case "reset_0RTT_enabled" --id 912 --run case_tls_reset_0rtt_enabled
+case_test_case "max_udp_0RTT_equal" --id 751 --run case_tls_max_udp_0rtt_equal
+case_test_case "max_udp_0RTT_reduce_replay" --id 752 --run case_tls_max_udp_0rtt_reduce
+case_test_case "max_udp_0RTT_pmtud_recovery" --id 753 --run case_tls_max_udp_0rtt_pmtud
+case_test_case "max_udp_0RTT_small_payload" --id 754 --run case_tls_max_udp_0rtt_small
 
 case_test_case "cert_verify" --id native --mode self-reporting --run case_tls_handshake_cert_verify
 case_test_case "1RTT" --id native --mode self-reporting --run case_tls_handshake__1RTT

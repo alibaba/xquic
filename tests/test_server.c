@@ -52,6 +52,10 @@
 #define XQC_TEST_CASE_RESET_0RTT_UPGRADE 910
 #define XQC_TEST_CASE_RESET_0RTT_DISABLED 911
 #define XQC_TEST_CASE_RESET_0RTT_ENABLED 912
+#define XQC_TEST_CASE_MAX_UDP_0RTT_EQUAL 751
+#define XQC_TEST_CASE_MAX_UDP_0RTT_REDUCE 752
+#define XQC_TEST_CASE_MAX_UDP_0RTT_PMTUD 753
+#define XQC_TEST_CASE_MAX_UDP_0RTT_SMALL 754
 int
 printf_null(const char *format, ...)
 {
@@ -726,6 +730,22 @@ xqc_server_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
     user_conn_t *user_conn = (user_conn_t*)user_data;
 
     user_conn->quic_conn = conn;
+
+    if (g_test_case >= XQC_TEST_CASE_MAX_UDP_0RTT_EQUAL
+        && g_test_case <= XQC_TEST_CASE_MAX_UDP_0RTT_SMALL)
+    {
+        uint64_t limit = 1400;
+        if (g_server_conn_cnt == 0) {
+            limit = g_test_case == XQC_TEST_CASE_MAX_UDP_0RTT_PMTUD
+                ? XQC_PACKET_OUT_SIZE : 1400;
+
+        } else if (g_test_case == XQC_TEST_CASE_MAX_UDP_0RTT_REDUCE) {
+            limit = XQC_PACKET_OUT_SIZE;
+        }
+        conn->local_settings.max_udp_payload_size = limit;
+        conn->conn_flag |= XQC_CONN_FLAG_LOCAL_TP_UPDATED;
+    }
+
     user_conn->dgram_blk = calloc(1, sizeof(user_dgram_blk_t));
     user_conn->dgram_blk->data_recv = 0;
     user_conn->dgram_blk->data_sent = 0;
@@ -764,6 +784,18 @@ xqc_server_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
     }
 
     free(user_conn);
+
+    if (g_test_case >= XQC_TEST_CASE_MAX_UDP_0RTT_EQUAL
+        && g_test_case <= XQC_TEST_CASE_MAX_UDP_0RTT_SMALL)
+    {
+        g_server_conn_cnt++;
+        if (g_server_conn_cnt == 1) {
+            uint64_t next = g_test_case == XQC_TEST_CASE_MAX_UDP_0RTT_REDUCE
+                ? XQC_PACKET_OUT_SIZE : 1400;
+            printf("[max-udp-0rtt]|server_ready:%"PRIu64"|\n", next);
+            fflush(stdout);
+        }
+    }
 
     if (g_mpshell) {
         event_base_loopbreak(eb);
@@ -826,6 +858,17 @@ xqc_server_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
 
     DEBUG;
     printf("datagram_mss:%zd\n", xqc_datagram_get_mss(conn));
+
+    if (g_test_case >= XQC_TEST_CASE_MAX_UDP_0RTT_EQUAL
+        && g_test_case <= XQC_TEST_CASE_MAX_UDP_0RTT_SMALL)
+    {
+        xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine,
+                                                    &conn->scid_set.user_scid);
+        printf("[max-udp-0rtt]|server_advertised:%"PRIu64"|early_data:%d|\n",
+               conn->local_settings.max_udp_payload_size,
+               stats.early_data_flag);
+        fflush(stdout);
+    }
 
     if (g_test_case == XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_BOUNDARY
         || g_test_case == XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_EXTENSION)

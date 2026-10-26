@@ -68,9 +68,11 @@ capability combinations, PSK reuse after early-data rejection, and refreshed
 tickets. TLS units also cover default and configured 48/80-byte keys and
 legacy unbound contexts on both BoringSSL and BabaSSL. BabaSSL coverage also
 rejects malformed ticket appdata and checks subsequent refreshed tickets.
-Endpoint cases 909–912 verify
-the [reset ticket contract](reliable-stream-reset/spec.md#0-rtt-session-tickets);
-701/702 retain the existing non-reset parameter checks.
+Endpoint cases 909–912 and 751–754 verify
+the [reset ticket contract](reliable-stream-reset/spec.md#0-rtt-session-tickets).
+The latter cover equal and reduced UDP payload limits, STREAM/DATAGRAM replay,
+PMTUD recovery, and small-payload acceptance. 701/702 retain the existing
+non-reset parameter checks.
 
 Harness-only changes must also run:
 
@@ -113,7 +115,7 @@ its case is retired so later changes cannot reuse it.
 
 | Range | New-case namespace | Allocated IDs |
 |-------|--------------------|---------------|
-| `[705, 799]` | QUIC Transport core | `705-726`, `739-746` |
+| `[705, 799]` | QUIC Transport core | `705-726`, `739-746`, `751-754` |
 | `[800, 899]` | Recovery and congestion control | `800` |
 | `[900, 999]` | QUIC-TLS | `902-905`, `909-912` |
 | `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1021`, `1026-1027`, `1032-1035` |

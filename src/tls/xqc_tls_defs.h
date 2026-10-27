@@ -88,8 +88,9 @@ typedef struct xqc_tls_config_s {
 
     char                   *tls_groups;
 
-    /* Advertised server capability bound to the early-data context. */
+    /* Advertised server capabilities bound to the early-data context. */
     xqc_bool_t              reset_stream_at;
+    uint64_t                max_udp_payload_size;
 
 } xqc_tls_config_t;
 

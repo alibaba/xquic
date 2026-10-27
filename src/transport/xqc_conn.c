@@ -1147,6 +1147,7 @@ xqc_conn_create_server_tls(xqc_connection_t *conn)
     }
 
     cfg.reset_stream_at = conn->local_settings.reset_stream_at;
+    cfg.max_udp_payload_size = conn->local_settings.max_udp_payload_size;
 
     /* create tls instance */
     conn->tls = xqc_tls_create(conn->engine->tls_ctx, &cfg, conn->log, conn);
@@ -1336,6 +1337,10 @@ xqc_conn_server_on_alpn(xqc_connection_t *conn, const unsigned char *alpn, size_
         }
 
         ret = xqc_tls_update_tp(conn->tls, tp_buf, tp_len);
+        if (ret == XQC_OK) {
+            ret = xqc_tls_update_early_data_tp(conn->tls,
+                    conn->local_settings.max_udp_payload_size);
+        }
 
         if (ret != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|server tls update tp error|ret:%d|", ret);
@@ -5475,7 +5480,9 @@ xqc_conn_ptmud_probing(xqc_connection_t *conn)
     }
 
     /* stop probing if the range is less than 10B */
-    if ((conn->max_pkt_out_size - conn->pkt_out_size) < 10) {
+    if (conn->max_pkt_out_size <= conn->pkt_out_size
+        || (conn->max_pkt_out_size - conn->pkt_out_size) < 10)
+    {
         xqc_log_event(conn->log, CON_MTU_UPDATED, conn, 1);
         conn->conn_flag &= ~XQC_CONN_FLAG_PMTUD_PROBING;
         return;
@@ -5860,6 +5867,55 @@ xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid)
 }
 
 
+/*
+ * RFC 9000 Sections 14 and 18.2: the peer receive limit also bounds our
+ * datagram size.  A formal TP resets the search range, but only an
+ * acknowledged probe may raise the current budget (RFC 8899 Section 5.3.1).
+ */
+static void
+xqc_conn_update_peer_pkt_out_size(xqc_connection_t *conn,
+    xqc_bool_t reset_search)
+{
+    uint64_t peer_udp_payload_size;
+    size_t peer_pkt_out_size, search_bound;
+    xqc_path_ctx_t *path;
+    xqc_list_head_t *pos, *next;
+
+    if (conn->remote_settings.max_udp_payload_size < XQC_PACKET_OUT_SIZE) {
+        return;
+    }
+
+    /* Saturate before narrowing to size_t on 32-bit builds. */
+    peer_udp_payload_size = xqc_min(conn->remote_settings.max_udp_payload_size,
+                                    (uint64_t)XQC_MAX_PACKET_OUT_SIZE
+                                    + XQC_PACKET_OUT_EXT_SPACE);
+    peer_pkt_out_size = peer_udp_payload_size - XQC_PACKET_OUT_EXT_SPACE;
+    search_bound = xqc_min(conn->conn_settings.probing_pkt_out_size,
+                           peer_pkt_out_size);
+
+    conn->pkt_out_size = xqc_min(conn->pkt_out_size, search_bound);
+    if (reset_search) {
+        conn->max_pkt_out_size = search_bound;
+        conn->probing_pkt_out_size = search_bound;
+        conn->probing_cnt = 0;
+
+    } else {
+        conn->max_pkt_out_size = xqc_min(conn->max_pkt_out_size, search_bound);
+        conn->probing_pkt_out_size = xqc_min(conn->probing_pkt_out_size,
+                                             search_bound);
+    }
+
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        path->curr_pkt_out_size = xqc_min(path->curr_pkt_out_size,
+                                          search_bound);
+        path->path_max_pkt_out_size = reset_search
+            ? search_bound
+            : xqc_min(path->path_max_pkt_out_size, search_bound);
+    }
+}
+
+
 xqc_int_t
 xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     const xqc_transport_params_t *params, xqc_transport_params_type_t exttype)
@@ -5957,10 +6013,7 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     settings->max_receive_timestamps_per_ack = params->max_receive_timestamps_per_ack;
     settings->receive_timestamps_exponent = params->receive_timestamps_exponent;
 
-    if (conn->conn_type == XQC_CONN_TYPE_SERVER
-        && settings->max_udp_payload_size >= XQC_PACKET_OUT_SIZE) {
-        conn->pkt_out_size = xqc_min(conn->pkt_out_size, settings->max_udp_payload_size - XQC_PACKET_OUT_EXT_SPACE);
-    }
+    xqc_conn_update_peer_pkt_out_size(conn, XQC_TRUE);
 
     return XQC_OK;
 }
@@ -6519,6 +6572,10 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
         }
         
         ret = xqc_tls_update_tp(conn->tls, tp_buf, tp_len);
+        if (ret == XQC_OK) {
+            ret = xqc_tls_update_early_data_tp(conn->tls,
+                    conn->local_settings.max_udp_payload_size);
+        }
         if (ret != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|server tls update transport param error|ret:%d|", ret);
             XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
@@ -6666,6 +6723,7 @@ xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,
     conn->remote_settings.stateless_reset_token_present = 0;
 
     xqc_conn_update_flow_ctl_settings(conn);
+    xqc_conn_update_peer_pkt_out_size(conn, XQC_FALSE);
     return XQC_OK;
 }
 

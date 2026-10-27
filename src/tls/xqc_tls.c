@@ -8,13 +8,16 @@
 #include "xqc_ssl_cbs.h"
 #include "xqc_crypto.h"
 #include "src/common/xqc_common.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
 
 
 /* Encoded TP offsets and length shared by context and ticket appdata. */
 #define XQC_EARLY_DATA_TP_RESET_STREAM_AT  0
-#define XQC_EARLY_DATA_TP_LEN              1
+#define XQC_EARLY_DATA_TP_MAX_UDP_PAYLOAD  1
+#define XQC_EARLY_DATA_TP_LEN              9
+#define XQC_EARLY_DATA_MIN_UDP_PAYLOAD     1200
 
 
 typedef enum xqc_tls_flag_e {
@@ -76,9 +79,7 @@ typedef struct xqc_tls_s {
 
     xqc_bool_t                  key_update_confirmed;
 
-#ifndef OPENSSL_IS_BORINGSSL
     uint8_t                     early_data_tp[XQC_EARLY_DATA_TP_LEN];
-#endif
 
 } xqc_tls_t;
 
@@ -262,6 +263,52 @@ end:
     return ret;
 }
 
+static void
+xqc_tls_encode_early_data_max(uint8_t *tp, uint64_t max_udp_payload_size)
+{
+    for (size_t i = 0; i < 8; i++) {
+        tp[XQC_EARLY_DATA_TP_MAX_UDP_PAYLOAD + i] =
+            max_udp_payload_size >> (56 - i * 8);
+    }
+}
+
+
+static uint64_t
+xqc_tls_decode_early_data_max(const uint8_t *tp)
+{
+    uint64_t value = 0;
+    for (size_t i = 0; i < 8; i++) {
+        value = (value << 8) | tp[XQC_EARLY_DATA_TP_MAX_UDP_PAYLOAD + i];
+    }
+    return value;
+}
+
+
+static xqc_int_t
+xqc_tls_set_early_data_context(xqc_tls_t *tls)
+{
+    uint8_t context[XQC_EARLY_DATA_CONTEXT_LEN + XQC_EARLY_DATA_TP_LEN]
+        = XQC_EARLY_DATA_CONTEXT;
+    size_t context_len = sizeof(context);
+
+    memcpy(context + XQC_EARLY_DATA_CONTEXT_LEN, tls->early_data_tp,
+           sizeof(tls->early_data_tp));
+#ifndef OPENSSL_IS_BORINGSSL
+    /* BabaSSL copies the old native context when renewing a ticket. */
+    context_len = XQC_EARLY_DATA_CONTEXT_LEN;
+#endif
+    if (SSL_set_quic_early_data_context(tls->ssl, context, context_len)
+        != XQC_SSL_SUCCESS)
+    {
+        xqc_log(tls->log, XQC_LOG_ERROR,
+                "|SSL_set_quic_early_data_context failed| error info:%s|",
+                ERR_error_string(ERR_get_error(), NULL));
+        return -XQC_TLS_INTERNAL;
+    }
+    return XQC_OK;
+}
+
+
 #ifndef OPENSSL_IS_BORINGSSL
 int
 xqc_ssl_tp_ticket_generate_cb(SSL *ssl, void *arg)
@@ -308,10 +355,24 @@ xqc_ssl_tp_allow_early_data_cb(SSL *ssl, void *arg)
     }
 
     const uint8_t *tp = data;
+    uint64_t remembered_max = xqc_tls_decode_early_data_max(tp);
+
+    if (tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT] > 1
+        || remembered_max < XQC_EARLY_DATA_MIN_UDP_PAYLOAD
+        || remembered_max > XQC_VINT_MAX)
+    {
+        return 0;
+    }
 
     /* reliable-stream-reset-09 Section 3; reject only early data. */
     if (tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT]
         != tls->early_data_tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT])
+    {
+        return 0;
+    }
+
+    /* RFC 9000 Section 7.4.1 permits rejection when this value decreases. */
+    if (xqc_tls_decode_early_data_max(tls->early_data_tp) < remembered_max)
     {
         return 0;
     }
@@ -324,39 +385,21 @@ xqc_ssl_tp_allow_early_data_cb(SSL *ssl, void *arg)
 xqc_int_t
 xqc_tls_init_server_ssl(xqc_tls_t *tls, xqc_tls_config_t *cfg)
 {
-    xqc_int_t ret = XQC_OK;
     SSL *ssl = tls->ssl;
-    uint8_t context[XQC_EARLY_DATA_CONTEXT_LEN + XQC_EARLY_DATA_TP_LEN]
-        = XQC_EARLY_DATA_CONTEXT;
-    uint8_t *tp = context + XQC_EARLY_DATA_CONTEXT_LEN;
-    size_t context_len = sizeof(context);
 
     /* configure ssl as server */
     SSL_set_accept_state(ssl);
 
-    /*
-     * Encode the TPs checked for 0-RTT in the shared context/ticket layout.
-     * Only reset_stream_at is included for now. BoringSSL compares the native
-     * context; BabaSSL checks each TP in xqc_ssl_tp_allow_early_data_cb.
-     * An explicit zero also rejects legacy contexts without TP bindings.
-     */
-    tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT] = cfg->reset_stream_at != 0;
+    /* BoringSSL compares the whole context; BabaSSL checks each TP. */
+    tls->early_data_tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT] =
+        cfg->reset_stream_at != 0;
+    xqc_tls_encode_early_data_max(tls->early_data_tp,
+                                  cfg->max_udp_payload_size);
 #ifndef OPENSSL_IS_BORINGSSL
-    /* BabaSSL copies the old native context when renewing a session ticket. */
-    memcpy(tls->early_data_tp, tp, sizeof(tls->early_data_tp));
-    context_len = XQC_EARLY_DATA_CONTEXT_LEN;
     SSL_set_allow_early_data_cb(ssl, xqc_ssl_tp_allow_early_data_cb, NULL);
 #endif
     xqc_ssl_enable_max_early_data(ssl);
-    if (SSL_set_quic_early_data_context(ssl, context, context_len)
-        != XQC_SSL_SUCCESS)
-    {
-        xqc_log(tls->log, XQC_LOG_ERROR, "|SSL_set_quic_early_data_context failed| error info:%s|",
-                ERR_error_string(ERR_get_error(), NULL));
-        return -XQC_TLS_INTERNAL;
-    }
-
-    return ret;
+    return xqc_tls_set_early_data_context(tls);
 }
 
 xqc_int_t
@@ -430,6 +473,14 @@ xqc_tls_update_tp(xqc_tls_t *tls, uint8_t *tp_buf, size_t tp_len)
         ret = -XQC_TLS_INTERNAL;
     }
     return ret;
+}
+
+
+xqc_int_t
+xqc_tls_update_early_data_tp(xqc_tls_t *tls, uint64_t max_udp_payload_size)
+{
+    xqc_tls_encode_early_data_max(tls->early_data_tp, max_udp_payload_size);
+    return xqc_tls_set_early_data_context(tls);
 }
 
 

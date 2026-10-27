@@ -123,6 +123,10 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_RESET_0RTT_UPGRADE 910
 #define XQC_TEST_CASE_RESET_0RTT_DISABLED 911
 #define XQC_TEST_CASE_RESET_0RTT_ENABLED 912
+#define XQC_TEST_CASE_MAX_UDP_0RTT_EQUAL 751
+#define XQC_TEST_CASE_MAX_UDP_0RTT_REDUCE 752
+#define XQC_TEST_CASE_MAX_UDP_0RTT_PMTUD 753
+#define XQC_TEST_CASE_MAX_UDP_0RTT_SMALL 754
 #define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
 #define XQC_TEST_CASE_HQ_REQUEST_FIN 1702
 #define XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN 1703
@@ -667,6 +671,10 @@ xqc_client_datagram_mss_updated_callback(xqc_connection_t *conn, size_t mss, voi
     user_conn_t *user_conn = (user_conn_t*)user_data;
     user_conn->dgram_mss = mss;
     printf("[dgram]|mss_callback|updated_mss:%zu|\n", mss);
+    if (g_test_case == XQC_TEST_CASE_MAX_UDP_0RTT_PMTUD) {
+        printf("[max-udp-0rtt]|pmtud_acked_mss:%zu|current:%zu|\n",
+               mss, conn->pkt_out_size);
+    }
 }
 
 static void
@@ -2101,6 +2109,16 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
     }
 
     printf("xqc_conn_is_ready_to_send_early_data:%d\n", xqc_conn_is_ready_to_send_early_data(conn));
+    if (g_test_case >= XQC_TEST_CASE_MAX_UDP_0RTT_EQUAL
+        && g_test_case <= XQC_TEST_CASE_MAX_UDP_0RTT_SMALL)
+    {
+        printf("[max-udp-0rtt]|cached:%"PRIu64"|early_ready:%d|"
+               "current:%zu|max:%zu|probe:%zu|\n",
+               conn->remote_settings.max_udp_payload_size,
+               xqc_conn_is_ready_to_send_early_data(conn),
+               conn->pkt_out_size, conn->max_pkt_out_size,
+               conn->probing_pkt_out_size);
+    }
     return 0;
 }
 
@@ -2230,6 +2248,21 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
     }
     if (g_test_case == 200 || g_test_case == 201) {
         printf("[dgram-200]|1RTT|updated_mss:%zu|\n", user_conn->dgram_mss);
+    }
+
+    if (g_test_case >= XQC_TEST_CASE_MAX_UDP_0RTT_EQUAL
+        && g_test_case <= XQC_TEST_CASE_MAX_UDP_0RTT_SMALL)
+    {
+        xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, &user_conn->cid);
+        printf("[max-udp-0rtt]|negotiated:%"PRIu64"|session_reused:%d|"
+               "early_data:%d|conn_err:%"PRIu64"|current:%zu|max:%zu|probe:%zu|"
+               "path_current:%zu|path_max:%zu|\n",
+               conn->remote_settings.max_udp_payload_size,
+               SSL_session_reused(xqc_tls_get_ssl(conn->tls)),
+               stats.early_data_flag, conn->conn_err, conn->pkt_out_size,
+               conn->max_pkt_out_size, conn->probing_pkt_out_size,
+               conn->conn_initial_path->curr_pkt_out_size,
+               conn->conn_initial_path->path_max_pkt_out_size);
     }
     
     if (g_send_dgram && user_conn->dgram_retry_in_hs_cb) {
@@ -7046,6 +7079,27 @@ int main(int argc, char *argv[]) {
         last_recv_ts = xqc_now();
         
     } else {
+        if (g_test_case >= XQC_TEST_CASE_MAX_UDP_0RTT_EQUAL
+            && g_test_case <= XQC_TEST_CASE_MAX_UDP_0RTT_SMALL)
+        {
+            user_stream_t *user_stream = calloc(1, sizeof(*user_stream));
+            if (user_stream == NULL) {
+                return -1;
+            }
+            user_stream->user_conn = user_conn;
+            user_stream->stream = xqc_stream_create(ctx.engine, cid, NULL,
+                                                    user_stream);
+            if (user_stream->stream == NULL) {
+                free(user_stream);
+                return -1;
+            }
+            if (g_test_case == XQC_TEST_CASE_MAX_UDP_0RTT_REDUCE) {
+                xqc_stream_set_priority(user_stream->stream, XQC_STREAM_PRI_HIGH);
+                printf("[max-udp-0rtt]|stream_priority:high|\n");
+            }
+            g_req_cnt++;
+            xqc_client_stream_send(user_stream->stream, user_stream);
+        }
         user_conn->dgram_blk->data = calloc(1, g_send_body_size);
         user_conn->dgram_blk->data_len = g_send_body_size;
         if (g_echo_check) {

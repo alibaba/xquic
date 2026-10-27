@@ -25,6 +25,7 @@
 #include "src/transport/xqc_packet_in.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_send_queue.h"
+#include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_recv_record.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 
@@ -214,6 +215,163 @@ xqc_test_datagram_transport_param_varint_max(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+void
+xqc_test_remembered_max_udp_payload_size(void)
+{
+    char stored[1024];
+    xqc_transport_params_t params, decoded;
+
+    xqc_init_transport_params(&params);
+    ssize_t written = xqc_write_transport_params(stored, sizeof(stored),
+                                                 &params);
+    CU_ASSERT_FATAL(written > 0 && written < sizeof(stored));
+    xqc_init_transport_params(&decoded);
+    CU_ASSERT_EQUAL(xqc_read_transport_params(stored, written, &decoded),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(decoded.max_udp_payload_size,
+                    XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE);
+
+    params.max_udp_payload_size = XQC_MIN_UDP_PAYLOAD_SIZE;
+    written = xqc_write_transport_params(stored, sizeof(stored), &params);
+    CU_ASSERT_FATAL(written > 0 && written < sizeof(stored));
+    CU_ASSERT_PTR_NOT_NULL(strstr(stored, "max_udp_payload_size=1200\n"));
+    xqc_init_transport_params(&decoded);
+    CU_ASSERT_EQUAL(xqc_read_transport_params(stored, written, &decoded),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(decoded.max_udp_payload_size, XQC_MIN_UDP_PAYLOAD_SIZE);
+
+    /* An old cache has no wire default: its historical limit is unknown. */
+    char *line = strstr(stored, "max_udp_payload_size=");
+    CU_ASSERT_PTR_NOT_NULL_FATAL(line);
+    char *next = strchr(line, '\n');
+    CU_ASSERT_PTR_NOT_NULL_FATAL(next);
+    next++;
+    size_t removed = next - line;
+    memmove(line, next, strlen(next) + 1);
+    written -= removed;
+    xqc_init_transport_params(&decoded);
+    CU_ASSERT_EQUAL(xqc_read_transport_params(stored, written, &decoded),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(decoded.max_udp_payload_size,
+                    XQC_MIN_UDP_PAYLOAD_SIZE);
+
+    char legacy_without_newline[] = "active_connection_id_limit=2";
+    xqc_init_transport_params(&decoded);
+    CU_ASSERT_EQUAL(xqc_read_transport_params(legacy_without_newline,
+                        sizeof(legacy_without_newline) - 1, &decoded), XQC_OK);
+    CU_ASSERT_EQUAL(decoded.max_udp_payload_size,
+                    XQC_MIN_UDP_PAYLOAD_SIZE);
+
+    const char *invalid[] = {
+        "max_udp_payload_size=\n",
+        "max_udp_payload_size=12x0\n",
+        "max_udp_payload_size=-1\n",
+        "max_udp_payload_size=1199\n",
+        "max_udp_payload_size=4611686018427387904\n",
+        "max_udp_payload_size=1200\nmax_udp_payload_size=1300\n",
+    };
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        strcpy(stored + written, invalid[i]);
+        CU_ASSERT_EQUAL(xqc_read_transport_params(stored,
+                            written + strlen(invalid[i]), &decoded),
+                        -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+    }
+}
+
+
+void
+xqc_test_conn_0rtt_reject_drops_high_priority(void)
+{
+    for (int scheduled = 0; scheduled <= 1; scheduled++) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_send_queue_t *queue = conn->conn_send_queue;
+        xqc_packet_out_t *packet = xqc_packet_out_get_and_insert_send(
+            queue, XQC_PTYPE_0RTT);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(packet);
+        packet->po_frame_types = XQC_FRAME_BIT_STREAM;
+        packet->po_used_size = 1300;
+        xqc_send_queue_move_to_high_pri(&packet->po_list, queue);
+
+        xqc_path_ctx_t *path = conn->conn_initial_path;
+        if (scheduled) {
+            xqc_path_send_buffer_append(path, packet,
+                &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL_HIGH_PRI]);
+            CU_ASSERT_EQUAL(path->path_schedule_bytes, packet->po_used_size);
+        }
+
+        xqc_send_queue_drop_0rtt_packets(conn);
+        CU_ASSERT(xqc_list_empty(&queue->sndq_send_packets_high_pri));
+        CU_ASSERT(xqc_list_empty(
+            &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL_HIGH_PRI]));
+        CU_ASSERT_EQUAL(path->path_schedule_bytes, 0);
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+void
+xqc_test_peer_max_udp_payload_size_updates_pmtud(void)
+{
+    const size_t minimum = XQC_PACKET_OUT_SIZE - XQC_PACKET_OUT_EXT_SPACE;
+    xqc_transport_params_t params;
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn->conn_initial_path);
+
+    xqc_init_transport_params(&params);
+    params.max_udp_payload_size = XQC_PACKET_OUT_SIZE;
+    CU_ASSERT_EQUAL(xqc_conn_set_early_remote_transport_params(conn, &params),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, minimum);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, minimum);
+    CU_ASSERT_EQUAL(conn->probing_pkt_out_size, minimum);
+    CU_ASSERT_EQUAL(conn->conn_initial_path->curr_pkt_out_size, minimum);
+    CU_ASSERT_EQUAL(conn->conn_initial_path->path_max_pkt_out_size, minimum);
+
+    /* Formal TPs restore the search range, never the current MSS directly. */
+    conn->probing_cnt = 2;
+    params.max_udp_payload_size = XQC_DEFAULT_MAX_UDP_PAYLOAD_SIZE;
+    CU_ASSERT_EQUAL(xqc_conn_set_remote_transport_params(conn, &params,
+                        XQC_TP_TYPE_ENCRYPTED_EXTENSIONS), XQC_OK);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, minimum);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, XQC_MAX_PACKET_OUT_SIZE);
+    CU_ASSERT_EQUAL(conn->probing_pkt_out_size, XQC_MAX_PACKET_OUT_SIZE);
+    CU_ASSERT_EQUAL(conn->probing_cnt, 0);
+    CU_ASSERT_EQUAL(conn->conn_initial_path->curr_pkt_out_size, minimum);
+    CU_ASSERT_EQUAL(conn->conn_initial_path->path_max_pkt_out_size,
+                    XQC_MAX_PACKET_OUT_SIZE);
+
+    params.max_udp_payload_size = 1300;
+    CU_ASSERT_EQUAL(xqc_conn_set_remote_transport_params(conn, &params,
+                        XQC_TP_TYPE_ENCRYPTED_EXTENSIONS), XQC_OK);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, minimum);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size,
+                    1300 - XQC_PACKET_OUT_EXT_SPACE);
+
+    params.max_udp_payload_size = XQC_PACKET_OUT_SIZE;
+    CU_ASSERT_EQUAL(xqc_conn_set_remote_transport_params(conn, &params,
+                        XQC_TP_TYPE_ENCRYPTED_EXTENSIONS), XQC_OK);
+    conn->conn_flag |= XQC_CONN_FLAG_PMTUD_PROBING
+                       | XQC_CONN_FLAG_CAN_SEND_1RTT
+                       | XQC_CONN_FLAG_HANDSHAKE_COMPLETED;
+    xqc_conn_ptmud_probing(conn);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_PMTUD_PROBING));
+    xqc_engine_destroy(conn->engine);
+
+    /* The formal-TP constraint applies to servers as well as clients. */
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    CU_ASSERT_EQUAL(xqc_conn_set_remote_transport_params(conn, &params,
+                        XQC_TP_TYPE_CLIENT_HELLO), XQC_OK);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, minimum);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, minimum);
+    CU_ASSERT_EQUAL(conn->conn_initial_path->path_max_pkt_out_size, minimum);
+    xqc_engine_destroy(conn->engine);
+}
+
 
 /* -------------------------------------------------------------------------
  * Idle-timeout negotiation tests for issue #559.

@@ -706,8 +706,24 @@ max_udp_0rtt_sizes_within()
     local limit="$1"
     awk -v limit="${limit}" '
         /xqc_send_ctl_on_packet_sent/ && /pkt_type:SHORT_HEADER/ {
-            if (match($0, /size:[0-9]+/)) {
-                size = substr($0, RSTART + 5, RLENGTH - 5) + 0
+            if (match($0, /enc_size:[0-9]+/)) {
+                size = substr($0, RSTART + 9, RLENGTH - 9) + 0
+                if (size > limit) {
+                    oversized = 1
+                }
+            }
+        }
+        END { exit oversized ? 1 : 0 }
+    ' clog
+}
+
+max_udp_0rtt_early_sizes_within()
+{
+    local limit="$1"
+    awk -v limit="${limit}" '
+        /xqc_send_ctl_on_packet_sent/ && /pkt_type:0RTT/ {
+            if (match($0, /enc_size:[0-9]+/)) {
+                size = substr($0, RSTART + 9, RLENGTH - 9) + 0
                 if (size > limit) {
                     oversized = 1
                 }
@@ -759,6 +775,7 @@ max_udp_0rtt_check_connection()
 case_tls_max_udp_0rtt_transition()
 {
     local id="$1" saved="$2" current="$3" early="$4" body="$5" pmtud="$6"
+    local legacy="${7:-0}"
     local failed=0
     local pmtud_args=()
     [[ "${pmtud}" = 1 ]] && pmtud_args=(--pmtud 1)
@@ -784,6 +801,12 @@ case_tls_max_udp_0rtt_transition()
     fi
 
     clear_log
+    local resume_cached="${saved}"
+    if [[ "${legacy}" = 1 ]]; then
+        sed -i '/^max_udp_payload_size=/d' tp_localhost
+        ! grep -q '^max_udp_payload_size=' tp_localhost || failed=1
+        resume_cached=1200
+    fi
     if [[ "${pmtud}" = 1 ]]; then
         case_test_sudo ${CLIENT_BIN} -T 1 -s "${body}" -l d -t 3 -E -U 1 \
             -Q 65535 -x "${id}" "${pmtud_args[@]}" > resume.log || failed=1
@@ -791,8 +814,11 @@ case_tls_max_udp_0rtt_transition()
         ${CLIENT_BIN} -T 1 -s "${body}" -l d -t 3 -E -U 1 -Q 65535 \
             -x "${id}" > resume.log || failed=1
     fi
-    max_udp_0rtt_check_connection resume "${saved}" "${current}" \
+    max_udp_0rtt_check_connection resume "${resume_cached}" "${current}" \
         "${early}" 1 || failed=1
+    if [[ "${legacy}" = 1 ]]; then
+        max_udp_0rtt_early_sizes_within 1200 || failed=1
+    fi
     if [[ "${pmtud}" = 1 ]]; then
         grep -Fq "[max-udp-0rtt]|cached:${saved}|early_ready:1|current:1168|max:1168|probe:1168|" \
             resume.log || failed=1
@@ -830,7 +856,7 @@ case_tls_max_udp_0rtt_transition()
 
 case_tls_max_udp_0rtt_equal()
 {
-    case_tls_max_udp_0rtt_transition 751 1400 1400 1 4096 0
+    case_tls_max_udp_0rtt_transition 751 1400 1400 1 4096 0 1
 }
 
 case_tls_max_udp_0rtt_reduce()

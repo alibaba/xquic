@@ -9,6 +9,7 @@ void xqc_test_conn_create();
 void xqc_test_datagram_transport_param_65536(void);
 void xqc_test_datagram_transport_param_varint_max(void);
 void xqc_test_remembered_max_udp_payload_size(void);
+void xqc_test_conn_0rtt_reject_drops_high_priority(void);
 void xqc_test_peer_max_udp_payload_size_updates_pmtud(void);
 void xqc_test_conn_idle_timeout();
 void xqc_test_conn_next_wakeup_path_timers(void);

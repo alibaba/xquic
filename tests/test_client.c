@@ -7093,6 +7093,10 @@ int main(int argc, char *argv[]) {
                 free(user_stream);
                 return -1;
             }
+            if (g_test_case == XQC_TEST_CASE_MAX_UDP_0RTT_REDUCE) {
+                xqc_stream_set_priority(user_stream->stream, XQC_STREAM_PRI_HIGH);
+                printf("[max-udp-0rtt]|stream_priority:high|\n");
+            }
             g_req_cnt++;
             xqc_client_stream_send(user_stream->stream, user_stream);
         }

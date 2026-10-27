@@ -342,6 +342,9 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_remembered_max_udp_payload_size",
                         xqc_test_remembered_max_udp_payload_size)
         || !CU_add_test(pSuite,
+                        "xqc_test_conn_0rtt_reject_drops_high_priority",
+                        xqc_test_conn_0rtt_reject_drops_high_priority)
+        || !CU_add_test(pSuite,
                         "xqc_test_peer_max_udp_payload_size_updates_pmtud",
                         xqc_test_peer_max_udp_payload_size_updates_pmtud)
         || !CU_add_test(pSuite, "xqc_test_conn_idle_timeout", xqc_test_conn_idle_timeout)

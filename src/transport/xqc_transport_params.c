@@ -1280,6 +1280,8 @@ xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_param
     xqc_bool_t reset_stream_at_seen = XQC_FALSE;
     xqc_bool_t max_udp_payload_size_seen = XQC_FALSE;
     params->reset_stream_at = XQC_FALSE;
+    /* A legacy private cache has no wire default; its old limit is unknown. */
+    params->max_udp_payload_size = XQC_MIN_UDP_PAYLOAD_SIZE;
     while (*p != '\0' && p < e) {
         if (*p == ' ') {
             p++;

@@ -59,6 +59,7 @@ void xqc_test_send_ctl_granularity_defers_before_boundary(void);
  */
 void xqc_test_send_ctl_persistent_congestion_resets_rtt(void);
 void xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample(void);
+void xqc_test_send_ctl_key_phase_acked_by_sent_packet_only(void);
 void xqc_test_send_ctl_single_loss_does_not_reset_rtt(void);
 void xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void);
 

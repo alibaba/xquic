@@ -658,7 +658,6 @@ xqc_conn_init_key_update_ctx(xqc_connection_t *conn)
     ctx->cur_out_key_phase = 0;
     ctx->next_in_key_phase = 0;
 
-    ctx->first_sent_pktno  = 0;
     ctx->first_recv_pktno  = 0;
     ctx->enc_pkt_cnt       = 0;
     ctx->aead_confidentiality_limit = 0;
@@ -5532,16 +5531,55 @@ xqc_conn_set_key_update_timer(xqc_connection_t *conn)
 }
 
 
+void
+xqc_conn_record_key_phase_start(xqc_connection_t *conn)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_path_ctx_t *path;
+
+    /* ctl_packet_number is the next number to send: from it on, every path
+       sends with the new keys */
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        path->path_ku_first_sent_pktno =
+            path->path_pn_ctl->ctl_packet_number[XQC_PNS_APP_DATA];
+    }
+    conn->key_update_ctx.current_keys_acked = XQC_FALSE;
+}
+
+/*
+ * RFC 9001 Section 6.1: a subsequent key update needs an acknowledgment for a
+ * packet sent with the current keys. With multipath that acknowledgment can
+ * come on any path. draft-ietf-quic-multipath-21 Section 2.5: wait three times
+ * the largest PTO among all paths after receiving it. pkt_num is a packet in
+ * the application data packet number space that path sent and an ACK just
+ * acknowledged. Packets without ack-eliciting frames are not tracked once
+ * sent, so until one that is gets acknowledged the next update waits.
+ */
+void
+xqc_conn_on_key_phase_acked(xqc_path_ctx_t *path,
+    xqc_packet_number_t pkt_num, xqc_usec_t ack_recv_time)
+{
+    xqc_connection_t *conn = path->parent_conn;
+    xqc_key_update_ctx_t *ctx = &conn->key_update_ctx;
+
+    if (ctx->key_update_cnt == 0 || ctx->current_keys_acked
+        || pkt_num < path->path_ku_first_sent_pktno)
+    {
+        return;
+    }
+
+    ctx->current_keys_acked = XQC_TRUE;
+    ctx->initiate_time_guard = ack_recv_time + 3 * xqc_conn_get_max_pto(conn);
+}
+
 xqc_int_t
 xqc_conn_confirm_key_update(xqc_connection_t *conn, xqc_bool_t initiated)
 {
     xqc_key_update_ctx_t *ctx = &conn->key_update_ctx;
-    xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, conn->conn_initial_path);
-    xqc_usec_t now;
-    xqc_usec_t pto;
 
     ctx->key_update_cnt++;
-    ctx->first_sent_pktno = pn_ctl->ctl_packet_number[XQC_PNS_APP_DATA] + 1;
+    xqc_conn_record_key_phase_start(conn);
     ctx->first_recv_pktno = XQC_MAX_UINT64_VALUE;
     ctx->cur_out_key_phase ^= 1;
     ctx->next_in_key_phase ^= 1;
@@ -5563,17 +5601,6 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn, xqc_bool_t initiated)
     } else {
         xqc_conn_set_key_update_timer(conn);
     }
-
-    /*
-     * Endpoints need to allow for the possibility that a peer might not be able to decrypt
-     * packets that initiate a key update during the period when the peer retains old keys.
-     * Endpoints SHOULD wait three times the PTO before initiating a key update after receiving
-     * an acknowledgment that confirms that the previous key update was received.
-     * Failing to allow sufficient time could lead to packets being discarded.
-     */
-    now = xqc_monotonic_timestamp();
-    pto = xqc_conn_get_max_pto(conn);
-    ctx->initiate_time_guard = now + 3 * pto;
 
     return XQC_OK;
 }

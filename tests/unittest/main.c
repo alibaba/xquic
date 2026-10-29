@@ -356,6 +356,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject_flow_ctl", xqc_test_conn_early_data_reject_flow_ctl)
         || !CU_add_test(pSuite, "xqc_test_key_update_old_key_retention",
                         xqc_test_key_update_old_key_retention)
+        || !CU_add_test(pSuite, "xqc_test_key_update_ack_on_any_path",
+                        xqc_test_key_update_ack_on_any_path)
         || !CU_add_test(pSuite,
                         "xqc_test_tls_key_update_discards_retired_keys",
                         xqc_test_tls_key_update_discards_retired_keys)
@@ -778,6 +780,8 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_persistent_congestion_resets_rtt)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample",
                         xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_key_phase_acked_by_sent_packet_only",
+                        xqc_test_send_ctl_key_phase_acked_by_sent_packet_only)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_single_loss_does_not_reset_rtt",
                         xqc_test_send_ctl_single_loss_does_not_reset_rtt)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return",

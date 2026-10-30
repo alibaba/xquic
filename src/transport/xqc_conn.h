@@ -311,18 +311,26 @@ typedef struct {
     char            data[];
 } xqc_hs_buffer_t;
 
+/* the read keys of the key phase other than the current one */
+typedef enum {
+    XQC_KU_RX_KEYS_NONE,    /* none */
+    XQC_KU_RX_KEYS_OLD,     /* the previous key phase, not discarded yet */
+    XQC_KU_RX_KEYS_NEXT,    /* the next key phase */
+} xqc_ku_rx_keys_t;
+
 typedef struct {
     xqc_uint_t              cur_out_key_phase; /* key phase used in current sent packets */
     xqc_uint_t              next_in_key_phase; /* key phase expected in next received packets */
     xqc_uint_t              key_update_cnt;    /* number of key updates per connection */
 
     /* for current out key phase */
-    xqc_packet_number_t     first_sent_pktno;  /* lowest packet number sent with each key phase */
-    xqc_packet_number_t     first_recv_pktno;  /* lowest packet number recv with each key phase */
+    xqc_ku_rx_keys_t        other_rx_keys;
     uint64_t                enc_pkt_cnt;       /* number of packet encrypt with each key phase */
     /* cached RFC 9001 Section 6.6 confidentiality limit */
     uint64_t                aead_confidentiality_limit;
     xqc_usec_t              initiate_time_guard;  /* time limit for initiating next key update */
+    /* a packet sent with the current keys has been acknowledged */
+    xqc_bool_t              current_keys_acked;
 
     /*
      * RFC 9001 Section 6.1: set TRUE when the local endpoint initiates a key
@@ -708,6 +716,15 @@ xqc_int_t xqc_conn_check_transport_params(xqc_connection_t *conn,
 
 /* get idle timeout in milliseconds */
 xqc_msec_t xqc_conn_get_idle_timeout(xqc_connection_t *conn);
+
+/* record, on every path, the first packet number sent with the keys of
+   the key phase that starts now */
+void xqc_conn_record_key_phase_start(xqc_connection_t *conn);
+
+void xqc_conn_on_key_phase_acked(xqc_path_ctx_t *path,
+    xqc_packet_number_t pkt_num, xqc_usec_t ack_recv_time);
+
+void xqc_conn_discard_old_rx_keys(xqc_connection_t *conn);
 
 xqc_int_t xqc_conn_confirm_key_update(xqc_connection_t *conn,
     xqc_bool_t initiated);

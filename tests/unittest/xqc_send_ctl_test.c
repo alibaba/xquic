@@ -823,3 +823,48 @@ xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * RFC 9001 Section 6.1: a subsequent key update needs an acknowledgment of a
+ * packet sent with the current keys. An ACK of a skipped packet number, once
+ * the optimistic ACK check no longer covers it, acknowledges no packet.
+ */
+void
+xqc_test_send_ctl_key_phase_acked_by_sent_packet_only(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_pn_ctl_t *pn_ctl = path->path_pn_ctl;
+    xqc_ack_info_t ack_info;
+
+    /* a key update takes effect at 100; 100 to 102 are skipped, 103 sent */
+    pn_ctl->ctl_packet_number[XQC_PNS_APP_DATA] = 100;
+    conn->key_update_ctx.key_update_cnt = 1;
+    xqc_conn_record_key_phase_start(conn);
+    CU_ASSERT_FATAL(xqc_test_send_ctl_seed_lost_packet(conn, 103, 1) != NULL);
+    pn_ctl->ctl_largest_sent[XQC_PNS_APP_DATA] = 103;
+    pn_ctl->ctl_packet_number[XQC_PNS_APP_DATA] = 104;
+    pn_ctl->ctl_next_skip_chance = 0;
+
+    memset(&ack_info, 0, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_APP_DATA;
+    ack_info.path_id = path->path_id;
+    ack_info.n_ranges = 1;
+    ack_info.ranges[0].low = 102;
+    ack_info.ranges[0].high = 102;
+    CU_ASSERT(xqc_send_ctl_on_ack_received(path->path_send_ctl, pn_ctl,
+                                           conn->conn_send_queue, &ack_info,
+                                           1000, XQC_TRUE) == XQC_OK);
+    CU_ASSERT(!conn->key_update_ctx.current_keys_acked);
+
+    ack_info.ranges[0].low = 103;
+    ack_info.ranges[0].high = 103;
+    CU_ASSERT(xqc_send_ctl_on_ack_received(path->path_send_ctl, pn_ctl,
+                                           conn->conn_send_queue, &ack_info,
+                                           2000, XQC_TRUE) == XQC_OK);
+    CU_ASSERT(conn->key_update_ctx.current_keys_acked);
+
+    xqc_engine_destroy(conn->engine);
+}

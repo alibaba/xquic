@@ -348,7 +348,7 @@ xqc_timer_key_update_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_d
 {
     xqc_connection_t *conn = (xqc_connection_t *)user_data;
 
-    xqc_tls_discard_old_1rtt_keys(conn->tls);
+    xqc_conn_discard_old_rx_keys(conn);
 }
 
 void

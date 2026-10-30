@@ -909,6 +909,12 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
 
             path_largest_pkt_num = packet_out->po_pkt.pkt_num;
 
+            if (pns == XQC_PNS_APP_DATA) {
+                xqc_conn_on_key_phase_acked(send_ctl->ctl_path,
+                                            packet_out->po_pkt.pkt_num,
+                                            ack_recv_time);
+            }
+
             // 更新ctl_largest_acked
             // 若ack info里此路径最大pn大于path largest acked，更新 largest acked
             if (packet_out->po_pkt.pkt_num > send_ctl->ctl_largest_acked[pns] ||

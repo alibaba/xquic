@@ -658,7 +658,7 @@ xqc_conn_init_key_update_ctx(xqc_connection_t *conn)
     ctx->cur_out_key_phase = 0;
     ctx->next_in_key_phase = 0;
 
-    ctx->first_recv_pktno  = 0;
+    ctx->other_rx_keys     = XQC_KU_RX_KEYS_NONE;
     ctx->enc_pkt_cnt       = 0;
     ctx->aead_confidentiality_limit = 0;
 
@@ -5543,6 +5543,7 @@ xqc_conn_record_key_phase_start(xqc_connection_t *conn)
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
         path->path_ku_first_sent_pktno =
             path->path_pn_ctl->ctl_packet_number[XQC_PNS_APP_DATA];
+        path->path_ku_first_recv_pktno = XQC_MAX_UINT64_VALUE;
     }
     conn->key_update_ctx.current_keys_acked = XQC_FALSE;
 }
@@ -5580,7 +5581,7 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn, xqc_bool_t initiated)
 
     ctx->key_update_cnt++;
     xqc_conn_record_key_phase_start(conn);
-    ctx->first_recv_pktno = XQC_MAX_UINT64_VALUE;
+    ctx->other_rx_keys = XQC_KU_RX_KEYS_OLD;
     ctx->cur_out_key_phase ^= 1;
     ctx->next_in_key_phase ^= 1;
     ctx->enc_pkt_cnt = 0;
@@ -5603,6 +5604,15 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn, xqc_bool_t initiated)
     }
 
     return XQC_OK;
+}
+
+
+void
+xqc_conn_discard_old_rx_keys(xqc_connection_t *conn)
+{
+    xqc_tls_discard_old_1rtt_keys(conn->tls);
+    conn->key_update_ctx.other_rx_keys = XQC_KU_RX_KEYS_NONE;
+    xqc_timer_unset(&conn->conn_timer_manager, XQC_TIMER_KEY_UPDATE);
 }
 
 

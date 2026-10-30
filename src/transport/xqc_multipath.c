@@ -97,6 +97,7 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     path->app_path_status_send_seq_num = 0;
     path->app_path_status_recv_seq_num = 0;
     path->path_id = path_id;
+    path->path_ku_first_recv_pktno = XQC_MAX_UINT64_VALUE;
 
     path->path_pn_ctl = xqc_pn_ctl_create(conn);
     if (path->path_pn_ctl == NULL) {

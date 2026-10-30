@@ -147,6 +147,9 @@ struct xqc_path_ctx_s {
     /* lowest packet number sent on this path with the current key phase;
        0 on a path created after the last key update */
     xqc_packet_number_t path_ku_first_sent_pktno;
+    /* lowest packet number received on this path with the current key
+       phase, XQC_MAX_UINT64_VALUE until one arrives */
+    xqc_packet_number_t path_ku_first_recv_pktno;
 
 
     /* path send buffer, used to store packets scheduled to this path */

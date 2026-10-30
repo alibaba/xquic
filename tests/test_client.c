@@ -2633,7 +2633,7 @@ xqc_client_key_update_copy_packet(user_conn_t *user_conn,
     if (test->started || conn == NULL || len > sizeof(test->packet)
         || (buf[0] & 0x80) != 0
         || conn->key_update_ctx.key_update_cnt != 1
-        || conn->key_update_ctx.first_recv_pktno != XQC_MAX_UINT64_VALUE)
+        || !conn->key_update_ctx.awaiting_peer_key_update)
     {
         return;
     }
@@ -2661,7 +2661,7 @@ xqc_client_key_update_start(user_conn_t *user_conn)
 
     if (test->started || conn == NULL
         || conn->key_update_ctx.key_update_cnt != 1
-        || conn->key_update_ctx.first_recv_pktno == XQC_MAX_UINT64_VALUE)
+        || conn->key_update_ctx.awaiting_peer_key_update)
     {
         return;
     }

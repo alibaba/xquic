@@ -2072,6 +2072,12 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
             conn->validating_path_id = path->path_id;
             conn->conn_flag |= XQC_CONN_FLAG_RECV_NEW_PATH;
 
+            /* RFC 9001 Section 6.4: there was no path to record it on when
+               the packet was unprotected */
+            if (packet_in->pi_flag & XQC_PIF_CURRENT_KEY_PHASE) {
+                path->path_ku_first_recv_pktno = packet_in->pi_pkt.pkt_num;
+            }
+
         } else {
             xqc_log(conn->log, XQC_LOG_ERROR, 
                     "|no path to challenge|dcid:%s|path_id:%ui|", 

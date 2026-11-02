@@ -13,6 +13,12 @@
 void xqc_test_pto_uses_remote_max_ack_delay(void);
 void xqc_test_pto_remote_default_when_unset(void);
 
+/*
+ * xqc_pn_ctl_create() frees the rings of sent ACKs that it already
+ * allocated when a later allocation fails.
+ */
+void xqc_test_pn_ctl_create_alloc_failures(void);
+
 /* RFC 9000 Section 8.2.4 path-validation timeout behavior. */
 void xqc_test_path_validation_timeout_current_pto_dominates(void);
 void xqc_test_path_validation_timeout_new_path_pto_dominates(void);

@@ -7,6 +7,7 @@
 
 #include "xqc_send_ctl_test.h"
 #include "xqc_common_test.h"
+#include "xqc_alloc_wrap.h"
 
 #include "src/common/xqc_malloc.h"
 #include "src/transport/xqc_send_ctl.h"
@@ -105,6 +106,64 @@ xqc_test_pto_remote_default_when_unset(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+#ifdef XQC_TEST_ALLOC_WRAP
+
+/*
+ * xqc_pn_ctl_create() allocates a ring of sent ACKs for each packet number
+ * space. Each of its allocations fails in turn (xqc_alloc_wrap.h): the
+ * creation fails, and once the engine is destroyed, nothing allocated since
+ * the engine was created is left. The sweep ends with a run in which
+ * nothing fails and the packet number control is created.
+ */
+void
+xqc_test_pn_ctl_create_alloc_failures(void)
+{
+    long n;
+
+    /* the first connection makes the allocations made once per process */
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_engine_destroy(conn->engine);
+
+    for (n = 1; n < 100000; n++) {
+        xqc_test_alloc_live = 0;
+        xqc_test_alloc_tracking = 1;
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        xqc_pn_ctl_t *pn_ctl = xqc_pn_ctl_create(conn);
+        xqc_test_alloc_count = -1;
+        CU_ASSERT((pn_ctl == NULL) == xqc_test_alloc_failed);
+        if (pn_ctl != NULL) {
+            xqc_pn_ctl_destroy(pn_ctl);
+        }
+
+        xqc_engine_destroy(conn->engine);
+        xqc_test_alloc_tracking = 0;
+        CU_ASSERT(xqc_test_alloc_live == 0);
+
+        if (!xqc_test_alloc_failed) {
+            /* nothing failed: the packet number control was created */
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+}
+
+#else
+
+void
+xqc_test_pn_ctl_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+#endif
 
 
 static xqc_path_ctx_t *

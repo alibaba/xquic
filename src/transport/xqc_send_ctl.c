@@ -1636,6 +1636,15 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
         xqc_send_ctl_on_reset_stream_acked(send_ctl, packet_out);
     }
 
+    /* So can a lost RETIRE_CONNECTION_ID: the connection ID it retires goes
+       on the first acknowledgment of any copy of it. */
+    if (packet_out->po_frame_types & (XQC_FRAME_BIT_RETIRE_CONNECTION_ID
+                                      | XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID))
+    {
+        xqc_conn_on_retire_conn_id_acked(conn, packet_out->po_retire_cid_path,
+                                         packet_out->po_retire_cid_seq);
+    }
+
     /* If a packet marked as STREAM_CLOSED, when it is acked, it comes here */
     if (packet_out->po_flag & XQC_POF_IN_FLIGHT) {
         xqc_send_ctl_decrease_inflight(send_ctl->ctl_conn, packet_out);

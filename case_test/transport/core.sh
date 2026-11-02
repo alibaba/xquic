@@ -407,6 +407,44 @@ fi
 rm -rf tp_localhost test_session xqc_token
 }
 
+# Once the handshake is done, the server issues a connection ID whose Retire
+# Prior To retires all the others, the one in use included (RFC 9000
+# Section 19.15). The client retires them, sends with the new one, forgets
+# them once the server acknowledges their RETIRE_CONNECTION_ID frames, and
+# the request completes.
+case_transport_core_retire_prior_to_all_cids()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "Retire Prior To replaces every connection ID ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 747 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog 2>&1
+rotated=`grep "\[retire-prior-to-test\]|retire_prior_to:[1-9][0-9]*|ret:0|" svr_stdlog`
+retired=`grep "|retire_prior_to|0|increase to|" clog`
+removed=`grep "|retired dcid removed|" clog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$rotated" ] && [ -n "$retired" ] \
+    && [ -n "$removed" ] && [ "$result" == ">>>>>>>> pass:1" ] \
+    && [ -n "$conn_err_zero" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "retire_prior_to_all_cids" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "retire_prior_to_all_cids" "fail"
+    echo "$rotated"
+    echo "$retired"
+    echo "$removed"
+    echo "$errlog"
+fi
+
+rm -rf tp_localhost test_session xqc_token
+}
+
 case_transport_core_max_ack_delay_valid_boundary()
 {
 
@@ -1144,6 +1182,7 @@ case_test_case "active_cid_limit_accept" --id native --mode self-reporting --run
 case_test_case "active_cid_limit_exceeded" --id native --mode self-reporting --run case_transport_core_active_cid_limit_exceeded
 case_test_case "active_cid_limit_minimum_accept" --id native --mode self-reporting --run case_transport_core_active_cid_limit_minimum_accept
 case_test_case "active_cid_limit_below_minimum" --id native --mode self-reporting --run case_transport_core_active_cid_limit_below_minimum
+case_test_case "retire_prior_to_all_cids" --id 747 --mode self-reporting --run case_transport_core_retire_prior_to_all_cids
 case_test_case "max_ack_delay_valid_boundary" --id native --mode self-reporting --run case_transport_core_max_ack_delay_valid_boundary
 case_test_case "max_ack_delay_invalid_boundary" --id native --mode self-reporting --run case_transport_core_max_ack_delay_invalid_boundary
 case_test_case "retry_invalid_token_close" --id 715 --mode self-reporting --run case_transport_core_retry_invalid_token_close

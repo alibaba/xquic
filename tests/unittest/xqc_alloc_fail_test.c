@@ -22,31 +22,6 @@
 
 #ifdef XQC_TEST_ALLOC_WRAP
 
-#ifdef XQC_TEST_ALLOC_SWEEP
-
-/*
- * Left out of the sweep: xqc_gen_reset_token() does not check that
- * HMAC_CTX_new() returned a context, so a failure of that allocation
- * crashes. run_tests is linked with --wrap=xqc_gen_reset_token
- * (tests/CMakeLists.txt): the allocations made inside it are not counted,
- * so none of them fails.
- */
-void __real_xqc_gen_reset_token(xqc_cid_t *cid, unsigned char *token, int token_len,
-    char *key, size_t keylen);
-
-void
-__wrap_xqc_gen_reset_token(xqc_cid_t *cid, unsigned char *token, int token_len,
-    char *key, size_t keylen)
-{
-    long count = xqc_test_alloc_count;
-
-    xqc_test_alloc_count = -1;
-    __real_xqc_gen_reset_token(cid, token, token_len, key, keylen);
-    xqc_test_alloc_count = count;
-}
-
-#endif
-
 static unsigned char g_initial[2048];
 static size_t        g_initial_len;
 static int           g_accepted;

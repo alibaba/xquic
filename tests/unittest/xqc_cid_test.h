@@ -82,5 +82,29 @@ void xqc_test_cid_confirm_drops_client_first_dcid();
 /* a server that keeps the client's first DCID has it counted as its own */
 void xqc_test_cid_confirm_server_keeps_client_first_dcid();
 
+/*
+ * a Retire Prior To that retires every connection ID of the peer, the one
+ * in use included, stores the new one and moves the path to it
+ */
+void xqc_test_retire_prior_to_full_set();
+
+/* a Retire Prior To that leaves the limit exceeded is still an error */
+void xqc_test_retire_prior_to_still_over_limit();
+
+/* the same as xqc_test_retire_prior_to_full_set, for path ID 1 */
+void xqc_test_mp_retire_prior_to_full_set();
+
+/*
+ * a retired connection ID is freed once its RETIRE_CONNECTION_ID frame is
+ * acknowledged, so that repeated rotations keep one connection ID
+ */
+void xqc_test_retire_prior_to_rotation_bounded();
+
+/* the same as xqc_test_retire_prior_to_rotation_bounded, for path ID 1 */
+void xqc_test_mp_retire_prior_to_rotation_bounded();
+
+/* too many retired connection IDs awaiting an acknowledgment is an error */
+void xqc_test_retire_prior_to_unacked_limit();
+
 #endif
 

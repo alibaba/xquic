@@ -1594,6 +1594,8 @@ xqc_write_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_nu
     }
 
     packet_out->po_used_size += ret;
+    packet_out->po_retire_cid_seq = seq_num;
+    packet_out->po_retire_cid_path = XQC_INITIAL_PATH_ID;
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
     return XQC_OK;
@@ -1961,6 +1963,8 @@ xqc_write_mp_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq
     }
 
     packet_out->po_used_size += ret;
+    packet_out->po_retire_cid_seq = seq_num;
+    packet_out->po_retire_cid_path = path_id;
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
     return XQC_OK;

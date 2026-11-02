@@ -62,4 +62,12 @@ void xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample(void);
 void xqc_test_send_ctl_single_loss_does_not_reset_rtt(void);
 void xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void);
 
+/*
+ * RFC 9000 14.4: a lost PMTU probe is dropped without a congestion
+ * reaction or a loss sample, while an ordinary lost packet still gets
+ * both.
+ */
+void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
+void xqc_test_send_ctl_lost_packet_cc_reaction(void);
+
 #endif

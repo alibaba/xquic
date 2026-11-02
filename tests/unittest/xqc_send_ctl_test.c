@@ -16,6 +16,7 @@
 #include "src/transport/xqc_transport_params.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame.h"
+#include "src/congestion_control/xqc_cubic.h"
 
 
 /*
@@ -821,6 +822,102 @@ xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void)
     CU_ASSERT_EQUAL(send_ctl->ctl_minrtt,  8000);
     CU_ASSERT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
 
+    xqc_engine_destroy(conn->engine);
+}
+
+
+typedef struct xqc_test_send_ctl_log_s {
+    char    line[XQC_MAX_LOG_LEN];
+    int     lines;
+} xqc_test_send_ctl_log_t;
+
+
+/* keep the statistics lines of the lost packets */
+static void
+xqc_test_send_ctl_log_write(xqc_log_level_t lvl, const void *buf,
+    size_t size, void *user_data)
+{
+    xqc_test_send_ctl_log_t  *capture = user_data;
+    char                      line[XQC_MAX_LOG_LEN];
+
+    size = xqc_min(size, sizeof(line) - 1);
+    memcpy(line, buf, size);
+    line[size] = '\0';
+
+    if (strstr(line, "|lost interval:") != NULL) {
+        memcpy(capture->line, line, size + 1);
+        capture->lines++;
+    }
+}
+
+
+/*
+ * Loss detection logs a statistics line at most once per record interval;
+ * its last fields are the detection time and the time of that record.
+ */
+void
+xqc_test_send_ctl_lost_interval_log(void)
+{
+    xqc_connection_t         *conn = test_engine_connect();
+    xqc_test_send_ctl_log_t   capture = {0};
+    xqc_log_callbacks_t       callbacks = {0};
+    xqc_log_callbacks_t      *log_callbacks;
+    void                     *log_user_data;
+    char                      expected[64];
+    int                       lines;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+    conn->remote_settings.max_ack_delay = 25;
+
+    callbacks.xqc_log_write_err = xqc_test_send_ctl_log_write;
+    log_callbacks = conn->log->log_callbacks;
+    log_user_data = conn->log->user_data;
+    conn->log->log_level = XQC_LOG_DEBUG;
+    conn->log->log_callbacks = &callbacks;
+    conn->log->user_data = &capture;
+
+    /* an RTT sample, but no persistent congestion, which would clear it */
+    xqc_test_send_ctl_arm_pc_state(send_ctl, 10000, 2000, 8000, 2);
+    send_ctl->ctl_pto_count = 0;
+
+    /* a congestion window that stays above 32 bits after the loss */
+    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback == &xqc_cubic_cb);
+    ((xqc_cubic_t *) send_ctl->ctl_cong)->cwnd = 0x300000000ULL;
+
+    CU_ASSERT_FATAL(xqc_test_send_ctl_seed_lost_packet(conn, 1, 1) != NULL);
+    xqc_send_ctl_detect_lost(send_ctl, sq, XQC_PNS_APP_DATA, 1000000);
+    CU_ASSERT(send_ctl->ctl_info.last_lost_time == 1000000);
+
+    uint64_t cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+        send_ctl->ctl_cong);
+    CU_ASSERT(cwnd > 0xffffffffULL);
+    snprintf(expected, sizeof(expected), "|cwnd:%llu|bw:0|",
+             (unsigned long long) cwnd);
+#if !defined(XQC_DISABLE_LOG) && !defined(XQC_ONLY_ERROR_LOG)
+    CU_ASSERT(capture.lines == 1);
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.line, expected));
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.line,
+                                  "|now:1000000|last_lost_time:1000000|"));
+#else
+    /* the statistics line is compiled out */
+    CU_ASSERT(capture.lines == 0);
+#endif
+
+    /* a loss within the record interval is not recorded, and adds no line */
+    lines = capture.lines;
+    CU_ASSERT_FATAL(xqc_test_send_ctl_seed_lost_packet(conn, 2, 2) != NULL);
+    xqc_send_ctl_detect_lost(send_ctl, sq, XQC_PNS_APP_DATA, 1000001);
+    CU_ASSERT(xqc_list_empty(&sq->sndq_unacked_packets[XQC_PNS_APP_DATA]));
+    CU_ASSERT(send_ctl->ctl_info.last_lost_time == 1000000);
+    CU_ASSERT(capture.lines == lines);
+
+    conn->log->log_callbacks = log_callbacks;
+    conn->log->user_data = log_user_data;
     xqc_engine_destroy(conn->engine);
 }
 

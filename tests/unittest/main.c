@@ -314,6 +314,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_cid_handshake_exclusion", xqc_test_cid_handshake_exclusion)
         || !CU_add_test(pSuite, "xqc_test_cid_mark_original_idempotent", xqc_test_cid_mark_original_idempotent)
         || !CU_add_test(pSuite, "xqc_test_cid_delete_original", xqc_test_cid_delete_original)
+        || !CU_add_test(pSuite, "xqc_test_new_cid_log_token",
+                        xqc_test_new_cid_log_token)
+        || !CU_add_test(pSuite, "xqc_test_mp_new_cid_log_token",
+                        xqc_test_mp_new_cid_log_token)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_insert_failure_hash_rollback", xqc_test_new_conn_id_insert_failure_hash_rollback)
         || !CU_add_test(pSuite, "xqc_test_retired_scid_cleanup", xqc_test_retired_scid_cleanup)
         || !CU_add_test(pSuite, "xqc_test_retired_scid_batch_cleanup", xqc_test_retired_scid_batch_cleanup)
@@ -405,6 +409,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_alert_zero", xqc_test_conn_tls_error_cb_alert_zero)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)
         || !CU_add_test(pSuite, "xqc_test_pq", xqc_test_pq)
+        || !CU_add_test(pSuite, "xqc_test_metrics_updated_log_bbr",
+                        xqc_test_metrics_updated_log_bbr)
+        || !CU_add_test(pSuite, "xqc_test_metrics_updated_log_no_bbr",
+                        xqc_test_metrics_updated_log_no_bbr)
         || !CU_add_test(pSuite, "xqc_test_connection_closed_log_no_error",
                         xqc_test_connection_closed_log_no_error)
         || !CU_add_test(pSuite, "xqc_test_connection_closed_log_with_error",
@@ -450,6 +458,8 @@ main(int argc, char *argv[])
                         xqc_test_bbr2_probe_wait_fast_convergence)
         || !CU_add_test(pSuite, "xqc_test_bbr2_probe_wait_bounds",
                         xqc_test_bbr2_probe_wait_bounds)
+        || !CU_add_test(pSuite, "xqc_test_bbr2_probe_up_log",
+                        xqc_test_bbr2_probe_up_log)
         || !CU_add_test(pSuite, "xqc_test_short_header_parse_cid", xqc_test_short_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_long_header_parse_cid", xqc_test_long_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_client_discards_received_zero_rtt",
@@ -807,6 +817,8 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_single_loss_does_not_reset_rtt)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return",
                         xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_interval_log",
+                        xqc_test_send_ctl_lost_interval_log)
         /* RFC 9000 14.4: no congestion reaction to a lost PMTU probe */
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction",
                         xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)

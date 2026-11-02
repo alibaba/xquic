@@ -721,7 +721,8 @@ xqc_bbr2_update_cycle_phase(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
         xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
                 "|PROBE_UP_GO|inflight:%ud|target:%ud|queuing:%ud|bw:%ud|",
                 inflight, 
-                xqc_bbr2_inflight(bbr2, bw, xqc_bbr2_bw_probe_up_gain), bw);
+                xqc_bbr2_inflight(bbr2, bw, xqc_bbr2_bw_probe_up_gain),
+                is_queuing, bw);
         if (is_risky || is_queuing) {
             bbr2->prev_probe_too_high = 0;            /* no loss/ECN (yet) */
             xqc_bbr2_enter_probe_down(bbr2, sampler); /* restart w/ down */

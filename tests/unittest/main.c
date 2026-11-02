@@ -29,6 +29,7 @@
 #include "xqc_bbr_test.h"
 #include "xqc_bbr2_test.h"
 #include "xqc_packet_test.h"
+#include "xqc_reset_token_test.h"
 #include "xqc_stream_frame_test.h"
 #include "xqc_process_frame_test.h"
 #include "xqc_tp_test.h"
@@ -489,6 +490,15 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_packet_encrypt_hp_sample_boundary", xqc_test_packet_encrypt_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
         || !CU_add_test(pSuite, "xqc_test_stateless_reset_parse_boundary", xqc_test_stateless_reset_parse_boundary)
+        || !CU_add_test(pSuite, "xqc_test_reset_token_alloc_failure", xqc_test_reset_token_alloc_failure)
+        || !CU_add_test(pSuite, "xqc_test_reset_token_crypto_failure",
+                        xqc_test_reset_token_crypto_failure)
+        || !CU_add_test(pSuite, "xqc_test_reset_token_new_cid_failure",
+                        xqc_test_reset_token_new_cid_failure)
+        || !CU_add_test(pSuite, "xqc_test_reset_token_server_failure",
+                        xqc_test_reset_token_server_failure)
+        || !CU_add_test(pSuite, "xqc_test_reset_token_stateless_reset_failure",
+                        xqc_test_reset_token_stateless_reset_failure)
         || !CU_add_test(pSuite, "xqc_test_coalesced_matching_dcid_processed",
                         xqc_test_coalesced_matching_dcid_processed)
         || !CU_add_test(pSuite, "xqc_test_coalesced_mismatching_dcid_ignored",

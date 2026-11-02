@@ -103,6 +103,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_common_test.c
         ${UNIT_TEST_DIR}/xqc_vint_test.c
         ${UNIT_TEST_DIR}/xqc_packet_test.c
+        ${UNIT_TEST_DIR}/xqc_reset_token_test.c
         ${UNIT_TEST_DIR}/xqc_recv_record_test.c
         ${UNIT_TEST_DIR}/xqc_reno_test.c
         ${UNIT_TEST_DIR}/xqc_cubic_test.c
@@ -165,11 +166,13 @@ if(HAVE_CUNIT)
 
     # xqc_alloc_wrap.c makes chosen allocations fail, and counts the
     # allocations not freed yet, through the linker's --wrap (GNU ld and
-    # lld); elsewhere the tests that use it do nothing.
+    # lld); xqc_reset_token_test.c makes HMAC() and RAND_bytes() fail the
+    # same way. Elsewhere the tests that use them do nothing.
     if(CMAKE_SYSTEM_NAME MATCHES "Linux")
         target_compile_definitions(run_tests PRIVATE XQC_TEST_ALLOC_WRAP)
         target_link_libraries(run_tests
-            "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free")
+            "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free"
+            "-Wl,--wrap=HMAC,--wrap=RAND_bytes")
     endif()
 
     target_include_directories(run_tests
@@ -203,11 +206,9 @@ if(HAVE_CUNIT)
     # The allocation sweep of xqc_alloc_fail_test.c runs with BoringSSL only:
     # BabaSSL itself crashes when some of its own allocations fail
     # (EVP_KDF_CTX_new_id(), which every connection's key derivation
-    # reaches). The sweep wraps xqc_gen_reset_token() to leave out the
-    # allocations made inside it.
+    # reaches).
     if(CMAKE_SYSTEM_NAME MATCHES "Linux" AND ${SSL_TYPE} MATCHES "boringssl")
         target_compile_definitions(run_tests PRIVATE XQC_TEST_ALLOC_SWEEP)
-        target_link_libraries(run_tests "-Wl,--wrap=xqc_gen_reset_token")
     endif()
 
     add_test(NAME run_tests COMMAND run_tests)

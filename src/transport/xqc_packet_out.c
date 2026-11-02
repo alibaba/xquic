@@ -1483,6 +1483,7 @@ xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_pr
     xqc_cid_t           new_conn_cid;
     uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
     xqc_cid_set_inner_t *inner_set;
+    uint64_t            largest_scid_seq_num;
 
     inner_set = xqc_get_path_cid_set(&conn->scid_set, XQC_INITIAL_PATH_ID);
 
@@ -1491,6 +1492,7 @@ xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_pr
     }
 
     /* only reserve bits for server side */
+    largest_scid_seq_num = inner_set->largest_scid_seq_num;
     inner_set->largest_scid_seq_num++;
     if (XQC_OK != xqc_generate_cid(conn->engine, &conn->scid_set.user_scid, &new_conn_cid,
                                    inner_set->largest_scid_seq_num))
@@ -1500,9 +1502,19 @@ xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_pr
     }
 
     /* generate stateless reset token */
-    xqc_gen_reset_token(&new_conn_cid, sr_token, XQC_STATELESS_RESET_TOKENLEN,
-                        conn->engine->config->reset_token_key,
-                        conn->engine->config->reset_token_keylen);
+    ret = xqc_gen_reset_token(&new_conn_cid, sr_token,
+                              XQC_STATELESS_RESET_TOKENLEN,
+                              conn->engine->config->reset_token_key,
+                              conn->engine->config->reset_token_keylen);
+    if (ret != XQC_OK) {
+        /*
+         * not issued: the next connection ID takes its sequence number,
+         * as each one increases by 1 (RFC 9000 Section 5.1.1)
+         */
+        inner_set->largest_scid_seq_num = largest_scid_seq_num;
+        xqc_log(conn->log, XQC_LOG_ERROR, "|generate sr_token error|");
+        return ret;
+    }
 
     /* insert to scid_set & add scid_unused_cnt */
     ret = xqc_cid_set_insert_cid(&conn->scid_set, &new_conn_cid, XQC_CID_UNUSED,
@@ -1827,6 +1839,7 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
     xqc_cid_t            new_conn_cid;
     uint8_t              sr_token[XQC_STATELESS_RESET_TOKENLEN];
     xqc_cid_set_inner_t *inner_set;
+    uint64_t             largest_scid_seq_num;
 
     inner_set = xqc_get_path_cid_set(&conn->scid_set, path_id);
 
@@ -1834,6 +1847,7 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
         return -XQC_EGENERATE_CID;
     }
 
+    largest_scid_seq_num = inner_set->largest_scid_seq_num;
     if (path_id == XQC_INITIAL_PATH_ID
         || ((inner_set->unused_cnt + inner_set->used_cnt + inner_set->retired_cnt) > 0))
     {
@@ -1848,9 +1862,20 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
     }
 
     /* generate stateless reset token */
-    xqc_gen_reset_token(&new_conn_cid, sr_token, XQC_STATELESS_RESET_TOKENLEN,
-                        conn->engine->config->reset_token_key,
-                        conn->engine->config->reset_token_keylen);
+    ret = xqc_gen_reset_token(&new_conn_cid, sr_token,
+                              XQC_STATELESS_RESET_TOKENLEN,
+                              conn->engine->config->reset_token_key,
+                              conn->engine->config->reset_token_keylen);
+    if (ret != XQC_OK) {
+        /*
+         * not issued: the next connection ID takes its sequence number,
+         * as each one increases by 1 (RFC 9000 Section 5.1.1)
+         */
+        inner_set->largest_scid_seq_num = largest_scid_seq_num;
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|generate sr_token error|path_id:%ui|", path_id);
+        return ret;
+    }
 
     /* insert to scid_set & add scid_unused_cnt */
     ret = xqc_cid_set_insert_cid(&conn->scid_set, &new_conn_cid, XQC_CID_UNUSED,

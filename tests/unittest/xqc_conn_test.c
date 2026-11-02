@@ -1105,15 +1105,20 @@ void
 xqc_test_conn_close_reason_too_long(void)
 {
     unsigned char reason[XQC_MAX_CONN_CLOSE_REASON_LEN + 1];
+    char msg[XQC_MAX_CONN_CLOSE_REASON_LEN + 2];
     xqc_connection_t *conn;
     xqc_packet_out_t *packet_out;
     ssize_t written;
 
     memset(reason, 'x', sizeof(reason));
 
+    /* conn_close_msg is a C string: it is also logged with %s on destroy */
+    memset(msg, 'x', sizeof(msg) - 1);
+    msg[sizeof(msg) - 1] = '\0';
+
     conn = test_engine_connect();
     CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
-    conn->conn_close_msg = (const char *) reason;
+    conn->conn_close_msg = msg;
     CU_ASSERT_EQUAL(
         xqc_write_conn_close_to_packet(conn, TRA_PROTOCOL_VIOLATION),
         XQC_OK);

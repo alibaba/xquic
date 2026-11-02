@@ -163,12 +163,13 @@ if(HAVE_CUNIT)
         ${test_SOURCES}
     )
 
-    # xqc_alloc_wrap.c makes chosen allocations fail through the linker's
-    # --wrap (GNU ld and lld); elsewhere the tests that use it do nothing.
+    # xqc_alloc_wrap.c makes chosen allocations fail, and counts the
+    # allocations not freed yet, through the linker's --wrap (GNU ld and
+    # lld); elsewhere the tests that use it do nothing.
     if(CMAKE_SYSTEM_NAME MATCHES "Linux")
         target_compile_definitions(run_tests PRIVATE XQC_TEST_ALLOC_WRAP)
         target_link_libraries(run_tests
-            "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc")
+            "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free")
     endif()
 
     target_include_directories(run_tests

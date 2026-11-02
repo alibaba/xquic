@@ -2,5 +2,6 @@
 #define XQC_ALLOC_FAIL_TEST_H
 
 void xqc_test_conn_create_alloc_failures(void);
+void xqc_test_conn_destroy_frees_crypto_data(void);
 
 #endif

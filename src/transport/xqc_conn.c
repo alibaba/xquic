@@ -1504,6 +1504,20 @@ full:
     buff[curr_size] = '\0';
 }
 
+/* free the handshake data from TLS that no crypto stream has written */
+static void
+xqc_conn_destroy_crypto_data_list(xqc_list_head_t *crypto_data_list)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_hs_buffer_t *buf;
+
+    xqc_list_for_each_safe(pos, next, crypto_data_list) {
+        buf = xqc_list_entry(pos, xqc_hs_buffer_t, list_head);
+        xqc_list_del(pos);
+        xqc_free(buf);
+    }
+}
+
 void
 xqc_conn_destroy(xqc_connection_t *xc)
 {
@@ -1705,6 +1719,10 @@ xqc_conn_destroy(xqc_connection_t *xc)
     if (xc->tls) {
         xqc_tls_destroy(xc->tls);
     }
+
+    xqc_conn_destroy_crypto_data_list(&xc->initial_crypto_data_list);
+    xqc_conn_destroy_crypto_data_list(&xc->hsk_crypto_data_list);
+    xqc_conn_destroy_crypto_data_list(&xc->application_crypto_data_list);
 
     if (xc->enc_pkt) {
         xqc_free(xc->enc_pkt);

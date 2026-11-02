@@ -89,6 +89,8 @@ main(int argc, char *argv[])
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
         || !CU_add_test(pSuite, "xqc_test_conn_create_alloc_failures", xqc_test_conn_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_conn_destroy_frees_crypto_data",
+                        xqc_test_conn_destroy_frees_crypto_data)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_notify_last",
                         xqc_test_reset_stream_frame_notify_last)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_closing_destroys_stream",

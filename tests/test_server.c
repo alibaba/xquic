@@ -22,6 +22,7 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_packet_parser.h"
@@ -200,6 +201,7 @@ int g_read_body;
 int g_spec_url;
 #define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
 #define XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID 716
+#define XQC_TEST_CASE_STATELESS_RESET_UNUSED_CID 755
 
 /* 99 pure fin, 7XX for transport, 9XX for QUIC-TLS */
 int g_test_case;
@@ -1970,6 +1972,67 @@ xqc_server_request_write_notify(xqc_h3_request_t *h3_request, void *user_data)
     return ret;
 }
 
+/*
+ * case 755: once the client has acknowledged a connection ID issued by the
+ * server that it has not used, send it a datagram shaped as a stateless
+ * reset (RFC 9000 Section 10.3) that ends with that connection ID's token.
+ * RFC 9000 Section 10.3.1: the client MUST NOT check the tokens of
+ * connection IDs it has not used, so it must keep the connection.
+ */
+static void
+xqc_server_send_unused_cid_reset(user_conn_t *user_conn)
+{
+    static int              sent_once = 0;
+    unsigned char           buf[41];
+    ssize_t                 sent;
+    xqc_connection_t       *conn;
+    xqc_list_head_t        *pos;
+    xqc_cid_inner_t        *inner_cid, *target = NULL;
+    xqc_cid_set_inner_t    *inner_set;
+
+    if (sent_once || user_conn == NULL || user_conn->h3_conn == NULL) {
+        return;
+    }
+
+    conn = xqc_h3_conn_get_xqc_conn(user_conn->h3_conn);
+    inner_set = xqc_get_path_cid_set(&conn->scid_set, XQC_INITIAL_PATH_ID);
+    if (inner_set == NULL) {
+        return;
+    }
+
+    xqc_list_for_each(pos, &inner_set->cid_list) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if (inner_cid->state == XQC_CID_UNUSED
+            && inner_cid->acked == XQC_CID_ACKED)
+        {
+            target = inner_cid;
+            break;
+        }
+    }
+
+    /* none acknowledged yet: try again on the next read */
+    if (target == NULL) {
+        return;
+    }
+
+    /* short header form and fixed bit, the rest unpredictable */
+    for (size_t i = 0; i < sizeof(buf); i++) {
+        buf[i] = (unsigned char) rand();
+    }
+    buf[0] = 0x40 | (buf[0] & 0x3f);
+    xqc_gen_reset_token(&target->cid, buf + sizeof(buf) - XQC_STATELESS_RESET_TOKENLEN,
+                        XQC_STATELESS_RESET_TOKENLEN,
+                        conn->engine->config->reset_token_key,
+                        conn->engine->config->reset_token_keylen);
+
+    sent = sendto(ctx.fd, buf, sizeof(buf), 0,
+                  (struct sockaddr *) &user_conn->peer_addr, user_conn->peer_addrlen);
+    sent_once = 1;
+    printf("[sr-unused-cid-test]|sent|seq:%"PRIu64"|len:%zd|\n",
+           target->cid.cid_seq_num, sent);
+    fflush(stdout);
+}
+
 int
 xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag, void *user_data)
 {
@@ -2037,6 +2100,11 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
     }
 
     if (flag & XQC_REQ_NOTIFY_READ_BODY) {
+
+        if (g_test_case == XQC_TEST_CASE_STATELESS_RESET_UNUSED_CID) {
+            xqc_server_send_unused_cid_reset(
+                xqc_h3_get_conn_user_data_by_request(h3_request));
+        }
 
         if (g_echo && user_stream->recv_body == NULL) {
             user_stream->recv_body = malloc(MAX_BUF_SIZE);

@@ -829,6 +829,45 @@ fi
 
 }
 
+# 755: during the request, the server sends a datagram shaped as a stateless
+# reset that ends with the token of a connection ID it issued and the client
+# has not used. RFC 9000 Section 10.3.1: an endpoint MUST NOT check the
+# tokens of connection IDs it has not used; the client keeps the connection
+# and the request completes.
+case_transport_core_stateless_reset_unused_cid_ignored()
+{
+local sent token_matched reset result conn_err_zero errlog
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "stateless reset token of an unused connection ID ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 755 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024000 -l d -t 1 -E > stdlog 2>&1
+sent=`grep "\[sr-unused-cid-test\]|sent|" svr_stdlog`
+token_matched=`grep "|====>|receive stateless reset" clog`
+reset=`grep "conn closing: 641" stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$sent" ] && [ -n "$token_matched" ] && [ -z "$reset" ] \
+    && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$conn_err_zero" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "stateless_reset_unused_cid_ignored" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "stateless_reset_unused_cid_ignored" "fail"
+    echo "$sent"
+    echo "$token_matched"
+    echo "$reset"
+    echo "$result"
+    echo "$conn_err_zero"
+    echo "$errlog"
+fi
+rm -rf tp_localhost test_session xqc_token
+}
+
 case_transport_core__0rtt_forbidden_remembered_params_normal()
 {
 case_test_stop_server
@@ -1162,6 +1201,7 @@ case_test_case "linger_close_transport" --id native --mode self-reporting --run 
 case_test_case "linger_close_h3" --id native --mode self-reporting --run case_transport_core_linger_close_h3
 case_test_case "stateless_reset" --id native --mode self-reporting --run case_transport_core_stateless_reset
 case_test_case "stateless_reset_during_hsk" --id native --mode self-reporting --run case_transport_core_stateless_reset_during_hsk
+case_test_case "stateless_reset_unused_cid_ignored" --id 755 --mode self-reporting --run case_transport_core_stateless_reset_unused_cid_ignored
 case_test_case "0rtt_forbidden_remembered_params_normal" --id native --mode self-reporting --run case_transport_core__0rtt_forbidden_remembered_params_normal
 case_test_case "0rtt_forbidden_remembered_params_stale_not_used" --id native --mode self-reporting --run case_transport_core__0rtt_forbidden_remembered_params_stale_not_used
 case_test_case "check_clear_0rtt_ticket_flag_in_close_notify" --id native --mode self-reporting --run case_transport_core_check_clear_0rtt_ticket_flag_in_close_notify

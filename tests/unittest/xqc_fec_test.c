@@ -141,6 +141,32 @@ xqc_test_gen_fec_frames()
     xqc_engine_destroy(conn->engine);
 }
 
+/* A source packet filled up to its reservation must still take its SID
+ * frame, for every block number the sender uses: the source payload ID needs
+ * an 8-byte varint from block number 2^22 on. */
+void
+xqc_test_sid_frame_fits_reservation()
+{
+    xqc_connection_t *conn = test_engine_connect_fec();
+    xqc_packet_out_t *packet_out = xqc_packet_out_create(XQC_QUIC_MAX_MSS);
+    uint32_t blocks[] = {0, (1 << 22) - XQC_BLOCK_MODE_LEN, 1 << 22,
+                         XQC_FEC_MAX_BLOCK_NUM - XQC_BLOCK_MODE_LEN};
+
+    for (size_t i = 0; i < sizeof(blocks) / sizeof(blocks[0]); i++) {
+        conn->fec_ctl->fec_send_block_num[0] = blocks[i];
+        conn->fec_ctl->fec_send_symbol_num[0] = 2;
+        packet_out->po_frame_types = 0;
+        packet_out->po_stream_fec_blk_mode = 0;
+        packet_out->po_reserved_size = XQC_FEC_SPACE;
+        packet_out->po_used_size = packet_out->po_buf_size - XQC_FEC_SPACE;
+        xqc_int_t ret = xqc_gen_sid_frame(conn, packet_out);
+        CU_ASSERT(ret > 0 && ret <= XQC_FEC_SPACE);
+    }
+
+    xqc_packet_out_destroy(packet_out);
+    xqc_engine_destroy(conn->engine);
+}
+
 void
 xqc_test_chk_fec_param()
 {
@@ -277,6 +303,7 @@ xqc_test_fec()
     xqc_test_fec_negotiation();
     xqc_test_write_repair_packet();
     xqc_test_gen_fec_frames();
+    xqc_test_sid_frame_fits_reservation();
     xqc_test_chk_fec_param();
     xqc_test_encoder_chk_param();
     xqc_test_process_src_syb();

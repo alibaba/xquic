@@ -102,6 +102,90 @@ xqc_test_connection_closed_log_with_error(void)
         "pkt_dropped:4294967300|recent_congestion:<path:7, (0,0,0)>|");
 }
 
+/*
+ * Fill the stack below the caller with non-zero bytes, so that a formatter
+ * called next finds them, not a zero left there by chance, if it reads its
+ * buffer past what it wrote.
+ */
+static void xqc_test_dirty_stack(void) __attribute__((noinline));
+
+static void
+xqc_test_dirty_stack(void)
+{
+    volatile unsigned char  stack[XQC_MAX_LOG_LEN * 4];
+    size_t                  i;
+
+    for (i = 0; i < sizeof(stack); i++) {
+        stack[i] = 'X';
+    }
+}
+
+static void
+xqc_test_alpn_information_log(xqc_test_log_capture_t *capture,
+    const unsigned char *client_alpn, unsigned int client_alpn_len)
+{
+    static const unsigned char  server_alpn[] = "\x09" "transport" "\x02" "h3";
+
+    xqc_log_callbacks_t  callbacks = {0};
+    xqc_log_t            log = {0};
+
+    callbacks.xqc_qlog_event_write = xqc_test_qlog_write;
+    log.log_event = 1;
+    log.qlog_importance = EVENT_IMPORTANCE_CORE;
+    log.log_callbacks = &callbacks;
+    log.user_data = capture;
+
+    xqc_test_dirty_stack();
+    xqc_log_TRA_ALPN_INFORMATION_callback(&log, "xqc_test", server_alpn,
+                                          sizeof(server_alpn) - 1,
+                                          client_alpn, client_alpn_len,
+                                          "h3", 2);
+}
+
+void
+xqc_test_alpn_information_log_negotiated(void)
+{
+    static const unsigned char  client_alpn[] = "\x02" "h3" "\x05" "h3-29";
+
+    xqc_test_log_capture_t  capture = {0};
+
+    xqc_test_alpn_information_log(&capture, client_alpn,
+                                  sizeof(client_alpn) - 1);
+
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+                           "|xqc_test|client_alpn:h3 h3-29 "
+                           "|server_alpn:transport h3 |selected_alpn:h3|");
+}
+
+void
+xqc_test_alpn_information_log_truncated(void)
+{
+    static const char  prefix[] = "|xqc_test|client_alpn:";
+
+    unsigned char           client_alpn[9 * 256];
+    xqc_test_log_capture_t  capture = {0};
+    size_t                  i, n;
+
+    /* nine protocol names of 255 bytes: more than a log line holds */
+    for (i = 0; i < 9; i++) {
+        client_alpn[i * 256] = 255;
+        memset(&client_alpn[i * 256 + 1], 'a' + i, 255);
+    }
+
+    xqc_test_alpn_information_log(&capture, client_alpn, sizeof(client_alpn));
+
+    /* the line is the client list, cut at the log line limit */
+    CU_ASSERT(capture.size == sizeof(capture.buf) - 1);
+    CU_ASSERT(memcmp(capture.buf, prefix, sizeof(prefix) - 1) == 0);
+    for (i = sizeof(prefix) - 1; i < capture.size; i++) {
+        n = i - (sizeof(prefix) - 1);
+        if (capture.buf[i] != (n % 256 == 255 ? ' ' : 'a' + n / 256)) {
+            break;
+        }
+    }
+    CU_ASSERT(i == capture.size);
+}
+
 static inline void
 test_object_manager_cb(xqc_object_t *o)
 {

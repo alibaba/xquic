@@ -193,7 +193,7 @@ xqc_log_TRA_ALPN_INFORMATION_callback(xqc_log_t *log, const char *func, const un
         i++;
     }
     xqc_qlog_implement(log, TRA_ALPN_INFORMATION, func,
-                      "|%s|selected_alpn:%*s|", log_buf, selected_alpn_len, selected_alpn);
+                      "|%*s|selected_alpn:%*s|", (size_t) (p - log_buf), log_buf, selected_alpn_len, selected_alpn);
   }
 
 void

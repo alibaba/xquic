@@ -46,5 +46,29 @@ void xqc_test_conns_hash_remove_owned_entry();
 /* Removing an equal key with a non-owner must leave all mappings intact. */
 void xqc_test_conns_hash_reject_non_owner();
 
+/*
+ * MP_NEW_CONNECTION_ID for a path ID within our limit but above the peer's
+ * is stored rather than retired, and later MAX_PATH_ID keeps it.
+ */
+void xqc_test_mp_new_cid_above_curr_max_path_id();
+
+/* rejected MP_NEW_CONNECTION_ID frames leave no connection ID set behind */
+void xqc_test_mp_new_cid_rejected_without_cid_set();
+
+/*
+ * a path ID abandoned above the peer's limit stays abandoned after the
+ * peer's MAX_PATH_ID allows it
+ */
+void xqc_test_mp_abandon_above_curr_max_path_id();
+
+/* rejected PATH_ABANDON frames leave no connection ID set behind */
+void xqc_test_mp_abandon_rejected_without_cid_set();
+
+/* MP_RETIRE_CONNECTION_ID for a path ID without our connection IDs */
+void xqc_test_mp_retire_cid_without_cid_set();
+
+/* a failed connection ID set lookup is an error, not a retirement */
+void xqc_test_cid_set_lookup_error();
+
 #endif
 

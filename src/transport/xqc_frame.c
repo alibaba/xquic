@@ -1078,6 +1078,7 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     xqc_int_t ret = XQC_ERROR;
     xqc_cid_t new_conn_cid;
     uint64_t retire_prior_to, curr_rpi;
+    int64_t largest_rpi;
 
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
@@ -1107,13 +1108,15 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
         return -XQC_EPROTO;
     }
 
-    curr_rpi = xqc_cid_set_get_largest_seq_or_rpt(&conn->dcid_set, XQC_INITIAL_PATH_ID);
-    if (curr_rpi < 0) {
+    largest_rpi = xqc_cid_set_get_largest_seq_or_rpt(&conn->dcid_set,
+                                                     XQC_INITIAL_PATH_ID);
+    if (largest_rpi < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|current retire_prior_to error:%i|",
-                curr_rpi);
+                largest_rpi);
         XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         return -XQC_EPROTO;
     }
+    curr_rpi = largest_rpi;
 
     if (new_conn_cid.cid_seq_num < curr_rpi) {
         /*
@@ -1226,6 +1229,7 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 {
     xqc_int_t ret = XQC_ERROR;
     uint64_t seq_num = 0, largest_scid_seq_num = 0;
+    int64_t largest_seq;
 
     ret = xqc_parse_retire_conn_id_frame(packet_in, &seq_num);
     if (ret != XQC_OK) {
@@ -1238,13 +1242,15 @@ xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return XQC_OK;
     }
 
-    largest_scid_seq_num = xqc_cid_set_get_largest_seq_or_rpt(&conn->scid_set, XQC_INITIAL_PATH_ID);
-    if (largest_scid_seq_num < 0) {
+    largest_seq = xqc_cid_set_get_largest_seq_or_rpt(&conn->scid_set,
+                                                     XQC_INITIAL_PATH_ID);
+    if (largest_seq < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|current largest_scid_seq_num error:%i|",
-                largest_scid_seq_num);
+                largest_seq);
         XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         return -XQC_EPROTO;
     }
+    largest_scid_seq_num = largest_seq;
 
     if (seq_num > largest_scid_seq_num) {
         /* 
@@ -2242,6 +2248,22 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         xqc_log(conn->log, XQC_LOG_WARN,
                 "|no context for abandoned path|path_id:%ui|pi_path_id:%ui|",
                 path_id, packet_in->pi_path_id);
+
+        /*
+         * draft-ietf-quic-multipath-10 Section 3.3: an abandoned path ID
+         * MUST NOT be reused. A path ID above the peer's limit has no
+         * connection ID sets yet, or only the one that keeps the peer's
+         * connection IDs: add them, so that the path ID stays abandoned
+         * when a MAX_PATH_ID allows it.
+         */
+        if (xqc_cid_set_add_path(&conn->dcid_set, path_id) != XQC_OK
+            || xqc_cid_set_add_path(&conn->scid_set, path_id) != XQC_OK)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_cid_set_add_path error|path:%ui|", path_id);
+            return -XQC_EMALLOC;
+        }
+
         xqc_cid_set_update_state(&conn->dcid_set, path_id, XQC_CID_SET_ABANDONED);
         xqc_cid_set_update_state(&conn->scid_set, path_id, XQC_CID_SET_ABANDONED);
         return XQC_OK; /* ignore */
@@ -2324,6 +2346,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     xqc_int_t ret = XQC_ERROR;
     xqc_cid_t new_conn_cid;
     uint64_t retire_prior_to, curr_rpi;
+    int64_t largest_rpi;
 
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
@@ -2362,13 +2385,28 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return -XQC_EPROTO;
     }
 
-    curr_rpi = xqc_cid_set_get_largest_seq_or_rpt(&conn->dcid_set, path_id);
-    if (curr_rpi < 0) {
+    /*
+     * draft-ietf-quic-multipath-10 Section 3.5 only forbids the peer to issue
+     * connection IDs for path IDs above our limit. Those above the peer's own
+     * limit have no connection ID set yet, and can arrive before the
+     * MAX_PATH_ID that raises it: keep them in a set of their own instead of
+     * retiring them.
+     */
+    ret = xqc_cid_set_add_path(&conn->dcid_set, path_id);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_cid_set_add_path error|path:%ui|", path_id);
+        return ret;
+    }
+
+    largest_rpi = xqc_cid_set_get_largest_seq_or_rpt(&conn->dcid_set, path_id);
+    if (largest_rpi < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|current retire_prior_to error:%i|path:%ui|",
-                curr_rpi, path_id);
+                largest_rpi, path_id);
         XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
         return -XQC_EPROTO;
     }
+    curr_rpi = largest_rpi;
 
     if (new_conn_cid.cid_seq_num < curr_rpi) {
         /*
@@ -2484,6 +2522,7 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
 {
     xqc_int_t ret = XQC_ERROR;
     uint64_t seq_num = 0, largest_scid_seq_num = 0, path_id;
+    int64_t largest_seq;
 
     ret = xqc_parse_mp_retire_conn_id_frame(packet_in, &seq_num, &path_id);
     if (ret != XQC_OK) {
@@ -2504,13 +2543,20 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         return -XQC_EILLEGAL_FRAME;
     }
 
-    largest_scid_seq_num = xqc_cid_set_get_largest_seq_or_rpt(&conn->scid_set, path_id);
-    if (largest_scid_seq_num < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|current largest_scid_seq_num error:%i|path:%ui|",
-                largest_scid_seq_num, path_id);
-        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+    largest_seq = xqc_cid_set_get_largest_seq_or_rpt(&conn->scid_set, path_id);
+    if (largest_seq < 0) {
+        /*
+         * Connection IDs are issued only for path IDs with a connection ID
+         * set, so none was sent for this one and any sequence number is
+         * greater than any previously sent: RFC 9000 Section 19.16, applied
+         * per path by draft-ietf-quic-multipath-10 Section 7.6.
+         */
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|no scid issued for path|seq:%ui|path:%ui|", seq_num, path_id);
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
         return -XQC_EPROTO;
     }
+    largest_scid_seq_num = largest_seq;
 
     if (seq_num > largest_scid_seq_num) {
         /* 

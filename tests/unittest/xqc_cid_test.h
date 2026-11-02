@@ -67,6 +67,21 @@ void xqc_test_mp_abandon_rejected_without_cid_set();
 /* MP_RETIRE_CONNECTION_ID for a path ID without our connection IDs */
 void xqc_test_mp_retire_cid_without_cid_set();
 
+/*
+ * MP_RETIRE_CONNECTION_ID for a path ID whose connection ID set has none of
+ * our connection IDs
+ */
+void xqc_test_mp_retire_cid_empty_cid_set();
+
+/*
+ * MP_RETIRE_CONNECTION_ID for abandoned path IDs, with and without our
+ * connection IDs
+ */
+void xqc_test_mp_retire_cid_abandoned();
+
+/* MP_RETIRE_CONNECTION_ID for a connection ID of ours already removed */
+void xqc_test_mp_retire_cid_removed();
+
 /* a failed connection ID set lookup is an error, not a retirement */
 void xqc_test_cid_set_lookup_error();
 

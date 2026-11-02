@@ -52,6 +52,8 @@ typedef struct xqc_cid_set_inner_s {
     };
     xqc_cid_set_state_t set_state;
     uint32_t            acked_unused;
+    /* a connection ID was inserted in this set, even if removed since */
+    uint8_t             cid_inserted;
 } xqc_cid_set_inner_t;
 
 typedef struct xqc_cid_set_s {

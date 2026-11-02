@@ -78,7 +78,7 @@ static const int xqc_bbr2_windowed_max_rtt_win_size = 5;
 static const float xqc_bbr2_rtt_compensation_startup_thresh = 2;
 static const float xqc_bbr2_rtt_compensation_thresh = 1;
 static const float xqc_bbr2_rtt_compensation_cwnd_factor = 1;
-/* Probe bw for every 4-8 RTTs */
+/* Probe bw for every 5-8 RTTs */
 static const int xqc_bbr2_fast_convergence_probe_round_base = 4;
 static const int xqc_bbr2_fast_convergence_probe_round_rand = 4;
 static const float xqc_bbr2_fast_convergence_rtt_factor = 1.25;
@@ -878,6 +878,9 @@ xqc_bbr2_pick_probe_wait(xqc_bbr2_t *bbr2)
         uint32_t rand_rtt_rounds = xqc_random() % 
                                    xqc_bbr2_fast_convergence_probe_round_rand;
         rand_rtt_rounds += (1 + xqc_bbr2_fast_convergence_probe_round_base);
+        /* never later than the default wait on a long-RTT path */
+        bbr2->probe_wait_us = xqc_min(rand_rtt_rounds * bbr2->min_rtt,
+                                      xqc_bbr2_bw_probe_base_us);
     } else {
         bbr2->probe_wait_us = xqc_bbr2_bw_probe_base_us + 
                               (xqc_random() % xqc_bbr2_bw_probe_rand_us);

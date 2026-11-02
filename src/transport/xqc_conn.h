@@ -687,6 +687,8 @@ xqc_int_t xqc_conn_check_dcid(xqc_connection_t *conn, xqc_cid_t *dcid);
 xqc_int_t xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt);
 void xqc_conn_purge_removed_scid(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid);
 void xqc_conn_destroy_cids(xqc_connection_t *conn);
+void xqc_conn_on_retire_conn_id_acked(xqc_connection_t *conn, uint64_t path_id,
+    uint64_t seq_num);
 xqc_int_t xqc_conn_update_user_scid(xqc_connection_t *conn);
 xqc_int_t xqc_conn_set_cid_retired_ts(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid);
 

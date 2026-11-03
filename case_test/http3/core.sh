@@ -845,6 +845,8 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1002 > h3_request_frame_server.l
 sleep 1
 echo -e "HTTP/3 reserved request frame remains usable ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1002 > stdlog
+case_test_wait_for_log h3_request_frame_server.log \
+    "\\[h3-request-frame-test\\]|reserved-frame|conn_err:0|" 30 0.1
 sent=`grep "\\[h3-request-frame-test\\]|type:0x21|ret:0|" stdlog`
 received=`grep "parse frame type success|frame_type:21|" slog`
 server_ok=`grep "\\[h3-request-frame-test\\]|reserved-frame|conn_err:0|" \
@@ -930,6 +932,8 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1003 > h3_request_frame_server.l
 sleep 1
 echo -e "HTTP/3 client PUSH_PROMISE gets frame unexpected ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1003 > stdlog
+case_test_wait_for_log h3_request_frame_server.log \
+    "\\[h3-request-frame-test\\]|push-promise|conn_err:261|" 30 0.1
 sent=`grep "\\[h3-request-frame-test\\]|type:0x5|ret:0|" stdlog`
 server_err=`grep "\\[h3-request-frame-test\\]|push-promise|conn_err:261|" \
     h3_request_frame_server.log`
@@ -1060,6 +1064,7 @@ case_test_start_server stdbuf -oL ${SERVER_BIN} -l d -e -x 1004 > svr_stdlog
 sleep 1
 echo -e "HTTP/3 server MAX_PUSH_ID gets H3_FRAME_UNEXPECTED ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1004 > stdlog
+case_test_wait_for_log svr_stdlog "conn_err:261" 30 0.1
 sent=`grep "\\[h3-max-push-id-test\\]|server_send:1|write:0|send:0|" svr_stdlog`
 client_err_log=`grep "err:0x105" clog`
 server_err=`grep -E "(conn errno:261|conn_err:261)" svr_stdlog`
@@ -1125,6 +1130,8 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1008 > h3_frame_length_server.lo
 sleep 1
 echo -e "HTTP/3 overlong MAX_PUSH_ID gets H3_FRAME_ERROR ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1008 > stdlog
+case_test_wait_for_log h3_frame_length_server.log \
+    "\\[h3-frame-length-test\\]|case:1008|conn_err:262|" 30 0.1
 sent=`grep "\\[h3-frame-length-test\\]|declared:5|actual:2|write:0|send:0|" \
     stdlog`
 server_err=`grep "\\[h3-frame-length-test\\]|case:1008|conn_err:262|" \
@@ -1228,6 +1235,8 @@ case_test_start_server stdbuf -oL ${SERVER_BIN} -l d -e -x 1010 > h3_control_fra
 sleep 1
 echo -e "HTTP/3 CANCEL_PUSH above unset maximum gets H3_ID_ERROR ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1010 > stdlog
+case_test_wait_for_log h3_control_frame_server.log \
+    "\\[h3-control-frame-test\\]|case:1010|conn_err:264|" 30 0.1
 sent=`grep "\\[h3-control-frame-test\\]|type:0x3|write:0|send:0|" \
     h3_control_frame_server.log`
 wire_err=`grep "err:0x108" clog`
@@ -1262,6 +1271,9 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1011 > h3_field_section_server.l
 sleep 1
 echo -e "HTTP/3 fields within limit keep all request streams usable ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -P 2 -n 2 -x 1011 > stdlog
+case_test_wait_for_log h3_field_section_server.log \
+    "\\[h3-field-section-test\\]|server_conn_close|case:1011|conn_err:0|" \
+    30 0.1
 server_limit=`grep "\\[h3-field-section-test\\]|server_limit:512|" \
     h3_field_section_server.log`
 received_count=`grep -c "\\[h3-field-section-test\\]|request_received|" \

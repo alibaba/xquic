@@ -7,6 +7,7 @@
 #include "src/http3/qpack/xqc_encoder.h"
 #include <inttypes.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "tests/unittest/xqc_common_test.h"
@@ -19,6 +20,10 @@ xqc_test_encoder_basic()
     xqc_int_t ret = XQC_OK;
     xqc_var_buf_t *efs_buf = xqc_var_buf_create(4096);
     xqc_var_buf_t *ins_buf = xqc_var_buf_create(4096);
+    unsigned char cookie[2500];
+
+    /* the encoder reads every byte of the lengths given */
+    memset(cookie, 'c', sizeof(cookie));
 
     xqc_http_header_t header[XQC_TEST_ENCODER_MAX_HEADERS] = {
         {
@@ -67,8 +72,8 @@ xqc_test_encoder_basic()
             .flags  = XQC_HTTP_HEADER_FLAG_NEVER_INDEX_VALUE
         },
         {
-            .name   = {.iov_base = "cookie", .iov_len = 19},
-            .value  = {.iov_base = "this_is_a_cookie_buf_pretending_to_be_long", .iov_len = 2500},  /* fake length */
+            .name   = {.iov_base = "cookie", .iov_len = 6},
+            .value  = {.iov_base = cookie, .iov_len = sizeof(cookie)},
             .flags  = XQC_HTTP_HEADER_FLAG_NEVER_INDEX_VALUE
         }
     };
@@ -126,11 +131,14 @@ xqc_test_insert_name_limit()
     xqc_int_t ret = XQC_OK;
     xqc_var_buf_t *efs_buf = xqc_var_buf_create(4096);
     xqc_var_buf_t *ins_buf = xqc_var_buf_create(4096);
+    unsigned char name[66];
+
+    memset(name, 'n', sizeof(name));
 
     xqc_http_header_t header[XQC_TEST_ENCODER_MAX_HEADERS] = {
         {
-            .name   = {.iov_base = "insert_name_limit_pretending_to_be_long", .iov_len = 66},
-            .value  = {.iov_base = "value", .iov_len = 5},    /* fake length */
+            .name   = {.iov_base = name, .iov_len = sizeof(name)},
+            .value  = {.iov_base = "value", .iov_len = 5},
         }
     };
 
@@ -180,11 +188,14 @@ xqc_test_insert_entry_limit()
     xqc_int_t ret = XQC_OK;
     xqc_var_buf_t *efs_buf = xqc_var_buf_create(4096);
     xqc_var_buf_t *ins_buf = xqc_var_buf_create(4096);
+    unsigned char value[888];
+
+    memset(value, 'v', sizeof(value));
 
     xqc_http_header_t header[XQC_TEST_ENCODER_MAX_HEADERS] = {
         {
             .name   = {.iov_base = "insert_limit", .iov_len = 12},
-            .value  = {.iov_base = "this_is_a_insert_nv_pretending_to_be_long", .iov_len = 888},    /* fake length */
+            .value  = {.iov_base = value, .iov_len = sizeof(value)},
         }
     };
 

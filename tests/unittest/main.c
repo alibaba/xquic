@@ -791,6 +791,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_send_ctl_update_rtt_ack_delay_cap",
                         xqc_test_send_ctl_update_rtt_ack_delay_cap)
         || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_ack_before_confirmation_not_capped",
+                        xqc_test_send_ctl_ack_before_confirmation_not_capped)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_ack_after_confirmation_capped",
+                        xqc_test_send_ctl_ack_after_confirmation_capped)
+        || !CU_add_test(pSuite,
                         "xqc_test_send_ctl_update_rtt_subtracts_at_min_rtt",
                         xqc_test_send_ctl_update_rtt_subtracts_at_min_rtt)
         || !CU_add_test(pSuite,

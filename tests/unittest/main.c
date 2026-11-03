@@ -852,6 +852,24 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_path_validation_timer_not_extended_by_packet",
                         xqc_test_path_validation_timer_not_extended_by_packet)
+        || !CU_add_test(pSuite,
+                        "xqc_test_path_challenge_resent_after_unanswered_ack",
+                        xqc_test_path_challenge_resent_after_unanswered_ack)
+        || !CU_add_test(pSuite,
+                        "xqc_test_path_challenge_resent_after_rtt_sample",
+                        xqc_test_path_challenge_resent_after_rtt_sample)
+        || !CU_add_test(pSuite,
+                        "xqc_test_path_challenge_not_resent_once_answered",
+                        xqc_test_path_challenge_not_resent_once_answered)
+        || !CU_add_test(pSuite,
+                        "xqc_test_path_challenge_not_resent_at_once",
+                        xqc_test_path_challenge_not_resent_at_once)
+        || !CU_add_test(pSuite,
+                        "xqc_test_path_challenge_earlier_response_validates",
+                        xqc_test_path_challenge_earlier_response_validates)
+        || !CU_add_test(pSuite,
+                        "xqc_test_path_challenge_write_error_keeps_payload",
+                        xqc_test_path_challenge_write_error_keeps_payload)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_update_rtt_ack_delay_cap",
                         xqc_test_send_ctl_update_rtt_ack_delay_cap)
         || !CU_add_test(pSuite,

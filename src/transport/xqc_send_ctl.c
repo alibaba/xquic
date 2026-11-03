@@ -987,6 +987,8 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
             send_ctl->ctl_latest_rtt = ack_recv_time - send_ctl->ctl_largest_acked_sent_time[pns];
             /* 更新rtt */
             xqc_send_ctl_update_rtt(send_ctl, &send_ctl->ctl_latest_rtt, ack_info->ack_delay);
+            xqc_path_on_challenge_rtt_sample(send_ctl->ctl_path,
+                                             ack_recv_time);
 
         } else {
             xqc_log(conn->log, XQC_LOG_DEBUG, "|ignore_rtt:%ui|", ack_recv_time - send_ctl->ctl_largest_acked_sent_time[pns]);
@@ -1625,6 +1627,7 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
     xqc_stream_t *stream;
     xqc_packet_out_t *packet_out = acked_packet;
     xqc_connection_t *conn = send_ctl->ctl_conn;
+    xqc_path_ctx_t *path;
     xqc_bool_t notify_ping;
 
     if ((conn->conn_type == XQC_CONN_TYPE_SERVER) && (acked_packet->po_frame_types & XQC_FRAME_BIT_HANDSHAKE_DONE)) {
@@ -1679,6 +1682,13 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
         
         if (packet_out->po_frame_types & (XQC_FRAME_BIT_NEW_CONNECTION_ID | XQC_FRAME_BIT_MP_NEW_CONNECTION_ID)) {
             xqc_cid_set_on_cid_acked(&conn->scid_set, packet_out->po_new_cid_path, packet_out->po_new_cid_seq);
+        }
+
+        if (packet_out->po_frame_types & XQC_FRAME_BIT_PATH_CHALLENGE) {
+            path = xqc_conn_find_path_by_path_id(conn, packet_out->po_path_id);
+            if (path != NULL) {
+                xqc_path_on_challenge_acked(path, now);
+            }
         }
         
 

@@ -3,9 +3,11 @@
  */
 
 #include <CUnit/CUnit.h>
+#include <arpa/inet.h>
 #include "xqc_qpack_test.h"
 #include "src/http3/xqc_h3_header.h"
 #include "src/http3/xqc_h3_conn.h"
+#include "src/http3/xqc_h3_stream.h"
 #include "src/http3/qpack/xqc_qpack.h"
 #include "src/common/xqc_time.h"
 #include <inttypes.h>
@@ -13,6 +15,7 @@
 #include <time.h>
 
 #include "tests/unittest/xqc_common_test.h"
+#include "tests/unittest/xqc_alloc_wrap.h"
 
 #define XQC_TEST_ENCODER_MAX_HEADERS 128
 
@@ -957,3 +960,233 @@ xqc_qpack_test()
     xqc_qpack_test_field_section_limit();
     xqc_qpack_test_blocked_field_section_limit();
 }
+
+
+#ifdef XQC_TEST_ALLOC_WRAP
+
+/*
+ * Make the chunks that malloc hands out next hold garbage, as reused
+ * memory does: a field the caller does not set is then not NULL.
+ */
+static void
+xqc_qpack_test_dirty_heap(void)
+{
+    size_t  size;
+    void   *chunk[64];
+
+    for (size = 8; size <= 512; size += 8) {
+        chunk[size / 8 - 1] = malloc(size);
+        if (chunk[size / 8 - 1] != NULL) {
+            memset(chunk[size / 8 - 1], 0xbe, size);
+        }
+    }
+
+    for (size = 8; size <= 512; size += 8) {
+        free(chunk[size / 8 - 1]);
+    }
+}
+
+/*
+ * A client engine with the h3 ALPN. The allocations that its connections
+ * make to create their h3 connection, up to and including the QPACK
+ * context, are counted from the h3 ALPN's conn_create_notify, with the
+ * heap dirtied first, to the application's h3_conn_create_notify; the one
+ * numbered g_qpack_test_h3c_fail_at fails.
+ */
+static long g_qpack_test_h3c_fail_at;
+static int  g_qpack_test_h3c_created;
+
+static ssize_t
+xqc_qpack_test_h3c_write(const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
+{
+    return size;
+}
+
+static void
+xqc_qpack_test_h3c_set_timer(xqc_msec_t wake_after, void *user_data)
+{
+}
+
+static int
+xqc_qpack_test_h3c_create_notify(xqc_h3_conn_t *h3_conn,
+    const xqc_cid_t *cid, void *h3c_user_data)
+{
+    xqc_test_alloc_count = -1;
+    g_qpack_test_h3c_created++;
+    return 0;
+}
+
+static int
+xqc_qpack_test_h3c_conn_create_notify(xqc_connection_t *conn,
+    const xqc_cid_t *cid, void *conn_user_data, void *conn_proto_data)
+{
+    int ret;
+
+    xqc_qpack_test_dirty_heap();
+    xqc_test_alloc_failed = 0;
+    xqc_test_alloc_fail_at = g_qpack_test_h3c_fail_at;
+    xqc_test_alloc_count = 0;
+    ret = h3_conn_callbacks.conn_create_notify(conn, cid, conn_user_data,
+                                               conn_proto_data);
+    xqc_test_alloc_count = -1;
+    return ret;
+}
+
+static xqc_engine_t *
+xqc_qpack_test_h3c_engine(void)
+{
+    xqc_engine_t               *engine;
+    xqc_h3_callbacks_t          h3_cbs;
+    xqc_app_proto_callbacks_t   ap_cbs;
+    xqc_engine_ssl_config_t     ssl;
+    xqc_engine_callback_t       cb = {
+        .log_callbacks = xqc_null_log_cb,
+        .set_event_timer = xqc_qpack_test_h3c_set_timer,
+    };
+    xqc_transport_callbacks_t   tcbs = {
+        .write_socket = xqc_qpack_test_h3c_write,
+    };
+
+    memset(&ssl, 0, sizeof(ssl));
+    ssl.ciphers = XQC_TLS_CIPHERS;
+    ssl.groups = XQC_TLS_GROUPS;
+    engine = xqc_engine_create(XQC_ENGINE_CLIENT, NULL, &ssl, &cb, &tcbs,
+                               NULL);
+    CU_ASSERT_FATAL(engine != NULL);
+
+    memset(&h3_cbs, 0, sizeof(h3_cbs));
+    h3_cbs.h3c_cbs.h3_conn_create_notify = xqc_qpack_test_h3c_create_notify;
+    CU_ASSERT_FATAL(xqc_h3_ctx_init(engine, &h3_cbs) == XQC_OK);
+
+    memset(&ap_cbs, 0, sizeof(ap_cbs));
+    ap_cbs.conn_cbs = h3_conn_callbacks;
+    ap_cbs.conn_cbs.conn_create_notify = xqc_qpack_test_h3c_conn_create_notify;
+    ap_cbs.stream_cbs = h3_stream_callbacks;
+    CU_ASSERT_FATAL(xqc_engine_register_alpn(engine, XQC_ALPN_H3,
+        strlen(XQC_ALPN_H3), &ap_cbs,
+        xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3, strlen(XQC_ALPN_H3)))
+        == XQC_OK);
+    return engine;
+}
+
+static const xqc_cid_t *
+xqc_qpack_test_h3c_connect(xqc_engine_t *engine)
+{
+    xqc_conn_settings_t         settings;
+    xqc_conn_ssl_config_t       conn_ssl;
+    struct sockaddr_in          peer;
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl, 0, sizeof(conn_ssl));
+    memset(&peer, 0, sizeof(peer));
+    peer.sin_family = AF_INET;
+    peer.sin_port = htons(4433);
+    peer.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    g_qpack_test_h3c_created = 0;
+    return xqc_h3_connect(engine, &settings, NULL, 0, "", 0, &conn_ssl,
+                          (struct sockaddr *)&peer, sizeof(peer), NULL);
+}
+
+/*
+ * Each allocation that xqc_qpack_create() makes fails in turn
+ * (xqc_alloc_wrap.h), with the heap dirtied first: the creation fails, and
+ * it frees what it allocated, with nothing else. The sweep ends with a run
+ * in which nothing fails and the QPACK handler is created.
+ */
+void
+xqc_test_qpack_create_alloc_failures(void)
+{
+    long            n;
+    xqc_qpack_t    *qpk;
+    xqc_engine_t   *engine = xqc_qpack_test_h3c_engine();
+    xqc_ins_buf_t   ins_buf = { NULL, NULL };
+
+    CU_ASSERT_FATAL(engine != NULL);
+
+    for (n = 1; n < 1000; n++) {
+        xqc_qpack_test_dirty_heap();
+        xqc_test_alloc_live = 0;
+        xqc_test_alloc_tracking = 1;
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        qpk = xqc_qpack_create(16 * 1024, 16 * 1024, engine->log, &ins_cb,
+                               &ins_buf);
+        xqc_test_alloc_count = -1;
+        CU_ASSERT((qpk == NULL) == xqc_test_alloc_failed);
+        xqc_qpack_destroy(qpk);
+        xqc_test_alloc_tracking = 0;
+        CU_ASSERT(xqc_test_alloc_live == 0);
+
+        if (!xqc_test_alloc_failed) {
+            /* nothing failed: the QPACK handler was created */
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+
+    xqc_engine_destroy(engine);
+}
+
+
+/*
+ * Each allocation that an h3 client connection makes to create its h3
+ * connection, up to and including its QPACK context, fails in turn: the
+ * h3 connection is not created, xqc_h3_connect() fails, and once the
+ * engine is destroyed nothing allocated since it was created is left.
+ * The sweep ends with a run in which nothing fails and the h3 connection
+ * is created.
+ */
+void
+xqc_test_qpack_h3_conn_create_alloc_failures(void)
+{
+    long                n;
+    int                 failed;
+    const xqc_cid_t    *cid;
+    xqc_engine_t       *engine;
+
+    /* the first run makes the allocations made once per process */
+    g_qpack_test_h3c_fail_at = 0;
+    engine = xqc_qpack_test_h3c_engine();
+    CU_ASSERT_FATAL(xqc_qpack_test_h3c_connect(engine) != NULL);
+    xqc_engine_destroy(engine);
+
+    for (n = 1; n < 1000; n++) {
+        xqc_test_alloc_live = 0;
+        xqc_test_alloc_tracking = 1;
+        engine = xqc_qpack_test_h3c_engine();
+        g_qpack_test_h3c_fail_at = n;
+        cid = xqc_qpack_test_h3c_connect(engine);
+        g_qpack_test_h3c_fail_at = 0;
+        failed = xqc_test_alloc_failed;
+        CU_ASSERT((cid == NULL) == failed);
+        CU_ASSERT(g_qpack_test_h3c_created == !failed);
+        xqc_engine_destroy(engine);
+        xqc_test_alloc_tracking = 0;
+        CU_ASSERT(xqc_test_alloc_live == 0);
+
+        if (!failed) {
+            /* nothing failed: the h3 connection was created */
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+}
+
+#else
+
+void
+xqc_test_qpack_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_qpack_h3_conn_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+#endif

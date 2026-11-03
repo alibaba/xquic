@@ -5,6 +5,10 @@
  * packet makes on a server engine, fails in turn (xqc_alloc_wrap.h). Each
  * sweep ends with a run in which nothing fails and the connection is
  * created.
+ *
+ * A connection that is destroyed must free what it allocated, including
+ * the handshake data still queued for its crypto streams: once destroyed,
+ * a client engine leaves nothing allocated.
  */
 
 #include <CUnit/CUnit.h>
@@ -12,8 +16,11 @@
 #include <arpa/inet.h>
 #include "xquic/xquic.h"
 #include "src/common/xqc_time.h"
+#include "src/tls/xqc_tls_defs.h"
 #include "xqc_alloc_wrap.h"
 #include "xqc_alloc_fail_test.h"
+
+#ifdef XQC_TEST_ALLOC_WRAP
 
 #ifdef XQC_TEST_ALLOC_SWEEP
 
@@ -37,6 +44,8 @@ __wrap_xqc_gen_reset_token(xqc_cid_t *cid, unsigned char *token, int token_len,
     __real_xqc_gen_reset_token(cid, token, token_len, key, keylen);
     xqc_test_alloc_count = count;
 }
+
+#endif
 
 static unsigned char g_initial[2048];
 static size_t        g_initial_len;
@@ -115,6 +124,8 @@ xqc_test_af_connect(xqc_engine_t *engine)
                        sizeof(peer), "transport", NULL);
 }
 
+#ifdef XQC_TEST_ALLOC_SWEEP
+
 void
 xqc_test_conn_create_alloc_failures(void)
 {
@@ -190,12 +201,93 @@ xqc_test_conn_create_alloc_failures(void)
     xqc_engine_destroy(client);
 }
 
-#else
+#endif
+
+/* the TLS callback that queues handshake data (src/transport/xqc_conn.c) */
+xqc_int_t xqc_conn_tls_crypto_data_cb(xqc_encrypt_level_t level,
+    const uint8_t *data, size_t len, void *user_data);
+
+static int g_af_create_notify_ret;
+
+/*
+ * Before it refuses the connection, the callback queues handshake data at
+ * the Handshake and 1-RTT levels, as TLS does later in a handshake: the
+ * connection is then destroyed with data queued at every level, its
+ * ClientHello included.
+ */
+static int
+xqc_test_af_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+    void *conn_user_data, void *conn_proto_data)
+{
+    static const uint8_t data[16];
+
+    if (g_af_create_notify_ret != 0) {
+        CU_ASSERT(xqc_conn_tls_crypto_data_cb(XQC_ENC_LEV_HSK, data,
+                                              sizeof(data), conn) == XQC_OK);
+        CU_ASSERT(xqc_conn_tls_crypto_data_cb(XQC_ENC_LEV_1RTT, data,
+                                              sizeof(data), conn) == XQC_OK);
+    }
+    return g_af_create_notify_ret;
+}
+
+/*
+ * The allocations that a client engine leaves behind once destroyed, after
+ * one xqc_connect() whose conn_create_notify returns create_ret. The first
+ * run makes the allocations that the process makes only once; the second
+ * is counted.
+ */
+static long
+xqc_test_af_connect_leftovers(int create_ret)
+{
+    xqc_app_proto_callbacks_t ap = {{NULL}, {NULL}};
+    ap.conn_cbs.conn_create_notify = xqc_test_af_create_notify;
+    g_af_create_notify_ret = create_ret;
+
+    for (int run = 0; run < 2; run++) {
+        xqc_test_alloc_live = 0;
+        xqc_test_alloc_tracking = 1;
+        xqc_engine_t *engine = xqc_test_af_engine(XQC_ENGINE_CLIENT);
+        CU_ASSERT_FATAL(engine != NULL);
+        xqc_engine_register_alpn(engine, "transport", 9, &ap, NULL);
+        const xqc_cid_t *cid = xqc_test_af_connect(engine);
+        CU_ASSERT((cid != NULL) == (create_ret == 0));
+        xqc_engine_destroy(engine);
+        xqc_test_alloc_tracking = 0;
+    }
+    return xqc_test_alloc_live;
+}
+
+void
+xqc_test_conn_destroy_frees_crypto_data(void)
+{
+    /* the crypto stream frees the ClientHello once it has written it */
+    CU_ASSERT(xqc_test_af_connect_leftovers(0) == 0);
+
+    /*
+     * conn_create_notify fails before the ClientHello is written: the
+     * connection is destroyed with handshake data queued at every level
+     */
+    CU_ASSERT(xqc_test_af_connect_leftovers(-1) == 0);
+}
+
+#endif
+
+#ifndef XQC_TEST_ALLOC_SWEEP
 
 void
 xqc_test_conn_create_alloc_failures(void)
 {
     /* needs BoringSSL and the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+#endif
+
+#ifndef XQC_TEST_ALLOC_WRAP
+
+void
+xqc_test_conn_destroy_frees_crypto_data(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
 }
 
 #endif

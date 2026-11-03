@@ -430,6 +430,7 @@ struct xqc_connection_s {
     xqc_usec_t                      next_tick_time;
     xqc_usec_t                      conn_create_time;
     xqc_usec_t                      handshake_complete_time; /* record the time when the handshake ends */
+    xqc_usec_t                      handshake_confirmed_time;
     xqc_usec_t                      first_data_send_time;    /* record the time when the bidirectional stream first sent data */
     xqc_usec_t                      conn_close_recv_time;
     xqc_usec_t                      conn_close_send_time;

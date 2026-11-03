@@ -89,6 +89,7 @@ xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_setting
     }
 
     if (xqc_conn_client_init_path_addr(xc) != XQC_OK) {
+        xqc_conn_destroy(xc);
         return NULL;
     }
 
@@ -109,6 +110,8 @@ xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_setting
     xqc_engine_remove_wakeup_queue(engine, xc);
 
     if (xqc_engine_add_active_queue(engine, xc) != XQC_OK) {
+        XQC_CONN_ERR(xc, TRA_INTERNAL_ERROR);
+        xqc_conn_destroy(xc);
         return NULL;
     }
 

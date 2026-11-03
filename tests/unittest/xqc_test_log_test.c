@@ -7,7 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "src/common/xqc_log.h"
-#include "tests/test_log.h"
+#include "tests/xqc_test_log.h"
 #include "xqc_test_log_test.h"
 
 static void xqc_test_log_check(const void *buf, size_t size);

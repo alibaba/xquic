@@ -19,7 +19,7 @@
 
 #include "platform.h"
 #include "test_h3_split_fin.h"
-#include "test_log.h"
+#include "xqc_test_log.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"

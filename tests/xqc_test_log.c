@@ -5,7 +5,7 @@
 #include <errno.h>
 #include <string.h>
 #include "src/common/xqc_log.h"
-#include "test_log.h"
+#include "xqc_test_log.h"
 
 #ifdef XQC_SYS_WINDOWS
 #include <io.h>

@@ -28,7 +28,7 @@
 #include "src/tls/xqc_tls.h"
 #include "platform.h"
 #include "test_h3_split_fin.h"
-#include "test_log.h"
+#include "xqc_test_log.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
 #include <sys/socket.h>

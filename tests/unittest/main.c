@@ -524,6 +524,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_active_cid_limit_minimum", xqc_test_active_cid_limit_minimum)
         || !CU_add_test(pSuite, "xqc_test_check_transport_params_cids", xqc_test_check_transport_params_cids)
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)
+        || !CU_add_test(pSuite, "xqc_test_engine_active_queue_full",
+                        xqc_test_engine_active_queue_full)
+        || !CU_add_test(pSuite, "xqc_test_engine_main_logic_active_queue_full",
+                        xqc_test_engine_main_logic_active_queue_full)
+        || !CU_add_test(pSuite, "xqc_test_engine_new_conn_active_queue_full",
+                        xqc_test_engine_new_conn_active_queue_full)
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
                 || !CU_add_test(pSuite, "xqc_test_stream_frame_buffered_limit", xqc_test_stream_frame_buffered_limit)
         || !CU_add_test(pSuite,

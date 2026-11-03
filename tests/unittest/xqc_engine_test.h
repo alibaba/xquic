@@ -7,6 +7,9 @@
 
 void xqc_test_engine_create();
 void xqc_test_engine_packet_process();
+void xqc_test_engine_active_queue_full(void);
+void xqc_test_engine_main_logic_active_queue_full(void);
+void xqc_test_engine_new_conn_active_queue_full(void);
 void xqc_test_engine_drop_small_initial();
 void xqc_test_engine_drop_small_unknown_0rtt();
 void xqc_test_engine_min_initial_not_pre_dropped();

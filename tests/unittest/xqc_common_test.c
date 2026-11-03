@@ -310,6 +310,16 @@ const xqc_log_callbacks_t xqc_null_log_cb = {
 xqc_engine_t *
 test_create_engine()
 {
+    return test_create_engine_with_config(NULL);
+}
+
+/*
+ * A client engine as test_create_engine() makes it, with config (NULL: the
+ * default one).
+ */
+xqc_engine_t *
+test_create_engine_with_config(const xqc_config_t *config)
+{
     def_engine_ssl_config;
     xqc_engine_callback_t callback = {
         .log_callbacks = xqc_null_log_cb,
@@ -321,8 +331,9 @@ test_create_engine()
     };
 
     xqc_conn_settings_t conn_settings;
-    xqc_engine_t *engine = xqc_engine_create(XQC_ENGINE_CLIENT, NULL, &engine_ssl_config,
-                                             &callback, &tcbs, NULL);
+    xqc_engine_t *engine = xqc_engine_create(XQC_ENGINE_CLIENT, config,
+                                             &engine_ssl_config, &callback,
+                                             &tcbs, NULL);
 
     xqc_h3_callbacks_t h3_cbs = {
         .h3c_cbs = {

@@ -6,6 +6,8 @@
 #include "xquic/xquic.h"
 #include "src/transport/xqc_packet.h"
 #include "src/common/xqc_log.h"
+#include "src/common/xqc_priority_q.h"
+#include "src/common/xqc_time.h"
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_multipath.h"
@@ -18,6 +20,7 @@
 #include "src/congestion_control/xqc_new_reno.h"
 #include "src/transport/xqc_packet_parser.h"
 #include "xqc_common_test.h"
+#include "xqc_alloc_wrap.h"
 
 xqc_int_t xqc_need_padding(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 
@@ -516,4 +519,240 @@ xqc_test_engine_packet_process()
      * force 1-RTT short-header processing without installed packet keys.
      */
     xqc_engine_destroy(engine);
+}
+
+
+static void *
+xqc_test_engine_no_growth(void *opaque, size_t size)
+{
+    return NULL;
+}
+
+/*
+ * A client engine whose active queue holds one connection, with two
+ * connections, a and b, waiting in its wakeup queue.
+ */
+static xqc_engine_t *
+xqc_test_engine_two_waiting(xqc_connection_t **a, xqc_connection_t **b)
+{
+    xqc_config_t        config;
+    xqc_engine_t       *engine;
+    const xqc_cid_t    *cid;
+
+    CU_ASSERT_FATAL(xqc_engine_get_default_config(&config, XQC_ENGINE_CLIENT)
+                    == XQC_OK);
+    config.conns_active_pq_capacity = 1;
+    engine = test_create_engine_with_config(&config);
+    CU_ASSERT_FATAL(engine != NULL);
+
+    cid = test_cid_connect(engine);
+    CU_ASSERT_FATAL(cid != NULL);
+    *a = xqc_engine_conns_hash_find(engine, cid, 's');
+    cid = test_cid_connect(engine);
+    CU_ASSERT_FATAL(cid != NULL);
+    *b = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_FATAL(*a != NULL && *b != NULL);
+
+    CU_ASSERT((*a)->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP);
+    CU_ASSERT((*b)->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP);
+    return engine;
+}
+
+/*
+ * An API call such as xqc_conn_close() moves its connection from the
+ * wakeup queue to the active queue, for the engine to process it. When the
+ * active queue cannot grow, the connection must not be left in neither
+ * queue, where nothing would process or destroy it again: it waits in the
+ * wakeup queue, due at once, and the next run processes it.
+ */
+void
+xqc_test_engine_active_queue_full(void)
+{
+    uint32_t            sent;
+    xqc_engine_t       *engine;
+    xqc_connection_t   *a, *b;
+    xqc_malloc_wrap_t   pq_malloc;
+
+    engine = xqc_test_engine_two_waiting(&a, &b);
+
+    /*
+     * as from a callback of the engine, which processes the connections of
+     * its active queue once the callback returns
+     */
+    engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
+    CU_ASSERT(xqc_conn_close(engine, &a->scid_set.user_scid) == XQC_OK);
+    CU_ASSERT(a->conn_flag & XQC_CONN_FLAG_TICKING);
+
+    pq_malloc = engine->conns_active_pq->a.malloc;
+    engine->conns_active_pq->a.malloc = xqc_test_engine_no_growth;
+    CU_ASSERT(xqc_conn_close(engine, &b->scid_set.user_scid) == XQC_OK);
+    engine->conns_active_pq->a.malloc = pq_malloc;
+    engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+
+    CU_ASSERT(!(b->conn_flag & XQC_CONN_FLAG_TICKING));
+    CU_ASSERT(b->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP);
+    CU_ASSERT(b->next_tick_time <= xqc_monotonic_timestamp());
+
+    /* the next run sends the CONNECTION_CLOSE of b too */
+    sent = b->snd_pkt_stats.conn_sent_pkts;
+    xqc_engine_main_logic(engine);
+    CU_ASSERT(b->conn_state == XQC_CONN_STATE_CLOSING);
+    CU_ASSERT(b->snd_pkt_stats.conn_sent_pkts > sent);
+
+    xqc_engine_destroy(engine);
+}
+
+/*
+ * xqc_engine_main_logic() moves the connections due from the wakeup queue
+ * to the active queue. One that the active queue cannot take waits in the
+ * wakeup queue, with no error, and the next run processes it.
+ */
+void
+xqc_test_engine_main_logic_active_queue_full(void)
+{
+    xqc_usec_t          ticked;
+    xqc_engine_t       *engine;
+    xqc_connection_t   *a, *b;
+    xqc_malloc_wrap_t   pq_malloc;
+
+    engine = xqc_test_engine_two_waiting(&a, &b);
+
+    /* both due, a first */
+    xqc_engine_remove_wakeup_queue(engine, a);
+    xqc_engine_remove_wakeup_queue(engine, b);
+    a->next_tick_time = 1;
+    b->next_tick_time = 2;
+    CU_ASSERT(xqc_engine_add_wakeup_queue(engine, a) == XQC_OK);
+    CU_ASSERT(xqc_engine_add_wakeup_queue(engine, b) == XQC_OK);
+    ticked = b->last_ticked_time;
+
+    pq_malloc = engine->conns_active_pq->a.malloc;
+    engine->conns_active_pq->a.malloc = xqc_test_engine_no_growth;
+    xqc_engine_main_logic(engine);
+    engine->conns_active_pq->a.malloc = pq_malloc;
+
+    CU_ASSERT(b->conn_err == 0);
+    CU_ASSERT(b->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP);
+    CU_ASSERT(b->last_ticked_time == ticked);
+    CU_ASSERT(b->next_tick_time <= xqc_monotonic_timestamp());
+
+    xqc_engine_main_logic(engine);
+    CU_ASSERT(b->last_ticked_time > ticked);
+    CU_ASSERT(b->conn_err == 0);
+
+    xqc_engine_destroy(engine);
+}
+
+
+/*
+ * Connections that the active queue cannot take when they are new, and
+ * that their caller destroys: xqc_engine_add_active_queue() puts them in
+ * the wakeup queue, or leaves them in neither queue when that one cannot
+ * grow either, and the destroyed engine must hold no reference to them
+ * and leave nothing allocated (xqc_alloc_wrap.h).
+ *
+ * At a server, a client's first packet creates a connection, pushed on
+ * the active queue at the end of xqc_engine_packet_process(), which
+ * destroys it when the push fails. At a client, xqc_connect() destroys a
+ * connection that it cannot queue, here with both queues full.
+ */
+void
+xqc_test_engine_new_conn_active_queue_full(void)
+{
+    int                 ret;
+    xqc_config_t        config;
+    xqc_engine_t       *engine;
+    xqc_connection_t   *a, *b, *w;
+    const xqc_cid_t    *cid;
+    xqc_malloc_wrap_t   active_malloc, wakeup_malloc;
+    unsigned char       pkt_a[XQC_PACKET_INITIAL_MIN_LENGTH];
+    unsigned char       pkt_b[XQC_PACKET_INITIAL_MIN_LENGTH];
+    struct sockaddr     local_addr = {0};
+    struct sockaddr     peer_addr = {0};
+
+    CU_ASSERT_FATAL(xqc_engine_get_default_config(&config, XQC_ENGINE_CLIENT)
+                    == XQC_OK);
+    config.conns_active_pq_capacity = 1;
+    config.conns_wakeup_pq_capacity = 1;
+
+    /* the allocations made once per process */
+    engine = test_create_engine_with_config(&config);
+    CU_ASSERT_FATAL(engine != NULL);
+    CU_ASSERT_FATAL(test_cid_connect(engine) != NULL);
+    xqc_engine_destroy(engine);
+
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+#endif
+
+    /* server: a takes the active queue, b cannot be queued */
+    engine = test_create_engine_with_config(&config);
+    CU_ASSERT_FATAL(engine != NULL);
+    engine->eng_type = XQC_ENGINE_SERVER;
+    xqc_test_build_long_header(pkt_a, sizeof(pkt_a),
+                               XQC_TEST_INITIAL_FIRST_BYTE);
+    xqc_memcpy(pkt_b, pkt_a, sizeof(pkt_b));
+    pkt_b[6] ^= 0xFF;   /* another destination connection ID */
+
+    engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
+    xqc_engine_packet_process(engine, pkt_a, sizeof(pkt_a),
+                              &local_addr, sizeof(local_addr),
+                              &peer_addr, sizeof(peer_addr),
+                              xqc_monotonic_timestamp(), NULL);
+    a = xqc_test_find_packet_conn(engine, pkt_a, sizeof(pkt_a));
+    CU_ASSERT_FATAL(a != NULL);
+    CU_ASSERT(a->conn_flag & XQC_CONN_FLAG_TICKING);
+
+    active_malloc = engine->conns_active_pq->a.malloc;
+    engine->conns_active_pq->a.malloc = xqc_test_engine_no_growth;
+    ret = xqc_engine_packet_process(engine, pkt_b, sizeof(pkt_b),
+                                    &local_addr, sizeof(local_addr),
+                                    &peer_addr, sizeof(peer_addr),
+                                    xqc_monotonic_timestamp(), NULL);
+    engine->conns_active_pq->a.malloc = active_malloc;
+    engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+
+    CU_ASSERT(ret == -XQC_EFATAL);
+    CU_ASSERT(xqc_test_find_packet_conn(engine, pkt_b, sizeof(pkt_b)) == NULL);
+    CU_ASSERT(xqc_test_find_packet_conn(engine, pkt_a, sizeof(pkt_a)) == a);
+    CU_ASSERT(engine->conns_active_pq->count == 1);
+    CU_ASSERT(engine->conns_wait_wakeup_pq->count == 0);
+    xqc_engine_destroy(engine);
+
+    /* client: w waits in the wakeup queue, a is in the active queue */
+    engine = test_create_engine_with_config(&config);
+    CU_ASSERT_FATAL(engine != NULL);
+    cid = test_cid_connect(engine);
+    CU_ASSERT_FATAL(cid != NULL);
+    w = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_FATAL(w != NULL);
+    CU_ASSERT(w->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP);
+
+    engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
+    cid = test_cid_connect(engine);
+    CU_ASSERT_FATAL(cid != NULL);
+    a = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_FATAL(a != NULL);
+    CU_ASSERT(a->conn_flag & XQC_CONN_FLAG_TICKING);
+
+    active_malloc = engine->conns_active_pq->a.malloc;
+    wakeup_malloc = engine->conns_wait_wakeup_pq->a.malloc;
+    engine->conns_active_pq->a.malloc = xqc_test_engine_no_growth;
+    engine->conns_wait_wakeup_pq->a.malloc = xqc_test_engine_no_growth;
+    CU_ASSERT(test_cid_connect(engine) == NULL);
+    engine->conns_active_pq->a.malloc = active_malloc;
+    engine->conns_wait_wakeup_pq->a.malloc = wakeup_malloc;
+    engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+
+    CU_ASSERT(engine->conns_active_pq->count == 1);
+    CU_ASSERT(engine->conns_wait_wakeup_pq->count == 1);
+    CU_ASSERT(a->conn_flag & XQC_CONN_FLAG_TICKING);
+    CU_ASSERT(w->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP);
+    xqc_engine_destroy(engine);
+
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(xqc_test_alloc_live == 0);
+#endif
 }

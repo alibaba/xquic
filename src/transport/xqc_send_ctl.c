@@ -305,6 +305,7 @@ xqc_pn_ctl_create(xqc_connection_t *conn)
 
     for (xqc_pkt_num_space_t i = XQC_PNS_INIT; i < XQC_PNS_N; i++) {
         if (xqc_ack_sent_record_init(&pn_ctl->ack_sent_record[i]) == XQC_ERROR) {
+            xqc_pn_ctl_destroy(pn_ctl);
             return NULL;
         }
     }

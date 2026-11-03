@@ -23,10 +23,12 @@ include_directories(
 
 set(TEST_SERVER_SOURCES
     test_server.c
+    test_log.c
 )
 
 set(TEST_CLIENT_SOURCES
     test_client.c
+    test_log.c
 )
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
@@ -91,6 +93,8 @@ if(HAVE_CUNIT)
     set (UNIT_TEST_DIR unittest)
 
     set(test_SOURCES
+        test_log.c
+        ${UNIT_TEST_DIR}/xqc_test_log_test.c
         ${UNIT_TEST_DIR}/main.c
         ${UNIT_TEST_DIR}/xqc_reliable_reset_test.c
         ${UNIT_TEST_DIR}/xqc_reset_stream_frame_test.c

@@ -418,6 +418,10 @@ main(int argc, char *argv[])
                         xqc_test_connection_closed_log_no_error)
         || !CU_add_test(pSuite, "xqc_test_connection_closed_log_with_error",
                         xqc_test_connection_closed_log_with_error)
+        || !CU_add_test(pSuite, "xqc_test_alpn_information_log_negotiated",
+                        xqc_test_alpn_information_log_negotiated)
+        || !CU_add_test(pSuite, "xqc_test_alpn_information_log_truncated",
+                        xqc_test_alpn_information_log_truncated)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
         || !CU_add_test(pSuite, "xqc_test_murmur_hash2", xqc_test_murmur_hash2)
         || !CU_add_test(pSuite, "xqc_test_murmur_hash2_high_bytes",

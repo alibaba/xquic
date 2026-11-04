@@ -78,8 +78,8 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 601 > /dev/null
 sleep 1
 result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E --conn_options CBBR|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
-slog_res=`grep -E "<==.*xqc_conn_send_retry ok" slog`
-clog_res=`grep -E "packet_parse_retry" clog`
+slog_res=`grep -a -E "<==.*xqc_conn_send_retry ok" slog`
+clog_res=`grep -a -E "packet_parse_retry" clog`
 #echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$slog_res" ] && [ -n "$clog_res" ]; then
     echo ">>>>>>>> pass:1"
@@ -148,8 +148,8 @@ case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
 sleep 1
 client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -x 22 -E | grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
-server_log_res=`grep "decrypt payload error" slog`
-server_conn_cnt=`grep "xqc_conn_create" slog | grep -v "tra_parameters_set" | grep -v "mempool" | grep -v "connection_state_updated" | grep -v "path_assigned" | wc -l`
+server_log_res=`grep -a "decrypt payload error" slog`
+server_conn_cnt=`grep -a "xqc_conn_create" slog | grep -a -v "tra_parameters_set" | grep -a -v "mempool" | grep -a -v "connection_state_updated" | grep -a -v "path_assigned" | wc -l`
 echo "$client_print_res"
 if [ "$client_print_res" != "" ] && [ "$server_log_res" != "" ] && [ $server_conn_cnt -eq 2 ]; then
     case_print_result "client_initial_dcid_corruption" "pass"
@@ -172,7 +172,7 @@ case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
 sleep 1
 client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -x 23 -E | grep ">>>>>>>> pass:1"`
 errlog=`grep_err_log`
-server_iscid_res=`grep "iscid mismatch" slog`
+server_iscid_res=`grep -a "iscid mismatch" slog`
 echo "$client_print_res"
 # After ISCID validation, server detects the corrupted SCID does not match
 # the client's transport-parameter ISCID and closes the connection, so client
@@ -197,7 +197,7 @@ echo -e "server Initial dcid corruption ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -x 3 > /dev/null
 sleep 1
 client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E |grep ">>>>>>>> pass"`
-client_log_res=`grep "fail to find connection" clog`
+client_log_res=`grep -a "fail to find connection" clog`
 echo "$client_print_res"
 if [ "$client_print_res" != "" ] && [ "$client_log_res" != "" ]; then
     case_print_result "server_initial_dcid_corruption" "pass"
@@ -219,7 +219,7 @@ echo -e "server Initial scid corruption ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -x 4 > /dev/null
 sleep 1
 client_print_res=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E |grep ">>>>>>>> pass"`
-client_log_res=`grep "decrypt data error" clog`
+client_log_res=`grep -a "decrypt data error" clog`
 echo "$client_print_res"
 if [ "$client_print_res" != "" ] && [ "$client_log_res" != "" ]; then
     case_print_result "server_initial_scid_corruption" "pass"
@@ -264,11 +264,11 @@ echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client 
 case_test_start_server ${SERVER_BIN} -l d -e -x 450 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
-cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
-cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+cli_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
-svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
-svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+svr_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
 
 if [ "$cli_res1" -gt 0 ] && [ "$cli_res2" -gt 0 ] && [ "$svr_res1" -gt 0 ] && [ "$svr_res2" -gt 0 ]; then
     echo ">>>>>>>> pass:1"
@@ -291,11 +291,11 @@ echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client 
 case_test_start_server ${SERVER_BIN} -l d -e -x 450 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 451 > stdlog
-cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
-cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+cli_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
-svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
-svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+svr_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
 
 echo -e "$cli_res1 $cli_res2 $svr_res1 $svr_res2"
 
@@ -322,7 +322,7 @@ sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 452 > stdlog
 cli_res1=`grep "conn errno" stdlog`
 
-svr_res1=`grep "[error]" slog | grep "xqc_conn_tls_transport_params_cb" | wc -l`
+svr_res1=`grep -a "[error]" slog | grep -a "xqc_conn_tls_transport_params_cb" | wc -l`
 
 if [ -n "$cli_res1" ] && [ -n "$svr_res1" ]; then
     echo ">>>>>>>> pass:1"
@@ -345,11 +345,11 @@ echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client 
 case_test_start_server ${SERVER_BIN} -l d -e -x 450 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 453 > stdlog
-cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
-cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+cli_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
-svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
-svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+svr_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
 
 if [ "$cli_res1" -gt 0 ] && [ "$cli_res2" -eq 0 ] && [ "$svr_res1" -eq 0 ] && [ "$svr_res2" -gt 0 ]; then
     echo ">>>>>>>> pass:1"
@@ -372,11 +372,11 @@ echo -e "ack_timestamp_frame: server disable, 0 < max_ts_per_ack < 64 and client
 case_test_start_server ${SERVER_BIN} -l d -e -x 451 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
-cli_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
-cli_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
+cli_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
-svr_res1=`grep "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
-svr_res2=`grep "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
+svr_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
 
 if [ "$cli_res1" -eq 0 ] && [ "$cli_res2" -eq 0 ] && [ "$svr_res1" -eq 0 ] && [ "$svr_res2" -eq 0 ]; then
     echo ">>>>>>>> pass:1"
@@ -399,9 +399,9 @@ echo -e "ack_timestamp_frame: server enable, max_ts_per_ack > 64 and client enab
 case_test_start_server ${SERVER_BIN} -l d -e -x 452 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
-cli_res1=`grep "[error]" clog | grep "xqc_conn_tls_transport_params_cb" | wc -l`
+cli_res1=`grep -a "[error]" clog | grep -a "xqc_conn_tls_transport_params_cb" | wc -l`
 
-svr_res1=`grep "[error]" slog | grep "xqc_process_conn_close_frame" | wc -l`
+svr_res1=`grep -a "[error]" slog | grep -a "xqc_process_conn_close_frame" | wc -l`
 
 
 if [ "$cli_res1" -gt 0 ] && [ "$svr_res1" -gt 0 ]; then
@@ -427,8 +427,8 @@ echo -e "ack_ecn_parse: both endpoints send ACK_ECN, verify parsing on both side
 case_test_start_server ${SERVER_BIN} -l d -e -x 454 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 454 > stdlog
-cli_res=`grep "ACK_ECN frame ECN counts consumed" clog | wc -l`
-svr_res=`grep "ACK_ECN frame ECN counts consumed" slog | wc -l`
+cli_res=`grep -a "ACK_ECN frame ECN counts consumed" clog | wc -l`
+svr_res=`grep -a "ACK_ECN frame ECN counts consumed" slog | wc -l`
 errlog=`grep_err_log`
 
 if [ -z "$errlog" ] && [ "$cli_res" -gt 0 ] && [ "$svr_res" -gt 0 ]; then
@@ -450,8 +450,8 @@ echo -e "ack_ecn_parse: only server sends ACK_ECN, verify client parsing ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -x 455 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 455 > stdlog
-cli_res=`grep "ACK_ECN frame ECN counts consumed" clog | wc -l`
-svr_res=`grep "ACK_ECN frame ECN counts consumed" slog | wc -l`
+cli_res=`grep -a "ACK_ECN frame ECN counts consumed" clog | wc -l`
+svr_res=`grep -a "ACK_ECN frame ECN counts consumed" slog | wc -l`
 errlog=`grep_err_log`
 
 if [ -z "$errlog" ] && [ "$cli_res" -gt 0 ] && [ "$svr_res" -eq 0 ]; then

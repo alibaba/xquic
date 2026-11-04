@@ -23,8 +23,8 @@ clear_log
 echo -e "h3_ext_bytestream send pure fin ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 310 -T 2 >> clog
 errlog=`grep_err_log`
-clog_res=`cat clog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:5|read_bytes:2|recv_bytes:2|stream_len:2|"`
-slog_res=`cat slog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:2|read_bytes:5|recv_bytes:5|stream_len:5|"`
+clog_res=`cat clog | grep -a "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:5|read_bytes:2|recv_bytes:2|stream_len:2|"`
+slog_res=`cat slog | grep -a "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:2|read_bytes:5|recv_bytes:5|stream_len:5|"`
 if [ -z "$errlog" ] && [ -n "$clog_res" ] && [ -n "$slog_res" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_ext_bytestream_send_pure_fin" "pass"
@@ -178,7 +178,7 @@ clear_log
 echo -e "h3_ext_dgram_send_queue_full...\c"
 ${CLIENT_BIN} -l d -T 2 -s 40000000 -U 1 -Q 65535 -1 > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_later|" stdlog`
-cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
+cli_res2=`grep -a "|too many packets used|ctl_packets_used:" clog`
 cli_res3=`grep "\[h3-dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -z "$errlog" ]; then
@@ -198,7 +198,7 @@ clear_log
 echo -e "h3_ext_dgram_send_queue_full_batch...\c"
 ${CLIENT_BIN} -l d -T 2 -s 40000000 -U 2 -Q 65535 -1 > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_multiple_later|" stdlog`
-cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
+cli_res2=`grep -a "|too many packets used|ctl_packets_used:" clog`
 cli_res3=`grep "\[h3-dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -z "$errlog" ]; then
@@ -649,8 +649,8 @@ ${CLIENT_BIN} -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 304 > stdlog
 cli_res1=`grep -c ">>>>>>>> pass:1" stdlog`
 cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res5=`grep -c "\[bytestream\]|same_content:yes|" stdlog`
-cli_res6=`grep "send pure fin" clog`
-errlog=`grep_err_log | grep -v "send data after fin sent"`
+cli_res6=`grep -a "send pure fin" clog`
+errlog=`grep_err_log | grep -a -v "send data after fin sent"`
 if [ "$cli_res1" == "1" ] \
     && [ ${cli_res4[0]} -eq 102400 ] && [ ${cli_res4[1]} -eq 102400 ] \
     && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
@@ -676,8 +676,8 @@ ${CLIENT_BIN} -l d -T 2 -s 102400 -U 1 -Q 65535 -E -x 305 > stdlog
 cli_res1=`grep -c ">>>>>>>> pass:1" stdlog`
 cli_res4=(`grep "\[bytestream\]|bytes_sent:" stdlog | egrep -o ':[0-9]+' | egrep -o '[0-9]+'`)
 cli_res5=`grep -c "\[bytestream\]|same_content:.*|" stdlog`
-cli_res6=`grep "xqc_h3_ext_bytestream_close|success" clog`
-errlog=`grep_err_log | grep -v "xqc_h3_stream_process_data|xqc_stream_recv"`
+cli_res6=`grep -a "xqc_h3_ext_bytestream_close|success" clog`
+errlog=`grep_err_log | grep -a -v "xqc_h3_stream_process_data|xqc_stream_recv"`
 if [ "$cli_res1" == "1" ] && [ ${cli_res4[0]} -ge 102400 ] \
     && [ "$cli_res5" == "1" ] && [ -n "$cli_res6" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -699,8 +699,8 @@ case_http3_ext_h3_ext_bytestream_blocked_by_stream_flowctl()
 clear_log
 echo -e "h3_ext_bytestream_blocked_by_stream_flowctl...\c"
 ${CLIENT_BIN} -l d -T 2 -s 32000000 -U 1 -Q 65535 -E -x 306 > stdlog
-cli_res2=`grep "|xqc_stream_send|exceed max_stream_data" clog`
-cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res2=`grep -a "|xqc_stream_send|exceed max_stream_data" clog`
+cli_res3=`grep -a "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:32000000|bytes_rcvd:32000000|recv_fin:1|" stdlog`
 cli_res5=`grep -c "\[bytestream\]|same_content:yes|" stdlog`
 errlog=`grep_err_log`
@@ -724,8 +724,8 @@ case_http3_ext_h3_ext_bytestream_blocked_by_0RTT_limit()
 clear_log
 echo -e "h3_ext_bytestream_blocked_by_0RTT_limit...\c"
 ${CLIENT_BIN} -l d -T 2 -s 10000000 -U 1 -Q 65535 -E -x 307 > stdlog
-cli_res2=`grep "|too many 0rtt packets|" clog`
-cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res2=`grep -a "|too many 0rtt packets|" clog`
+cli_res3=`grep -a "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:10000000|bytes_rcvd:10000000|recv_fin:1|" stdlog`
 cli_res5=`grep -c "\[bytestream\]|same_content:yes|" stdlog`
 errlog=`grep_err_log`
@@ -749,8 +749,8 @@ case_http3_ext_h3_ext_bytestream_blocked_by_no_0RTT_support()
 clear_log
 echo -e "h3_ext_bytestream_blocked_by_no_0RTT_support...\c"
 ${CLIENT_BIN} -l d -T 2 -s 1024 -U 1 -Q 65535 -E -x 308 -1 > stdlog
-cli_res2=`grep "|blocked by no 0RTT support|" clog`
-cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res2=`grep -a "|blocked by no 0RTT support|" clog`
+cli_res3=`grep -a "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:1024|bytes_rcvd:1024|recv_fin:1|" stdlog`
 cli_res5=`grep -c "\[bytestream\]|same_content:yes|" stdlog`
 errlog=`grep_err_log`
@@ -800,8 +800,8 @@ case_http3_ext_h3_ext_bytestream_full_message_under_flow_ctrl()
 clear_log
 echo -e "h3_ext_bytestream_full_message_flow_ctrl...\c"
 ${CLIENT_BIN} -l d -T 2 -s 32000000 -U 1 -Q 65535 -E -x 311 > stdlog
-cli_res2=`grep "|xqc_stream_send|exceed max_stream_data" clog`
-cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res2=`grep -a "|xqc_stream_send|exceed max_stream_data" clog`
+cli_res3=`grep -a "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:32001000|bytes_rcvd:32001000|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
 cli_res5=`grep -c "\[bytestream\]|same_content:yes|" stdlog`
 errlog=`grep_err_log`
@@ -821,8 +821,8 @@ case_http3_ext_h3_ext_bytestream_full_message_0RTT_blocking()
 clear_log
 echo -e "h3_ext_bytestream_full_message_0RTT_blocking...\c"
 ${CLIENT_BIN} -l d -T 2 -s 10000000 -U 1 -Q 65535 -E -x 312 > stdlog
-cli_res2=`grep "|too many 0rtt packets|" clog`
-cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res2=`grep -a "|too many 0rtt packets|" clog`
+cli_res3=`grep -a "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:10001000|bytes_rcvd:10001000|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
 cli_res5=`grep -c "\[bytestream\]|same_content:yes|" stdlog`
 errlog=`grep_err_log`
@@ -842,8 +842,8 @@ case_http3_ext_h3_ext_bytestream_full_message_no_0RTT_suppport()
 clear_log
 echo -e "h3_ext_bytestream_full_message_no_0RTT_suppport...\c"
 ${CLIENT_BIN} -l d -T 2 -s 1024 -U 1 -Q 65535 -E -x 313 -1 > stdlog
-cli_res2=`grep "|blocked by no 0RTT support|" clog`
-cli_res3=`grep "|h3_ext_bytestream_write_notify|success|" clog`
+cli_res2=`grep -a "|blocked by no 0RTT support|" clog`
+cli_res3=`grep -a "|h3_ext_bytestream_write_notify|success|" clog`
 cli_res4=`grep "\[bytestream\]|bytes_sent:2024|bytes_rcvd:2024|recv_fin:1|snd_times:2|rcv_times:2|" stdlog`
 cli_res5=`grep -c "\[bytestream\]|same_content:yes|" stdlog`
 errlog=`grep_err_log`
@@ -890,7 +890,7 @@ sleep 1
 clear_log
 echo -e "connect to an h3_ext disabled server...\c"
 ${CLIENT_BIN} -l e -T 2 -s 1024 -U 1 -Q 65535 -E > stdlog
-svr_log=`grep "select proto error" slog`
+svr_log=`grep -a "select proto error" slog`
 
 if [ -n "$svr_log" ]; then
     echo ">>>>>>>> pass:1"
@@ -913,7 +913,7 @@ sleep 1
 clear_log
 echo -e "h3_ext is disabled on the client...\c"
 ${CLIENT_BIN} -l e -T 2 -s 1024 -U 1 -Q 65535 -E -x 315 > stdlog
-cli_res1=`grep "can't get application layer callback" clog`
+cli_res1=`grep -a "can't get application layer callback" clog`
 
 if [ -n "$cli_res1" ]; then
     echo ">>>>>>>> pass:1"

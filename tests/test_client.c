@@ -28,6 +28,7 @@
 #include "src/tls/xqc_tls.h"
 #include "platform.h"
 #include "test_h3_split_fin.h"
+#include "xqc_test_log.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
 #include <sys/socket.h>
@@ -5369,22 +5370,13 @@ xqc_client_close_log_file(void *engine_user_data)
 void 
 xqc_client_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *engine_user_data)
 {
-    unsigned char log_buf[XQC_MAX_LOG_LEN + 1];
-
     client_ctx_t *ctx = (client_ctx_t*)engine_user_data;
     if (ctx->log_fd <= 0) {
         printf("xqc_client_write_log fd err\n");
         return;
     }
 
-    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char *)buf);
-    if (log_len < 0) {
-        printf("xqc_client_write_log err\n");
-        return;
-    }
-
-    int write_len = write(ctx->log_fd, log_buf, log_len);
-    if (write_len < 0) {
+    if (xqc_test_log_write(ctx->log_fd, buf, count) != 0) {
         printf("write log failed, errno: %d\n", errno);
     }
 }
@@ -5392,24 +5384,7 @@ xqc_client_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *e
 void 
 xqc_client_write_qlog(qlog_event_importance_t imp, const void *buf, size_t count, void *engine_user_data)
 {
-    unsigned char log_buf[XQC_MAX_LOG_LEN + 1];
-
-    client_ctx_t *ctx = (client_ctx_t*)engine_user_data;
-    if (ctx->log_fd <= 0) {
-        printf("xqc_client_write_qlog fd err\n");
-        return;
-    }
-
-    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char *)buf);
-    if (log_len < 0) {
-        printf("xqc_client_write_qlog err\n");
-        return;
-    }
-
-    int write_len = write(ctx->log_fd, log_buf, log_len);
-    if (write_len < 0) {
-        printf("write qlog failed, errno: %d\n", errno);
-    }
+    xqc_client_write_log(XQC_LOG_DEBUG, buf, count, engine_user_data);
 }
 
 

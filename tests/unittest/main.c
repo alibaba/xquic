@@ -16,6 +16,7 @@
 #endif
 
 #include "xqc_random_test.h"
+#include "xqc_test_log_test.h"
 #include "xqc_reliable_reset_test.h"
 #include "xqc_reset_stream_frame_test.h"
 #include "xqc_pq_test.h"
@@ -88,6 +89,12 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_log_write_text",
+                        xqc_test_log_write_text)
+        || !CU_add_test(pSuite, "xqc_test_log_write_binary",
+                        xqc_test_log_write_binary)
+        || !CU_add_test(pSuite, "xqc_test_log_write_errors",
+                        xqc_test_log_write_errors)
         || !CU_add_test(pSuite, "xqc_test_conn_create_alloc_failures", xqc_test_conn_create_alloc_failures)
         || !CU_add_test(pSuite, "xqc_test_conn_destroy_frees_crypto_data",
                         xqc_test_conn_destroy_frees_crypto_data)

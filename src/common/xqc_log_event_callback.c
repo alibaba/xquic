@@ -694,7 +694,8 @@ xqc_log_HTTP_FRAME_CREATED_callback(xqc_log_t *log, const char *func, ...)
             }
         }
         xqc_qlog_implement(log, HTTP_FRAME_CREATED, func,
-                          "|stream_id:%ui|type:%d|%s", stream_id, type, log_buf);
+                          "|stream_id:%ui|type:%d|%*s", stream_id, type,
+                          (size_t) (p - log_buf), log_buf);
         break;
     }
     case XQC_H3_FRM_CANCEL_PUSH:

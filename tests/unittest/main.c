@@ -681,6 +681,12 @@ main(int argc, char *argv[])
                         xqc_test_h3_settings_validation_log)
         || !CU_add_test(pSuite, "xqc_test_h3_settings_validation_log_errors",
                         xqc_test_h3_settings_validation_log_errors)
+        || !CU_add_test(pSuite, "xqc_test_h3_frame_created_log_headers",
+                        xqc_test_h3_frame_created_log_headers)
+        || !CU_add_test(pSuite, "xqc_test_h3_frame_created_log_no_headers",
+                        xqc_test_h3_frame_created_log_no_headers)
+        || !CU_add_test(pSuite, "xqc_test_h3_frame_created_log_truncated",
+                        xqc_test_h3_frame_created_log_truncated)
         || !CU_add_test(pSuite, "xqc_test_h3_peer_settings_batch",
                         xqc_test_h3_peer_settings_batch)
         || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_boundaries",

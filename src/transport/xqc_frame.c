@@ -577,6 +577,7 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t            ret;
     uint64_t             frame_end;
+    xqc_bool_t           dup_with_new_fin = XQC_FALSE;
     xqc_stream_id_t      stream_id;
     xqc_stream_type_t    stream_type;
     xqc_stream_t        *stream = NULL;
@@ -691,9 +692,11 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     stream->stream_stats.final_packet_time = xqc_monotonic_timestamp();
     if (stream_frame->data_offset + stream_frame->data_length <= stream->stream_data_in.merged_offset_end) {
-        /* a FIN-only frame still carries news until the final size is known */
-        if (!(stream_frame->fin && stream_frame->data_length == 0
-              && !stream->stream_data_in.stream_determined))
+        /*
+         * A FIN still carries news until the final size is known, also on a
+         * frame whose data arrived earlier without it.
+         */
+        if (!(stream_frame->fin && !stream->stream_data_in.stream_determined))
         {
             xqc_log(conn->log, XQC_LOG_DEBUG, "|already recvd|data_offset:%ui|data_length:%ud|merged_offset_end:%ui|",
                     stream_frame->data_offset, stream_frame->data_length, stream->stream_data_in.merged_offset_end);
@@ -706,6 +709,17 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             && stream->stream_data_in.stream_length != stream_frame->data_offset + stream_frame->data_length) 
         {
             xqc_log(conn->log, XQC_LOG_ERROR, "|final size changed|stream_id:%ui|", stream_id);
+            XQC_CONN_ERR(conn, TRA_FINAL_SIZE_ERROR);
+            ret = -XQC_EPROTO;
+            goto error;
+        }
+
+        /* RFC 9000 Section 4.5: a final size below received data */
+        if (stream_frame->data_offset + stream_frame->data_length
+            < stream->stream_max_recv_offset)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|final size below received data|stream_id:%ui|",
+                    stream_id);
             XQC_CONN_ERR(conn, TRA_FINAL_SIZE_ERROR);
             ret = -XQC_EPROTO;
             goto error;
@@ -772,23 +786,18 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 
     ret = xqc_insert_stream_frame(conn, stream, stream_frame);
     if (ret == -XQC_EDUP_FRAME) {
-        /*
-         * The payload is already buffered or delivered, but the frame may
-         * still carry the stream's first FIN: a retransmission can bundle FIN
-         * onto a range first received without it. The stream cannot complete
-         * here: a duplicate always ends beyond merged_offset_end, or the
-         * already-recvd check above would have consumed it.
-         */
-        if (stream_frame->fin && !stream->stream_data_in.stream_determined) {
-            stream->stream_data_in.stream_length = frame_end;
-            stream->stream_data_in.stream_determined = XQC_TRUE;
-
-            if (stream->stream_state_recv == XQC_RECV_STREAM_ST_RECV) {
-                xqc_stream_recv_state_update(stream, XQC_RECV_STREAM_ST_SIZE_KNOWN);
-            }
-        }
         ret = XQC_OK;
-        goto free;
+        if (!(stream_frame->fin && !stream->stream_data_in.stream_determined)) {
+            goto free;
+        }
+
+        /*
+         * The payload is already buffered or delivered, but the frame carries
+         * the stream's first FIN: a retransmission can bundle FIN onto a range
+         * first received without it. Record the final size and run the
+         * completion check below; the frame itself is not buffered.
+         */
+        dup_with_new_fin = XQC_TRUE;
 
     } else if (ret == -XQC_ELIMIT
                && packet_in->pi_pkt.pkt_type == XQC_PTYPE_SHORT_HEADER)
@@ -853,6 +862,10 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     else if (stream->stream_data_in.next_read_offset < stream->stream_data_in.merged_offset_end) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_stream_ready_to_read part recvd|");
         xqc_stream_ready_to_read(stream);
+    }
+
+    if (dup_with_new_fin) {
+        goto free;
     }
 
     if (!(packet_in->pi_flag & XQC_PIF_FEC_RECOVERED)

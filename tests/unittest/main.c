@@ -507,6 +507,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_stream_frame_dup_then_gap_fill_at_cap", xqc_test_stream_frame_dup_then_gap_fill_at_cap)
         || !CU_add_test(pSuite, "xqc_test_stream_frame_resplit_dup_at_cap", xqc_test_stream_frame_resplit_dup_at_cap)
         || !CU_add_test(pSuite, "xqc_test_stream_frame_cap_reject_then_gap_fill", xqc_test_stream_frame_cap_reject_then_gap_fill)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_cap_reject_fin_then_overlap", xqc_test_stream_frame_cap_reject_fin_then_overlap)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_fin_below_received", xqc_test_stream_frame_fin_below_received)
         || !CU_add_test(pSuite, "xqc_test_stream_frame_cap_one", xqc_test_stream_frame_cap_one)
         || !CU_add_test(pSuite,
                         "xqc_test_stop_sending_drops_queued_stream_packets",

@@ -694,6 +694,113 @@ xqc_test_stream_frame_cap_reject_then_gap_fill()
 }
 
 /**
+ * A FIN-bearing frame rejected at the cap, followed in the same packet by an
+ * overlapping hole-filler without FIN: the retransmitted FIN carries no new
+ * data but must still fix the final size and complete the stream.
+ */
+void
+xqc_test_stream_frame_cap_reject_fin_then_overlap()
+{
+    xqc_int_t ret;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) return;
+
+    conn->conn_settings.max_stream_frame_buffered_cnt = 3;
+
+    xqc_stream_t *stream = test_stream_with_fc(conn, 1 << 20, 1 << 20);
+    CU_ASSERT(stream != NULL);
+    if (stream == NULL) { xqc_engine_destroy(conn->engine); return; }
+    CU_ASSERT(stream->stream_id < 64);
+
+    unsigned char seed1[14] = { 0x0e, (unsigned char)stream->stream_id, 0x14, 0x0a,
+                                'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    unsigned char seed2[14] = { 0x0e, (unsigned char)stream->stream_id, 0x28, 0x0a,
+                                'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    ret = test_process_stream_bytes(conn, seed1, sizeof(seed1), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+    ret = test_process_stream_bytes(conn, seed2, sizeof(seed2), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* one packet: [60,70)+FIN (OFF|LEN|FIN), then [0,70) (LEN, 2-byte varint) */
+    unsigned char pkt[14 + 74];
+    memset(pkt, 'x', sizeof(pkt));
+    pkt[0] = 0x0f; pkt[1] = (unsigned char)stream->stream_id; pkt[2] = 0x3c; pkt[3] = 0x0a;
+    pkt[14] = 0x0a; pkt[15] = (unsigned char)stream->stream_id; pkt[16] = 0x40; pkt[17] = 0x46;
+
+    char buf[128];
+    unsigned char fin = 0;
+    xqc_packet_in_t packet_in;
+    for (int round = 0; round < 2; round++) {
+        memset(&packet_in, 0, sizeof(packet_in));
+        packet_in.buf = pkt;
+        packet_in.buf_size = sizeof(pkt);
+        packet_in.pos = pkt;
+        packet_in.last = pkt + sizeof(pkt);
+        packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+        ret = xqc_process_frames(conn, &packet_in);
+        if (round == 0) {
+            CU_ASSERT(ret == -XQC_EIGNORE_PKT);
+            CU_ASSERT(stream->stream_data_in.merged_offset_end == 70);
+            CU_ASSERT(stream->stream_data_in.stream_determined == XQC_FALSE);
+            CU_ASSERT(xqc_stream_recv(stream, buf, sizeof(buf), &fin) == 70);
+            CU_ASSERT(fin == 0);
+
+        } else {
+            CU_ASSERT(ret == XQC_OK);
+            CU_ASSERT(stream->stream_data_in.stream_determined == XQC_TRUE);
+            CU_ASSERT(stream->stream_data_in.stream_length == 70);
+            CU_ASSERT(stream->stream_state_recv == XQC_RECV_STREAM_ST_DATA_RECVD);
+        }
+    }
+
+    fin = 0;
+    ret = xqc_stream_recv(stream, buf, sizeof(buf), &fin);
+    CU_ASSERT(ret == 0);
+    CU_ASSERT(fin == 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/**
+ * RFC 9000 Section 4.5: a FIN whose final size is below data already
+ * received is a FINAL_SIZE_ERROR, also when its own data is a duplicate.
+ */
+void
+xqc_test_stream_frame_fin_below_received()
+{
+    xqc_int_t ret;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) return;
+
+    xqc_stream_t *stream = test_stream_with_fc(conn, 1 << 20, 1 << 20);
+    CU_ASSERT(stream != NULL);
+    if (stream == NULL) { xqc_engine_destroy(conn->engine); return; }
+    CU_ASSERT(stream->stream_id < 64);
+
+    /* [0,20) delivered */
+    unsigned char data20[23];
+    memset(data20, 'd', sizeof(data20));
+    data20[0] = 0x0a; data20[1] = (unsigned char)stream->stream_id; data20[2] = 0x14;
+    ret = test_process_stream_bytes(conn, data20, sizeof(data20), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+
+    /* [0,10)+FIN: its data is a duplicate, its final size 10 is below 20 */
+    unsigned char fin10[13];
+    memset(fin10, 'd', sizeof(fin10));
+    fin10[0] = 0x0b; fin10[1] = (unsigned char)stream->stream_id; fin10[2] = 0x0a;
+    ret = test_process_stream_bytes(conn, fin10, sizeof(fin10), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_FINAL_SIZE_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/**
  * A cap of 1 still lets the stream progress: a frame the stream can be
  * advanced by (in-order data, or a FIN-only frame fixing the final size)
  * takes the reserved slot, while out-of-order frames keep being rejected.

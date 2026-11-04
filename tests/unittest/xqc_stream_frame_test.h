@@ -19,6 +19,8 @@ void  xqc_test_stream_frame_resplit_dup_at_cap();
 void  xqc_test_stream_frame_cap_one();
 
 void  xqc_test_stream_frame_cap_reject_then_gap_fill();
+void  xqc_test_stream_frame_cap_reject_fin_then_overlap();
+void  xqc_test_stream_frame_fin_below_received();
 void  xqc_test_stop_sending_drops_queued_stream_packets();
 void  xqc_test_stop_sending_spares_other_streams();
 

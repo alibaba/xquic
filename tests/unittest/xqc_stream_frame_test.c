@@ -171,7 +171,12 @@ test_process_stream_bytes(xqc_connection_t *conn, const unsigned char *buf,
     packet_in.pos = (unsigned char *)buf;
     packet_in.last = (unsigned char *)buf + len;
     packet_in.pi_pkt.pkt_type = pkt_type;
-    return xqc_process_stream_frame(conn, &packet_in);
+    xqc_int_t ret = xqc_process_stream_frame(conn, &packet_in);
+    /* xqc_process_frames() drops a packet flagged at the cap */
+    if (ret == XQC_OK && (packet_in.pi_flag & XQC_PIF_DROP_UNACKED)) {
+        return -XQC_EIGNORE_PKT;
+    }
+    return ret;
 }
 
 static xqc_stream_t *
@@ -607,6 +612,83 @@ xqc_test_stream_frame_resplit_dup_at_cap()
     ret = xqc_process_frames(conn, &packet_in);
     CU_ASSERT(ret == XQC_OK);
     CU_ASSERT(stream->stream_data_in.merged_offset_end == 30);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/**
+ * A frame rejected at the cap skips only itself: a hole-filling frame later
+ * in the same packet still takes the reserved slot, and the packet is
+ * dropped unacked as a whole. Otherwise a retransmission in the same frame
+ * order would hit the cap again and the stream would stall.
+ */
+void
+xqc_test_stream_frame_cap_reject_then_gap_fill()
+{
+    xqc_int_t ret;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
+    if (conn == NULL) return;
+
+    conn->conn_settings.max_stream_frame_buffered_cnt = 3;
+
+    xqc_stream_t *stream = test_stream_with_fc(conn, 1 << 20, 1 << 20);
+    CU_ASSERT(stream != NULL);
+    if (stream == NULL) { xqc_engine_destroy(conn->engine); return; }
+    CU_ASSERT(stream->stream_id < 64);
+
+    /* cap - 1 real nodes beyond the hole: [20,30) and [40,50) (OFF|LEN) */
+    unsigned char seed1[14] = { 0x0e, (unsigned char)stream->stream_id, 0x14, 0x0a,
+                                'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    unsigned char seed2[14] = { 0x0e, (unsigned char)stream->stream_id, 0x28, 0x0a,
+                                'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x' };
+    ret = test_process_stream_bytes(conn, seed1, sizeof(seed1), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+    ret = test_process_stream_bytes(conn, seed2, sizeof(seed2), XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_data_in.buffered_frame_count == 2);
+
+    /* one packet: unbuffered [60,70) first, then the hole-filling [0,20) */
+    unsigned char pkt[14 + 23] = {
+        0x0e, (unsigned char)stream->stream_id, 0x3c, 0x0a,
+        'y', 'y', 'y', 'y', 'y', 'y', 'y', 'y', 'y', 'y',
+        0x0a, (unsigned char)stream->stream_id, 0x14,
+        'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd',
+        'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd', 'd',
+    };
+
+    xqc_packet_in_t packet_in;
+    for (int round = 0; round < 2; round++) {
+        memset(&packet_in, 0, sizeof(packet_in));
+        packet_in.buf = pkt;
+        packet_in.buf_size = sizeof(pkt);
+        packet_in.pos = pkt;
+        packet_in.last = pkt + sizeof(pkt);
+        packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+
+        ret = xqc_process_frames(conn, &packet_in);
+        if (round == 0) {
+            /* [60,70) rejected, the packet stays unacked; the hole is filled */
+            CU_ASSERT(ret == -XQC_EIGNORE_PKT);
+            CU_ASSERT(conn->conn_err == 0);
+            CU_ASSERT(stream->stream_data_in.merged_offset_end == 30);
+            CU_ASSERT(stream->stream_max_recv_offset == 50);
+            CU_ASSERT(stream->stream_data_in.buffered_frame_count == 3);
+
+            /* the application reads the prefix, freeing its nodes */
+            char buf[64];
+            unsigned char fin = 0;
+            CU_ASSERT(xqc_stream_recv(stream, buf, sizeof(buf), &fin) == 30);
+            CU_ASSERT(stream->stream_data_in.buffered_frame_count == 1);
+
+        } else {
+            /* the retransmission in the same frame order now gets through */
+            CU_ASSERT(ret == XQC_OK);
+            CU_ASSERT(stream->stream_max_recv_offset == 70);
+            CU_ASSERT(stream->stream_data_in.buffered_frame_count == 2);
+        }
+    }
 
     xqc_engine_destroy(conn->engine);
 }

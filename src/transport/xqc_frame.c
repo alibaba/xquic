@@ -549,6 +549,10 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         }
     }
 
+    if (packet_in->pi_flag & XQC_PIF_DROP_UNACKED) {
+        return -XQC_EIGNORE_PKT;
+    }
+
     return XQC_OK;
 }
 
@@ -795,14 +799,19 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
          * STREAM data has been enqueued) instead of closing the connection;
          * the peer retransmits it after the buffer has drained. Nothing about
          * this frame has been recorded yet, so the retransmission is processed
-         * afresh. Limited to short header packets: the tolerant error path
-         * skips the rest of the datagram, and a short header packet is always
-         * the last one in it.
+         * afresh. Only this frame is skipped: the rest of the packet is still
+         * processed, since a later frame may fill the hole and take the
+         * reserved slot, and xqc_process_frames() drops the packet at the end.
+         * Processing a packet without acknowledging it is what the peer sees
+         * when the ACK is lost. Limited to short header packets: the tolerant
+         * error path skips the rest of the datagram, and a short header packet
+         * is always the last one in it.
          */
         xqc_log(conn->log, XQC_LOG_DEBUG,
                 "|reassembly buffer full, drop packet unacked|stream_id:%ui|", stream_id);
-        ret = -XQC_EIGNORE_PKT;
-        goto error;
+        packet_in->pi_flag |= XQC_PIF_DROP_UNACKED;
+        ret = XQC_OK;
+        goto free;
 
     } else if (ret) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_insert_stream_frame error|stream_id:%ui|", stream_id);

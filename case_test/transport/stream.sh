@@ -24,11 +24,11 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 17 > /dev/null
 clear_log
 echo -e "server-inited stream ...\c"
 ${CLIENT_BIN} -l d -E -t 3 >> stdlog
-client_refuse=`grep "ignore server initiated bidi-streams at client" clog`
-client_discard=`grep "data discarded" clog`
-client_check=`grep "xqc_h3_stream_close_notify" clog | grep "|stream_id:1|"`
+client_refuse=`grep -a "ignore server initiated bidi-streams at client" clog`
+client_discard=`grep -a "data discarded" clog`
+client_check=`grep -a "xqc_h3_stream_close_notify" clog | grep -a "|stream_id:1|"`
 client_std_res=`grep ">>>>>>>> pass" stdlog`
-clog_res=`grep "xqc_destroy_stream" clog | grep "close_msg:finished" | grep "stream_id:1"`
+clog_res=`grep -a "xqc_destroy_stream" clog | grep -a "close_msg:finished" | grep -a "stream_id:1"`
 if [ -n "$client_refuse" ] && [ -n "$client_discard" ] && [ -n "$client_std_res" ] && [ -n "$clog_res" ] && [ -z "$client_check" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "server_inited_stream" "pass"
@@ -56,8 +56,8 @@ clear_log
 echo -e "stream send pure fin ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 99 -T 1 >> clog
 errlog=`grep_err_log`
-clog_res=`cat clog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
-slog_res=`cat slog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
+clog_res=`cat clog | grep -a "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
+slog_res=`cat slog | grep -a "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
 if [ -z "$errlog" ] && [ -n "$clog_res" ] && [ -n "$slog_res" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "stream_send_pure_fin" "pass"
@@ -88,7 +88,7 @@ sleep 1
 clear_log
 echo -e "stream read notify fail ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 12 >> clog
-result=`grep_err_log|grep -v xqc_h3_request_on_recv|grep -v xqc_h3_stream_process_in|grep -v xqc_h3_stream_read_notify|grep -v xqc_process_read_streams|grep -v xqc_process_conn_close_frame|grep -v xqc_h3_stream_process_request`
+result=`grep_err_log|grep -a -v xqc_h3_request_on_recv|grep -a -v xqc_h3_stream_process_in|grep -a -v xqc_h3_stream_read_notify|grep -a -v xqc_process_read_streams|grep -a -v xqc_process_conn_close_frame|grep -a -v xqc_h3_stream_process_request`
 if [ -z "$result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "stream_read_notify_fail" "pass"
@@ -107,7 +107,7 @@ case_transport_stream_create_stream_fail()
 clear_log
 echo -e "create stream fail ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 11 >> clog
-result=`grep_err_log|grep -v xqc_stream_create`
+result=`grep_err_log|grep -a -v xqc_stream_create`
 if [ -z "$result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "create_stream_fail" "pass"
@@ -146,7 +146,7 @@ case_transport_stream_send_data_after_fin()
 clear_log
 echo -e "send data after fin ...\c"
 result=`${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 50 |grep ">>>>>>>> pass"`
-errlog=`grep_err_log | grep -v "send data after fin sent"`
+errlog=`grep_err_log | grep -a -v "send data after fin sent"`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "send_data_after_fin" "pass"
@@ -163,7 +163,7 @@ case_transport_stream_send_header_after_fin()
 clear_log
 echo -e "send header after fin ...\c"
 result=`${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 51 |grep ">>>>>>>> pass"`
-errlog=`grep_err_log | grep -v "send data after fin sent"`
+errlog=`grep_err_log | grep -a -v "send data after fin sent"`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "send_header_after_fin" "pass"
@@ -180,7 +180,7 @@ case_transport_stream_send_fin_after_fin()
 clear_log
 echo -e "send fin after fin ...\c"
 result=`${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 52 |grep ">>>>>>>> pass"`
-errlog=`grep_err_log | grep -v "send data after fin sent"`
+errlog=`grep_err_log | grep -a -v "send data after fin sent"`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "send_fin_after_fin" "pass"
@@ -198,14 +198,14 @@ case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
 sleep 1
 
-grep_err_log|grep -v xqc_process_write_streams|grep -v xqc_h3_stream_write_notify|grep -v xqc_process_conn_close_frame
+grep_err_log|grep -a -v xqc_process_write_streams|grep -a -v xqc_h3_stream_write_notify|grep -a -v xqc_process_conn_close_frame
 
 
 
 clear_log
 echo -e "Reset stream when sending...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 1 >> clog
-if grep "send_state:5|recv_state:5" clog >/dev/null; then
+if grep -a "send_state:5|recv_state:5" clog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "reset_stream" "pass"
 else
@@ -216,16 +216,16 @@ fi
 
 case_transport_stream_reset_stream_when_receiving()
 {
-grep_err_log|grep -v stream
+grep_err_log|grep -a -v stream
 
 
 clear_log
 echo -e "Reset stream when receiving...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 21 > stdlog
-reset=`grep "xqc_write_reset_stream_to_packet" clog`
+reset=`grep -a "xqc_write_reset_stream_to_packet" clog`
 # RFC 9000 Sections 3.1 and 3.4: an acknowledged send stays Data Recvd.
-flag=`grep 'xqc_destroy_stream|err:0x10c|.*send_state:[35]|recv_state:5|stream_id:0|' clog`
-errlog=`grep_err_log|grep -v stream`
+flag=`grep -a 'xqc_destroy_stream|err:0x10c|.*send_state:[35]|recv_state:5|stream_id:0|' clog`
+errlog=`grep_err_log|grep -a -v stream`
 if [ -n "$flag" ] && [ -z "$errlog" ] && [ -z "$reset" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "reset_stream_when_receiving" "pass"
@@ -245,10 +245,10 @@ case_transport_stream_send_header_after_reset_stream()
 clear_log
 echo -e "Send header after reset stream...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 28 > stdlog
-result=`grep "xqc_conn_destroy.*err:0x0" clog`
+result=`grep -a "xqc_conn_destroy.*err:0x0" clog`
 # RFC 9000 Sections 3.1 and 3.4: an acknowledged send stays Data Recvd.
-flag=`grep 'xqc_destroy_stream|err:0x10c|.*send_state:[35]|recv_state:5|stream_id:0|' clog`
-errlog=`grep_err_log|grep -v stream`
+flag=`grep -a 'xqc_destroy_stream|err:0x10c|.*send_state:[35]|recv_state:5|stream_id:0|' clog`
+errlog=`grep_err_log|grep -a -v stream`
 if [ -n "$flag" ] && [ -z "$errlog" ] && [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "send_header_after_reset_stream" "pass"
@@ -278,7 +278,7 @@ case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l i -e -x 2 > /dev/null
 sleep 1
 ${CLIENT_BIN} -l d -T 1 -E >> clog
-if grep "stream_read_notify is NULL" slog >/dev/null; then
+if grep -a "stream_read_notify is NULL" slog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "NULL_stream_callback" "pass"
 else
@@ -448,7 +448,7 @@ clear_log
 echo -e "send_queue_full...\c"
 ${CLIENT_BIN} -l d -T 1 -s 40000000 -U 1 -Q 65535 -1 > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_later|" stdlog`
-cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
+cli_res2=`grep -a "|too many packets used|ctl_packets_used:" clog`
 cli_res3=`grep "\[dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -z "$errlog" ]; then
@@ -468,7 +468,7 @@ clear_log
 echo -e "send_queue_full_batch...\c"
 ${CLIENT_BIN} -l d -T 1 -s 40000000 -U 2 -Q 65535 -1 > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_multiple_later|" stdlog`
-cli_res2=`grep "|too many packets used|ctl_packets_used:" clog`
+cli_res2=`grep -a "|too many packets used|ctl_packets_used:" clog`
 cli_res3=`grep "\[dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -n "$cli_res3" ] && [ -z "$errlog" ]; then
@@ -545,8 +545,8 @@ sleep 1
 echo -e "reset_stream_on_send_only_stream ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 705 >> clog
 sleep 1
-server_rejected=`grep "RESET_STREAM on send-only stream|stream_id:3|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+server_rejected=`grep -a "RESET_STREAM on send-only stream|stream_id:3|" slog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "reset_stream_on_send_only_stream" "pass"
@@ -570,8 +570,8 @@ ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 717 > stdlog
 sleep 1
 result=`grep ">>>>>>>> pass:1" stdlog`
 server_reset=`grep "\[recv-only-reset-test\]|stream_id:.*|ret:0|" svr_stdlog`
-server_rejected=`grep "RESET_STREAM on send-only stream" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+server_rejected=`grep -a "RESET_STREAM on send-only stream" slog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$result" ] && [ -n "$server_reset" ] \
     && [ -z "$server_rejected" ] && [ -z "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
@@ -603,8 +603,8 @@ client_injected=`grep \
 server_parsed=`grep \
     "xqc_parse_reset_stream_frame|type:3|stream_id:2|"\
 "err_code:0|final_size:6|" slog`
-server_accepted=`grep "xqc_stream_recv_state_update|stream_id:2|recv_stream|old:0|new:4|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:6|" clog`
+server_accepted=`grep -a "xqc_stream_recv_state_update|stream_id:2|recv_stream|old:0|new:4|" slog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:6|" clog`
 if [ -n "$result" ] && [ -n "$client_injected" ] \
     && [ -n "$server_parsed" ] && [ -n "$server_accepted" ] \
     && [ -z "$client_close_code" ]; then
@@ -635,7 +635,7 @@ client_injected=`grep \
 server_parsed=`grep \
     "xqc_parse_reset_stream_frame|type:3|stream_id:2|"\
 "err_code:0|final_size:5|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:6|" clog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:6|" clog`
 if [ -n "$client_injected" ] && [ -n "$server_parsed" ] \
     && [ -n "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
@@ -659,8 +659,8 @@ sleep 1
 echo -e "stop_sending_on_recv_only_stream ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 706 >> clog
 sleep 1
-server_rejected=`grep "STOP_SENDING on recv-only stream|stream_id:2|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+server_rejected=`grep -a "STOP_SENDING on recv-only stream|stream_id:2|" slog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "stop_sending_on_recv_only_stream" "pass"
@@ -682,8 +682,8 @@ sleep 1
 echo -e "stream_frame_on_send_only_stream ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 707 >> clog
 sleep 1
-server_rejected=`grep "STREAM frame on send-only stream|stream_id:3|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+server_rejected=`grep -a "STREAM frame on send-only stream|stream_id:3|" slog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "stream_frame_on_send_only_stream" "pass"
@@ -705,8 +705,8 @@ sleep 1
 echo -e "stream_frame_on_local_uncreated_stream ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 708 >> clog
 sleep 1
-server_rejected=`grep "STREAM frame on locally initiated uncreated stream|stream_id:1|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+server_rejected=`grep -a "STREAM frame on locally initiated uncreated stream|stream_id:1|" slog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "stream_frame_on_local_uncreated_stream" "pass"
@@ -738,7 +738,7 @@ server_applied=`grep \
 "max_stream_data=4611686018427387903|"\
 "max_stream_data_old=16777216|" \
     slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$result" ] && [ -n "$server_received" ] \
     && [ -n "$server_applied" ] \
     && [ -z "$client_close_code" ]; then
@@ -762,8 +762,8 @@ sleep 1
 echo -e "max_stream_data_on_recv_only_stream ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 719 >> clog
 sleep 1
-server_rejected=`grep "MAX_STREAM_DATA on recv-only stream|stream_id:2|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+server_rejected=`grep -a "MAX_STREAM_DATA on recv-only stream|stream_id:2|" slog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$server_rejected" ] && [ -n "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "max_stream_data_on_recv_only_stream" "pass"
@@ -790,8 +790,8 @@ client_closed=`grep \
     stdlog`
 server_reset=`grep \
     "xqc_parse_reset_stream_frame|type:3|stream_id:2|" slog`
-server_rejected=`grep "STOP_SENDING on recv-only stream|stream_id:2|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+server_rejected=`grep -a "STOP_SENDING on recv-only stream|stream_id:2|" slog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$client_closed" ] && [ -n "$server_reset" ] \
     && [ -z "$server_rejected" ] && [ -z "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
@@ -824,8 +824,8 @@ server_stop=`grep \
     "xqc_parse_stop_sending_frame|type:4|stream_id:3|" slog`
 client_reset=`grep \
     "xqc_parse_reset_stream_frame|type:3|stream_id:3|" clog`
-server_rejected=`grep "RESET_STREAM on send-only stream|stream_id:3|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+server_rejected=`grep -a "RESET_STREAM on send-only stream|stream_id:3|" slog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$server_sent" ] && [ -n "$client_closed" ] \
     && [ -n "$server_stop" ] && [ -n "$client_reset" ] \
     && [ -z "$server_rejected" ] && [ -z "$client_close_code" ]; then
@@ -858,7 +858,7 @@ client_closed=`grep \
 "state_before:3|close_ret:0|state_after:3|" stdlog`
 server_reset=`grep \
     "xqc_parse_reset_stream_frame|type:3|stream_id:2|" slog`
-client_close_code=`grep "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
+client_close_code=`grep -a "xqc_parse_conn_close_frame|type:18|err_code:5|" clog`
 if [ -n "$client_sent" ] && [ -n "$client_closed" ] \
     && [ -z "$server_reset" ] && [ -z "$client_close_code" ]; then
     echo ">>>>>>>> pass:1"
@@ -887,7 +887,7 @@ case_transport_stream_reliable_reset()
             '\[reliable-reset-test\]|reset:1|total:3|conn_error:0|' \
             && grep -q '\[reliable-reset-test\]|prefix:abc|total:3|fin:0|' \
                 svr_stdlog \
-            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+            && ! grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
         then
             result=pass
         fi
@@ -895,7 +895,7 @@ case_transport_stream_reliable_reset()
         if grep -q '\[reliable-reset-test\]|api|set:0|sent:3|reset:0|close:0|conn_error:0|' stdlog \
             && case_test_wait_for_log svr_stdlog \
                 '\[reliable-reset-test\]|peer_reset|stream:.*|error:9|prefix:3|' \
-            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+            && ! grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
         then
             result=pass
         fi
@@ -904,30 +904,30 @@ case_transport_stream_reliable_reset()
             && grep -Fq '[reliable-reset-test]|lower|set:0|reset:0|' svr_stdlog \
             && grep -Fq '[reliable-reset-test]|duplicate:2|send_error:17|recv_error:9|conn_error:0|' svr_stdlog \
             && grep -q '>>>>>>>> pass:1' stdlog \
-            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+            && ! grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
         then
             result=pass
         fi
     elif [[ "${id}" = 745 ]]; then
         if grep -Fq '[reliable-reset-test]|case:745|injected|' stdlog \
             && grep -Fq '[reliable-reset-test]|peer_reset|stream:2|error:9|prefix:0|' svr_stdlog \
-            && grep -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:0|fin:1|' slog \
-            && grep -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:1|fin:1|' slog \
-            && grep -q 'xqc_parse_conn_close_frame|type:18|err_code:6|' clog
+            && grep -a -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:0|fin:1|' slog \
+            && grep -a -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:1|fin:1|' slog \
+            && grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:6|' clog
         then
             result=pass
         fi
     elif [[ "${id}" = 746 ]]; then
         if grep -Fq '[reliable-reset-test]|api|set:0|sent:3|reset:0|close:0|conn_error:0|' stdlog \
             && grep -Fq '[reliable-reset-test]|repeat_close:0|send_error:9|stop:1|' stdlog \
-            && grep -q 'xqc_parse_reset_stream_frame|type:3|stream_id:4|err_code:9|final_size:3|' slog \
-            && grep -q 'xqc_parse_stop_sending_frame|type:4|stream_id:4|err_code:268|' slog \
-            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+            && grep -a -q 'xqc_parse_reset_stream_frame|type:3|stream_id:4|err_code:9|final_size:3|' slog \
+            && grep -a -q 'xqc_parse_stop_sending_frame|type:4|stream_id:4|err_code:268|' slog \
+            && ! grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
         then
             result=pass
         fi
     elif grep -q "\[reliable-reset-test\]|case:${id}|injected|" stdlog \
-        && grep -q "xqc_parse_conn_close_frame|type:18|err_code:${expected_error}|" clog
+        && grep -a -q "xqc_parse_conn_close_frame|type:18|err_code:${expected_error}|" clog
     then
         result=pass
     fi

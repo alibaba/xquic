@@ -242,7 +242,7 @@ case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
 sleep 1
 
-grep_err_log|grep -v stream
+grep_err_log|grep -a -v stream
 rm -f ccfc.log
 
 clear_log
@@ -354,9 +354,9 @@ clear_log
 echo -e "lost PMTUD probes start no congestion event ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E --pmtud 1 -x 804 > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
-probe_lost=`grep "|PMTUD probe lost|" clog`
-marked=`grep "|mark lost|" clog`
-cc_event=`grep "|OnLostDetection|" clog`
+probe_lost=`grep -a "|PMTUD probe lost|" clog`
+marked=`grep -a "|mark lost|" clog`
+cc_event=`grep -a "|OnLostDetection|" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$probe_lost" ] \
     && [ -z "$marked" ] && [ -z "$cc_event" ]; then
@@ -383,9 +383,9 @@ clear_log
 echo -e "a lost data packet still starts a congestion event ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E --pmtud 1 -x 805 > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
-probe_lost=`grep "|PMTUD probe lost|" clog`
-marked=`grep "|mark lost|" clog`
-cc_event=`grep "|OnLostDetection|" clog`
+probe_lost=`grep -a "|PMTUD probe lost|" clog`
+marked=`grep -a "|mark lost|" clog`
+cc_event=`grep -a "|OnLostDetection|" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$probe_lost" ] \
     && [ -n "$marked" ] && [ -n "$cc_event" ]; then

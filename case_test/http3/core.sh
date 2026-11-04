@@ -133,9 +133,9 @@ rm -f test_session
 clear_log
 echo -e "h3 stream send pure fin ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 99 >> clog
-errlog=`grep_err_log | grep -v "send data after fin sent"`
-clog_res=`cat clog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
-slog_res=`cat slog | grep "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
+errlog=`grep_err_log | grep -a -v "send data after fin sent"`
+clog_res=`cat clog | grep -a "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
+slog_res=`cat slog | grep -a "|send_state:3|recv_state:3|stream_id:0|stream_type:0|send_bytes:0|read_bytes:0|recv_bytes:0|stream_len:0|"`
 if [ -z "$errlog" ] && [ -n "$clog_res" ] && [ -n "$slog_res" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_stream_send_pure_fin" "pass"
@@ -159,8 +159,8 @@ sleep 1
 clear_log
 echo -e "header header data ...\c"
 ${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 30 >> clog
-header_res=`grep "recv header" slog`
-trailer_res=`grep "recv tailer header" slog`
+header_res=`grep -a "recv header" slog`
+trailer_res=`grep -a "recv tailer header" slog`
 if [ -n "$header_res" ] && [ -n "$trailer_res" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "header_header_data" "pass"
@@ -177,8 +177,8 @@ grep_err_log
 clear_log
 echo -e "header data header ...\c"
 ${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 31 >> clog
-header_res=`grep "recv header" slog`
-trailer_res=`grep "recv tailer header" slog`
+header_res=`grep -a "recv header" slog`
+trailer_res=`grep -a "recv tailer header" slog`
 if [ -n "$header_res" ] && [ -n "$trailer_res" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "header_data_header" "pass"
@@ -196,8 +196,8 @@ grep_err_log
 clear_log
 echo -e "header data fin ...\c"
 ${CLIENT_BIN}  -l d -t 2 -s 100 -E -x 35 >> clog
-result=`grep ">>>>>>>> pass" clog`
-sres=`grep "|recv_fin|" slog`
+result=`grep -a ">>>>>>>> pass" clog`
+sres=`grep -a "|recv_fin|" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$sres" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     echo ">>>>>>>> pass:1"
@@ -216,8 +216,8 @@ grep_err_log
 clear_log
 echo -e "header data immediate fin ...\c"
 ${CLIENT_BIN}  -l d -t 2 -s 100 -E -x 36 >> clog
-result=`grep ">>>>>>>> pass" clog`
-sres=`grep "h3 fin only received" slog`
+result=`grep -a ">>>>>>>> pass" clog`
+sres=`grep -a "h3 fin only received" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -z "$sres" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     echo ">>>>>>>> pass:1"
@@ -236,7 +236,7 @@ grep_err_log
 clear_log
 echo -e "header fin ...\c"
 ${CLIENT_BIN}  -l d -t 2 -x 37 >> clog
-sres=`grep "|recv_fin|" slog`
+sres=`grep -a "|recv_fin|" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$sres" ]; then
     echo ">>>>>>>> pass:1"
@@ -260,7 +260,7 @@ grep_err_log
 clear_log
 echo -e "uppercase header ...\c"
 ${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 34 >> clog
-result=`grep ">>>>>>>> pass" clog`
+result=`grep -a ">>>>>>>> pass" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     echo ">>>>>>>> pass:1"
@@ -282,8 +282,8 @@ case_http3_core_forbidden_header_e2e()
 clear_log
 echo -e "forbidden_header_e2e ...\c"
 ${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 55 >> clog
-forbidden_ok=`grep "forbidden_header_rejected:1" clog`
-echo_ok=`grep ">>>>>>>> pass:1" clog`
+forbidden_ok=`grep -a "forbidden_header_rejected:1" clog`
+echo_ok=`grep -a ">>>>>>>> pass:1" clog`
 if [ -n "$forbidden_ok" ] && [ -n "$echo_ok" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "forbidden_header_e2e" "pass"
@@ -307,8 +307,8 @@ clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "h3 ping ...\c"
 ${CLIENT_BIN} -s 1024 -l d -E -x 28 >> clog
-ret_ping_id=`grep "====>ping_id:" clog`
-ret_no_ping_id=`grep "====>no ping_id" clog`
+ret_ping_id=`grep -a "====>ping_id:" clog`
+ret_no_ping_id=`grep -a "====>no ping_id" clog`
 if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_ping" "pass"
@@ -359,7 +359,7 @@ clear_log
 echo -e "GET request ...\c"
 result=`${CLIENT_BIN} -l d -t 1 -E -G|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
-alpn_res=`grep "|selected_alpn:h3|" slog`
+alpn_res=`grep -a "|selected_alpn:h3|" slog`
 echo "$result"
 if [ -z "$errlog" ] && [ -n "$alpn_res" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "GET_request" "pass"
@@ -382,11 +382,11 @@ rm -f test_session xqc_token tp_localhost
 clear_log
 echo -e "set h3 settings ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 18 >> clog
-if grep ">>>>>>>> pass:1" clog >/dev/null && \
-    grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog >/dev/null && \
-    grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog >/dev/null && \
-    grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog >/dev/null && \
-    grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog >/dev/null; then
+if grep -a ">>>>>>>> pass:1" clog >/dev/null && \
+    grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog >/dev/null && \
+    grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog >/dev/null && \
+    grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog >/dev/null && \
+    grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "set_h3_settings" "pass"
 else
@@ -402,7 +402,7 @@ grep_err_log
 clear_log
 echo -e "header size constraints ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 19 -n 2 >> clog
-if grep -e "xqc_h3_stream_send_headers.*fields_size.*exceed.*SETTINGS_MAX_FIELD_SECTION_SIZE.*" slog >/dev/null; then
+if grep -a -e "xqc_h3_stream_send_headers.*fields_size.*exceed.*SETTINGS_MAX_FIELD_SECTION_SIZE.*" slog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "header_size_constraints" "pass"
 else
@@ -413,13 +413,13 @@ fi
 
 case_http3_core_no_h3_init_settings_cb()
 {
-grep_err_log|grep -v xqc_h3_stream_send_headers
+grep_err_log|grep -a -v xqc_h3_stream_send_headers
 
 
 clear_log
 echo -e "no h3 init settings callback ...\c"
 result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E |grep ">>>>>>>> pass"`
-clog_res=`grep "new_h3_local_settings" clog`
+clog_res=`grep -a "new_h3_local_settings" clog`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -z "$clog_res" ]; then
@@ -437,7 +437,7 @@ case_http3_core_set_h3_init_settings_cb()
 clear_log
 echo -e "set h3 init settings callback ...\c"
 result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 502|grep ">>>>>>>> pass"`
-clog_res=`grep -E "new_h3_local_settings.*qpack_dec_max_table_capacity:65536" clog`
+clog_res=`grep -a -E "new_h3_local_settings.*qpack_dec_max_table_capacity:65536" clog`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$clog_res" ]; then
@@ -460,7 +460,7 @@ echo -e "test client long header ...\c"
 ${CLIENT_BIN} -G -l d -x 29 >> clog
 slog_res=`grep -a "field section exceeds local limit" slog`
 stream_reset=`grep -a "xqc_parse_reset_stream_frame|" clog \
-    | grep "err_code:270"`
+    | grep -a "err_code:270"`
 if [ -n "$stream_reset" ] && [ -n "$slog_res" ]; then
     case_print_result "test_client_long_header" "pass"
 else
@@ -484,7 +484,7 @@ echo -e "test server long header ...\c"
 ${CLIENT_BIN} -l d >> clog
 #slog_res=`grep "xqc_process_conn_close_frame|with err:" slog`
 #clog_res=`grep "READ_VALUE error" clog`
-slog_res=`grep "large nv|conn" slog`
+slog_res=`grep -a "large nv|conn" slog`
 #clog_res=`grep "xqc_process_conn_close_frame|with err:" clog`
 if [ -n "$slog_res" ]; then
     case_print_result "test_server_long_header" "pass"
@@ -535,10 +535,10 @@ rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "h3 MP ping ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -E -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
-ret_ping_id=`grep "====>ping_id:" clog`
-ret_no_ping_id=`grep "====>no ping_id" clog`
-path0_ping=`grep -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
-path1_ping=`grep -E "xqc_send_packet_with_pn.*path:1.*PING" clog`
+ret_ping_id=`grep -a "====>ping_id:" clog`
+ret_no_ping_id=`grep -a "====>no ping_id" clog`
+path0_ping=`grep -a -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
+path1_ping=`grep -a -E "xqc_send_packet_with_pn.*path:1.*PING" clog`
 if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ] && [ -n "$path0_ping" ] && [ -n "$path1_ping" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_MP_ping" "pass"
@@ -570,16 +570,16 @@ echo -e "h3_engine_set_settings_api_h3 ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 150 >> stdlog
 sleep 1
 cli_pass=`grep ">>>>>>>> pass:1" stdlog`
-cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
-cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
-cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
-cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
-cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
-svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
-svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
-svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
-svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
-svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+cli_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -a -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -a -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
 err_log=`grep_err_log`
 
 if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
@@ -606,16 +606,16 @@ echo -e "h3_engine_set_settings_api_h3_more ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 151 >> stdlog
 sleep 1
 cli_pass=`grep ">>>>>>>> pass:1" stdlog`
-cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
-cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
-cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
-cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
-cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
-svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
-svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
-svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
-svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
-svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+cli_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -a -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -a -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
 err_log=`grep_err_log`
 
 if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
@@ -642,16 +642,16 @@ echo -e "h3_engine_set_settings_api_h3_29 ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 152 >> stdlog
 sleep 1
 cli_pass=`grep ">>>>>>>> pass:1" stdlog`
-cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
-cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
-cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
-cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
-cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
-svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
-svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
-svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
-svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
-svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+cli_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -a -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -a -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
 err_log=`grep_err_log`
 
 if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
@@ -678,16 +678,16 @@ echo -e "h3_engine_set_settings_api_h3_29_more ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 153 >> stdlog
 sleep 1
 cli_pass=`grep ">>>>>>>> pass:1" stdlog`
-cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
-cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
-cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
-cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
-cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
-svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
-svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
-svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
-svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
-svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+cli_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -a -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -a -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
 err_log=`grep_err_log`
 
 if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
@@ -716,16 +716,16 @@ echo -e "h3_engine_set_settings_api_h3_ext ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 150 -T 2 >> stdlog
 sleep 1
 cli_pass=`grep ">>>>>>>> pass:1" stdlog`
-cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
-cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
-cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
-cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
-cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
-svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
-svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
-svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
-svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
-svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+cli_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -a -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -a -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
 err_log=`grep_err_log`
 
 if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
@@ -754,16 +754,16 @@ echo -e "h3_engine_set_settings_api_h3_ext_more ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 151 -T 2 >> stdlog
 sleep 1
 cli_pass=`grep ">>>>>>>> pass:1" stdlog`
-cli_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
-cli_log2=`grep -e "qpack_enc_compat_dup:1" clog`
-cli_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
-cli_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
-cli_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
-svr_log1=`grep -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
-svr_log2=`grep -e "qpack_enc_compat_dup:1" slog`
-svr_log3=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
-svr_log4=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
-svr_log5=`grep -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
+cli_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" clog`
+cli_log2=`grep -a -e "qpack_enc_compat_dup:1" clog`
+cli_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" clog`
+cli_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" clog`
+cli_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" clog`
+svr_log1=`grep -a -e "xqc_h3_conn_send_settings.*qpack_blocked_streams:32|qpack_max_table_capacity:4096|max_field_section_size:512" slog`
+svr_log2=`grep -a -e "qpack_enc_compat_dup:1" slog`
+svr_log3=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:7.*value:32" slog`
+svr_log4=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:1.*value:4096" slog`
+svr_log5=`grep -a -e "xqc_h3_conn_on_settings_entry_received.*id:6.*value:512" slog`
 err_log=`grep_err_log`
 
 if [ -n "$cli_pass" ] && [ -n "$cli_log1" ] && [ -n "$cli_log2" ] && [ -n "$cli_log3" ] && [ -n "$cli_log4" ] && [ -n "$cli_log5" ] && \
@@ -794,7 +794,7 @@ sleep 1
 echo -e "HTTP/3 reserved unidirectional stream remains usable ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1000 > stdlog
 sent=`grep "\\[h3-uni-stream-test\\]|type:0x21|ret:0|" stdlog`
-received=`grep "|remote|stream_id:.*|stream_type:33|" slog`
+received=`grep -a "|remote|stream_id:.*|stream_type:33|" slog`
 result=`grep ">>>>>>>> pass:1" stdlog`
 conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
 if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$result" ] \
@@ -819,8 +819,8 @@ sleep 1
 echo -e "HTTP/3 client push stream gets stream creation error ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1001 > stdlog
 sent=`grep "\\[h3-uni-stream-test\\]|type:0x1|ret:0|" stdlog`
-received=`grep "|remote|stream_id:.*|stream_type:1|" slog`
-server_err=`grep "err:0x103" slog`
+received=`grep -a "|remote|stream_id:.*|stream_type:1|" slog`
+server_err=`grep -a "err:0x103" slog`
 client_err=`grep -E "(conn errno:259|conn_err:259)" stdlog`
 if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$server_err" ] \
     && [ -n "$client_err" ]; then
@@ -846,7 +846,7 @@ sleep 1
 echo -e "HTTP/3 reserved request frame remains usable ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1002 > stdlog
 sent=`grep "\\[h3-request-frame-test\\]|type:0x21|ret:0|" stdlog`
-received=`grep "parse frame type success|frame_type:21|" slog`
+received=`grep -a "parse frame type success|frame_type:21|" slog`
 server_ok=`grep "\\[h3-request-frame-test\\]|reserved-frame|conn_err:0|" \
     h3_request_frame_server.log`
 client_ok=`grep "conn errno:256" stdlog`
@@ -877,7 +877,7 @@ for wait_idx in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.2
 done
 sent=`grep "\\[h3-request-frame-test\\]|type:0x2|ret:0|" stdlog`
-wire_err=`grep "err:0x105" slog`
+wire_err=`grep -a "err:0x105" slog`
 client_err=`grep -E "(conn errno:261|conn_err:261)" stdlog`
 application_type=`grep "conn_err_type:2" stdlog`
 if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$wire_err" ] \
@@ -907,7 +907,7 @@ for wait_idx in 1 2 3 4 5 6 7 8 9 10; do
     sleep 0.2
 done
 sent=`grep "\[h3-request-frame-test\]|type:0x0|ret:0|" stdlog`
-wire_err=`grep "err:0x105" slog`
+wire_err=`grep -a "err:0x105" slog`
 client_err=`grep -E "(conn errno:261|conn_err:261)" stdlog`
 application_type=`grep "conn_err_type:2" stdlog`
 if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$wire_err" ] \
@@ -933,7 +933,7 @@ ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1003 > stdlog
 sent=`grep "\\[h3-request-frame-test\\]|type:0x5|ret:0|" stdlog`
 server_err=`grep "\\[h3-request-frame-test\\]|push-promise|conn_err:261|" \
     h3_request_frame_server.log`
-wire_err=`grep "err:0x105" slog`
+wire_err=`grep -a "err:0x105" slog`
 client_err=`grep -E "(conn errno:261|conn_err:261)" stdlog`
 application_type=`grep "conn_err_type:2" stdlog`
 if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$wire_err" ] \
@@ -962,8 +962,8 @@ echo -e "HTTP/3 increasing MAX_PUSH_ID values are accepted ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1005 > stdlog
 sent=`grep "\\[h3-max-push-id-test\\]|first:1|second:3|write:0,0|send:0|" \
     stdlog`
-first_received=`grep "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
-second_received=`grep "|H3_MAX_PUSH_ID|max_push_id:3|" slog`
+first_received=`grep -a "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
+second_received=`grep -a "|H3_MAX_PUSH_ID|max_push_id:3|" slog`
 result=`grep ">>>>>>>> pass:1" stdlog`
 conn_err_zero=`grep -E "conn_err:0[^0-9]" stdlog`
 if [ -n "$sent" ] && [ -n "$first_received" ] \
@@ -990,7 +990,7 @@ echo -e "HTTP/3 decreasing MAX_PUSH_ID gets H3_ID_ERROR ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1006 > stdlog
 sent=`grep "\\[h3-max-push-id-test\\]|first:3|second:1|write:0,0|send:0|" \
     stdlog`
-server_err=`grep "err:0x108" slog`
+server_err=`grep -a "err:0x108" slog`
 client_err=`grep -E "(conn errno:264|conn_err:264)" stdlog`
 if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$client_err" ]; then
     echo ">>>>>>>> pass:1"
@@ -1013,10 +1013,10 @@ echo -e "HTTP/3 decreasing GOAWAY IDs are accepted ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1017 > stdlog
 sent=`grep "\\[h3-goaway-test\\]|first:3|second:1|write:0,0|send:0|" \
     stdlog`
-first_received=`grep "|H3_GOAWAY|stream_id:3|" slog`
-second_received=`grep "|H3_GOAWAY|stream_id:1|" slog`
+first_received=`grep -a "|H3_GOAWAY|stream_id:3|" slog`
+second_received=`grep -a "|H3_GOAWAY|stream_id:1|" slog`
 result=`grep ">>>>>>>> pass:1" stdlog`
-id_error=`grep "err:0x108" slog`
+id_error=`grep -a "err:0x108" slog`
 if [ -n "$sent" ] && [ -n "$first_received" ] \
     && [ -n "$second_received" ] && [ -n "$result" ] \
     && [ -z "$id_error" ]; then
@@ -1039,7 +1039,7 @@ echo -e "HTTP/3 increasing GOAWAY ID gets H3_ID_ERROR ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1018 > stdlog
 sent=`grep "\\[h3-goaway-test\\]|first:1|second:3|write:0,0|send:0|" \
     stdlog`
-server_err=`grep "err:0x108" slog`
+server_err=`grep -a "err:0x108" slog`
 client_err=`grep -E "(conn errno:264|conn_err:264)" stdlog`
 if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$client_err" ]; then
     echo ">>>>>>>> pass:1"
@@ -1061,7 +1061,7 @@ sleep 1
 echo -e "HTTP/3 server MAX_PUSH_ID gets H3_FRAME_UNEXPECTED ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1004 > stdlog
 sent=`grep "\\[h3-max-push-id-test\\]|server_send:1|write:0|send:0|" svr_stdlog`
-client_err_log=`grep "err:0x105" clog`
+client_err_log=`grep -a "err:0x105" clog`
 server_err=`grep -E "(conn errno:261|conn_err:261)" svr_stdlog`
 if [ -n "$sent" ] && [ -n "$client_err_log" ] && [ -n "$server_err" ]; then
     echo ">>>>>>>> pass:1"
@@ -1097,7 +1097,7 @@ for wait_idx in 1 2 3 4 5 6 7 8 9 10; do
 done
 sent=`grep "\\[h3-frame-length-test\\]|declared:2|actual:2|write:0|send:0|" \
     stdlog`
-received=`grep "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
+received=`grep -a "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
 result=`grep ">>>>>>>> pass:1" stdlog`
 if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$server_ok" ] \
     && [ -n "$result" ]; then
@@ -1129,9 +1129,9 @@ sent=`grep "\\[h3-frame-length-test\\]|declared:5|actual:2|write:0|send:0|" \
     stdlog`
 server_err=`grep "\\[h3-frame-length-test\\]|case:1008|conn_err:262|" \
     h3_frame_length_server.log`
-wire_err=`grep "err:0x106" slog`
+wire_err=`grep -a "err:0x106" slog`
 client_err=`grep -E "(conn errno:262|conn_err:262)" stdlog`
-applied=`grep "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
+applied=`grep -a "|H3_MAX_PUSH_ID|max_push_id:1|" slog`
 if [ -n "$sent" ] && [ -n "$server_err" ] && [ -n "$wire_err" ] \
     && [ -n "$client_err" ] && [ -z "$applied" ]; then
     echo ">>>>>>>> pass:1"
@@ -1168,7 +1168,7 @@ for wait_idx in 1 2 3 4 5 6 7 8 9 10; do
 done
 sent=`grep "\\[h3-control-frame-test\\]|type:0x21|write:0|send:0|" \
     h3_control_frame_server.log`
-received=`grep "ignore unknown frame|type:21|" clog`
+received=`grep -a "ignore unknown frame|type:21|" clog`
 client_ok=`grep "\\[h3-control-frame-test\\]|case:1009|conn_err:0|" stdlog`
 result=`grep ">>>>>>>> pass:1" stdlog`
 if [ -n "$sent" ] && [ -n "$received" ] && [ -n "$client_ok" ] \
@@ -1205,7 +1205,7 @@ for wait_idx in 1 2 3 4 5 6 7 8 9 10; do
 done
 sent=`grep "\\[h3-control-frame-test\\]|type:0x2|write:0|send:0|" \
     h3_control_frame_server.log`
-wire_err=`grep "err:0x105" clog`
+wire_err=`grep -a "err:0x105" clog`
 client_err=`grep "\\[h3-control-frame-test\\]|case:1016|conn_err:261|" stdlog`
 application_type=`grep "conn_err_type:2" stdlog`
 if [ -n "$sent" ] && [ -n "$wire_err" ] && [ -n "$client_err" ] \
@@ -1230,7 +1230,7 @@ echo -e "HTTP/3 CANCEL_PUSH above unset maximum gets H3_ID_ERROR ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 1010 > stdlog
 sent=`grep "\\[h3-control-frame-test\\]|type:0x3|write:0|send:0|" \
     h3_control_frame_server.log`
-wire_err=`grep "err:0x108" clog`
+wire_err=`grep -a "err:0x108" clog`
 client_err=`grep "\\[h3-control-frame-test\\]|case:1010|conn_err:264|" \
     stdlog`
 server_err=`grep "\\[h3-control-frame-test\\]|case:1010|conn_err:264|" \
@@ -1337,8 +1337,8 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1013 > /dev/null
 sleep 1
 echo -e "HTTP/3 lowercase response field name is accepted ...\c"
 ${CLIENT_BIN} -G -l d -t 1 -x 1013 >> clog
-lowercase_ok=`grep "lowercase_header_received:1" clog`
-stream_ok=`grep "lowercase_header_request_succeeded:1" clog`
+lowercase_ok=`grep -a "lowercase_header_received:1" clog`
+stream_ok=`grep -a "lowercase_header_request_succeeded:1" clog`
 if [ -n "$lowercase_ok" ] && [ -n "$stream_ok" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_lowercase_response_field_name_accepted" "pass"
@@ -1359,9 +1359,9 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1014 > /dev/null
 sleep 1
 echo -e "HTTP/3 uppercase response field name resets only stream ...\c"
 ${CLIENT_BIN} -G -l d -n 2 -t 2 -x 1014 >> clog
-stream_error_ok=`grep "uppercase_header_stream_error:1" clog`
-connection_reuse_ok=`grep "post_error_request_succeeded:1" clog`
-transport_error=`grep "conn_err:1" clog`
+stream_error_ok=`grep -a "uppercase_header_stream_error:1" clog`
+connection_reuse_ok=`grep -a "post_error_request_succeeded:1" clog`
+transport_error=`grep -a "conn_err:1" clog`
 if [ -n "$stream_error_ok" ] && [ -n "$connection_reuse_ok" ] \
     && [ -z "$transport_error" ]; then
     echo ">>>>>>>> pass:1"
@@ -1383,8 +1383,8 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1019 > /dev/null
 sleep 1
 echo -e "HTTP/3 pseudo-header before regular field is accepted ...\c"
 ${CLIENT_BIN} -G -l d -t 1 -x 1019 >> clog
-header_ok=`grep "pseudo_header_order_received:1" clog`
-stream_ok=`grep "pseudo_header_order_request_succeeded:1" clog`
+header_ok=`grep -a "pseudo_header_order_received:1" clog`
+stream_ok=`grep -a "pseudo_header_order_request_succeeded:1" clog`
 if [ -n "$header_ok" ] && [ -n "$stream_ok" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "h3_pseudo_header_order_accepted" "pass"
@@ -1405,10 +1405,10 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1020 > /dev/null
 sleep 1
 echo -e "HTTP/3 misplaced pseudo-header resets only stream ...\c"
 ${CLIENT_BIN} -G -l d -n 2 -t 2 -x 1020 >> clog
-stream_error_ok=`grep "pseudo_header_order_stream_error:1" clog`
+stream_error_ok=`grep -a "pseudo_header_order_stream_error:1" clog`
 connection_reuse_ok=`grep \
     "post_pseudo_header_order_error_request_succeeded:1" clog`
-transport_error=`grep "conn_err:1" clog`
+transport_error=`grep -a "conn_err:1" clog`
 if [ -n "$stream_error_ok" ] && [ -n "$connection_reuse_ok" ] \
     && [ -z "$transport_error" ]; then
     echo ">>>>>>>> pass:1"
@@ -1438,7 +1438,7 @@ if [[ "${id}" = 1026 ]]; then
         result=pass
     fi
 elif grep -q '\[h3-custom-settings-test\]|peer|matched:3|reject:1|' svr_stdlog \
-    && grep -q 'xqc_parse_conn_close_frame|type:18|err_code:265|' clog
+    && grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:265|' clog
 then
     result=pass
 fi

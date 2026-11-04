@@ -10,7 +10,11 @@
 #include "src/tls/xqc_tls_defs.h"
 
 #define XQC_ACK_SPACE                       16
-#define XQC_FEC_SPACE                       12
+/* Room each FEC source packet keeps for its SID frame: type 0xfec5 (a 4-byte
+ * varint), flow ID 0 (1 byte) and the source payload ID, block number << 8 |
+ * symbol index, which takes an 8-byte varint once the block number reaches
+ * 2^22. */
+#define XQC_FEC_SPACE                       13
 #define XQC_HEADER_SPACE                    28
 #define XQC_QUIC_MIN_MSS                    1200
 /* 1500 - 40 (IPv6) - 8 (UDP) - 16 (ACK) - 16 (AEAD) */
@@ -71,7 +75,8 @@ struct xqc_packet_s {
 #define XQC_PACKET_SHORT_HEADER_KEY_PHASE(buf)  ((buf[0] & 0x04) >> 2)
 
 #define xqc_parse_uint16(p) ((p)[0] << 8 | (p)[1])
-#define xqc_parse_uint32(p) ((p)[0] << 24 | (p)[1] << 16 | (p)[2] << 8 | (p)[3])
+#define xqc_parse_uint32(p) ((uint32_t)(p)[0] << 24 | (uint32_t)(p)[1] << 16 \
+                             | (uint32_t)(p)[2] << 8 | (uint32_t)(p)[3])
 
 /* check if the packet has packet number */
 static inline uint8_t

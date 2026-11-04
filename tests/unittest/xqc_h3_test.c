@@ -12,6 +12,7 @@
 #include "src/http3/xqc_h3_header.h"
 #include "src/http3/qpack/xqc_qpack.h"
 #include "src/common/xqc_time.h"
+#include "src/common/xqc_log_event_callback.h"
 #include "src/transport/xqc_stream.h"
 #include "src/http3/qpack/stable/xqc_stable.h"
 
@@ -1991,6 +1992,126 @@ xqc_test_h3_settings_validation_log_errors(void)
     xqc_h3_test_validate_local_settings(&settings,
         "|reason:duplicate_identifier|index:1|previous_index:0|"
         "identifier:8|value:2|");
+}
+
+
+/*
+ * Fill the stack below the caller with non-zero bytes, so that a formatter
+ * called next finds them, not a zero left there by chance, if it reads its
+ * buffer past what it wrote.
+ */
+static void xqc_h3_test_dirty_stack(void) __attribute__((noinline));
+
+static void
+xqc_h3_test_dirty_stack(void)
+{
+    volatile unsigned char  stack[XQC_MAX_LOG_LEN * 4];
+    size_t                  i;
+
+    for (i = 0; i < sizeof(stack); i++) {
+        stack[i] = 'X';
+    }
+}
+
+
+static void
+xqc_h3_test_frame_created_log(xqc_h3_test_validation_log_t *capture,
+    xqc_http_header_t *headers, size_t count)
+{
+    xqc_http_headers_t   list = {0};
+    xqc_h3_stream_t      h3s = {0};
+    xqc_log_callbacks_t  callbacks = {
+        .xqc_log_write_err = xqc_h3_test_validation_log,
+    };
+    xqc_log_t            log = {
+        .log_level = XQC_LOG_DEBUG,
+        .log_event = 1,
+        .qlog_importance = EVENT_IMPORTANCE_SELECTED,
+        .log_callbacks = &callbacks,
+        .user_data = capture,
+    };
+
+    list.headers = headers;
+    list.count = count;
+    h3s.stream_id = 4;
+    memset(capture, 0, sizeof(*capture));
+
+    xqc_h3_test_dirty_stack();
+    xqc_log_HTTP_FRAME_CREATED_callback(&log, "xqc_test", &h3s,
+                                        XQC_H3_FRM_HEADERS, &list);
+}
+
+
+void
+xqc_test_h3_frame_created_log_headers(void)
+{
+    xqc_http_header_t             headers[2];
+    xqc_h3_test_validation_log_t  capture;
+
+    memset(headers, 0, sizeof(headers));
+    headers[0].name.iov_base = ":method";
+    headers[0].name.iov_len = 7;
+    headers[0].value.iov_base = "GET";
+    headers[0].value.iov_len = 3;
+    headers[1].name.iov_base = "x-empty";
+    headers[1].name.iov_len = 7;
+
+    xqc_h3_test_frame_created_log(&capture, headers, 2);
+
+    CU_ASSERT(capture.calls == 1);
+    CU_ASSERT_STRING_EQUAL(capture.message,
+                           "|xqc_test|stream_id:4|type:1|"
+                           "{name::method} {value:GET}|{name:x-empty}|");
+}
+
+
+void
+xqc_test_h3_frame_created_log_no_headers(void)
+{
+    xqc_h3_test_validation_log_t  capture;
+
+    xqc_h3_test_frame_created_log(&capture, NULL, 0);
+
+    CU_ASSERT(capture.calls == 1);
+    CU_ASSERT_STRING_EQUAL(capture.message, "|xqc_test|stream_id:4|type:1|");
+}
+
+
+void
+xqc_test_h3_frame_created_log_truncated(void)
+{
+    char                          values[8][255];
+    char                          expected[XQC_MAX_LOG_LEN * 2];
+    xqc_http_header_t             headers[8];
+    xqc_h3_test_validation_log_t  capture;
+    size_t                        i, len;
+
+    memset(headers, 0, sizeof(headers));
+    len = 0;
+    memcpy(expected, "|xqc_test|stream_id:4|type:1|", 29);
+    len += 29;
+    for (i = 0; i < 8; i++) {
+        memset(values[i], 'a' + i, sizeof(values[i]));
+        headers[i].name.iov_base = "x";
+        headers[i].name.iov_len = 1;
+        headers[i].value.iov_base = values[i];
+        headers[i].value.iov_len = sizeof(values[i]);
+        memcpy(expected + len, "{name:x} {value:", 16);
+        len += 16;
+        memcpy(expected + len, values[i], sizeof(values[i]));
+        len += sizeof(values[i]);
+        memcpy(expected + len, "}|", 2);
+        len += 2;
+    }
+    expected[len] = '\0';
+
+    /* the headers take more than a log line: it is cut at its limit */
+    expected[XQC_MAX_LOG_LEN - 1] = '\0';
+
+    xqc_h3_test_frame_created_log(&capture, headers, 8);
+
+    CU_ASSERT(capture.calls == 1);
+    CU_ASSERT_STRING_EQUAL(capture.message, expected);
 }
 
 

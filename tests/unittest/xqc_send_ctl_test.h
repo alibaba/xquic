@@ -13,6 +13,12 @@
 void xqc_test_pto_uses_remote_max_ack_delay(void);
 void xqc_test_pto_remote_default_when_unset(void);
 
+/*
+ * xqc_pn_ctl_create() frees the rings of sent ACKs that it already
+ * allocated when a later allocation fails.
+ */
+void xqc_test_pn_ctl_create_alloc_failures(void);
+
 /* RFC 9000 Section 8.2.4 path-validation timeout behavior. */
 void xqc_test_path_validation_timeout_current_pto_dominates(void);
 void xqc_test_path_validation_timeout_new_path_pto_dominates(void);
@@ -62,5 +68,19 @@ void xqc_test_send_ctl_persistent_congestion_rtt_reseeds_from_new_sample(void);
 void xqc_test_send_ctl_key_phase_acked_by_sent_packet_only(void);
 void xqc_test_send_ctl_single_loss_does_not_reset_rtt(void);
 void xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void);
+
+/*
+ * Loss detection logs a statistics line at most once per record interval,
+ * with a value for each of its fields.
+ */
+void xqc_test_send_ctl_lost_interval_log(void);
+
+/*
+ * RFC 9000 14.4: a lost PMTU probe is dropped without a congestion
+ * reaction or a loss sample, while an ordinary lost packet still gets
+ * both.
+ */
+void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
+void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
 #endif

@@ -5,7 +5,7 @@ require "fileutils"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--background-fd-selftest|--wait-for-log-selftest|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--background-fd-selftest|--wait-for-log-selftest|--binary-log-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 
 def run!(env, *cmd)
@@ -857,6 +857,84 @@ def wait_for_log_selftest(root)
   puts "wait_for_log_selftest=pass"
 end
 
+def binary_log_selftest(root)
+  work_dir = File.join(root, "build/case_test_arch_check_binary_log")
+  FileUtils.mkdir_p(work_dir)
+  common = File.join(root, "case_test/lib/common.sh")
+  cases = [
+    ["http3/core.sh", "case_http3_core_h3_ping",
+     "", "", "====>ping_id:1\n====>no ping_id\n"],
+    ["transport/stream.sh", "case_transport_stream_send_header_after_reset_stream",
+     "xqc_conn_destroy|err:0x0|\n" \
+     "xqc_destroy_stream|err:0x10c|send_state:3|recv_state:5|stream_id:0|\n",
+     "", ""],
+    ["transport/multipath.sh", "case_transport_multipath_NAT_rebinding_path_1",
+     "", "|path:1|REBINDING|validate NAT rebinding addr|\n", ""]
+  ]
+  checks = 0
+
+  cases.each do |runner, function, client_log, server_log, stdout|
+    source = File.read(File.join(root, "case_test", runner))
+    body = source[/^#{Regexp.escape(function)}\(\)\n\{.*?^\}/m]
+    raise "missing case function #{function}" unless body
+
+    scenarios = %w[text binary missing]
+    if stdout.empty?
+      scenarios += %w[client_error server_error allowed_error]
+    end
+    scenarios.each do |scenario|
+      fixture = File.join(work_dir, "#{function}-#{scenario}")
+      FileUtils.mkdir_p(fixture)
+      prefix = scenario == "text" ? "ordinary record\n" : "binary\x00payload\n"
+      logs = {"clog" => prefix + client_log, "slog" => prefix + server_log,
+              "stdout" => stdout}
+      if scenario == "missing"
+        logs = {"clog" => prefix, "slog" => prefix, "stdout" => ""}
+      elsif scenario == "client_error"
+        logs["clog"] += "[error] unexpected\x00client failure\n"
+      elsif scenario == "server_error"
+        logs["slog"] += "[error] unexpected\x00server failure\n"
+      elsif scenario == "allowed_error"
+        allowed = if runner.include?("stream")
+          "stream"
+        else
+          "no match path challenge data"
+        end
+        logs["clog"] += "[error] #{allowed}\x00details\n"
+      end
+      logs.each do |name, contents|
+        File.binwrite(File.join(fixture, "fixture-#{name}"), contents)
+      end
+
+      script = <<~SH
+        set -u
+        source #{common.inspect}
+        cd #{fixture.inspect}
+        #{body}
+        clear_log() { cp fixture-clog clog; cp fixture-slog slog; }
+        case_test_stop_server() { :; }
+        case_test_start_server() { :; }
+        case_test_sudo() { "$@"; }
+        sleep() { :; }
+        selftest_client() { cat fixture-stdout; }
+        CLIENT_BIN=selftest_client
+        SERVER_BIN=unused
+        clear_log
+        #{function}
+      SH
+      output = run!({"LC_ALL" => "C"}, "bash", "-c", script)
+      pass = %w[text binary allowed_error].include?(scenario)
+      expected = ">>>>>>>> pass:#{pass ? 1 : 0}"
+      unless output.include?(expected) && !output.match?(/binary file.*matches/i)
+        raise "binary log assertion failed: #{function}/#{scenario}\n#{output}"
+      end
+      checks += 1
+    end
+  end
+  puts "binary_log_selftest=pass"
+  puts "binary_log_assertions=#{checks}"
+end
+
 def parallel_budget_selftest(root)
   work_dir = File.join(root, "build/case_test_arch_check_budget")
   FileUtils.rm_rf(work_dir)
@@ -979,4 +1057,8 @@ end
 
 if modes.include?("--all") || modes.include?("--wait-for-log-selftest")
   wait_for_log_selftest(root)
+end
+
+if modes.include?("--all") || modes.include?("--binary-log-selftest")
+  binary_log_selftest(root)
 end

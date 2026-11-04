@@ -47,8 +47,8 @@ case_transport_multipath_MPNS_unnegotiated_frozen_rejected()
     echo -e "reject unnegotiated MP_FROZEN ...\c"
     case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 2 -1 -M -i lo -x 1302 > stdlog
     injected=`grep "mp_frozen_injected:1" stdlog`
-    rejected=`grep "|mp_version error|" slog | grep "f:15228cff"`
-    closed=`grep "|fail to process packets|" slog`
+    rejected=`grep -a "|mp_version error|" slog | grep -a "f:15228cff"`
+    closed=`grep -a "|fail to process packets|" slog`
     if [ -n "$injected" ] && [ -n "$rejected" ] && [ -n "$closed" ]; then
         echo ">>>>>>>> pass:1"
         case_print_result "MPNS_unnegotiated_frozen_rejected" "pass"
@@ -129,8 +129,8 @@ clear_log
 echo -e "MPNS multipath close initial path ...\c"
 case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 5 -M -i lo -i lo -E -x 100 -e 10 --epoch_timeout 1000000 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
-svr_res=`grep "|path closed|path:0|" slog`
-cli_res=`grep "|path closed|path:0|" clog`
+svr_res=`grep -a "|path closed|path:0|" slog`
+cli_res=`grep -a "|path closed|path:0|" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -170,16 +170,16 @@ while [ $mpns_loss_close_initial_attempt -le $mpns_loss_close_initial_max_attemp
     result_fail=`grep ">>>>>>>> pass:0" stdlog`
     result_pass=`grep ">>>>>>>> pass:1" stdlog`
     ignored_errlog=`grep_err_log \
-        | grep -E "conn closing, cannot create stream|xqc_stream_create\\|xqc_create_stream_with_conn error|xqc_h3_request_create\\|xqc_stream_create error" \
+        | grep -a -E "conn closing, cannot create stream|xqc_stream_create\\|xqc_create_stream_with_conn error|xqc_h3_request_create\\|xqc_stream_create error" \
         || true`
     errlog=`grep_err_log \
-        | grep -v "conn closing, cannot create stream" \
-        | grep -v "xqc_stream_create|xqc_create_stream_with_conn error" \
-        | grep -v "xqc_h3_request_create|xqc_stream_create error" \
+        | grep -a -v "conn closing, cannot create stream" \
+        | grep -a -v "xqc_stream_create|xqc_create_stream_with_conn error" \
+        | grep -a -v "xqc_h3_request_create|xqc_stream_create error" \
         || true`
     for wait_idx in $(seq 1 50); do
-        svr_res=`grep -m 1 "|path closed|path:0|" slog`
-        cli_res=`grep -m 1 "|path closed|path:0|" clog`
+        svr_res=`grep -a -m 1 "|path closed|path:0|" slog`
+        cli_res=`grep -a -m 1 "|path closed|path:0|" clog`
         if [ -n "$svr_res" ] && [ -n "$cli_res" ]; then
             break
         fi
@@ -212,8 +212,8 @@ else
     [ -n "$errlog" ] && errlog_hit=1 || errlog_hit=0
     ignored_errlog_count=`printf '%s\n' "$ignored_errlog" | grep -c . || true`
     remaining_errlog_count=`printf '%s\n' "$errlog" | grep -c . || true`
-    svr_closed_count=`grep -c "|path closed|path:0|" slog || true`
-    cli_closed_count=`grep -c "|path closed|path:0|" clog || true`
+    svr_closed_count=`grep -a -c "|path closed|path:0|" slog || true`
+    cli_closed_count=`grep -a -c "|path closed|path:0|" clog || true`
     if [ -n "$result_fail" ]; then
         client_status="fail"
     elif [ -n "$result_pass" ]; then
@@ -234,9 +234,9 @@ else
     echo "[mpns-loss-close-initial][stdlog-key-events]"
     grep -E ">>>>>>>> pass:|xqc_client_epoch_callback|path removed|conn closing|send_body_size:|conn errno|conn_err_type|xqc_h3_request_create error|xqc_stream_create error" stdlog | tail -n 30 || true
     echo "[mpns-loss-close-initial][slog-path0-events]"
-    grep -E "path closed|path removed|close path|PATH_STATUS|path_status|path:0" slog | tail -n 20 || true
+    grep -a -E "path closed|path removed|close path|PATH_STATUS|path_status|path:0" slog | tail -n 20 || true
     echo "[mpns-loss-close-initial][clog-path0-events]"
-    grep -E "path closed|path removed|close path|PATH_STATUS|path_status|path:0" clog | tail -n 20 || true
+    grep -a -E "path closed|path removed|close path|PATH_STATUS|path_status|path:0" clog | tail -n 20 || true
     case_print_result "MPNS_multipath_30_percent_loss_close_initial_path" "fail"
 fi
 }
@@ -254,9 +254,9 @@ sleep 1
 clear_log
 echo -e "MPNS multipath close new path ...\c"
 case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 5 -M -A -i lo -i lo -E -x 101 -e 10 --epoch_timeout 1000000 >> clog
-result=`grep ">>>>>>>> pass" clog`
-svr_res=`grep "|path closed|path:1|" slog`
-cli_res=`grep "|path closed|path:1|" clog`
+result=`grep -a ">>>>>>>> pass" clog`
+svr_res=`grep -a "|path closed|path:1|" slog`
+cli_res=`grep -a "|path closed|path:1|" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -286,8 +286,8 @@ while [ $mpns_loss_close_new_attempt -le 2 ]; do
     case_test_sudo ${CLIENT_BIN} -s 10240 -t 20 -l d -E -d 300 -M -i lo -i lo -x 101 -e 10 --epoch_timeout 1000000 > stdlog
     result_fail=`grep ">>>>>>>> pass:0" stdlog`
     result_pass=`grep ">>>>>>>> pass:1" stdlog`
-    svr_res=`grep "|path closed|path:1|" slog`
-    cli_res=`grep "|path closed|path:1|" clog`
+    svr_res=`grep -a "|path closed|path:1|" slog`
+    cli_res=`grep -a "|path closed|path:1|" clog`
     errlog=`grep_err_log`
     if [ -z "$errlog" ] && [ -z "$result_fail" ] && [ -n "$result_pass" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
         mpns_loss_close_new_pass=1
@@ -319,7 +319,7 @@ sleep 1
 clear_log
 echo -e "send 1M data on multiple paths with multipath version 10"
 case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -M -i lo -i lo -E -v 10 > stdlog
-cli_result=`grep "multipath version negotiation succeed on multipath 010" clog`
+cli_result=`grep -a "multipath version negotiation succeed on multipath 010" clog`
 if [ -n "$cli_result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "MPNS_send_data_with_multipath_10" "pass"
@@ -395,9 +395,9 @@ while [ $nat_rebinding_path0_attempt -le 2 ]; do
     fi
     case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 8 -M -i lo -i lo -E -n 2 -x 103 > stdlog
     result=`grep ">>>>>>>> pass:0" stdlog`
-    errlog=`grep_err_log | grep -v "no match path challenge data" || true`
+    errlog=`grep_err_log | grep -a -v "no match path challenge data" || true`
     for wait_idx in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-        rebind=`grep "|path:0|REBINDING|validate NAT rebinding addr|" slog`
+        rebind=`grep -a "|path:0|REBINDING|validate NAT rebinding addr|" slog`
         if [ -n "$rebind" ]; then
             break
         fi
@@ -439,8 +439,8 @@ clear_log
 echo -e "NAT rebinding path 1 ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 3 -M -i lo -i lo -E -n 2 -x 104 > stdlog
 result=`grep ">>>>>>>> pass:0" stdlog`
-errlog=`grep_err_log | grep -v "no match path challenge data" || true`
-rebind=`grep "|path:1|REBINDING|validate NAT rebinding addr|" slog`
+errlog=`grep_err_log | grep -a -v "no match path challenge data" || true`
+rebind=`grep -a "|path:1|REBINDING|validate NAT rebinding addr|" slog`
 if [ -z "$errlog" ] && [ -z "$result" ] && [ "$rebind" != "" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "NAT_rebinding_path_1" "pass"
@@ -462,8 +462,8 @@ clear_log
 echo -e "Multipath Compensate and Accelerate ...\c"
 case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 3 -M -A -i lo -i lo -E -P 2 -y > ccfc.log
 errlog=`grep_err_log`
-svr_res=`grep "path_status:2->1" slog`
-cli_res=`grep "path_status:2->1" clog`
+svr_res=`grep -a "path_status:2->1" slog`
+cli_res=`grep -a "path_status:2->1" clog`
 if [ -z "$errlog" ] && [ `grep ">>>>>>>> pass:1" ccfc.log|wc -l` -eq 2 ] && [ "$svr_res" != "" ] &&  [ "$cli_res" != "" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "Multipath_Compensate_and_Accelerate" "pass"
@@ -489,7 +489,7 @@ clear_log
 echo -e "No reinjection for normal datagrams...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 --dgram_qos 3 > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -509,7 +509,7 @@ clear_log
 echo -e "No reinjection for normal h3-ext datagrams...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 --dgram_qos 3 > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -535,7 +535,7 @@ clear_log
 echo -e "MP reinject datagrams ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -555,7 +555,7 @@ clear_log
 echo -e "MP reinject h3-ext datagrams ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -581,7 +581,7 @@ clear_log
 echo -e "MP datagrams redundancy...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -601,7 +601,7 @@ clear_log
 echo -e "MP h3-ext datagrams redundancy...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -627,7 +627,7 @@ clear_log
 echo -e "MP no reinjection for normal datagrams...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 1 -M -i lo -i lo --dgram_qos 3 > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -647,7 +647,7 @@ clear_log
 echo -e "MP no reinjection for normal h3-ext datagrams...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 208 -Q 65535 -U 1 -T 2 -M -i lo -i lo --dgram_qos 3 > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -676,7 +676,7 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
     echo ">>>>>>>> pass:1"
@@ -698,7 +698,7 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 -
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
     echo ">>>>>>>> pass:1"
@@ -721,7 +721,7 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
     echo ">>>>>>>> pass:1"
@@ -743,7 +743,7 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 -
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:1" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:1" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
     echo ">>>>>>>> pass:1"
@@ -767,10 +767,10 @@ rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "freeze path0 ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 107 > stdlog
-clog_res1=`grep -E "path:0.*app_path_status:2->3" clog`
-clog_res2=`grep -E "path:0.*app_path_status:3->1" clog`
-slog_res1=`grep -E "path:0.*app_path_status:2->3" slog`
-slog_res2=`grep -E "path:0.*app_path_status:3->1" slog`
+clog_res1=`grep -a -E "path:0.*app_path_status:2->3" clog`
+clog_res2=`grep -a -E "path:0.*app_path_status:3->1" clog`
+slog_res1=`grep -a -E "path:0.*app_path_status:2->3" slog`
+slog_res2=`grep -a -E "path:0.*app_path_status:3->1" slog`
 if [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "freeze_path0" "pass"
@@ -789,10 +789,10 @@ rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "freeze path1 ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -E -e 4 -T 2 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 108 > stdlog
-clog_res1=`grep -E "path:1.*app_path_status:2->3" clog`
-clog_res2=`grep -E "path:1.*app_path_status:3->1" clog`
-slog_res1=`grep -E "path:1.*app_path_status:2->3" slog`
-slog_res2=`grep -E "path:1.*app_path_status:3->1" slog`
+clog_res1=`grep -a -E "path:1.*app_path_status:2->3" clog`
+clog_res2=`grep -a -E "path:1.*app_path_status:3->1" clog`
+slog_res1=`grep -a -E "path:1.*app_path_status:2->3" slog`
+slog_res2=`grep -a -E "path:1.*app_path_status:3->1" slog`
 if [ -n "$clog_res1" ] && [ -n "$clog_res2" ] && [ -n "$slog_res1" ] && [ -n "$slog_res2" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "freeze_path1" "pass"
@@ -814,7 +814,7 @@ rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "probing standby paths ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -E -e 1 --epoch_timeout 2000000 -t 4 -M -i lo -i lo -x 501 -y > stdlog
-clog_res1=`grep "xqc_path_standby_probe" clog | grep "PING" | grep "path:1"`
+clog_res1=`grep -a "xqc_path_standby_probe" clog | grep -a "PING" | grep -a "path:1"`
 if [ -n "$clog_res1" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "probing_standby_path" "pass"

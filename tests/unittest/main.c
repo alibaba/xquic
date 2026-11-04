@@ -16,6 +16,7 @@
 #endif
 
 #include "xqc_random_test.h"
+#include "xqc_test_log_test.h"
 #include "xqc_reliable_reset_test.h"
 #include "xqc_reset_stream_frame_test.h"
 #include "xqc_pq_test.h"
@@ -27,6 +28,7 @@
 #include "xqc_reno_test.h"
 #include "xqc_cubic_test.h"
 #include "xqc_bbr_test.h"
+#include "xqc_bbr2_test.h"
 #include "xqc_packet_test.h"
 #include "xqc_stream_frame_test.h"
 #include "xqc_process_frame_test.h"
@@ -45,6 +47,7 @@
 #include "xqc_qpack_test.h"
 #include "xqc_prefixed_str_test.h"
 #include "xqc_cid_test.h"
+#include "xqc_alloc_fail_test.h"
 #include "xqc_id_hash_test.h"
 #include "xqc_retry_test.h"
 #include "xqc_datagram_test.h"
@@ -86,6 +89,15 @@ main(int argc, char *argv[])
     }     
 
     if (!CU_add_test(pSuite, "xqc_cid_test", xqc_test_cid)
+        || !CU_add_test(pSuite, "xqc_test_log_write_text",
+                        xqc_test_log_write_text)
+        || !CU_add_test(pSuite, "xqc_test_log_write_binary",
+                        xqc_test_log_write_binary)
+        || !CU_add_test(pSuite, "xqc_test_log_write_errors",
+                        xqc_test_log_write_errors)
+        || !CU_add_test(pSuite, "xqc_test_conn_create_alloc_failures", xqc_test_conn_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_conn_destroy_frees_crypto_data",
+                        xqc_test_conn_destroy_frees_crypto_data)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_notify_last",
                         xqc_test_reset_stream_frame_notify_last)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_closing_destroys_stream",
@@ -311,12 +323,28 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_cid_handshake_exclusion", xqc_test_cid_handshake_exclusion)
         || !CU_add_test(pSuite, "xqc_test_cid_mark_original_idempotent", xqc_test_cid_mark_original_idempotent)
         || !CU_add_test(pSuite, "xqc_test_cid_delete_original", xqc_test_cid_delete_original)
+        || !CU_add_test(pSuite, "xqc_test_new_cid_log_token",
+                        xqc_test_new_cid_log_token)
+        || !CU_add_test(pSuite, "xqc_test_mp_new_cid_log_token",
+                        xqc_test_mp_new_cid_log_token)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_insert_failure_hash_rollback", xqc_test_new_conn_id_insert_failure_hash_rollback)
         || !CU_add_test(pSuite, "xqc_test_retired_scid_cleanup", xqc_test_retired_scid_cleanup)
         || !CU_add_test(pSuite, "xqc_test_retired_scid_batch_cleanup", xqc_test_retired_scid_batch_cleanup)
         || !CU_add_test(pSuite, "xqc_test_removed_scid_safety_net", xqc_test_removed_scid_safety_net)
         || !CU_add_test(pSuite, "xqc_test_conns_hash_remove_owned_entry", xqc_test_conns_hash_remove_owned_entry)
         || !CU_add_test(pSuite, "xqc_test_conns_hash_reject_non_owner", xqc_test_conns_hash_reject_non_owner)
+        || !CU_add_test(pSuite, "xqc_test_mp_new_cid_above_curr_max_path_id",
+                        xqc_test_mp_new_cid_above_curr_max_path_id)
+        || !CU_add_test(pSuite, "xqc_test_mp_new_cid_rejected_without_cid_set",
+                        xqc_test_mp_new_cid_rejected_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_abandon_above_curr_max_path_id",
+                        xqc_test_mp_abandon_above_curr_max_path_id)
+        || !CU_add_test(pSuite, "xqc_test_mp_abandon_rejected_without_cid_set",
+                        xqc_test_mp_abandon_rejected_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_retire_cid_without_cid_set",
+                        xqc_test_mp_retire_cid_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_cid_set_lookup_error",
+                        xqc_test_cid_set_lookup_error)
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
         || !CU_add_test(pSuite, "xqc_test_engine_drop_small_initial", xqc_test_engine_drop_small_initial)
@@ -367,6 +395,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_tls_key_update_responder_keeps_retired_keys",
                         xqc_test_tls_key_update_responder_keeps_retired_keys)
+        || !CU_add_test(pSuite, "xqc_test_conn_closed_path_perf_class", xqc_test_conn_closed_path_perf_class)
+        || !CU_add_test(pSuite, "xqc_test_conn_open_path_perf_class", xqc_test_conn_open_path_perf_class)
         /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_constructs_crypto_error", xqc_test_conn_tls_error_cb_constructs_crypto_error)
         || !CU_add_test(pSuite, "xqc_test_conn_crypto_error_base_value", xqc_test_conn_crypto_error_base_value)
@@ -390,11 +420,22 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_alert_zero", xqc_test_conn_tls_error_cb_alert_zero)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)
         || !CU_add_test(pSuite, "xqc_test_pq", xqc_test_pq)
+        || !CU_add_test(pSuite, "xqc_test_metrics_updated_log_bbr",
+                        xqc_test_metrics_updated_log_bbr)
+        || !CU_add_test(pSuite, "xqc_test_metrics_updated_log_no_bbr",
+                        xqc_test_metrics_updated_log_no_bbr)
         || !CU_add_test(pSuite, "xqc_test_connection_closed_log_no_error",
                         xqc_test_connection_closed_log_no_error)
         || !CU_add_test(pSuite, "xqc_test_connection_closed_log_with_error",
                         xqc_test_connection_closed_log_with_error)
+        || !CU_add_test(pSuite, "xqc_test_alpn_information_log_negotiated",
+                        xqc_test_alpn_information_log_negotiated)
+        || !CU_add_test(pSuite, "xqc_test_alpn_information_log_truncated",
+                        xqc_test_alpn_information_log_truncated)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
+        || !CU_add_test(pSuite, "xqc_test_murmur_hash2", xqc_test_murmur_hash2)
+        || !CU_add_test(pSuite, "xqc_test_murmur_hash2_high_bytes",
+                        xqc_test_murmur_hash2_high_bytes)
         || !CU_add_test(pSuite, "xqc_test_vint", xqc_test_vint)
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_clamp_boundary", xqc_test_flow_ctl_clamp_boundary)
         || !CU_add_test(pSuite, "xqc_test_stream_flow_ctl_clamp", xqc_test_stream_flow_ctl_clamp)
@@ -428,6 +469,12 @@ main(int argc, char *argv[])
                         xqc_test_bbr_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd_override",
                         xqc_test_bbr_init_cwnd_override)
+        || !CU_add_test(pSuite, "xqc_test_bbr2_probe_wait_fast_convergence",
+                        xqc_test_bbr2_probe_wait_fast_convergence)
+        || !CU_add_test(pSuite, "xqc_test_bbr2_probe_wait_bounds",
+                        xqc_test_bbr2_probe_wait_bounds)
+        || !CU_add_test(pSuite, "xqc_test_bbr2_probe_up_log",
+                        xqc_test_bbr2_probe_up_log)
         || !CU_add_test(pSuite, "xqc_test_short_header_parse_cid", xqc_test_short_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_long_header_parse_cid", xqc_test_long_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_client_discards_received_zero_rtt",
@@ -474,6 +521,7 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_coalesced_initial_datagram_too_small",
                         xqc_test_coalesced_initial_datagram_too_small)
+        || !CU_add_test(pSuite, "xqc_test_parse_uint32_high_bytes", xqc_test_parse_uint32_high_bytes)
         || !CU_add_test(pSuite, "xqc_test_transport_params", xqc_test_transport_params)
         || !CU_add_test(pSuite, "xqc_test_retry_scid_decode_role",
                         xqc_test_retry_scid_decode_role)
@@ -645,6 +693,12 @@ main(int argc, char *argv[])
                         xqc_test_h3_settings_validation_log)
         || !CU_add_test(pSuite, "xqc_test_h3_settings_validation_log_errors",
                         xqc_test_h3_settings_validation_log_errors)
+        || !CU_add_test(pSuite, "xqc_test_h3_frame_created_log_headers",
+                        xqc_test_h3_frame_created_log_headers)
+        || !CU_add_test(pSuite, "xqc_test_h3_frame_created_log_no_headers",
+                        xqc_test_h3_frame_created_log_no_headers)
+        || !CU_add_test(pSuite, "xqc_test_h3_frame_created_log_truncated",
+                        xqc_test_h3_frame_created_log_truncated)
         || !CU_add_test(pSuite, "xqc_test_h3_peer_settings_batch",
                         xqc_test_h3_peer_settings_batch)
         || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_boundaries",
@@ -750,6 +804,8 @@ main(int argc, char *argv[])
                         xqc_test_pto_uses_remote_max_ack_delay)
         || !CU_add_test(pSuite, "xqc_test_pto_remote_default_when_unset",
                         xqc_test_pto_remote_default_when_unset)
+        || !CU_add_test(pSuite, "xqc_test_pn_ctl_create_alloc_failures",
+                        xqc_test_pn_ctl_create_alloc_failures)
         || !CU_add_test(pSuite,
                         "xqc_test_path_validation_timeout_"
                         "current_pto_dominates",
@@ -786,6 +842,13 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_single_loss_does_not_reset_rtt)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return",
                         xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_interval_log",
+                        xqc_test_send_ctl_lost_interval_log)
+        /* RFC 9000 14.4: no congestion reaction to a lost PMTU probe */
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction",
+                        xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_packet_cc_reaction",
+                        xqc_test_send_ctl_lost_packet_cc_reaction)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

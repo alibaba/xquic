@@ -1541,7 +1541,7 @@ xqc_write_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire_pr
     packet_out->po_new_cid_path = XQC_INITIAL_PATH_ID;
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|gen_new_scid|cid:%s|sr_token:%s|seq_num:%ui",
-            xqc_scid_str(conn->engine, &new_conn_cid), xqc_sr_token_str(conn->engine, new_conn_cid.sr_token),
+            xqc_scid_str(conn->engine, &new_conn_cid), xqc_sr_token_str(conn->engine, sr_token),
             new_conn_cid.cid_seq_num);
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
@@ -1896,7 +1896,7 @@ xqc_write_mp_new_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t retire
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path_id:%ui|cid:%s|sr_token:%s|seq_num:%ui",
             path_id,
             xqc_scid_str(conn->engine, &new_conn_cid), 
-            xqc_sr_token_str(conn->engine, new_conn_cid.sr_token),
+            xqc_sr_token_str(conn->engine, sr_token),
             new_conn_cid.cid_seq_num);
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);

@@ -166,7 +166,7 @@ fec_repair_timeout_closes_gap()
     case_test_sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 \
         -E -x 1601 -N -1 -t 1 --dgram_qos 3 -g --fec_timeout 20 \
         > stdlog
-    slog_res=`grep '|repair timeout closes gap|' slog`
+    slog_res=`grep -a '|repair timeout closes gap|' slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_res" ]
 }
@@ -268,6 +268,12 @@ When a server callback can run after the client process exits, use
 `case_test_wait_for_log <file> <pattern> [attempts] [interval]` for a bounded
 wait instead of a fixed sleep. Redirect server stdout to `svr_stdlog` when the
 case needs that output so the per-case snapshot preserves the asserted log.
+
+Endpoint logs preserve binary payload bytes, including embedded NULs. Use
+`grep -a` when extracting or filtering `clog` and `slog`, including downstream
+filters of `grep_err_log`. Plain `grep` can report a binary match without
+returning the record that an assertion needs. Use `grep -q` when only the exit
+status is needed. Do not discard binary bytes from the original log files.
 
 The runner injects group-shared environment before executing the script:
 

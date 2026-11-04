@@ -84,9 +84,9 @@ clear_log
 echo -e "alpn negotiation failure (0x178) ...\c"
 rm -f test_session
 ${CLIENT_BIN} -l e -t 1 -T 1 -x 43 > stdlog
-alpn_res=`grep "xqc_ssl_alpn_select_cb|select proto error" slog`
-alert_res=`grep -E "(alert:120|NO_APPLICATION_PROTOCOL|no_application_protocol)" slog`
-conn_err_178=`grep -E "(conn_err:376([^0-9]|$)|err:0x178([^0-9a-fA-F]|$))" stdlog clog slog`
+alpn_res=`grep -a "xqc_ssl_alpn_select_cb|select proto error" slog`
+alert_res=`grep -a -E "(alert:120|NO_APPLICATION_PROTOCOL|no_application_protocol)" slog`
+conn_err_178=`grep -a -E "(conn_err:376([^0-9]|$)|err:0x178([^0-9a-fA-F]|$))" stdlog clog slog`
 transport_type=`grep "conn_err_type:1" stdlog`
 if [ -n "$alpn_res" ] && [ -n "$alert_res" ] \
     && [ -n "$conn_err_178" ] && [ -n "$transport_type" ]; then
@@ -100,7 +100,7 @@ else
     echo "  TLS alert 120/no_application_protocol: ${alert_res:-missing}"
     echo "  conn_err 0x178/376: ${conn_err_178:-missing}"
     echo "  transport error type: ${transport_type:-missing}"
-    grep -E "(select proto error|alert:|NO_APPLICATION_PROTOCOL|no_application_protocol|conn_err:|err:0x)" stdlog clog slog 2>/dev/null || true
+    grep -a -E "(select proto error|alert:|NO_APPLICATION_PROTOCOL|no_application_protocol|conn_err:|err:0x)" stdlog clog slog 2>/dev/null || true
 fi
 
 
@@ -248,8 +248,8 @@ grep_err_log
 clear_log
 echo -e "0RTT buffer limit before Initial ...\c"
 ${CLIENT_BIN} -l d -t 1 -x 39 -E >> clog
-limit_log=`grep "0RTT reach buffer limit before DCID confirmed" slog`
-clog_res=`grep ">>>>>>>> pass:1" clog`
+limit_log=`grep -a "0RTT reach buffer limit before DCID confirmed" slog`
+clog_res=`grep -a ">>>>>>>> pass:1" clog`
 errlog=`grep_err_log`
 if [ -n "$limit_log" ] && [ -n "$clog_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -268,7 +268,7 @@ sleep 1
 clear_log
 echo -e "set cipher suites ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -x 27 >> clog
-result=`grep "set cipher suites suc|ciphers:TLS_CHACHA20_POLY1305_SHA256" clog`
+result=`grep -a "set cipher suites suc|ciphers:TLS_CHACHA20_POLY1305_SHA256" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -295,9 +295,9 @@ sleep 1
 clear_log
 echo -e "key update ...\c"
 ${CLIENT_BIN} -s 102400 -l d -E -x 40 >> clog
-result=`grep ">>>>>>>> pass" clog`
-svr_res=`grep "key phase changed to" slog`
-cli_res=`grep "key phase changed to" clog`
+result=`grep -a ">>>>>>>> pass" clog`
+svr_res=`grep -a "key phase changed to" slog`
+cli_res=`grep -a "key phase changed to" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -316,10 +316,10 @@ case_tls_handshake_key_update_old_key_retention()
     clear_log
     echo -e "key update old key retention ...\c"
     ${CLIENT_BIN} -s 102400 -l d -t 8 -E -x 904 >> clog
-    held=`grep "hold-old-key-packet" clog`
-    cached=`grep "cached-old-key-packet" clog`
-    retained=`grep "RESULT|retained" clog`
-    dropped=`grep "RESULT|dropped" clog`
+    held=`grep -a "hold-old-key-packet" clog`
+    cached=`grep -a "cached-old-key-packet" clog`
+    retained=`grep -a "RESULT|retained" clog`
+    dropped=`grep -a "RESULT|dropped" clog`
     if [ "$held" != "" ] && [ "$cached" != "" ] \
         && [ "$retained" != "" ] && [ -z "$dropped" ]; then
         echo ">>>>>>>> pass:1"
@@ -347,14 +347,14 @@ while [ $key_update_0rtt_attempt -le 2 ]; do
     # under parallel load can land just after the client exits; poll briefly so a
     # late log line is not mistaken for a missing key update.
     for wait_idx in $(seq 1 25); do
-        svr_res=`grep "key phase changed to" slog`
-        cli_res=`grep "key phase changed to" clog`
+        svr_res=`grep -a "key phase changed to" slog`
+        cli_res=`grep -a "key phase changed to" clog`
         if [ -n "$svr_res" ] && [ -n "$cli_res" ]; then
             break
         fi
         sleep 0.2
     done
-    result=`grep ">>>>>>>> pass" clog`
+    result=`grep -a ">>>>>>>> pass" clog`
     errlog=`grep_err_log`
     if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ "$svr_res" != "" ] && [ "$cli_res" != "" ]; then
         key_update_0rtt_pass=1
@@ -408,7 +408,7 @@ ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 48 > stdlog
 result=`grep ">>>>>>>> pass" stdlog`
 salt_cli=`grep "\[initial-salt-test\] handshake ok, conn_err:0" stdlog`
 salt_svr=`grep -a "\[initial-salt-test\] server handshake ok, conn_err:0" svr_stdlog`
-errlog=`grep "derive initial secret error" clog slog`
+errlog=`grep -a "derive initial secret error" clog slog`
 if [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$salt_cli" ] && [ -n "$salt_svr" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "initial_salt_v1_key_derivation" "pass"
@@ -477,11 +477,11 @@ sleep 1
 echo -e "AEAD confidentiality: last permitted packet updates keys ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 902 > stdlog
 injected=`grep "\[aead-confidentiality-test\]|case:902|" stdlog`
-updated=`grep "|key phase changed to" clog`
+updated=`grep -a "|key phase changed to" clog`
 received=`grep "\[aead-confidentiality-test\]|request_received|case:902|" \
     aead_confidentiality_server.log`
 success=`grep ">>>>>>>> pass:1" stdlog`
-limit_error=`grep "|AEAD confidentiality limit reached|" clog`
+limit_error=`grep -a "|AEAD confidentiality limit reached|" clog`
 if [ -n "$injected" ] && [ -n "$updated" ] && [ -n "$received" ] \
     && [ -n "$success" ] && [ -z "$limit_error" ]; then
     echo ">>>>>>>> pass:1"
@@ -504,8 +504,8 @@ sleep 1
 echo -e "AEAD confidentiality: exhausted keys reject next packet ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 903 > stdlog
 injected=`grep "\[aead-confidentiality-test\]|case:903|" stdlog`
-limit_error=`grep "|AEAD confidentiality limit reached|" clog`
-wire_error=`grep "|err:0xf" clog`
+limit_error=`grep -a "|AEAD confidentiality limit reached|" clog`
+wire_error=`grep -a "|err:0xf" clog`
 received=`grep "\[aead-confidentiality-test\]|request_received|case:903|" \
     aead_confidentiality_server.log`
 if [ -n "$injected" ] && [ -n "$limit_error" ] && [ -n "$wire_error" ] \
@@ -533,10 +533,10 @@ case_tls_handshake_key_update_stale_deadline()
     clear_log
     echo -e "key update keeps retired keys past an earlier deadline ...\c"
     ${CLIENT_BIN} -s 102400 -l d -t 5 -E -x 905 >> clog
-    result=`grep ">>>>>>>> pass" clog`
-    copied=`grep "\[key-update-stale-deadline\]|copy-old-key-packet|" clog`
-    forced=`grep "\[key-update-stale-deadline\]|second-update|" clog`
-    retained=`grep "\[key-update-stale-deadline\]|RESULT|retained|" clog`
+    result=`grep -a ">>>>>>>> pass" clog`
+    copied=`grep -a "\[key-update-stale-deadline\]|copy-old-key-packet|" clog`
+    forced=`grep -a "\[key-update-stale-deadline\]|second-update|" clog`
+    retained=`grep -a "\[key-update-stale-deadline\]|RESULT|retained|" clog`
     errlog=`grep_err_log`
     if [ -n "$copied" ] && [ -n "$forced" ] && [ -n "$retained" ] \
         && [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -545,7 +545,7 @@ case_tls_handshake_key_update_stale_deadline()
     else
         echo ">>>>>>>> pass:0"
         case_print_result "key_update_stale_deadline" "fail"
-        grep "\[key-update-stale-deadline\]" clog
+        grep -a "\[key-update-stale-deadline\]" clog
         echo "$errlog"
     fi
 

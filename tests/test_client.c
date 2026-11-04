@@ -28,6 +28,7 @@
 #include "src/tls/xqc_tls.h"
 #include "platform.h"
 #include "test_h3_split_fin.h"
+#include "xqc_test_log.h"
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
 #include <sys/socket.h>
@@ -1126,6 +1127,35 @@ xqc_client_handle_retry_token_tests(unsigned char *send_buf, size_t send_buf_siz
     }
 }
 
+/* cases 804-805: a path that drops every datagram above
+ * XQC_TEST_CASE_PATH_MTU bytes, 100 more than the default packet size,
+ * which only PMTUD probes exceed. 805 also drops one ordinary full-size
+ * packet, a real loss next to the probe losses. */
+#define XQC_TEST_CASE_PATH_MTU (XQC_PACKET_OUT_SIZE + 100)
+
+static int
+xqc_client_mtu_dropped(const unsigned char *buf, size_t size)
+{
+    static int full_pkts = 0;
+
+    if (g_test_case != 804 && g_test_case != 805) {
+        return 0;
+    }
+
+    if (size > XQC_TEST_CASE_PATH_MTU) {
+        return 1;
+    }
+
+    /* the 20th full-size short header packet */
+    if (g_test_case == 805 && (buf[0] & 0x80) == 0 && size >= 1000
+        && ++full_pkts == 20)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
 
 int
 read_file_data(char *data, size_t data_len, char *filename)
@@ -1217,6 +1247,11 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
         && user_conn->quic_conn->key_update_ctx.key_update_cnt > 0)
     {
         return send_buf_size;
+    }
+
+    /* cases 804-805 */
+    if (xqc_client_mtu_dropped(buf, size)) {
+        return size;
     }
 
     /* make initial packet loss to test 0rtt buffer */
@@ -1394,6 +1429,11 @@ xqc_client_write_socket_ex(uint64_t path_id,
 
     if (user_conn == NULL || buf == NULL) {
         return XQC_SOCKET_ERROR;
+    }
+
+    /* cases 804-805 */
+    if (xqc_client_mtu_dropped(buf, size)) {
+        return size;
     }
 
     /* test stateless reset after handshake completed */
@@ -5368,22 +5408,13 @@ xqc_client_close_log_file(void *engine_user_data)
 void 
 xqc_client_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *engine_user_data)
 {
-    unsigned char log_buf[XQC_MAX_LOG_LEN + 1];
-
     client_ctx_t *ctx = (client_ctx_t*)engine_user_data;
     if (ctx->log_fd <= 0) {
         printf("xqc_client_write_log fd err\n");
         return;
     }
 
-    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char *)buf);
-    if (log_len < 0) {
-        printf("xqc_client_write_log err\n");
-        return;
-    }
-
-    int write_len = write(ctx->log_fd, log_buf, log_len);
-    if (write_len < 0) {
+    if (xqc_test_log_write(ctx->log_fd, buf, count) != 0) {
         printf("write log failed, errno: %d\n", errno);
     }
 }
@@ -5391,24 +5422,7 @@ xqc_client_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *e
 void 
 xqc_client_write_qlog(qlog_event_importance_t imp, const void *buf, size_t count, void *engine_user_data)
 {
-    unsigned char log_buf[XQC_MAX_LOG_LEN + 1];
-
-    client_ctx_t *ctx = (client_ctx_t*)engine_user_data;
-    if (ctx->log_fd <= 0) {
-        printf("xqc_client_write_qlog fd err\n");
-        return;
-    }
-
-    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char *)buf);
-    if (log_len < 0) {
-        printf("xqc_client_write_qlog err\n");
-        return;
-    }
-
-    int write_len = write(ctx->log_fd, log_buf, log_len);
-    if (write_len < 0) {
-        printf("write qlog failed, errno: %d\n", errno);
-    }
+    xqc_client_write_log(XQC_LOG_DEBUG, buf, count, engine_user_data);
 }
 
 

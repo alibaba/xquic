@@ -1438,7 +1438,7 @@ if [[ "${id}" = 1026 ]]; then
         result=pass
     fi
 elif grep -q '\[h3-custom-settings-test\]|peer|matched:3|reject:1|' svr_stdlog \
-    && grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:265|' clog
+    && grep -q 'xqc_parse_conn_close_frame|type:18|err_code:265|' clog
 then
     result=pass
 fi

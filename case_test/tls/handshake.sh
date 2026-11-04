@@ -576,8 +576,8 @@ reset_0rtt_check_connection()
         packets_ok=0
     fi
     if [[ "${early}" = 2 ]]; then
-        if ! grep -a -Fq 'xqc_conn_early_data_reject|reject|' clog \
-            || ! grep -a -Eq \
+        if ! grep -Fq 'xqc_conn_early_data_reject|reject|' clog \
+            || ! grep -Eq \
                 'xqc_send_ctl_on_packet_sent.*pkt_type:SHORT_HEADER\|frame:.*STREAM' clog; then
             echo "${phase}: missing 0-RTT rejection or 1-RTT stream replay"
             packets_ok=0

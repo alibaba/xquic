@@ -887,7 +887,7 @@ case_transport_stream_reliable_reset()
             '\[reliable-reset-test\]|reset:1|total:3|conn_error:0|' \
             && grep -q '\[reliable-reset-test\]|prefix:abc|total:3|fin:0|' \
                 svr_stdlog \
-            && ! grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
         then
             result=pass
         fi
@@ -895,7 +895,7 @@ case_transport_stream_reliable_reset()
         if grep -q '\[reliable-reset-test\]|api|set:0|sent:3|reset:0|close:0|conn_error:0|' stdlog \
             && case_test_wait_for_log svr_stdlog \
                 '\[reliable-reset-test\]|peer_reset|stream:.*|error:9|prefix:3|' \
-            && ! grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
         then
             result=pass
         fi
@@ -904,30 +904,30 @@ case_transport_stream_reliable_reset()
             && grep -Fq '[reliable-reset-test]|lower|set:0|reset:0|' svr_stdlog \
             && grep -Fq '[reliable-reset-test]|duplicate:2|send_error:17|recv_error:9|conn_error:0|' svr_stdlog \
             && grep -q '>>>>>>>> pass:1' stdlog \
-            && ! grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
         then
             result=pass
         fi
     elif [[ "${id}" = 745 ]]; then
         if grep -Fq '[reliable-reset-test]|case:745|injected|' stdlog \
             && grep -Fq '[reliable-reset-test]|peer_reset|stream:2|error:9|prefix:0|' svr_stdlog \
-            && grep -a -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:0|fin:1|' slog \
-            && grep -a -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:1|fin:1|' slog \
-            && grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:6|' clog
+            && grep -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:0|fin:1|' slog \
+            && grep -q 'xqc_parse_stream_frame|type:7|data_offset:8|data_length:1|fin:1|' slog \
+            && grep -q 'xqc_parse_conn_close_frame|type:18|err_code:6|' clog
         then
             result=pass
         fi
     elif [[ "${id}" = 746 ]]; then
         if grep -Fq '[reliable-reset-test]|api|set:0|sent:3|reset:0|close:0|conn_error:0|' stdlog \
             && grep -Fq '[reliable-reset-test]|repeat_close:0|send_error:9|stop:1|' stdlog \
-            && grep -a -q 'xqc_parse_reset_stream_frame|type:3|stream_id:4|err_code:9|final_size:3|' slog \
-            && grep -a -q 'xqc_parse_stop_sending_frame|type:4|stream_id:4|err_code:268|' slog \
-            && ! grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+            && grep -q 'xqc_parse_reset_stream_frame|type:3|stream_id:4|err_code:9|final_size:3|' slog \
+            && grep -q 'xqc_parse_stop_sending_frame|type:4|stream_id:4|err_code:268|' slog \
+            && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
         then
             result=pass
         fi
     elif grep -q "\[reliable-reset-test\]|case:${id}|injected|" stdlog \
-        && grep -a -q "xqc_parse_conn_close_frame|type:18|err_code:${expected_error}|" clog
+        && grep -q "xqc_parse_conn_close_frame|type:18|err_code:${expected_error}|" clog
     then
         result=pass
     fi

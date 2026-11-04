@@ -38,7 +38,7 @@ case_transport_core_server_refuse()
 echo -e "server refuse ...\c"
 ${CLIENT_BIN} -x 46 -t 1 >> stdlog
 sleep 10
-result=`grep "conn close notified by refuse" slog`
+result=`grep -a "conn close notified by refuse" slog`
 if [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "server_refuse" "pass"
@@ -62,7 +62,7 @@ sleep 1
 clear_log
 echo -e "create connection fail ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 7 >> clog
-result=`grep_err_log|grep -v xqc_client_connect`
+result=`grep_err_log|grep -a -v xqc_client_connect`
 if [ -z "$result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "create_connection_fail" "pass"
@@ -96,7 +96,7 @@ case_transport_core_socket_send_fail()
 clear_log
 echo -e "socket send fail ...\c"
 result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 5|grep ">>>>>>>> pass" `
-errlog=`grep_err_log|grep -v "write_socket error"`
+errlog=`grep_err_log|grep -a -v "write_socket error"`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "socket_send_fail" "pass"
@@ -114,7 +114,7 @@ clear_log
 echo -e "verify Token fail ...\c"
 rm -f xqc_token
 result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E|grep ">>>>>>>> pass"`
-errlog=`grep_err_log|grep -v xqc_conn_check_token`
+errlog=`grep_err_log|grep -a -v xqc_conn_check_token`
 echo "$result"
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
     case_print_result "verify_token_fail" "pass"
@@ -149,7 +149,7 @@ clear_log
 echo -e "test application delay ...\c"
 rm -f xqc_token
 ${CLIENT_BIN} -s 5120 -l d -t 1 -E -x 16 >> clog
-if test "$(grep -e "|====>|.*NEW_TOKEN" clog |wc -l)" -gt 1 >/dev/null && grep ">>>>>>>> pass:1" clog >/dev/null; then
+if test "$(grep -a -e "|====>|.*NEW_TOKEN" clog |wc -l)" -gt 1 >/dev/null && grep -a ">>>>>>>> pass:1" clog >/dev/null; then
     echo ">>>>>>>> pass:1"
     case_print_result "test_application_delay" "pass"
 else
@@ -169,9 +169,9 @@ sleep 1
 clear_log
 echo -e "user close connection ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 2 >> clog
-if grep "<==.*CONNECTION_CLOSE" clog >/dev/null \
-    && grep "==>.*CONNECTION_CLOSE" clog >/dev/null \
-    && grep "frames_processed.*reason_len:11" slog >/dev/null
+if grep -a "<==.*CONNECTION_CLOSE" clog >/dev/null \
+    && grep -a "==>.*CONNECTION_CLOSE" clog >/dev/null \
+    && grep -a "frames_processed.*reason_len:11" slog >/dev/null
 then
     echo ">>>>>>>> pass:1"
     case_print_result "user_close_connection" "pass"
@@ -190,10 +190,10 @@ grep_err_log
 clear_log
 echo -e "close connection with error ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 3 >> stdlog
-if grep "<==.*CONNECTION_CLOSE" clog >/dev/null \
-    && grep "==>.*CONNECTION_CLOSE" clog >/dev/null \
-    && grep "conn closing: 1" stdlog >/dev/null \
-    && grep "frames_processed.*reason_len:11" slog >/dev/null
+if grep -a "<==.*CONNECTION_CLOSE" clog >/dev/null \
+    && grep -a "==>.*CONNECTION_CLOSE" clog >/dev/null \
+    && grep -a "conn closing: 1" stdlog >/dev/null \
+    && grep -a "frames_processed.*reason_len:11" slog >/dev/null
 then
     echo ">>>>>>>> pass:1"
     case_print_result "close_connection_with_error" "pass"
@@ -215,8 +215,8 @@ clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "transport ping ...\c"
 ${CLIENT_BIN} -s 1024 -l d -E -x 28 -T 1 >> clog
-ret_ping_id=`grep "====>ping_id:" clog`
-ret_no_ping_id=`grep "====>no ping_id" clog`
+ret_ping_id=`grep -a "====>ping_id:" clog`
+ret_no_ping_id=`grep -a "====>no ping_id" clog`
 if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "transport_ping" "pass"
@@ -285,9 +285,9 @@ case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 1 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E >> clog
-result=`grep ">>>>>>>> pass:1" clog`
-dcid=`grep "====>DCID" clog | awk -F ":" '{print $2}'`
-dcid_res=`grep "new:$dcid" clog`
+result=`grep -a ">>>>>>>> pass:1" clog`
+dcid=`grep -a "====>DCID" clog | awk -F ":" '{print $2}'`
+dcid_res=`grep -a "new:$dcid" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$dcid_res" ] && [ -n "$dcid" ]; then
     echo ">>>>>>>> pass:1"
@@ -529,7 +529,7 @@ clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "new client 29 - new server ...\c"
 result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 17 |grep ">>>>>>>> pass"`
-alpn_res=`grep "selected_alpn:h3-29" slog`
+alpn_res=`grep -a "selected_alpn:h3-29" slog`
 errlog=`grep_err_log`
 echo "$result"
 if [ -z "$errlog" ] && [ -n "$alpn_res" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
@@ -555,7 +555,7 @@ echo -e "load balancer cid generate with encryption...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -S "server_id_0" -E > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 1024000 -l d -t 1 >> clog
-result=`grep "|lb cid encrypted|" slog`
+result=`grep -a "|lb cid encrypted|" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -576,7 +576,7 @@ echo -e "load balancer cid generate ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -S "server_id_0" > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 1024000 -l d -t 1 >> clog
-result=`grep "|xqc_conn_confirm_cid|dcid change|" clog`
+result=`grep -a "|xqc_conn_confirm_cid|dcid change|" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" != "" ]; then
     echo ">>>>>>>> pass:1"
@@ -603,9 +603,9 @@ clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "server amplification limit ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 3 -x 25 -1 >> clog
-enter_aal=`grep "amplification limit" slog`
-aal=`grep "blocked by anti amplification limit" slog`
-leave_aal=`grep "anti-amplification state unlock" slog`
+enter_aal=`grep -a "amplification limit" slog`
+aal=`grep -a "blocked by anti amplification limit" slog`
+leave_aal=`grep -a "anti-amplification state unlock" slog`
 if [ -n "$enter_aal" ] || [ -n "$aal" ] || [ -n "$leave_aal" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "server_amplification_limit" "pass"
@@ -636,7 +636,7 @@ ${CLIENT_BIN} -l d -E -x 33 >> clog 2>&1
 # Wire-level: VN packet was received and parsed by the client.
 # (The event-log callback is skipped because the abort error is non-tolerant,
 # so we match the unconditional debug log from xqc_packet_parse_version_negotiation.)
-result=`grep "packet parse|version negotiation" clog`
+result=`grep -a "packet parse|version negotiation" clog`
 if [ -n "$result" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "version_negotiation" "pass"
@@ -656,7 +656,7 @@ case_transport_core_version_negotiation_abort_path()
 # RFC 9000 §6.2 mandates the client MUST abandon the connection attempt on
 # a valid VN. Verify xqc_packet_parse_version_negotiation took the abort
 # branch instead of the legacy silent-version-switch behaviour.
-abort_log=`grep "version negotiation: aborting connection attempt" clog`
+abort_log=`grep -a "version negotiation: aborting connection attempt" clog`
 if [ -n "$abort_log" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "version_negotiation_abort_path" "pass"
@@ -678,7 +678,7 @@ case_transport_core_version_negotiation_close_errno()
 # with a non-zero errno: either TRA_VERSION_NEGOTIATION_ERROR (0x53 = 83)
 # from the transport conn_err, or XQC_EVERSION_NEGOTIATION (643) when the
 # error is propagated through xqc_conn_get_errno on a transport-only path.
-errno_log=`grep -E "conn errno:(83|643)" clog`
+errno_log=`grep -a -E "conn errno:(83|643)" clog`
 if [ -n "$errno_log" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "version_negotiation_close_errno" "pass"
@@ -701,7 +701,7 @@ sleep 1
 clear_log
 echo -e "server refuse connection ...\c"
 ${CLIENT_BIN} -l d -E >> clog
-svr_result=`grep "server_accept callback return error" slog`
+svr_result=`grep -a "server_accept callback return error" slog`
 if [ -n "$svr_result" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "server_refuse_connection" "pass"
@@ -785,7 +785,7 @@ case_test_stop_server
 sleep 0.2
 case_test_start_server ${SERVER_BIN} -l d > /dev/null
 wait $CLIENT_PID
-result=`grep "|====>|receive stateless reset" clog`
+result=`grep -a "|====>|receive stateless reset" clog`
 cloing_notify=`grep "conn closing: 641" stdlog`
 if [ -n "$result" ] && [ -n "$cloing_notify" ]; then
     echo ">>>>>>>> pass:1"
@@ -815,9 +815,9 @@ case_test_stop_server
 sleep 0.2
 case_test_start_server ${SERVER_BIN} -l d > /dev/null
 wait $CLIENT_PID
-result=`grep "|====>|receive stateless reset" clog`
+result=`grep -a "|====>|receive stateless reset" clog`
 cloing_notify=`grep "conn closing: 641" stdlog`
-svr_hsk=`grep "handshake_time:0" slog`
+svr_hsk=`grep -a "handshake_time:0" slog`
 if [ -n "$result" ] && [ -n "$cloing_notify" ] && [ -n "$svr_hsk" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "stateless_reset_during_hsk" "pass"
@@ -845,8 +845,8 @@ echo -e "0RTT forbidden remembered params (normal) ...\c"
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 clear_log
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
-cli_restore=`grep "|0RTT_transport_params|" clog`
-cli_pto=`grep "max_ack_delay:25|" clog`
+cli_restore=`grep -a "|0RTT_transport_params|" clog`
+cli_pto=`grep -a "max_ack_delay:25|" clog`
 flag=`grep "early_data_flag:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_restore" ] && [ -n "$cli_pto" ] && [ -n "$flag" ] && [ -z "$errlog" ]; then
@@ -866,8 +866,8 @@ clear_log
 echo -e "0RTT forbidden remembered params (stale max_ack_delay not used) ...\c"
 case_test_replace_in_file 'max_ack_delay=[0-9]*' 'max_ack_delay=100' tp_localhost
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
-cli_restore=`grep "|0RTT_transport_params|" clog`
-cli_stale=`grep "max_ack_delay:100|" clog`
+cli_restore=`grep -a "|0RTT_transport_params|" clog`
+cli_stale=`grep -a "max_ack_delay:100|" clog`
 flag=`grep "early_data_flag:1" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_restore" ] && [ -z "$cli_stale" ] && [ -n "$flag" ] && [ -z "$errlog" ]; then
@@ -984,10 +984,10 @@ rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "transport MP ping ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -E -T 1 -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
-ret_ping_id=`grep "====>ping_id:" clog`
-ret_no_ping_id=`grep "====>no ping_id" clog`
-path0_ping=`grep -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
-path1_ping=`grep -E "xqc_send_packet_with_pn.*path:1.*PING" clog`
+ret_ping_id=`grep -a "====>ping_id:" clog`
+ret_no_ping_id=`grep -a "====>no ping_id" clog`
+path0_ping=`grep -a -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
+path1_ping=`grep -a -E "xqc_send_packet_with_pn.*path:1.*PING" clog`
 if [ -n "$ret_ping_id" ] && [ -n "$ret_no_ping_id" ] && [ -n "$path0_ping" ] && [ -n "$path1_ping" ] ; then
     echo ">>>>>>>> pass:1"
     case_print_result "transport_MP_ping" "pass"
@@ -1021,7 +1021,7 @@ ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 # second connection: 0-RTT with reduced max_streams_bidi on server
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 conn_err=`grep "conn_err:84" stdlog`
-peer_err=`grep "[error].*err:0x8" slog`
+peer_err=`grep -a "[error].*err:0x8" slog`
 if [ -n "$conn_err" ] && [ -n "$peer_err" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0RTT_param_reduction" "pass"
@@ -1078,7 +1078,7 @@ sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 2 -E -x 715 > stdlog 2>&1
 corrupted=`grep "\[retry-token-test\]|corrupt_retry_token" stdlog`
 retry_enabled=`grep "\[retry-token-test\]|retry_enabled|case:715" svr_stdlog`
-invalid_token=`grep -E "(conn_err:11|err:0xb|TRA_INVALID_TOKEN)" stdlog slog svr_stdlog 2>/dev/null`
+invalid_token=`grep -a -E "(conn_err:11|err:0xb|TRA_INVALID_TOKEN)" stdlog slog svr_stdlog 2>/dev/null`
 if [ -n "$corrupted" ] && [ -n "$retry_enabled" ] && [ -n "$invalid_token" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "retry_invalid_token_close" "pass"
@@ -1107,7 +1107,7 @@ saved=`grep "\[retry-token-test\]|save_original_initial" stdlog`
 replayed=`grep -F "[retry-token-test]|replay_original_initial|len:" stdlog`
 retry_enabled=`grep "\[retry-token-test\]|retry_enabled|case:716" svr_stdlog`
 result=`grep ">>>>>>>> pass:1" stdlog`
-invalid_token=`grep -E "(conn_err:11|err:0xb|TRA_INVALID_TOKEN)" stdlog slog svr_stdlog 2>/dev/null`
+invalid_token=`grep -a -E "(conn_err:11|err:0xb|TRA_INVALID_TOKEN)" stdlog slog svr_stdlog 2>/dev/null`
 if [ -n "$large_sni" ] && [ -n "$saved" ] && [ -n "$replayed" ] \
     && [ -n "$retry_enabled" ] && [ "$result" == ">>>>>>>> pass:1" ] \
     && [ -z "$invalid_token" ]; then

@@ -714,8 +714,39 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
 
     xc = xqc_pcalloc(pool, sizeof(xqc_connection_t));
     if (xc == NULL) {
-        goto fail;
+        xqc_destroy_pool(pool);
+        return NULL;
     }
+
+    /* Every failure below ends in xqc_conn_destroy(): set up what it walks
+     * and dereferences before anything else can fail. */
+    xc->conn_pool = pool;
+    xc->engine = engine;
+    xc->log = xqc_log_init(engine->log->log_level, engine->log->log_event,
+                           engine->log->qlog_importance, engine->log->log_timestamp,
+                           engine->log->log_level_name, engine,
+                           engine->log->log_callbacks, engine->log->user_data);
+    if (xc->log == NULL) {
+        xqc_destroy_pool(pool);
+        return NULL;
+    }
+    xc->log->scid = xc->scid_set.original_scid_str;
+
+    xqc_init_list_head(&xc->conn_paths_list);
+    xqc_init_list_head(&xc->conn_write_streams);
+    xqc_init_list_head(&xc->conn_read_streams);
+    xqc_init_list_head(&xc->conn_closing_streams);
+    xqc_init_list_head(&xc->conn_all_streams);
+    xqc_init_list_head(&xc->initial_crypto_data_list);
+    xqc_init_list_head(&xc->hsk_crypto_data_list);
+    xqc_init_list_head(&xc->application_crypto_data_list);
+    for (xqc_encrypt_level_t encrypt_level = XQC_ENC_LEV_INIT;
+         encrypt_level < XQC_ENC_LEV_MAX; encrypt_level++) {
+        xqc_init_list_head(&xc->undecrypt_packet_in[encrypt_level]);
+    }
+    xqc_init_list_head(&xc->dgram_0rtt_buffer_list);
+    xqc_init_list_head(&xc->ping_notification_list);
+    xqc_init_list_head(&xc->conn_timer_manager.gp_timer_list);
 
     xc->conn_settings = *settings;
 
@@ -906,8 +937,6 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     xqc_conn_init_flow_ctl(xc);
     xqc_conn_init_key_update_ctx(xc);
 
-    xc->conn_pool = pool;
-
     xqc_init_cid_set(&xc->dcid_set);
     xqc_init_cid_set(&xc->scid_set);
 
@@ -953,10 +982,6 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
     xqc_cid_set_set_largest_seq_or_rpt(&xc->scid_set, XQC_INITIAL_PATH_ID, scid->cid_seq_num);
     xqc_cid_copy(&(xc->initial_scid), scid);
 
-    xc->engine = engine;
-    xc->log = xqc_log_init(engine->log->log_level, engine->log->log_event, engine->log->qlog_importance, engine->log->log_timestamp,
-                           engine->log->log_level_name, engine, engine->log->log_callbacks, engine->log->user_data);
-    xc->log->scid = xc->scid_set.original_scid_str;
     xc->transport_cbs = engine->transport_cbs;
     xc->user_data = user_data;
     xc->conn_type = type;
@@ -1006,17 +1031,6 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         }
     }
 
-    xqc_init_list_head(&xc->conn_write_streams);
-    xqc_init_list_head(&xc->conn_read_streams);
-    xqc_init_list_head(&xc->conn_closing_streams);
-    xqc_init_list_head(&xc->conn_all_streams);
-
-    xqc_init_list_head(&xc->initial_crypto_data_list);
-    xqc_init_list_head(&xc->hsk_crypto_data_list);
-    xqc_init_list_head(&xc->application_crypto_data_list);
-    for (xqc_encrypt_level_t encrypt_level = XQC_ENC_LEV_INIT; encrypt_level < XQC_ENC_LEV_MAX; encrypt_level++) {
-        xqc_init_list_head(&xc->undecrypt_packet_in[encrypt_level]);
-    }
     xc->crypto_data_total_len = 0;
 
     /* create streams_hash */
@@ -1085,8 +1099,6 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
 
     /* for datagram */
     xc->next_dgram_id = 0;
-    xqc_init_list_head(&xc->dgram_0rtt_buffer_list);
-    xqc_init_list_head(&xc->ping_notification_list);
 
     xqc_log(xc->log, XQC_LOG_DEBUG, "|success|scid:%s|dcid:%s|conn:%p|",
             xqc_scid_str(engine, &xc->scid_set.user_scid), xqc_dcid_str(engine, &xc->dcid_set.current_dcid), xc);
@@ -1491,6 +1503,20 @@ full:
     buff[curr_size] = '\0';
 }
 
+/* free the handshake data from TLS that no crypto stream has written */
+static void
+xqc_conn_destroy_crypto_data_list(xqc_list_head_t *crypto_data_list)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_hs_buffer_t *buf;
+
+    xqc_list_for_each_safe(pos, next, crypto_data_list) {
+        buf = xqc_list_entry(pos, xqc_hs_buffer_t, list_head);
+        xqc_list_del(pos);
+        xqc_free(buf);
+    }
+}
+
 void
 xqc_conn_destroy(xqc_connection_t *xc)
 {
@@ -1647,7 +1673,9 @@ xqc_conn_destroy(xqc_connection_t *xc)
     /* destroy gp_timer list */
     xqc_timer_destroy_gp_timer_list(&xc->conn_timer_manager);
 
-    xqc_send_queue_destroy(xc->conn_send_queue);
+    if (xc->conn_send_queue) {
+        xqc_send_queue_destroy(xc->conn_send_queue);
+    }
 #ifdef XQC_ENABLE_FEC
     if (xc->fec_ctl) {
         xqc_fec_ctl_destroy(xc->fec_ctl);
@@ -1690,6 +1718,10 @@ xqc_conn_destroy(xqc_connection_t *xc)
     if (xc->tls) {
         xqc_tls_destroy(xc->tls);
     }
+
+    xqc_conn_destroy_crypto_data_list(&xc->initial_crypto_data_list);
+    xqc_conn_destroy_crypto_data_list(&xc->hsk_crypto_data_list);
+    xqc_conn_destroy_crypto_data_list(&xc->application_crypto_data_list);
 
     if (xc->enc_pkt) {
         xqc_free(xc->enc_pkt);

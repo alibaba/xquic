@@ -91,6 +91,12 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     }
     xqc_memzero(path, sizeof(xqc_path_ctx_t));
 
+    /* xqc_path_destroy() on the error path below empties these lists */
+    for (xqc_send_type_t type = 0; type < XQC_SEND_TYPE_N; type++) {
+        xqc_init_list_head(&path->path_schedule_buf[type]);
+    }
+    xqc_init_list_head(&path->path_reinj_tmp_buf);
+
     path->path_state = XQC_PATH_STATE_INIT;
     path->parent_conn = conn;
     path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
@@ -111,11 +117,6 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     if (path->path_send_ctl == NULL) {
         goto err;
     }
-
-    for (xqc_send_type_t type = 0; type < XQC_SEND_TYPE_N; type++) {
-        xqc_init_list_head(&path->path_schedule_buf[type]);
-    }
-    xqc_init_list_head(&path->path_reinj_tmp_buf);
 
     /* cid & path_id init */
     if (scid == NULL) {
@@ -1757,6 +1758,15 @@ xqc_path_standby_probe(xqc_path_ctx_t *path)
 xqc_path_perf_class_t 
 xqc_path_get_perf_class(xqc_path_ctx_t *path)
 {
+    /* A closing or closed path stays in conn_paths_list until the connection
+     * is destroyed, and the schedulers classify every entry for every packet.
+     * Its class is the lowest; skip the work below, which walks the whole
+     * path list again (xqc_conn_get_min_srtt) and made scheduling quadratic
+     * in the number of paths ever created. */
+    if (path->path_state >= XQC_PATH_STATE_CLOSING) {
+        return XQC_PATH_CLASS_STANDBY_LOW;
+    }
+
     xqc_connection_t *conn = path->parent_conn;
     xqc_scheduler_params_t *param = &conn->conn_settings.scheduler_params;
     xqc_usec_t path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);

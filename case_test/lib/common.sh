@@ -438,8 +438,9 @@ clear_log()
 
 grep_err_log()
 {
-    grep "\[error\]" clog
-    grep "\[error\]" slog
+    # Endpoint logs preserve binary payload bytes, including embedded NULs.
+    grep -a "\[error\]" clog
+    grep -a "\[error\]" slog
 }
 
 case_test_should_retry_timeout_or_no_result()

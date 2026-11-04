@@ -36,8 +36,8 @@ sleep 1
 clear_log
 echo -e "datagram frame size negotiation...\c"
 ${CLIENT_BIN} -l d -Q 65536 >> stdlog
-cli_result=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
-svr_result=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" slog`
+cli_result=`grep -a "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+svr_result=`grep -a "|1RTT_transport_params|max_datagram_frame_size:65536|" slog`
 errlog=`grep_err_log`
 if [ -n "$cli_result" ] && [ -n "$svr_result" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -55,8 +55,8 @@ case_transport_datagram__0rtt_max_datagram_frame_size_is_valid()
 clear_log
 echo -e "0RTT max_datagram_frame_size is valid...\c"
 ${CLIENT_BIN} -l d >> stdlog
-cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
-cli_result2=`grep "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
+cli_result=`grep -a "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
+cli_result2=`grep -a "|1RTT_transport_params|max_datagram_frame_size:65536|" clog`
 errlog=`grep_err_log`
 if [ -n "$cli_result" ] && [ -n "$cli_result2" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -77,9 +77,9 @@ sleep 1
 clear_log
 echo -e "0RTT max_datagram_frame_size is invalid...\c"
 ${CLIENT_BIN} -l d >> stdlog
-cli_result=`grep "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
-cli_err=`grep "[error].*err:0x55" clog`
-svr_err=`grep "[error].*err:0xa" slog`
+cli_result=`grep -a "|0RTT_transport_params|max_datagram_frame_size:65536|" clog`
+cli_err=`grep -a "[error].*err:0x55" clog`
+svr_err=`grep -a "[error].*err:0xa" slog`
 if [ -n "$cli_result" ] && [ -n "$cli_err" ] && [ -n "$svr_err" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "0rtt_max_datagram_frame_size_is_invalid" "pass"
@@ -363,8 +363,8 @@ clear_log
 echo -e "Initial DATAGRAM frame rejected...\c"
 ${CLIENT_BIN} -l d -T 1 -s 1 -Q 65535 -1 -x 1202 > stdlog
 write_res=`grep "\[dgram-encryption-level-test\]|initial_write_ret:0|" stdlog`
-reject_res=`grep "illegal DATAGRAM frame in INIT packet" slog`
-protocol_res=`grep "err:0xa" slog`
+reject_res=`grep -a "illegal DATAGRAM frame in INIT packet" slog`
+protocol_res=`grep -a "err:0xa" slog`
 if [ -n "$write_res" ] && [ -n "$reject_res" ] \
     && [ -n "$protocol_res" ]; then
     echo ">>>>>>>> pass:1"
@@ -411,7 +411,7 @@ clear_log
 echo -e "send_0rtt_datagram_without_saved_datagram_tp...\c"
 ${CLIENT_BIN} -l d -T 1 -s 999 -U 1 -Q 65535 -1 -E -x 202 > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_later|" stdlog`
-cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
+cli_res2=`grep -a "|waiting_for_max_datagram_frame_size_from_peer|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res4=`grep "\[dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
@@ -432,7 +432,7 @@ clear_log
 echo -e "send_0rtt_datagram_without_saved_datagram_tp_batch...\c"
 ${CLIENT_BIN} -l d -T 1 -s 999 -U 2 -Q 65535 -1 -E -x 202 > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_multiple_later|" stdlog`
-cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
+cli_res2=`grep -a "|waiting_for_max_datagram_frame_size_from_peer|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res4=`grep "\[dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
@@ -455,7 +455,7 @@ clear_log
 echo -e "send_too_many_0rtt_datagrams...\c"
 ${CLIENT_BIN} -l d -T 1 -s 40000 -U 1 -Q 65535 -E > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_later|" stdlog`
-cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res2=`grep -a "|too many 0rtt packets|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res4=`grep "\[dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
@@ -476,7 +476,7 @@ clear_log
 echo -e "send_too_many_0rtt_datagrams_batch...\c"
 ${CLIENT_BIN} -l d -T 1 -s 40000 -U 2 -Q 65535 -E > stdlog
 cli_res1=`grep "\[dgram\]|retry_datagram_send_multiple_later|" stdlog`
-cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res2=`grep -a "|too many 0rtt packets|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res4=`grep "\[dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
@@ -499,7 +499,7 @@ sleep 1
 clear_log
 echo -e "send_0rtt_datagram_reject...\c"
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E > stdlog
-cli_res1=`grep "xqc_conn_early_data_reject" clog`
+cli_res1=`grep -a "xqc_conn_early_data_reject" clog`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
@@ -523,7 +523,7 @@ sleep 1
 clear_log
 echo -e "send_oversized_datagram...\c"
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E -1 -x 203 > stdlog
-cli_res1=`grep "datagram_is_too_large" clog`
+cli_res1=`grep -a "datagram_is_too_large" clog`
 cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
@@ -542,7 +542,7 @@ case_transport_datagram_send_oversized_datagram_batch()
 clear_log
 echo -e "send_oversized_datagram_batch...\c"
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 2 -Q 65535 -E -1 -x 203 > stdlog
-cli_res1=`grep "datagram_is_too_large" clog`
+cli_res1=`grep -a "datagram_is_too_large" clog`
 cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
 cli_res3=`grep "|partially_sent_pkts_in_a_batch|cnt:1|" stdlog`
 errlog=`grep_err_log`
@@ -567,7 +567,7 @@ sleep 1
 clear_log
 echo -e "send_datagram_while_peer_does_not_support...\c"
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 1 -Q 65535 -E -1 -x 204 > stdlog
-cli_res1=`grep "|does not support datagram|" clog`
+cli_res1=`grep -a "|does not support datagram|" clog`
 cli_res2=`grep "\[dgram\]|send_datagram_error|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
@@ -586,7 +586,7 @@ case_transport_datagram_send_datagram_batch_while_peer_does_not_support()
 clear_log
 echo -e "send_datagram_batch_while_peer_does_not_support...\c"
 ${CLIENT_BIN} -l d -T 1 -s 4800 -U 2 -Q 65535 -E -1 -x 204 > stdlog
-cli_res1=`grep "|does not support datagram|" clog`
+cli_res1=`grep -a "|does not support datagram|" clog`
 cli_res2=`grep "\[dgram\]|send_datagram_multiple_error|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
@@ -813,8 +813,8 @@ sleep 1
 
 echo -e "stop_datagram_send_redundancy_after_negotiation...\c"
 ${CLIENT_BIN} -l d -T 1 -s 2000 -U 2 -Q 65535 -x 208 --close_dg_red 1 > stdlog
-cli_res=`grep "|stop sending datagram redundancy." clog`
-svr_res=`grep "|stop sending datagram redundancy." slog`
+cli_res=`grep -a "|stop sending datagram redundancy." clog`
+svr_res=`grep -a "|stop sending datagram redundancy." slog`
 errlog=`grep_err_log`
 if [ -n "$cli_res" ] && [ -n "$svr_res" ] && [ -z "$errlog" ]; then
     echo ">>>>>>>> pass:1"
@@ -947,7 +947,7 @@ clear_log
 echo -e "send_0rtt_h3_ext_datagram_without_saved_datagram_tp...\c"
 ${CLIENT_BIN} -l d -T 2 -s 999 -U 1 -Q 65535 -1 -E -x 202 > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_later|" stdlog`
-cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
+cli_res2=`grep -a "|waiting_for_max_datagram_frame_size_from_peer|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res4=`grep "\[h3-dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
@@ -968,7 +968,7 @@ clear_log
 echo -e "send_0rtt_h3_ext_datagram_without_saved_datagram_tp_batch...\c"
 ${CLIENT_BIN} -l d -T 2 -s 999 -U 2 -Q 65535 -1 -E -x 202 > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_multiple_later|" stdlog`
-cli_res2=`grep "|waiting_for_max_datagram_frame_size_from_peer|" clog`
+cli_res2=`grep -a "|waiting_for_max_datagram_frame_size_from_peer|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res4=`grep "\[h3-dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
@@ -991,7 +991,7 @@ clear_log
 echo -e "send_too_many_0rtt_h3_ext_datagrams...\c"
 ${CLIENT_BIN} -l d -T 2 -s 40000 -U 1 -Q 65535 -E > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_later|" stdlog`
-cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res2=`grep -a "|too many 0rtt packets|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res4=`grep "\[h3-dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
@@ -1012,7 +1012,7 @@ clear_log
 echo -e "send_too_many_0rtt_h3_ext_datagrams_batch...\c"
 ${CLIENT_BIN} -l d -T 2 -s 40000 -U 2 -Q 65535 -E > stdlog
 cli_res1=`grep "\[h3-dgram\]|retry_datagram_send_multiple_later|" stdlog`
-cli_res2=`grep "|too many 0rtt packets|" clog`
+cli_res2=`grep -a "|too many 0rtt packets|" clog`
 cli_res3=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 cli_res4=`grep "\[h3-dgram\]|dgram_write|" stdlog`
 errlog=`grep_err_log`
@@ -1035,7 +1035,7 @@ sleep 1
 clear_log
 echo -e "send_0rtt_h3_ext_datagram_reject...\c"
 ${CLIENT_BIN} -l d -T 2 -s 4800 -U 1 -Q 65535 -E > stdlog
-cli_res1=`grep "xqc_conn_early_data_reject" clog`
+cli_res1=`grep -a "xqc_conn_early_data_reject" clog`
 cli_res2=`grep "\[dgram\]|echo_check|same_content:yes|" stdlog`
 errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ] && [ -z "$errlog" ]; then
@@ -1059,7 +1059,7 @@ sleep 1
 clear_log
 echo -e "send_oversized_h3_ext_datagram...\c"
 ${CLIENT_BIN} -l d -T 2 -s 4800 -U 1 -Q 65535 -E -1 -x 203 > stdlog
-cli_res1=`grep "datagram_is_too_large" clog`
+cli_res1=`grep -a "datagram_is_too_large" clog`
 cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
 #errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ]; then
@@ -1078,7 +1078,7 @@ case_transport_datagram_send_oversized_h3_ext_datagram_batch()
 clear_log
 echo -e "send_oversized_h3_ext_datagram_batch...\c"
 ${CLIENT_BIN} -l d -T 2 -s 4800 -U 2 -Q 65535 -E -1 -x 203 > stdlog
-cli_res1=`grep "datagram_is_too_large" clog`
+cli_res1=`grep -a "datagram_is_too_large" clog`
 cli_res2=`grep "trying_to_send_an_oversized_datagram" stdlog`
 cli_res3=`grep "|partially_sent_pkts_in_a_batch|cnt:1|" stdlog`
 #errlog=`grep_err_log`
@@ -1103,7 +1103,7 @@ sleep 1
 clear_log
 echo -e "send_h3_ext_datagram_while_peer_does_not_support...\c"
 ${CLIENT_BIN} -l d -T 2 -s 4800 -U 1 -Q 65535 -E -1 -x 204 > stdlog
-cli_res1=`grep "|does not support datagram|" clog`
+cli_res1=`grep -a "|does not support datagram|" clog`
 cli_res2=`grep "\[h3-dgram\]|send_datagram_error|" stdlog`
 #errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ]; then
@@ -1122,7 +1122,7 @@ case_transport_datagram_send_h3_ext_datagram_batch_while_peer_does_not_support()
 clear_log
 echo -e "send_h3_ext_datagram_batch_while_peer_does_not_support...\c"
 ${CLIENT_BIN} -l d -T 2 -s 4800 -U 2 -Q 65535 -E -1 -x 204 > stdlog
-cli_res1=`grep "|does not support datagram|" clog`
+cli_res1=`grep -a "|does not support datagram|" clog`
 cli_res2=`grep "\[h3-dgram\]|send_datagram_multiple_error|" stdlog`
 #errlog=`grep_err_log`
 if [ -n "$cli_res1" ] && [ -n "$cli_res2" ]; then
@@ -1317,7 +1317,7 @@ clear_log
 echo -e "SP reinject datagrams ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 1 > stdlog
 result=`grep "\[dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -1337,7 +1337,7 @@ clear_log
 echo -e "SP reinject h3-ext datagrams ...\c"
 case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -R 3 -Q 65535 -U 1 -T 2 > stdlog
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:4096|sent_dgram_bytes:1024|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] ; then
     echo ">>>>>>>> pass:1"
@@ -1361,8 +1361,8 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 711 -Q 65535 -U 1 -T 1 > st
 sleep 1
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 probe_res=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*enable_pmtud:1" clog`
-svr_res=`grep -E "xqc_conn_destroy.*enable_pmtud:0" slog`
+cli_res=`grep -a -E "xqc_conn_destroy.*enable_pmtud:1" clog`
+svr_res=`grep -a -E "xqc_conn_destroy.*enable_pmtud:0" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$probe_res" ] \
     && [ -n "$cli_res" ] && [ -n "$svr_res" ]
@@ -1389,8 +1389,8 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 712 -Q 65535 -U 1 -T 1 > st
 sleep 1
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 probe_res=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*enable_pmtud:0" clog`
-svr_res=`grep -E "xqc_conn_destroy.*enable_pmtud:0" slog`
+cli_res=`grep -a -E "xqc_conn_destroy.*enable_pmtud:0" clog`
+svr_res=`grep -a -E "xqc_conn_destroy.*enable_pmtud:0" slog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -z "$probe_res" ] \
     && [ -n "$cli_res" ] && [ -n "$svr_res" ]
@@ -1427,7 +1427,7 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 >
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
     echo ">>>>>>>> pass:1"
@@ -1449,7 +1449,7 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 1 --pmtud 1 >
 result=`grep "\[dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[dgram\]|mss_callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
     echo ">>>>>>>> pass:1"
@@ -1472,7 +1472,7 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 >
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
     echo ">>>>>>>> pass:1"
@@ -1494,7 +1494,7 @@ case_test_sudo ${CLIENT_BIN} -s 1024 -l d -t 1 -E -Q 65535 -U 1 -T 2 --pmtud 1 >
 result=`grep "\[h3-dgram\]|recv_dgram_bytes:1024|sent_dgram_bytes:1024|" stdlog`
 mtu_res1=`grep "\[h3-dgram\]|callback|updated_mss:1404|" stdlog`
 mtu_res2=`grep -a "\[h3-dgram\]|1RTT|updated_mss:1404|" svr_stdlog`
-cli_res=`grep -E "xqc_conn_destroy.*mp_enable:0" clog`
+cli_res=`grep -a -E "xqc_conn_destroy.*mp_enable:0" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$cli_res" ] && [ -n "$mtu_res1" ] && [ -n "$mtu_res2" ] ; then
     echo ">>>>>>>> pass:1"

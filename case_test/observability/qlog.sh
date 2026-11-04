@@ -26,10 +26,10 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1 --qlog_disable > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_disable > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
-svr_qlog_res1=`grep "\[packet_received\]" slog`
-svr_qlog_res2=`grep "\[packet_sent\]" slog`
-cli_qlog_res1=`grep "\[packet_received\]" clog`
-cli_qlog_res2=`grep "\[packet_sent\]" clog`
+svr_qlog_res1=`grep -a "\[packet_received\]" slog`
+svr_qlog_res2=`grep -a "\[packet_sent\]" slog`
+cli_qlog_res1=`grep -a "\[packet_received\]" clog`
+cli_qlog_res2=`grep -a "\[packet_sent\]" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -z "$svr_qlog_res1" ] && [ -z "$svr_qlog_res2" ] \
     && [ -z "$cli_qlog_res1" ] && [ -z "$cli_qlog_res2" ]; then
@@ -55,10 +55,10 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1 --qlog_importance s > /dev/nul
 sleep 1
 ${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance s > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
-svr_qlog_res1=`grep "\[packet_received\]" slog`
-svr_qlog_res2=`grep "\[connection_started\]" slog`
-cli_qlog_res1=`grep "\[packet_received\]" clog`
-cli_qlog_res2=`grep "\[connection_started\]" clog`
+svr_qlog_res1=`grep -a "\[packet_received\]" slog`
+svr_qlog_res2=`grep -a "\[connection_started\]" slog`
+cli_qlog_res1=`grep -a "\[packet_received\]" clog`
+cli_qlog_res2=`grep -a "\[connection_started\]" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
     && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ]; then
@@ -84,10 +84,10 @@ case_test_start_server ${SERVER_BIN} -l i -e -x 1 --qlog_importance s > /dev/nul
 sleep 1
 ${CLIENT_BIN} -s 10240 -l i -t 1 -E --qlog_importance s > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
-svr_qlog_res1=`grep "\[packet_received\]" slog`
-svr_qlog_res2=`grep "\[connection_started\]" slog`
-cli_qlog_res1=`grep "\[packet_received\]" clog`
-cli_qlog_res2=`grep "\[connection_started\]" clog`
+svr_qlog_res1=`grep -a "\[packet_received\]" slog`
+svr_qlog_res2=`grep -a "\[connection_started\]" slog`
+cli_qlog_res1=`grep -a "\[packet_received\]" clog`
+cli_qlog_res2=`grep -a "\[connection_started\]" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -z "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
     && [ -z "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ]; then
@@ -113,14 +113,14 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1 --qlog_importance r > /dev/nul
 sleep 1
 ${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance r > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
-svr_qlog_res1=`grep "\[packet_sent" slog`
-svr_qlog_res2=`grep "\[connection_" slog`
-svr_qlog_res3=`grep "\[datagram" slog`
-svr_qlog_res4=`grep "\[qpack_" slog`
-cli_qlog_res1=`grep "\[packet_sent" clog`
-cli_qlog_res2=`grep "\[connection_" clog`
-cli_qlog_res3=`grep "\[datagram" clog`
-cli_qlog_res4=`grep "\[qpack_" clog`
+svr_qlog_res1=`grep -a "\[packet_sent" slog`
+svr_qlog_res2=`grep -a "\[connection_" slog`
+svr_qlog_res3=`grep -a "\[datagram" slog`
+svr_qlog_res4=`grep -a "\[qpack_" slog`
+cli_qlog_res1=`grep -a "\[packet_sent" clog`
+cli_qlog_res2=`grep -a "\[connection_" clog`
+cli_qlog_res3=`grep -a "\[datagram" clog`
+cli_qlog_res4=`grep -a "\[qpack_" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
     && [ -n "$svr_qlog_res3" ] && [ -n "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ] \
@@ -147,14 +147,14 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1 --qlog_importance e > /dev/nul
 sleep 1
 ${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance e > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
-svr_qlog_res1=`grep "\[packet_sent" slog`
-svr_qlog_res2=`grep "\[connection_" slog`
-svr_qlog_res3=`grep "\[datagram" slog`
-svr_qlog_res4=`grep "\[qpack_" slog`
-cli_qlog_res1=`grep "\[packet_sent" clog`
-cli_qlog_res2=`grep "\[connection_" clog`
-cli_qlog_res3=`grep "\[datagram" clog`
-cli_qlog_res4=`grep "\[qpack_" clog`
+svr_qlog_res1=`grep -a "\[packet_sent" slog`
+svr_qlog_res2=`grep -a "\[connection_" slog`
+svr_qlog_res3=`grep -a "\[datagram" slog`
+svr_qlog_res4=`grep -a "\[qpack_" slog`
+cli_qlog_res1=`grep -a "\[packet_sent" clog`
+cli_qlog_res2=`grep -a "\[connection_" clog`
+cli_qlog_res3=`grep -a "\[datagram" clog`
+cli_qlog_res4=`grep -a "\[qpack_" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
     && [ -n "$svr_qlog_res3" ] && [ -z "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ] \
@@ -180,14 +180,14 @@ echo -e "qlog importance base  ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -x 1 --qlog_importance b > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance b > stdlog
-svr_qlog_res1=`grep "\[packet_sent" slog`
-svr_qlog_res2=`grep "\[connection_" slog`
-svr_qlog_res3=`grep "\[datagram" slog`
-svr_qlog_res4=`grep "\[qpack_" slog`
-cli_qlog_res1=`grep "\[packet_sent" clog`
-cli_qlog_res2=`grep "\[connection_" clog`
-cli_qlog_res3=`grep "\[datagram" clog`
-cli_qlog_res4=`grep "\[qpack_" clog`
+svr_qlog_res1=`grep -a "\[packet_sent" slog`
+svr_qlog_res2=`grep -a "\[connection_" slog`
+svr_qlog_res3=`grep -a "\[datagram" slog`
+svr_qlog_res4=`grep -a "\[qpack_" slog`
+cli_qlog_res1=`grep -a "\[packet_sent" clog`
+cli_qlog_res2=`grep -a "\[connection_" clog`
+cli_qlog_res3=`grep -a "\[datagram" clog`
+cli_qlog_res4=`grep -a "\[qpack_" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$svr_qlog_res1" ] && [ -n "$svr_qlog_res2" ] \
     && [ -z "$svr_qlog_res3" ] && [ -z "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -n "$cli_qlog_res2" ] \
@@ -214,14 +214,14 @@ case_test_start_server ${SERVER_BIN} -l d -e -x 1 --qlog_importance c > /dev/nul
 sleep 1
 ${CLIENT_BIN} -s 10240 -l d -t 1 -E --qlog_importance c > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
-svr_qlog_res1=`grep "\[packet_sent" slog`
-svr_qlog_res2=`grep "\[connection_" slog`
-svr_qlog_res3=`grep "\[datagram" slog`
-svr_qlog_res4=`grep "\[qpack_" slog`
-cli_qlog_res1=`grep "\[packet_sent" clog`
-cli_qlog_res2=`grep "\[connection_" clog`
-cli_qlog_res3=`grep "\[datagram" clog`
-cli_qlog_res4=`grep "\[qpack_" clog`
+svr_qlog_res1=`grep -a "\[packet_sent" slog`
+svr_qlog_res2=`grep -a "\[connection_" slog`
+svr_qlog_res3=`grep -a "\[datagram" slog`
+svr_qlog_res4=`grep -a "\[qpack_" slog`
+cli_qlog_res1=`grep -a "\[packet_sent" clog`
+cli_qlog_res2=`grep -a "\[connection_" clog`
+cli_qlog_res3=`grep -a "\[datagram" clog`
+cli_qlog_res4=`grep -a "\[qpack_" clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$svr_qlog_res1" ] && [ -z "$svr_qlog_res2" ] \
     && [ -z "$svr_qlog_res3" ] && [ -z "$svr_qlog_res4" ] && [ -n "$cli_qlog_res1" ] && [ -z "$cli_qlog_res2" ] \

@@ -305,6 +305,7 @@ xqc_pn_ctl_create(xqc_connection_t *conn)
 
     for (xqc_pkt_num_space_t i = XQC_PNS_INIT; i < XQC_PNS_N; i++) {
         if (xqc_ack_sent_record_init(&pn_ctl->ack_sent_record[i]) == XQC_ERROR) {
+            xqc_pn_ctl_destroy(pn_ctl);
             return NULL;
         }
     }
@@ -1327,6 +1328,20 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
 		{
             if (po->po_flag & XQC_POF_IN_FLIGHT) {
 
+                /* RFC 9000 Section 14.4: the loss of a PMTU probe is not a
+                 * reliable indication of congestion and SHOULD NOT trigger
+                 * a congestion control reaction. Drop the probe, which
+                 * carries nothing to repair, without counting it as lost. */
+                if (po->po_flag & XQC_POF_PMTUD_PROBING) {
+                    xqc_send_ctl_decrease_inflight(conn, po);
+                    xqc_log(conn->log, XQC_LOG_DEBUG,
+                            "|PMTUD probe lost|pns:%d|pkt_num:%ui|size:%ud|",
+                            pns, po->po_pkt.pkt_num, po->po_buf_size);
+                    xqc_send_queue_remove_unacked(po, send_queue);
+                    xqc_send_queue_insert_free(po, &send_queue->sndq_free_packets, send_queue);
+                    continue;
+                }
+
                 /* reinjection */
                 if (conn->enable_multipath
                     && conn->reinj_callback
@@ -1477,9 +1492,10 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
                 bw = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_bandwidth_estimate(send_ctl->ctl_cong);
             }
             xqc_conn_log(conn, XQC_LOG_STATS, "|lost interval:%ui|lost_count:%ui|send_count:%ui|pkt_num:%ui"
-                        "|po_send_time:%ui|srtt:%ui|cwnd:%ud|bw:%ui|conn_life:%ui|now:%ui|last_lost_time:%ui|",
+                        "|po_send_time:%ui|srtt:%ui|cwnd:%ui|bw:%ui|conn_life:%ui|now:%ui|last_lost_time:%ui|",
                         lost_interval, lost_count, send_count, largest_lost->po_pkt.pkt_num, largest_lost->po_sent_time, send_ctl->ctl_srtt,
-                        send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong), bw, now - conn->conn_create_time);
+                        send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong), bw, now - conn->conn_create_time,
+                        now, send_ctl->ctl_info.last_lost_time);
         }
     }
 }

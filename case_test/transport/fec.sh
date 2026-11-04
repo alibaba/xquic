@@ -39,8 +39,8 @@ fec_negotiate_encoder_fec_scheme()
     clear_log
     echo -e "negotiate_encoder_fec_schemes ...\c"
     case_test_sudo ${CLIENT_BIN} -l d -g > stdlog
-    clog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" clog`
-    slog_res1=`grep "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" slog`
+    clog_res1=`grep -a "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" clog`
+    slog_res1=`grep -a "|xqc_negotiate_fec_schemes|set final encoder fec scheme: XOR" slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$clog_res1" ] && [ -n "$slog_res1" ]
 }
@@ -52,8 +52,8 @@ fec_negotiate_decoder_fec_scheme()
     clear_log
     echo -e "negotiate_decoder_fec_schemes ...\c"
     case_test_sudo ${CLIENT_BIN} -l d -g > stdlog
-    clog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" clog`
-    slog_res2=`grep "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" slog`
+    clog_res2=`grep -a "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" clog`
+    slog_res2=`grep -a "|xqc_negotiate_fec_schemes|set final decoder fec scheme: XOR" slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$clog_res2" ] && [ -n "$slog_res2" ]
 }
@@ -65,7 +65,7 @@ fec_recovered_function_of_stream_xor()
     clear_log
     echo -e "check fec recovery function of stream using XOR ...\c"
     case_test_sudo ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo > stdlog
-    slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
+    slog_res1=`grep -a '|process packet of block .\{1,3\} successfully' slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_res1" ]
 }
@@ -77,7 +77,7 @@ fec_recovered_function_of_stream_rsc()
     clear_log
     echo -e "check fec recovery function of stream using RSC ...\c"
     case_test_sudo ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 8 --fec_decoder 8 > stdlog
-    slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
+    slog_res1=`grep -a '|process packet of block .\{1,3\} successfully' slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_res1" ]
 }
@@ -89,7 +89,7 @@ fec_recovered_function_of_stream_pm()
     clear_log
     echo -e "check fec recovery function of stream using PM ...\c"
     case_test_sudo ${CLIENT_BIN} -s 5120000 -l e -E -d 30 -g -M -i lo -i lo --fec_encoder 12 --fec_decoder 12 > stdlog
-    slog_res1=`grep '|process packet of block .\{1,3\} successfully' slog`
+    slog_res1=`grep -a '|process packet of block .\{1,3\} successfully' slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_res1" ]
 }
@@ -101,7 +101,7 @@ fec_send_repair_ahead()
     clear_log
     echo -e "check fec recovery when send repair packets ahead ...\c"
     case_test_sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -M -i lo -i lo --fec_encoder 12 --fec_decoder 12 --fec_timeout 20 > stdlog
-    clog_res=`grep '|send repair packets ahead finished' clog`
+    clog_res=`grep -a '|send repair packets ahead finished' clog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$clog_res" ]
 }
@@ -113,7 +113,7 @@ frame_type_bit_repair_sent()
     clear_log
     echo -e "frame_type_bit repair symbol sent (bit 32 non-zero) ...\c"
     case_test_sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
-    clog_repair=`grep 'frame:.*FEC_REPAIR' clog`
+    clog_repair=`grep -a 'frame:.*FEC_REPAIR' clog`
     echo_result=`grep ">>>>>>>> pass" stdlog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$clog_repair" ] && [ "$echo_result" == ">>>>>>>> pass:1" ]
@@ -126,7 +126,7 @@ frame_type_bit_repair_received()
     clear_log
     echo -e "frame_type_bit repair symbol received (bit 32 non-zero) ...\c"
     case_test_sudo ${CLIENT_BIN} -s 5120000 -l d -E -d 30 -g -x 700 -M -i lo -i lo > stdlog
-    slog_repair=`grep 'frame:.*FEC_REPAIR' slog`
+    slog_repair=`grep -a 'frame:.*FEC_REPAIR' slog`
     echo_result=`grep ">>>>>>>> pass" stdlog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_repair" ] && [ "$echo_result" == ">>>>>>>> pass:1" ]
@@ -139,7 +139,7 @@ fec_recovered_function_of_datagram_xor()
     clear_log
     echo -e "check fec recovery function of datagram with XOR fec scheme ...\c"
     case_test_sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g > stdlog
-    slog_res1=`grep '|process packet of block 0 successfully' slog`
+    slog_res1=`grep -a '|process packet of block 0 successfully' slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_res1" ]
 }
@@ -151,7 +151,7 @@ fec_recovered_function_of_datagram_rsc()
     clear_log
     echo -e "check fec recovery function of datagram with RSC fec scheme ...\c"
     case_test_sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 8 > stdlog
-    slog_res1=`grep '|process packet of block 0 successfully' slog`
+    slog_res1=`grep -a '|process packet of block 0 successfully' slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_res1" ]
 }
@@ -163,7 +163,7 @@ fec_recovered_function_of_datagram_pm()
     clear_log
     echo -e "check fec recovery function of datagram with Packet Mask scheme ...\c"
     case_test_sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 12 --fec_decoder 12 > stdlog
-    slog_res1=`grep '|process packet of block 0 successfully' slog`
+    slog_res1=`grep -a '|process packet of block 0 successfully' slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_res1" ]
 }
@@ -175,7 +175,7 @@ fec_recovered_function_of_datagram_xor_and_rsc()
     clear_log
     echo -e "check fec recovery function of datagram with XOR(encoder) and RSC(decoder) fec schemes ...\c"
     case_test_sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 8 --fec_decoder 11 > stdlog
-    slog_res1=`grep '|process packet of block 0 successfully' slog`
+    slog_res1=`grep -a '|process packet of block 0 successfully' slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_res1" ]
 }
@@ -187,7 +187,7 @@ fec_recovered_function_of_datagram_rsc_and_xor()
     clear_log
     echo -e "check fec recovery function of datagram with XOR(decoder) and RSC(encoder) fec schemes ...\c"
     case_test_sudo ${CLIENT_BIN} -l d -T 1 -s 3000 -U 1 -Q 65535 -E -x 205 -N -1 -t 1 --dgram_qos 3 -g --fec_encoder 11 --fec_decoder 8 > stdlog
-    slog_res1=`grep '|process packet of block 0 successfully' slog`
+    slog_res1=`grep -a '|process packet of block 0 successfully' slog`
     errlog=`grep_err_log`
     [ -z "$errlog" ] && [ -n "$slog_res1" ]
 }

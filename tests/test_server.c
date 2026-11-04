@@ -19,6 +19,7 @@
 
 #include "platform.h"
 #include "test_h3_split_fin.h"
+#include "xqc_test_log.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
@@ -2569,47 +2570,21 @@ xqc_server_close_log_file(void *engine_user_data)
 void 
 xqc_server_write_log(xqc_log_level_t lvl, const void *buf, size_t count, void *engine_user_data)
 {
-    unsigned char log_buf[XQC_MAX_LOG_LEN + 1];
-
     xqc_server_ctx_t *ctx = (xqc_server_ctx_t*)engine_user_data;
     if (ctx->log_fd <= 0) {
         printf("xqc_server_write_log fd err\n");
         return;
     }
 
-    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char *)buf);
-    if (log_len < 0) {
-        printf("xqc_server_write_log err\n");
-        return;
-    }
-
-    int write_len = write(ctx->log_fd, log_buf, log_len);
-    if (write_len < 0) {
-        printf("xqc_server_write_log write failed, errno: %d\n", get_sys_errno());
+    if (xqc_test_log_write(ctx->log_fd, buf, count) != 0) {
+        printf("xqc_server_write_log write failed, errno: %d\n", errno);
     }
 }
 
 void 
 xqc_server_write_qlog(qlog_event_importance_t imp, const void *buf, size_t count, void *engine_user_data)
 {
-    unsigned char log_buf[XQC_MAX_LOG_LEN + 1];
-
-    xqc_server_ctx_t *ctx = (xqc_server_ctx_t*)engine_user_data;
-    if (ctx->log_fd <= 0) {
-        printf("xqc_server_write_qlog fd err\n");
-        return;
-    }
-
-    int log_len = snprintf(log_buf, XQC_MAX_LOG_LEN + 1, "%s\n", (char *)buf);
-    if (log_len < 0) {
-        printf("xqc_server_write_qlog err\n");
-        return;
-    }
-
-    int write_len = write(ctx->log_fd, log_buf, log_len);
-    if (write_len < 0) {
-        printf("xqc_server_write_log write failed, errno: %d\n", get_sys_errno());
-    }
+    xqc_server_write_log(XQC_LOG_DEBUG, buf, count, engine_user_data);
 }
 
 

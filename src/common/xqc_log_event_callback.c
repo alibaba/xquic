@@ -193,7 +193,7 @@ xqc_log_TRA_ALPN_INFORMATION_callback(xqc_log_t *log, const char *func, const un
         i++;
     }
     xqc_qlog_implement(log, TRA_ALPN_INFORMATION, func,
-                      "|%s|selected_alpn:%*s|", log_buf, selected_alpn_len, selected_alpn);
+                      "|%*s|selected_alpn:%*s|", (size_t) (p - log_buf), log_buf, selected_alpn_len, selected_alpn);
   }
 
 void
@@ -572,15 +572,15 @@ xqc_log_REC_METRICS_UPDATED_callback(xqc_log_t *log, const char *func, xqc_send_
         mode = send_ctl->ctl_cong_callback->xqc_cong_ctl_info_cb->mode(send_ctl->ctl_cong);
         min_rtt = send_ctl->ctl_cong_callback-> xqc_cong_ctl_info_cb->min_rtt(send_ctl->ctl_cong);
         xqc_qlog_implement(log, REC_METRICS_UPDATED, func,
-                          "|cwnd:%ui|inflight:%ud|mode:%ud|applimit:%ud|pacing_rate:%ui|bw:%ui|srtt:%ui|"
+                          "|cwnd:%ui|inflight:%ud|mode:%ud|applimit:%ui|pacing_rate:%ui|bw:%ui|srtt:%ui|"
                           "latest_rtt:%ui|ctl_rttvar:%ui|pto_count:%ud|min_rtt:%ui|send:%ud|lost:%ud|tlp:%ud|recv:%ud|",
                           cwnd, send_ctl->ctl_bytes_in_flight, mode, send_ctl->ctl_app_limited, pacing_rate, bw, send_ctl->ctl_srtt,
-                          send_ctl->ctl_latest_rtt, send_ctl->ctl_pto_count, min_rtt, send_ctl->ctl_send_count, send_ctl->ctl_lost_count,
-                          send_ctl->ctl_tlp_count, send_ctl->ctl_recv_count);
+                          send_ctl->ctl_latest_rtt, send_ctl->ctl_rttvar, send_ctl->ctl_pto_count, min_rtt,
+                          send_ctl->ctl_send_count, send_ctl->ctl_lost_count, send_ctl->ctl_tlp_count, send_ctl->ctl_recv_count);
 
     } else {
         xqc_qlog_implement(log, REC_METRICS_UPDATED, func,
-                          "|cwnd:%ui|inflight:%ud|applimit:%ud|srtt:%ui|latest_rtt:%ui|pto_count:%ud|"
+                          "|cwnd:%ui|inflight:%ud|applimit:%ui|srtt:%ui|latest_rtt:%ui|pto_count:%ud|"
                           "send:%ud|lost:%ud|tlp:%ud|recv:%ud|",
                           cwnd, send_ctl->ctl_bytes_in_flight, send_ctl->ctl_app_limited, send_ctl->ctl_srtt, send_ctl->ctl_latest_rtt, send_ctl->ctl_pto_count,
                           send_ctl->ctl_send_count, send_ctl->ctl_lost_count, send_ctl->ctl_tlp_count, send_ctl->ctl_recv_count);
@@ -694,7 +694,8 @@ xqc_log_HTTP_FRAME_CREATED_callback(xqc_log_t *log, const char *func, ...)
             }
         }
         xqc_qlog_implement(log, HTTP_FRAME_CREATED, func,
-                          "|stream_id:%ui|type:%d|%s", stream_id, type, log_buf);
+                          "|stream_id:%ui|type:%d|%*s", stream_id, type,
+                          (size_t) (p - log_buf), log_buf);
         break;
     }
     case XQC_H3_FRM_CANCEL_PUSH:

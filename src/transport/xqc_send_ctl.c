@@ -1492,9 +1492,10 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
                 bw = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_bandwidth_estimate(send_ctl->ctl_cong);
             }
             xqc_conn_log(conn, XQC_LOG_STATS, "|lost interval:%ui|lost_count:%ui|send_count:%ui|pkt_num:%ui"
-                        "|po_send_time:%ui|srtt:%ui|cwnd:%ud|bw:%ui|conn_life:%ui|now:%ui|last_lost_time:%ui|",
+                        "|po_send_time:%ui|srtt:%ui|cwnd:%ui|bw:%ui|conn_life:%ui|now:%ui|last_lost_time:%ui|",
                         lost_interval, lost_count, send_count, largest_lost->po_pkt.pkt_num, largest_lost->po_sent_time, send_ctl->ctl_srtt,
-                        send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong), bw, now - conn->conn_create_time);
+                        send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong), bw, now - conn->conn_create_time,
+                        now, send_ctl->ctl_info.last_lost_time);
         }
     }
 }

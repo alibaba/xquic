@@ -14,6 +14,7 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_send_ctl.h"
+#include "src/congestion_control/xqc_bbr_common.h"
 
 
 typedef struct person_s {
@@ -45,6 +46,113 @@ xqc_test_qlog_write(qlog_event_importance_t imp, const void *buf, size_t size,
     memcpy(capture->buf, buf, copy_size);
     capture->buf[copy_size] = '\0';
     capture->size = copy_size;
+}
+
+/*
+ * A congestion controller for the REC_METRICS_UPDATED event, whose 64-bit
+ * values do not fit in 32 bits, so that a 32-bit conversion shows.
+ */
+static uint64_t
+xqc_test_metrics_cwnd(void *cong)
+{
+    return 0x100000001ULL;
+}
+
+static void
+xqc_test_metrics_init_bbr(void *cong, xqc_sample_t *sampler,
+    xqc_cc_params_t cc_params)
+{
+}
+
+static uint32_t
+xqc_test_metrics_pacing_rate(void *cong)
+{
+    return 3000000;
+}
+
+static uint32_t
+xqc_test_metrics_bandwidth(void *cong)
+{
+    return 2000000;
+}
+
+static uint8_t
+xqc_test_metrics_mode(void *cong)
+{
+    return 2;
+}
+
+static uint64_t
+xqc_test_metrics_min_rtt(void *cong)
+{
+    return 0x100000006ULL;
+}
+
+static void
+xqc_test_metrics_updated_log(const xqc_cong_ctrl_callback_t *cc,
+    const char *expected)
+{
+    xqc_test_log_capture_t  capture = {0};
+    xqc_log_callbacks_t     callbacks = {0};
+    xqc_log_t               log = {0};
+    xqc_send_ctl_t          send_ctl = {0};
+
+    callbacks.xqc_qlog_event_write = xqc_test_qlog_write;
+    log.log_event = 1;
+    log.qlog_importance = EVENT_IMPORTANCE_EXTRA;
+    log.log_callbacks = &callbacks;
+    log.user_data = &capture;
+
+    send_ctl.ctl_cong_callback = cc;
+    send_ctl.ctl_bytes_in_flight = 1200;
+    send_ctl.ctl_app_limited = 0x100000002ULL;
+    send_ctl.ctl_srtt = 0x100000003ULL;
+    send_ctl.ctl_latest_rtt = 0x100000004ULL;
+    send_ctl.ctl_rttvar = 0x100000005ULL;
+    send_ctl.ctl_pto_count = 7;
+    send_ctl.ctl_send_count = 8;
+    send_ctl.ctl_lost_count = 9;
+    send_ctl.ctl_tlp_count = 10;
+    send_ctl.ctl_recv_count = 11;
+
+    xqc_log_REC_METRICS_UPDATED_callback(&log, "xqc_test", &send_ctl);
+
+    CU_ASSERT(capture.size > 0);
+    CU_ASSERT_STRING_EQUAL(capture.buf, expected);
+}
+
+void
+xqc_test_metrics_updated_log_bbr(void)
+{
+    xqc_bbr_info_interface_t  info = {0};
+    xqc_cong_ctrl_callback_t  cc = {0};
+
+    info.mode = xqc_test_metrics_mode;
+    info.min_rtt = xqc_test_metrics_min_rtt;
+    cc.xqc_cong_ctl_get_cwnd = xqc_test_metrics_cwnd;
+    cc.xqc_cong_ctl_init_bbr = xqc_test_metrics_init_bbr;
+    cc.xqc_cong_ctl_get_pacing_rate = xqc_test_metrics_pacing_rate;
+    cc.xqc_cong_ctl_get_bandwidth_estimate = xqc_test_metrics_bandwidth;
+    cc.xqc_cong_ctl_info_cb = &info;
+
+    xqc_test_metrics_updated_log(&cc,
+        "|xqc_test|cwnd:4294967297|inflight:1200|mode:2|applimit:4294967298|"
+        "pacing_rate:3000000|bw:2000000|srtt:4294967299|"
+        "latest_rtt:4294967300|ctl_rttvar:4294967301|pto_count:7|"
+        "min_rtt:4294967302|send:8|lost:9|tlp:10|recv:11|");
+}
+
+void
+xqc_test_metrics_updated_log_no_bbr(void)
+{
+    xqc_cong_ctrl_callback_t  cc = {0};
+
+    cc.xqc_cong_ctl_get_cwnd = xqc_test_metrics_cwnd;
+
+    xqc_test_metrics_updated_log(&cc,
+        "|xqc_test|cwnd:4294967297|inflight:1200|applimit:4294967298|"
+        "srtt:4294967299|latest_rtt:4294967300|pto_count:7|send:8|lost:9|"
+        "tlp:10|recv:11|");
 }
 
 static void

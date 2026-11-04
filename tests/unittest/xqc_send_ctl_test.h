@@ -69,6 +69,12 @@ void xqc_test_send_ctl_single_loss_does_not_reset_rtt(void);
 void xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void);
 
 /*
+ * Loss detection logs a statistics line at most once per record interval,
+ * with a value for each of its fields.
+ */
+void xqc_test_send_ctl_lost_interval_log(void);
+
+/*
  * RFC 9000 14.4: a lost PMTU probe is dropped without a congestion
  * reaction or a loss sample, while an ordinary lost packet still gets
  * both.

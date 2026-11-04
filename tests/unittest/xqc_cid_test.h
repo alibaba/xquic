@@ -7,6 +7,12 @@
 
 void xqc_test_cid();
 
+/* the debug log of a NEW_CONNECTION_ID frame shows the frame's token */
+void xqc_test_new_cid_log_token();
+
+/* the debug log of an MP_NEW_CONNECTION_ID frame shows the frame's token */
+void xqc_test_mp_new_cid_log_token();
+
 /*
  * Issue #585: cover the off-by-one boundary of xqc_cid_set_insert_cid.
  * RFC 9000 Section 5.1.1: active CID count (UNUSED + USED) MUST NOT exceed

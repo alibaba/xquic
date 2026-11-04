@@ -83,6 +83,120 @@ xqc_test_new_cid()
     xqc_engine_destroy(conn->engine);
 }
 
+typedef struct xqc_test_cid_log_s {
+    char    line[XQC_MAX_LOG_LEN];
+    int     lines;
+} xqc_test_cid_log_t;
+
+/* keep the log lines that show a stateless reset token */
+static void
+xqc_test_cid_log_write(xqc_log_level_t lvl, const void *buf, size_t size,
+    void *user_data)
+{
+    xqc_test_cid_log_t  *capture = user_data;
+    char                 line[XQC_MAX_LOG_LEN];
+
+    size = xqc_min(size, sizeof(line) - 1);
+    memcpy(line, buf, size);
+    line[size] = '\0';
+
+    if (strstr(line, "|sr_token:") != NULL) {
+        memcpy(capture->line, line, size + 1);
+        capture->lines++;
+    }
+}
+
+static xqc_packet_out_t *
+xqc_test_cid_find_packet_with_frame(xqc_connection_t *conn,
+    xqc_frame_type_bit_t frame_bit)
+{
+    xqc_list_head_t    *pos;
+    xqc_packet_out_t   *packet_out;
+    xqc_send_queue_t   *send_queue = conn->conn_send_queue;
+
+    xqc_list_for_each(pos, &send_queue->sndq_send_packets_high_pri) {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (packet_out->po_frame_types & frame_bit) {
+            return packet_out;
+        }
+    }
+
+    return NULL;
+}
+
+/*
+ * Send a NEW_CONNECTION_ID or an MP_NEW_CONNECTION_ID frame and check that
+ * its debug log shows the stateless reset token that the frame carries.
+ */
+static void
+xqc_test_cid_new_cid_log_token(xqc_bool_t mp)
+{
+    xqc_int_t               ret;
+    xqc_connection_t       *conn;
+    xqc_packet_out_t       *packet_out;
+    xqc_log_callbacks_t    *log_callbacks;
+    void                   *log_user_data;
+    xqc_log_callbacks_t     callbacks = {0};
+    xqc_test_cid_log_t      capture = {0};
+    unsigned char           token[XQC_STATELESS_RESET_TOKENLEN * 2 + 1];
+    char                    expected[64];
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    callbacks.xqc_log_write_err = xqc_test_cid_log_write;
+    log_callbacks = conn->log->log_callbacks;
+    log_user_data = conn->log->user_data;
+    conn->log->log_level = XQC_LOG_DEBUG;
+    conn->log->log_callbacks = &callbacks;
+    conn->log->user_data = &capture;
+
+    if (mp) {
+        ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, 0,
+                                                       XQC_INITIAL_PATH_ID);
+
+    } else {
+        ret = xqc_write_new_conn_id_frame_to_packet(conn, 0);
+    }
+
+    conn->log->log_callbacks = log_callbacks;
+    conn->log->user_data = log_user_data;
+
+    CU_ASSERT(ret == XQC_OK);
+    packet_out = xqc_test_cid_find_packet_with_frame(conn,
+        mp ? XQC_FRAME_BIT_MP_NEW_CONNECTION_ID
+           : XQC_FRAME_BIT_NEW_CONNECTION_ID);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+
+    /* the token ends the frame, the last one written to the packet */
+    xqc_hex_dump(token, packet_out->po_buf + packet_out->po_used_size
+                 - XQC_STATELESS_RESET_TOKENLEN, XQC_STATELESS_RESET_TOKENLEN);
+    token[XQC_STATELESS_RESET_TOKENLEN * 2] = '\0';
+    snprintf(expected, sizeof(expected), "|sr_token:%s|", token);
+
+#if !defined(XQC_DISABLE_LOG) && !defined(XQC_ONLY_ERROR_LOG)
+    CU_ASSERT(capture.lines == 1);
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.line, expected));
+#else
+    /* the debug line is compiled out */
+    CU_ASSERT(capture.lines == 0);
+#endif
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_new_cid_log_token()
+{
+    xqc_test_cid_new_cid_log_token(XQC_FALSE);
+}
+
+void
+xqc_test_mp_new_cid_log_token()
+{
+    xqc_test_cid_new_cid_log_token(XQC_TRUE);
+}
+
 void
 xqc_test_retire_cid()
 {

@@ -425,7 +425,8 @@ xqc_test_rep()
     uint64_t ric = 102;
     uint64_t insert_count = 100;
     uint64_t base = 101;
-    uint64_t index_1 = 102;
+    /* the highest entry that the field section refers to, below its RIC */
+    uint64_t index_1 = 101;
     uint64_t index_2 = 0;
     uint64_t index_3 = 5;
     xqc_rep_ctx_t *ctx = xqc_rep_ctx_create(0);
@@ -565,6 +566,111 @@ xqc_test_rep()
 
     xqc_var_buf_free(buf);
     xqc_rep_ctx_free(ctx);
+}
+
+
+/*
+ * A field section whose Base is negative (RFC 9204 Section 4.5.1.2), or
+ * whose field line refers to a dynamic table entry at or above its Required
+ * Insert Count (Section 2.2.3), is invalid, even if the decoder holds the
+ * entry. The prefixes below have a Required Insert Count of 3 (encoded as
+ * 4, with 110 entries at most and 100 insertions) or of 0.
+ */
+void
+xqc_test_rep_references()
+{
+    static const struct {
+        unsigned char   in[8];
+        size_t          len;
+        int             prefix_ok;
+        int             line_ok;
+    } cases[] = {
+        /* S=1, Delta Base 2: Base 0; post-base index 2: entry 2 */
+        {{0x04, 0x82, 0x12}, 3, 1, 1},
+        /* S=1, Delta Base 3: Base -1 */
+        {{0x04, 0x83, 0x10}, 3, 0, 0},
+        /* RIC 0, S=1, Delta Base 0: Base -1 */
+        {{0x00, 0x80, 0xd1}, 3, 0, 0},
+        /* Base 3; relative index 0: entry 2 */
+        {{0x04, 0x00, 0x80}, 3, 1, 1},
+        /* Base 3; post-base index 0: entry 3 */
+        {{0x04, 0x00, 0x10}, 3, 1, 0},
+        /* Base 4; relative index 0: entry 3 */
+        {{0x04, 0x01, 0x80}, 3, 1, 0},
+        /* Base 3; name of relative index 0, value "1": entry 2 */
+        {{0x04, 0x00, 0x40, 0x01, 0x31}, 5, 1, 1},
+        /* Base 3; name of post-base index 0, value "1": entry 3 */
+        {{0x04, 0x00, 0x00, 0x01, 0x31}, 5, 1, 0},
+        /* RIC 0; post-base index 0: entry 0 */
+        {{0x00, 0x00, 0x10}, 3, 1, 0},
+        /* RIC 0; static index 17, and a literal "abc: 1" */
+        {{0x00, 0x00, 0xd1}, 3, 1, 1},
+        {{0x00, 0x00, 0x23, 0x61, 0x62, 0x63, 0x01, 0x31}, 8, 1, 1},
+    };
+    xqc_engine_t *engine = test_create_engine();
+    xqc_decoder_t *dec;
+    xqc_rep_ctx_t *ctx;
+    xqc_http_header_t hdr;
+    xqc_bool_t blocked;
+    ssize_t prefix, line;
+    char name[] = "x-0";
+
+    CU_ASSERT_FATAL(engine != NULL);
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        ctx = xqc_rep_ctx_create(0);
+        CU_ASSERT_FATAL(ctx != NULL);
+        prefix = xqc_rep_decode_prefix(ctx, 110, 100, (unsigned char *)
+                                       cases[i].in, cases[i].len);
+        CU_ASSERT(cases[i].prefix_ok ? prefix == 2 : prefix < 0);
+        if (prefix == 2) {
+            line = xqc_rep_decode_field_line(ctx, (unsigned char *)
+                                             cases[i].in + 2,
+                                             cases[i].len - 2);
+            CU_ASSERT(cases[i].line_ok
+                      ? line == cases[i].len - 2
+                        && ctx->state == XQC_REP_DECODE_STATE_FINISH
+                      : line < 0);
+        }
+        xqc_rep_ctx_free(ctx);
+    }
+
+    /* a decoder that holds entries 0 to 3 decodes entry 2, not entry 3 */
+    dec = xqc_decoder_create(engine->log, 1024);
+    CU_ASSERT_FATAL(dec != NULL);
+    CU_ASSERT(xqc_decoder_set_dtable_cap(dec, 1024) == XQC_OK);
+    for (int i = 0; i < 4; i++) {
+        name[2] = '0' + i;
+        CU_ASSERT(xqc_decoder_insert_literal(dec, (unsigned char *) name, 3,
+                                             (unsigned char *) "1", 1)
+                  == XQC_OK);
+    }
+
+    for (int i = 0; i < 2; i++) {
+        /* RIC 3 (encoded 4 with 32 entries at most), Base 3 */
+        unsigned char in[] = {0x04, 0x00, i == 0 ? 0x80 : 0x10};
+
+        ctx = xqc_rep_ctx_create(0);
+        CU_ASSERT_FATAL(ctx != NULL);
+        memset(&hdr, 0, sizeof(hdr));
+        blocked = XQC_FALSE;
+        line = xqc_decoder_dec_header(dec, ctx, in, sizeof(in), &hdr,
+                                      &blocked);
+        if (i == 0) {
+            CU_ASSERT(line == sizeof(in) && blocked == XQC_FALSE);
+            CU_ASSERT(hdr.name.iov_len == 3
+                      && memcmp(hdr.name.iov_base, "x-2", 3) == 0);
+
+        } else {
+            CU_ASSERT(line < 0);
+        }
+
+        xqc_free(hdr.name.iov_base);
+        xqc_free(hdr.value.iov_base);
+        xqc_rep_ctx_free(ctx);
+    }
+
+    xqc_decoder_destroy(dec);
+    xqc_engine_destroy(engine);
 }
 
 void

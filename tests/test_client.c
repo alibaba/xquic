@@ -133,6 +133,7 @@ static xqc_bool_t xqc_client_is_hq_case(void);
 typedef struct user_conn_s user_conn_t;
 
 typedef struct {
+    xqc_bool_t      armed;
     xqc_bool_t      started;
     xqc_bool_t      replayed;
     size_t          packet_len;
@@ -146,6 +147,8 @@ static xqc_key_update_retention_test_t xqc_key_update_retention_test;
 
 static void xqc_client_release_key_update_packet(int fd, short what, void *arg);
 static void xqc_client_poll_key_update(int fd, short what, void *arg);
+static void xqc_client_arm_key_update_mid_echo(user_conn_t *user_conn,
+    size_t echo_bytes);
 
 static void xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
     xqc_h3_stream_type_t stream_type);
@@ -4483,6 +4486,11 @@ xqc_client_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
 
         } while (read > 0 && !fin);
 
+        if (g_test_case == 904) {
+            xqc_client_arm_key_update_mid_echo(user_stream->user_conn,
+                                               user_stream->recv_body_len);
+        }
+
         if (flag & XQC_REQ_NOTIFY_READ_EMPTY_FIN) {
             fin = 1;
         }
@@ -4676,6 +4684,35 @@ xqc_client_socket_write_handler(user_conn_t *user_conn)
 }
 
 
+/* case 904: initiate the key update once this much of the echo was read */
+#define XQC_KEY_UPDATE_RETENTION_ECHO_BYTES (16 * 1024)
+
+/*
+ * Case 904: initiate the key update once part of the echo has been read, so
+ * that the peer still has unacknowledged old-phase data, which it
+ * retransmits while xqc_client_write_socket() suppresses the client's
+ * packets. xquic initiates a key update when it protects a packet after the
+ * current keys have protected more than keyupdate_pkt_threshold packets, so
+ * the next packet sent, usually an ACK, carries the update.
+ */
+static void
+xqc_client_arm_key_update_mid_echo(user_conn_t *user_conn, size_t echo_bytes)
+{
+    xqc_key_update_retention_test_t *test = &xqc_key_update_retention_test;
+    xqc_connection_t *conn = user_conn->quic_conn;
+
+    if (test->armed || conn == NULL
+        || echo_bytes < XQC_KEY_UPDATE_RETENTION_ECHO_BYTES)
+    {
+        return;
+    }
+
+    test->armed = XQC_TRUE;
+    conn->conn_settings.keyupdate_pkt_threshold = 1;
+    printf("[key-update-retention]|armed|echo_bytes:%zu|\n", echo_bytes);
+}
+
+
 static void
 xqc_client_poll_key_update(int fd, short what, void *arg)
 {
@@ -4710,6 +4747,8 @@ xqc_client_poll_key_update(int fd, short what, void *arg)
 
         test->started = XQC_TRUE;
         test->user_conn = user_conn;
+        /* one key update is enough */
+        user_conn->quic_conn->conn_settings.keyupdate_pkt_threshold = 0;
         test->ev_release = event_new(eb, -1, 0,
             xqc_client_release_key_update_packet, NULL);
         event_add(test->ev_release, &release_tv);
@@ -6534,13 +6573,14 @@ int main(int argc, char *argv[]) {
 
     } else if (g_test_case == 904) {
         /*
-         * Trigger the key update only after the request body has been fully
-         * sent (so the peer starts echoing) but while the echo is still in
-         * flight. The request is ~87 packets at -s 102400, so a threshold of
-         * 100 fires during the echo, leaving the peer with unacknowledged
-         * old-phase data to retransmit while outbound is suppressed.
+         * No key update until xqc_client_arm_key_update_mid_echo() has seen
+         * part of the echo. A packet-count threshold depends on how many
+         * ACK-only packets the client sends: it could fire while the request
+         * was still being sent and the peer had nothing in flight to
+         * retransmit, or only at the connection close, after the whole echo
+         * had been acknowledged.
          */
-        conn_settings.keyupdate_pkt_threshold = 100;
+        conn_settings.keyupdate_pkt_threshold = 0;
     }
 
     if (g_test_case == 42) {

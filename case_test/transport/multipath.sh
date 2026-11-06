@@ -307,6 +307,35 @@ else
 fi
 }
 
+# 1305: the client loses the PATH_RESPONSE answering its first PATH_CHALLENGE
+# on path 1, whose packet the server acknowledges. RFC 9000 Section 8.2.2 has
+# the client send another PATH_CHALLENGE, and path 1 is validated before the
+# Section 8.2.4 deadline abandons it.
+case_transport_multipath_MP_path_response_lost_rechallenged()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    rm -f test_session xqc_token tp_localhost
+    clear_log
+    echo -e "MP lost PATH_RESPONSE, path challenged again ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 3 -E -M -i lo -i lo -N \
+        -x 1305 > stdlog
+    dropped=`grep -c "\[mp-path-response-lost\]|drop|" stdlog`
+    validated=`grep "|path validated|path_id:1|" clog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    if [ "$dropped" -eq 1 ] && [ -n "$validated" ] && [ -n "$result" ] \
+        && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MP_path_response_lost_rechallenged" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MP_path_response_lost_rechallenged" "fail"
+    fi
+}
+
 case_transport_multipath_MPNS_send_data_with_multipath_10()
 {
 grep_err_log
@@ -834,6 +863,7 @@ case_test_case "MPNS_multipath_close_initial_path" --id native --mode self-repor
 case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path --timeout 240
 case_test_case "MPNS_multipath_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_new_path
 case_test_case "MPNS_multipath_30_percent_loss_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path --timeout 120
+case_test_case "MP_path_response_lost_rechallenged" --id 1305 --mode self-reporting --run case_transport_multipath_MP_path_response_lost_rechallenged
 case_test_case "MPNS_send_data_with_multipath_10" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_data_with_multipath_10
 case_test_case "MPNS_reinject_unack_packets_by_capacity" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_capacity
 case_test_case "MPNS_reinject_unack_packets_by_deadline" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_deadline

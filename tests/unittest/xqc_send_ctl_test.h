@@ -25,6 +25,24 @@ void xqc_test_path_validation_timeout_new_path_pto_dominates(void);
 void xqc_test_path_validation_timer_not_extended_by_packet(void);
 
 /*
+ * RFC 9000 Sections 8.2.2 and 8.2.4: a PATH_CHALLENGE acknowledged without a
+ * PATH_RESPONSE is followed by another one, and none once the path is
+ * validated.
+ */
+void xqc_test_path_challenge_resent_after_unanswered_ack(void);
+void xqc_test_path_challenge_not_resent_once_answered(void);
+
+/*
+ * An acknowledgment found through a copy of the packet, without a time, does
+ * not send a PATH_CHALLENGE at once; a PATH_RESPONSE to an earlier
+ * PATH_CHALLENGE of the validation still validates the path (RFC 9000
+ * Section 8.2.3), and so does one to the last PATH_CHALLENGE written.
+ */
+void xqc_test_path_challenge_not_resent_at_once(void);
+void xqc_test_path_challenge_earlier_response_validates(void);
+void xqc_test_path_challenge_write_error_keeps_payload(void);
+
+/*
  * Regression test for issue #724 (RFC 9002 5.3):
  * xqc_send_ctl_update_rtt must cap ack_delay by max_ack_delay
  * before subtracting it from latest_rtt, using the default 25ms

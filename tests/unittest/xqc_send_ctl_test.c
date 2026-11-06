@@ -308,6 +308,417 @@ xqc_test_path_validation_timer_not_extended_by_packet(void)
 }
 
 
+/* the queued PATH_CHALLENGE of a path that no acknowledgment covered yet */
+static xqc_packet_out_t *
+xqc_test_path_challenge_unacked(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_list_head_t *pos;
+    xqc_packet_out_t *po;
+
+    xqc_list_for_each(pos, &conn->conn_send_queue->sndq_send_packets_high_pri) {
+        po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if ((po->po_frame_types & XQC_FRAME_BIT_PATH_CHALLENGE)
+            && po->po_path_id == path_id && !po->po_acked)
+        {
+            return po;
+        }
+    }
+
+    return NULL;
+}
+
+
+static void
+xqc_test_path_challenge_ack(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *po,
+    xqc_usec_t now)
+{
+    po->po_flag |= XQC_POF_IN_FLIGHT;
+    xqc_send_ctl_on_packet_acked(send_ctl, po, now, 0);
+}
+
+
+/*
+ * RFC 9000 Sections 8.2.2 and 8.2.4: the peer answers a PATH_CHALLENGE with a
+ * single PATH_RESPONSE, so a PATH_CHALLENGE acknowledged while its path is
+ * still validating is followed a PTO later by another one, with a new payload
+ * (Section 13.3), and after a doubled interval when that one is acknowledged
+ * unanswered too, until a PATH_RESPONSE validates the path.
+ */
+void
+xqc_test_path_challenge_resent_after_unanswered_ack(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    conn->enable_multipath = XQC_TRUE;
+    conn->remote_settings.max_ack_delay = 25;
+
+    xqc_path_ctx_t *path = xqc_test_path_validation_create_path(conn);
+    CU_ASSERT_FATAL(path != NULL);
+    xqc_list_add_tail(&path->path_list, &conn->conn_paths_list);
+    CU_ASSERT_FATAL(xqc_path_init(path, conn) == XQC_OK);
+    CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_VALIDATING);
+
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_timer_t *timer = &send_ctl->path_timer_manager
+                          .timer[XQC_TIMER_PATH_CHALLENGE];
+    xqc_packet_out_t *challenge = xqc_test_path_challenge_unacked(conn, 1);
+    CU_ASSERT_FATAL(challenge != NULL);
+    CU_ASSERT(!timer->timer_is_set);
+
+    /* the acknowledgment gave the path its first RTT sample */
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 5000;
+    xqc_usec_t pto = 10000 + 4 * 5000 + 25 * 1000;
+
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_test_path_challenge_ack(send_ctl, challenge, now);
+    CU_ASSERT(timer->timer_is_set);
+    CU_ASSERT_EQUAL(timer->expire_time, now + pto);
+    CU_ASSERT(xqc_test_path_challenge_unacked(conn, 1) == NULL);
+
+    /* the acknowledgment of a copy of it leaves the timer alone */
+    xqc_test_path_challenge_ack(send_ctl, challenge, now + 1000);
+    CU_ASSERT_EQUAL(timer->expire_time, now + pto);
+
+    /* a PTO later, a PATH_CHALLENGE with a new payload is sent */
+    unsigned char first_data[XQC_PATH_CHALLENGE_DATA_LEN];
+    memcpy(first_data, path->path_challenge_data, sizeof(first_data));
+    timer->timeout_cb(XQC_TIMER_PATH_CHALLENGE, timer->expire_time,
+                      timer->user_data);
+    xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_PATH_CHALLENGE);
+    CU_ASSERT_EQUAL(path->path_challenge_resends, 1);
+    challenge = xqc_test_path_challenge_unacked(conn, 1);
+    CU_ASSERT_FATAL(challenge != NULL);
+    CU_ASSERT_FATAL(challenge->po_payload != NULL);
+    CU_ASSERT_EQUAL(challenge->po_payload[0], 0x1a);
+    CU_ASSERT(memcmp(challenge->po_payload + 1, path->path_challenge_data,
+                     XQC_PATH_CHALLENGE_DATA_LEN) == 0);
+    CU_ASSERT(memcmp(first_data, path->path_challenge_data,
+                     XQC_PATH_CHALLENGE_DATA_LEN) != 0);
+
+    /* acknowledged unanswered again: the interval doubles */
+    now = xqc_monotonic_timestamp();
+    xqc_test_path_challenge_ack(send_ctl, challenge, now);
+    CU_ASSERT(timer->timer_is_set);
+    CU_ASSERT_EQUAL(timer->expire_time, now + 2 * pto);
+
+    /* a PATH_RESPONSE validates the path and stops the challenges */
+    xqc_path_validate(path);
+    CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_ACTIVE);
+    CU_ASSERT(!timer->timer_is_set);
+
+    xqc_list_del_init(&path->path_list);
+    xqc_test_path_validation_destroy_path(path);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A PATH_CHALLENGE is not sent again once a PATH_RESPONSE validated its path,
+ * when its acknowledgment comes after that response, nor while the path or
+ * the connection is closing.
+ */
+void
+xqc_test_path_challenge_not_resent_once_answered(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    conn->enable_multipath = XQC_TRUE;
+
+    xqc_path_ctx_t *path = xqc_test_path_validation_create_path(conn);
+    CU_ASSERT_FATAL(path != NULL);
+    xqc_list_add_tail(&path->path_list, &conn->conn_paths_list);
+    CU_ASSERT_FATAL(xqc_path_init(path, conn) == XQC_OK);
+
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_timer_t *timer = &send_ctl->path_timer_manager
+                          .timer[XQC_TIMER_PATH_CHALLENGE];
+    xqc_packet_out_t *challenge = xqc_test_path_challenge_unacked(conn, 1);
+    CU_ASSERT_FATAL(challenge != NULL);
+    xqc_usec_t now = xqc_monotonic_timestamp();
+
+    /* the connection closes while the path validates */
+    xqc_test_path_challenge_ack(send_ctl, challenge, now);
+    CU_ASSERT(timer->timer_is_set);
+    xqc_conn_state_t state = conn->conn_state;
+    conn->conn_state = XQC_CONN_STATE_CLOSING;
+    timer->timeout_cb(XQC_TIMER_PATH_CHALLENGE, timer->expire_time,
+                      timer->user_data);
+    xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_PATH_CHALLENGE);
+    conn->conn_state = state;
+    CU_ASSERT(xqc_test_path_challenge_unacked(conn, 1) == NULL);
+    CU_ASSERT_EQUAL(path->path_challenge_resends, 0);
+
+    /* the PATH_RESPONSE arrives before a late acknowledgment */
+    xqc_path_resend_challenge(path);
+    challenge = xqc_test_path_challenge_unacked(conn, 1);
+    CU_ASSERT_FATAL(challenge != NULL);
+    xqc_path_validate(path);
+    xqc_test_path_challenge_ack(send_ctl, challenge, now);
+    CU_ASSERT(!timer->timer_is_set);
+
+    /* a timer armed before the validation sends nothing */
+    xqc_path_resend_challenge(path);
+    CU_ASSERT(xqc_test_path_challenge_unacked(conn, 1) == NULL);
+    CU_ASSERT_EQUAL(path->path_challenge_resends, 1);
+
+    /* a path abandoned while validating is not challenged again */
+    path->path_state = XQC_PATH_STATE_CLOSING;
+    xqc_path_on_challenge_acked(path, now);
+    CU_ASSERT(!timer->timer_is_set);
+    xqc_path_resend_challenge(path);
+    CU_ASSERT(xqc_test_path_challenge_unacked(conn, 1) == NULL);
+
+    xqc_list_del_init(&path->path_list);
+    xqc_test_path_validation_destroy_path(path);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* path 1 of a connection, validating, its first PATH_CHALLENGE queued */
+static xqc_path_ctx_t *
+xqc_test_path_challenge_validating_path(xqc_connection_t *conn)
+{
+    xqc_path_ctx_t *path;
+
+    conn->enable_multipath = XQC_TRUE;
+    conn->remote_settings.max_ack_delay = 25;
+
+    path = xqc_test_path_validation_create_path(conn);
+    if (path == NULL) {
+        return NULL;
+    }
+
+    xqc_list_add_tail(&path->path_list, &conn->conn_paths_list);
+    if (xqc_path_init(path, conn) != XQC_OK) {
+        xqc_list_del_init(&path->path_list);
+        xqc_test_path_validation_destroy_path(path);
+        return NULL;
+    }
+
+    return path;
+}
+
+
+static void
+xqc_test_path_challenge_destroy(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    xqc_list_del_init(&path->path_list);
+    xqc_test_path_validation_destroy_path(path);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* a PATH_RESPONSE frame echoing data, received on path 1 */
+static xqc_int_t
+xqc_test_path_response_recv(xqc_connection_t *conn, const unsigned char *data)
+{
+    unsigned char frame[1 + XQC_PATH_CHALLENGE_DATA_LEN];
+    xqc_packet_in_t packet_in;
+
+    frame[0] = 0x1b;
+    memcpy(frame + 1, data, XQC_PATH_CHALLENGE_DATA_LEN);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    packet_in.pi_path_id = 1;
+    packet_in.pos = frame;
+    packet_in.last = frame + sizeof(frame);
+
+    return xqc_process_path_response_frame(conn, &packet_in);
+}
+
+
+/*
+ * Path 1 sends n PATH_CHALLENGE frames after its first one, each once the
+ * previous one was acknowledged without a PATH_RESPONSE. data[i] receives the
+ * payload of PATH_CHALLENGE i, 0 being the first one.
+ */
+static void
+xqc_test_path_challenge_resend_unanswered(xqc_connection_t *conn,
+    xqc_path_ctx_t *path, uint32_t n,
+    unsigned char data[][XQC_PATH_CHALLENGE_DATA_LEN])
+{
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_timer_t *timer = &send_ctl->path_timer_manager
+                          .timer[XQC_TIMER_PATH_CHALLENGE];
+    xqc_packet_out_t *challenge;
+    uint32_t i;
+
+    memcpy(data[0], path->path_challenge_data, XQC_PATH_CHALLENGE_DATA_LEN);
+    for (i = 1; i <= n; i++) {
+        challenge = xqc_test_path_challenge_unacked(conn, 1);
+        CU_ASSERT_FATAL(challenge != NULL);
+        xqc_test_path_challenge_ack(send_ctl, challenge,
+                                    xqc_monotonic_timestamp());
+        CU_ASSERT_FATAL(timer->timer_is_set);
+        timer->timeout_cb(XQC_TIMER_PATH_CHALLENGE, timer->expire_time,
+                          timer->user_data);
+        xqc_timer_unset(&send_ctl->path_timer_manager,
+                        XQC_TIMER_PATH_CHALLENGE);
+        CU_ASSERT_FATAL(path->path_challenge_resends == i);
+        memcpy(data[i], path->path_challenge_data,
+               XQC_PATH_CHALLENGE_DATA_LEN);
+    }
+}
+
+
+/*
+ * A copy of a PATH_CHALLENGE packet, still in flight when the packet was
+ * acknowledged, is acknowledged through it later, by loss detection, a PTO
+ * probe or a closing path (xqc_send_ctl_indirectly_ack_or_drop_po()), which
+ * pass no time. After the next PATH_CHALLENGE, that arms the timer a doubled
+ * PTO from now, and no PATH_CHALLENGE is sent at once.
+ */
+void
+xqc_test_path_challenge_not_resent_at_once(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_path_ctx_t *path = xqc_test_path_challenge_validating_path(conn);
+    CU_ASSERT_FATAL(path != NULL);
+
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_timer_manager_t *timers = &send_ctl->path_timer_manager;
+    xqc_timer_t *timer = &timers->timer[XQC_TIMER_PATH_CHALLENGE];
+    xqc_packet_out_t *challenge = xqc_test_path_challenge_unacked(conn, 1);
+    CU_ASSERT_FATAL(challenge != NULL);
+
+    /* a PTO probe copies the PATH_CHALLENGE, and the copy is sent */
+    xqc_send_queue_copy_to_probe(challenge, conn->conn_send_queue, path);
+    xqc_packet_out_t *copy = xqc_list_entry(
+        conn->conn_send_queue->sndq_pto_probe_packets.prev,
+        xqc_packet_out_t, po_list);
+    CU_ASSERT_FATAL(copy->po_origin == challenge);
+    copy->po_flag |= XQC_POF_IN_FLIGHT;
+
+    /* the PATH_CHALLENGE is acknowledged unanswered and sent again */
+    xqc_test_path_challenge_ack(send_ctl, challenge,
+                                xqc_monotonic_timestamp());
+    CU_ASSERT_FATAL(timer->timer_is_set);
+    xqc_timer_expire(timers, timer->expire_time);
+    CU_ASSERT_EQUAL(path->path_challenge_resends, 1);
+    CU_ASSERT(!timer->timer_is_set);
+
+    /* then the copy is acknowledged through it */
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t interval = xqc_send_ctl_calc_pto(send_ctl) << 1;
+    CU_ASSERT(xqc_send_ctl_indirectly_ack_or_drop_po(conn, copy));
+    CU_ASSERT(timer->timer_is_set);
+    CU_ASSERT(timer->expire_time >= now + interval);
+
+    xqc_timer_expire(timers, xqc_monotonic_timestamp());
+    CU_ASSERT_EQUAL(path->path_challenge_resends, 1);
+
+    xqc_test_path_challenge_destroy(conn, path);
+}
+
+
+/*
+ * RFC 9000 Section 8.2.3: a PATH_RESPONSE echoing an earlier PATH_CHALLENGE
+ * of the validation, delayed past the next ones, validates the path until
+ * more than XQC_PATH_CHALLENGE_PREV_N were sent after it. One echoing data
+ * that no PATH_CHALLENGE carried does not.
+ */
+void
+xqc_test_path_challenge_earlier_response_validates(void)
+{
+    unsigned char data[XQC_PATH_CHALLENGE_PREV_N + 2]
+                      [XQC_PATH_CHALLENGE_DATA_LEN];
+    unsigned char other[XQC_PATH_CHALLENGE_DATA_LEN];
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    int answered;
+
+    /* the response to the first or the second of three PATH_CHALLENGEs */
+    for (answered = 0; answered < 2; answered++) {
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+        path = xqc_test_path_challenge_validating_path(conn);
+        CU_ASSERT_FATAL(path != NULL);
+        xqc_test_path_challenge_resend_unanswered(conn, path, 2, data);
+
+        memcpy(other, data[answered], sizeof(other));
+        other[0] ^= 0xff;
+        CU_ASSERT_EQUAL(xqc_test_path_response_recv(conn, other), XQC_OK);
+        CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_VALIDATING);
+
+        CU_ASSERT_EQUAL(xqc_test_path_response_recv(conn, data[answered]),
+                        XQC_OK);
+        CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_ACTIVE);
+        xqc_test_path_challenge_destroy(conn, path);
+    }
+
+    /*
+     * XQC_PATH_CHALLENGE_PREV_N + 1 PATH_CHALLENGEs after the first one, the
+     * first one no longer matches, and each later one does
+     */
+    for (answered = 1; answered <= XQC_PATH_CHALLENGE_PREV_N + 1; answered++) {
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+        path = xqc_test_path_challenge_validating_path(conn);
+        CU_ASSERT_FATAL(path != NULL);
+        xqc_test_path_challenge_resend_unanswered(conn, path,
+                                                  XQC_PATH_CHALLENGE_PREV_N + 1,
+                                                  data);
+
+        CU_ASSERT_EQUAL(xqc_test_path_response_recv(conn, data[0]), XQC_OK);
+        CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_VALIDATING);
+
+        CU_ASSERT_EQUAL(xqc_test_path_response_recv(conn, data[answered]),
+                        XQC_OK);
+        CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_ACTIVE);
+        xqc_test_path_challenge_destroy(conn, path);
+    }
+}
+
+
+/*
+ * A PATH_CHALLENGE that cannot be written leaves the payload of the last one
+ * sent, whose PATH_RESPONSE still validates the path.
+ */
+void
+xqc_test_path_challenge_write_error_keeps_payload(void)
+{
+    unsigned char sent[XQC_PATH_CHALLENGE_DATA_LEN];
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_path_ctx_t *path = xqc_test_path_challenge_validating_path(conn);
+    CU_ASSERT_FATAL(path != NULL);
+
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_timer_t *timer = &send_ctl->path_timer_manager
+                          .timer[XQC_TIMER_PATH_CHALLENGE];
+    xqc_packet_out_t *challenge = xqc_test_path_challenge_unacked(conn, 1);
+    CU_ASSERT_FATAL(challenge != NULL);
+    memcpy(sent, path->path_challenge_data, sizeof(sent));
+
+    xqc_test_path_challenge_ack(send_ctl, challenge,
+                                xqc_monotonic_timestamp());
+    CU_ASSERT_FATAL(timer->timer_is_set);
+
+    /* packet header construction fails when the timer fires */
+    size_t pkt_out_size = conn->pkt_out_size;
+    conn->pkt_out_size = 0;
+    timer->timeout_cb(XQC_TIMER_PATH_CHALLENGE, timer->expire_time,
+                      timer->user_data);
+    xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_PATH_CHALLENGE);
+    conn->pkt_out_size = pkt_out_size;
+
+    CU_ASSERT(xqc_test_path_challenge_unacked(conn, 1) == NULL);
+    CU_ASSERT_EQUAL(path->path_challenge_resends, 0);
+    CU_ASSERT(memcmp(path->path_challenge_data, sent, sizeof(sent)) == 0);
+
+    CU_ASSERT_EQUAL(xqc_test_path_response_recv(conn, sent), XQC_OK);
+    CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_ACTIVE);
+
+    xqc_test_path_challenge_destroy(conn, path);
+}
+
+
 typedef struct xqc_rtt_case_s {
     const char     *name;
     xqc_bool_t      hsk_confirmed;

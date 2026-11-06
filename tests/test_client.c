@@ -77,6 +77,7 @@ printf_null(const char *format, ...)
 #define XQC_MAX_LOG_LEN 2048
 
 #define XQC_TEST_CASE_MP_FROZEN_UNNEGOTIATED 1302
+#define XQC_TEST_CASE_MP_PATH_RESPONSE_LOST 1305
 #define XQC_TEST_CASE_H3_RESERVED_UNI_STREAM 1000
 #define XQC_TEST_CASE_H3_CLIENT_PUSH_STREAM 1001
 #define XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME 1002
@@ -335,6 +336,7 @@ size_t dgram2_size = 0;
 
 int dgram_drop_pkt1 = 0;
 int path_response_drop_pkt1 = 0;
+int mp_path_response_dropped = 0;
 static unsigned char g_retry_original_initial[XQC_PACKET_TMP_BUF_LEN];
 static size_t g_retry_original_initial_len;
 static int g_retry_original_initial_saved;
@@ -4884,6 +4886,21 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 
         if (TEST_DROP) continue;
 
+        /*
+         * case 1305: lose the first PATH_RESPONSE received on a new path, the
+         * one answering the client's PATH_CHALLENGE (-N leaves the frame type
+         * readable after the short header)
+         */
+        if (g_test_case == XQC_TEST_CASE_MP_PATH_RESPONSE_LOST
+            && !mp_path_response_dropped && path_id != XQC_INITIAL_PATH_ID
+            && recv_size > 13 && (packet_buf[0] & 0x80) == 0
+            && packet_buf[13] == 0x1b)
+        {
+            mp_path_response_dropped = 1;
+            printf("[mp-path-response-lost]|drop|path:%"PRIu64"|\n", path_id);
+            continue;
+        }
+
         if (g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE) {
             xqc_client_key_update_copy_packet(user_conn, packet_buf,
                                               recv_size);
@@ -6237,6 +6254,12 @@ int main(int argc, char *argv[]) {
 
     if (g_test_case == 800 && !g_no_crypt) {
         printf("test case 800 requires -N to inspect short-header frame type\n");
+        exit(1);
+    }
+
+    if (g_test_case == XQC_TEST_CASE_MP_PATH_RESPONSE_LOST && !g_no_crypt) {
+        printf("test case %d requires -N to inspect short-header frame type\n",
+               XQC_TEST_CASE_MP_PATH_RESPONSE_LOST);
         exit(1);
     }
 

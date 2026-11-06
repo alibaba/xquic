@@ -402,7 +402,7 @@ xqc_tls_create_ssl(xqc_tls_t *tls, xqc_tls_config_t *cfg)
 
     ssl_ret = SSL_set_quic_method(ssl, &xqc_ssl_quic_method);
     if (ssl_ret != XQC_SSL_SUCCESS) {
-        xqc_log(tls->log, XQC_LOG_ERROR, "|ssl set quic method error|",
+        xqc_log(tls->log, XQC_LOG_ERROR, "|ssl set quic method error|%s|",
                 ERR_error_string(ERR_get_error(), NULL));
         ret = -XQC_TLS_INTERNAL;
         goto end;
@@ -677,7 +677,7 @@ xqc_tls_process_crypto_data(xqc_tls_t *tls, xqc_encrypt_level_t level,
     int ret;
     int err;
 
-    xqc_log(tls->log, XQC_LOG_DEBUG, "|xqc_tls_process_crypto_data|level:%d|%zu|", level, data_len);
+    xqc_log(tls->log, XQC_LOG_DEBUG, "|xqc_tls_process_crypto_data|level:%d|%uz|", level, data_len);
 
     if (SSL_provide_quic_data(ssl, (enum ssl_encryption_level_t)level, crypto_data, data_len)
         != XQC_SSL_SUCCESS)
@@ -737,7 +737,7 @@ xqc_tls_encrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
     if (level == XQC_ENC_LEV_1RTT) {
         key_phase = XQC_PACKET_SHORT_HEADER_KEY_PHASE(header);
         if (key_phase >= XQC_KEY_PHASE_CNT) {
-            xqc_log(tls->log, XQC_LOG_ERROR, "|illegal key phase|key_phase:%ui|", key_phase);
+            xqc_log(tls->log, XQC_LOG_ERROR, "|illegal key phase|key_phase:%ud|", key_phase);
             return -XQC_TLS_INVALID_STATE;
         }
     }
@@ -777,7 +777,7 @@ xqc_tls_decrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
     if (level == XQC_ENC_LEV_1RTT) {
         key_phase = XQC_PACKET_SHORT_HEADER_KEY_PHASE(header);
         if (key_phase >= XQC_KEY_PHASE_CNT) {
-            xqc_log(tls->log, XQC_LOG_ERROR, "|illegal key phase|key_phase:%ui|", key_phase);
+            xqc_log(tls->log, XQC_LOG_ERROR, "|illegal key phase|key_phase:%ud|", key_phase);
             return -XQC_TLS_INVALID_STATE;
         }
     }

@@ -312,7 +312,7 @@ xqc_bbr2_probe_inflight_hi_upward(xqc_bbr2_t *bbr2, xqc_sample_t *sampler)
 
     xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
             "|increase_inflight_hi|probe_up_acks:%ud|newlyacked:%ud"
-            "|probe_up_cnt:%udinflight_hi:%uddelta:%udprobe_up_rounds:%u|",
+            "|probe_up_cnt:%ud|inflight_hi:%ud|delta:%ud|probe_up_rounds:%ud|",
             bbr2->bw_probe_up_acks, sampler->acked, bbr2->bw_probe_up_cnt, 
             bbr2->inflight_hi, delta, bbr2->bw_probe_up_rounds);
 

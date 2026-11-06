@@ -201,11 +201,6 @@ void xqc_tls_set_no_crypto(xqc_tls_t *tls);
 void xqc_tls_set_1rtt_key_phase(xqc_tls_t *tls, xqc_uint_t key_phase);
 
 /**
- * @brief check if key update is waiting confirmed
- */
-xqc_bool_t xqc_tls_is_key_update_confirmed(xqc_tls_t *tls);
-
-/**
  * @brief derive updated read or write keys on 1-RTT
  */
 xqc_int_t xqc_tls_update_1rtt_keys(xqc_tls_t *tls, xqc_key_type_t type);

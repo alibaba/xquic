@@ -74,8 +74,6 @@ typedef struct xqc_tls_s {
     /* quic version. used to decide protection salt */
     xqc_proto_version_t         version;
 
-    xqc_bool_t                  key_update_confirmed;
-
 #ifndef OPENSSL_IS_BORINGSSL
     uint8_t                     early_data_tp[XQC_EARLY_DATA_TP_LEN];
 #endif
@@ -452,7 +450,6 @@ xqc_tls_create(xqc_tls_ctx_t *ctx, xqc_tls_config_t *cfg, xqc_log_t *log, void *
     tls->user_data = user_data;
     tls->cert_verify_flag = cfg->cert_verify_flag;
     tls->no_crypto = cfg->no_crypto_flag;
-    tls->key_update_confirmed = XQC_TRUE;
 
     /* init ssl with input config */
     ret = xqc_tls_create_ssl(tls, cfg);
@@ -867,12 +864,6 @@ xqc_tls_set_1rtt_key_phase(xqc_tls_t *tls, xqc_uint_t key_phase)
     tls->crypto[XQC_ENC_LEV_1RTT]->key_phase = key_phase;
 }
 
-xqc_bool_t
-xqc_tls_is_key_update_confirmed(xqc_tls_t *tls)
-{
-    return tls->key_update_confirmed;
-}
-
 xqc_int_t
 xqc_tls_update_1rtt_keys(xqc_tls_t *tls, xqc_key_type_t type)
 {
@@ -886,13 +877,6 @@ xqc_tls_update_1rtt_keys(xqc_tls_t *tls, xqc_key_type_t type)
     if (ret != XQC_OK) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|derive write keys error|");
         return -XQC_TLS_UPDATE_KEY_ERROR;
-    }
-
-    if (type == XQC_KEY_TYPE_RX_READ) {
-        tls->key_update_confirmed = XQC_FALSE;
-
-    } else if (type == XQC_KEY_TYPE_TX_WRITE) {
-        tls->key_update_confirmed = XQC_TRUE;
     }
 
     return XQC_OK;

@@ -5,6 +5,12 @@
 #include <CUnit/CUnit.h>
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_cid.h"
+#include "src/transport/xqc_multipath.h"
+
+/* defined in xqc_multipath.c, not declared in a header */
+xqc_path_ctx_t *xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid,
+    xqc_cid_t *dcid, uint64_t path_id);
 #include "src/tls/xqc_tls_ctx.h"
 #include "src/tls/xqc_tls.h"
 #include "src/tls/xqc_ssl_cbs.h"
@@ -1309,6 +1315,9 @@ static xqc_int_t xqc_test_key_update_setup(xqc_test_key_update_ctx_t *t);
 static void xqc_test_key_update_teardown(xqc_test_key_update_ctx_t *t);
 static xqc_bool_t xqc_test_key_update_deliver(xqc_test_key_update_ctx_t *t,
     xqc_uint_t key_phase, uint64_t pktno);
+static xqc_bool_t xqc_test_key_update_deliver_on(xqc_test_key_update_ctx_t *t,
+    xqc_path_ctx_t *path, xqc_uint_t key_phase, uint64_t pktno,
+    xqc_bool_t corrupt);
 static void xqc_test_key_update_client_initiate(
     xqc_test_key_update_ctx_t *t);
 static void xqc_test_key_update_server_update(xqc_test_key_update_ctx_t *t,
@@ -1444,22 +1453,25 @@ xqc_test_key_update_teardown(xqc_test_key_update_ctx_t *t)
 }
 
 /*
- * The server protects a short header packet holding a PING frame with its
- * 1-RTT keys of key_phase, and the client connection receives it. Return
- * whether the connection unprotected it.
+ * The server protects a short header packet holding frames, padded, with its
+ * 1-RTT keys of key_phase, and the client connection receives it for dcid. A
+ * corrupt packet fails authentication. Return whether the connection
+ * unprotected it.
  */
 static xqc_bool_t
-xqc_test_key_update_deliver(xqc_test_key_update_ctx_t *t,
-    xqc_uint_t key_phase, uint64_t pktno)
+xqc_test_key_update_deliver_frames(xqc_test_key_update_ctx_t *t,
+    const xqc_cid_t *dcid, uint32_t nonce_path_id, xqc_uint_t key_phase,
+    uint64_t pktno, xqc_bool_t corrupt, const uint8_t *frames, size_t len)
 {
     xqc_connection_t *conn = t->conn;
-    const xqc_cid_t *dcid = &conn->scid_set.user_scid;
     uint64_t dropped = conn->packet_dropped_count;
-    uint8_t plain[32] = {0x01};
+    uint8_t plain[32] = {0};
     uint8_t pkt[1 + XQC_MAX_CID_LEN + 4 + sizeof(plain) + 64];
     uint8_t *pn;
     size_t hdr_len;
     size_t enc_len = 0;
+
+    memcpy(plain, frames, len);
 
     /* fixed bit, key phase and a 4-byte packet number */
     pkt[0] = 0x43 | (key_phase ? 0x04 : 0);
@@ -1471,8 +1483,9 @@ xqc_test_key_update_deliver(xqc_test_key_update_ctx_t *t,
     pn[3] = (uint8_t) pktno;
     hdr_len = pn + 4 - pkt;
 
-    if (xqc_tls_encrypt_payload(t->tls_svr, XQC_ENC_LEV_1RTT, pktno, 0,
-                                pkt, hdr_len, plain, sizeof(plain),
+    if (xqc_tls_encrypt_payload(t->tls_svr, XQC_ENC_LEV_1RTT, pktno,
+                                nonce_path_id, pkt, hdr_len,
+                                plain, sizeof(plain),
                                 pkt + hdr_len, sizeof(pkt) - hdr_len,
                                 &enc_len) != XQC_OK
         || xqc_tls_encrypt_header(t->tls_svr, XQC_ENC_LEV_1RTT,
@@ -1482,6 +1495,10 @@ xqc_test_key_update_deliver(xqc_test_key_update_ctx_t *t,
         return XQC_FALSE;
     }
 
+    if (corrupt) {
+        pkt[hdr_len + enc_len - 1] ^= 0x01;
+    }
+
     if (xqc_conn_process_packet(conn, pkt, hdr_len + enc_len,
                                 xqc_monotonic_timestamp()) != XQC_OK)
     {
@@ -1489,6 +1506,29 @@ xqc_test_key_update_deliver(xqc_test_key_update_ctx_t *t,
     }
 
     return conn->packet_dropped_count == dropped;
+}
+
+/* a PING frame on path, or on the initial path if path is NULL */
+static xqc_bool_t
+xqc_test_key_update_deliver_on(xqc_test_key_update_ctx_t *t,
+    xqc_path_ctx_t *path, xqc_uint_t key_phase, uint64_t pktno,
+    xqc_bool_t corrupt)
+{
+    const uint8_t ping = 0x01;
+    const xqc_cid_t *dcid = path ? &path->path_scid
+                                 : &t->conn->scid_set.user_scid;
+
+    return xqc_test_key_update_deliver_frames(t, dcid,
+        path ? (uint32_t) path->path_id : 0, key_phase, pktno, corrupt,
+        &ping, 1);
+}
+
+static xqc_bool_t
+xqc_test_key_update_deliver(xqc_test_key_update_ctx_t *t,
+    xqc_uint_t key_phase, uint64_t pktno)
+{
+    return xqc_test_key_update_deliver_on(t, NULL, key_phase, pktno,
+                                          XQC_FALSE);
 }
 
 /* the client initiates a key update, as xqc_packet_initiate_key_update does */
@@ -1636,6 +1676,169 @@ xqc_test_tls_key_update_responder_keeps_retired_keys(void)
     xqc_test_key_update_teardown(&t);
 }
 
+
+/*
+ * The client keeps the server's previous keys after a key update. A packet
+ * with the other key phase that fails authentication changes nothing: a
+ * delayed packet protected with the previous keys still decrypts, and after
+ * the discard deadline the server's next key update is accepted (RFC 9001
+ * Section 6.3: the next keys are kept even if the packet is discarded).
+ */
+void
+xqc_test_tls_key_update_forged_key_phase(void)
+{
+    xqc_test_key_update_ctx_t t;
+    xqc_timer_manager_t *timers;
+
+    CU_ASSERT_FATAL(xqc_test_key_update_setup(&t) == XQC_OK);
+    timers = &t.conn->conn_timer_manager;
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 1));
+
+    xqc_test_key_update_server_update(&t, 1);
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 1, 5));
+    CU_ASSERT_FATAL(xqc_timer_is_set(timers, XQC_TIMER_KEY_UPDATE));
+
+    CU_ASSERT(!xqc_test_key_update_deliver_on(&t, NULL, 0, 10, XQC_TRUE));
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 3));
+    CU_ASSERT_EQUAL(t.conn->key_update_ctx.key_update_cnt, 1);
+
+    xqc_timer_expire(timers, timers->timer[XQC_TIMER_KEY_UPDATE].expire_time);
+    CU_ASSERT(!xqc_test_key_update_deliver_on(&t, NULL, 0, 11, XQC_TRUE));
+    xqc_test_key_update_server_update(&t, 0);
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 12));
+    CU_ASSERT_EQUAL(t.conn->key_update_ctx.key_update_cnt, 2);
+
+    /* the discard deadline has passed but the timers have not run: the
+       packet discards the previous keys and the deadline with them */
+    xqc_timer_set(timers, XQC_TIMER_KEY_UPDATE, 0, 1);
+    CU_ASSERT(!xqc_test_key_update_deliver_on(&t, NULL, 1, 13, XQC_TRUE));
+    CU_ASSERT(!xqc_timer_is_set(timers, XQC_TIMER_KEY_UPDATE));
+    xqc_test_key_update_server_update(&t, 1);
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 1, 14));
+    CU_ASSERT_EQUAL(t.conn->key_update_ctx.key_update_cnt, 3);
+    CU_ASSERT_EQUAL(t.conn->conn_err, 0);
+
+    xqc_test_key_update_teardown(&t);
+}
+
+/*
+ * RFC 9001 Section 6.4: a packet that the previous keys unprotect, numbered
+ * above a packet of the same path that the current keys unprotected, is a
+ * KEY_UPDATE_ERROR.
+ */
+void
+xqc_test_tls_key_update_old_keys_after_newer(void)
+{
+    xqc_test_key_update_ctx_t t;
+
+    CU_ASSERT_FATAL(xqc_test_key_update_setup(&t) == XQC_OK);
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 1));
+
+    xqc_test_key_update_server_update(&t, 1);
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 1, 5));
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 4));
+    CU_ASSERT_EQUAL(t.conn->conn_err, 0);
+
+    CU_ASSERT(!xqc_test_key_update_deliver(&t, 0, 6));
+    CU_ASSERT_EQUAL(t.conn->conn_err, TRA_KEY_UPDATE_ERROR);
+
+    xqc_test_key_update_teardown(&t);
+}
+
+/*
+ * With multipath each path numbers its packets separately. The server's key
+ * update arrives first on a path with low packet numbers; a delayed packet
+ * protected with the previous keys on a path with higher packet numbers still
+ * decrypts, and does not start another key update.
+ */
+void
+xqc_test_tls_key_update_on_second_path(void)
+{
+    xqc_test_key_update_ctx_t t;
+    xqc_connection_t *conn;
+    xqc_cid_t scid = {0}, dcid = {0};
+    xqc_path_ctx_t *second;
+
+    CU_ASSERT_FATAL(xqc_test_key_update_setup(&t) == XQC_OK);
+    conn = t.conn;
+    conn->enable_multipath = 1;
+
+    scid.cid_len = 8;
+    memset(scid.cid_buf, 0x5a, scid.cid_len);
+    dcid.cid_len = 8;
+    memset(dcid.cid_buf, 0xa5, dcid.cid_len);
+    CU_ASSERT_FATAL(xqc_cid_set_add_path(&conn->scid_set, 1) == XQC_OK);
+    CU_ASSERT_FATAL(xqc_cid_set_insert_cid(&conn->scid_set, &scid,
+                                           XQC_CID_USED, 8, 1) == XQC_OK);
+    second = xqc_path_create(conn, &scid, &dcid, 1);
+    CU_ASSERT_FATAL(second != NULL);
+
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 50000));
+    CU_ASSERT(xqc_test_key_update_deliver_on(&t, second, 0, 1, XQC_FALSE));
+
+    xqc_test_key_update_server_update(&t, 1);
+    CU_ASSERT(xqc_test_key_update_deliver_on(&t, second, 1, 2, XQC_FALSE));
+    CU_ASSERT(xqc_test_key_update_deliver_on(&t, second, 1, 3, XQC_FALSE));
+    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_cnt, 1);
+
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 50001));
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 1, 50002));
+    CU_ASSERT_EQUAL(conn->key_update_ctx.key_update_cnt, 1);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_test_key_update_teardown(&t);
+}
+
+
+/*
+ * A server creates a path for a received packet protected with the current
+ * keys. A later packet with a higher packet number protected with the
+ * previous keys on that path is a KEY_UPDATE_ERROR (RFC 9001 Section 6.4).
+ */
+void
+xqc_test_tls_key_update_on_created_path(void)
+{
+    xqc_test_key_update_ctx_t t;
+    xqc_connection_t *conn;
+    xqc_cid_t scid = {0}, dcid = {0};
+    xqc_path_ctx_t *created;
+    const uint8_t ping = 0x01;
+    const uint8_t challenge[9] = {0x1a, 1, 2, 3, 4, 5, 6, 7, 8};
+
+    CU_ASSERT_FATAL(xqc_test_key_update_setup(&t) == XQC_OK);
+    conn = t.conn;
+    conn->enable_multipath = 1;
+    /* the client connection plays the server's part in path creation */
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+
+    scid.cid_len = 8;
+    memset(scid.cid_buf, 0x5b, scid.cid_len);
+    CU_ASSERT_FATAL(xqc_cid_set_add_path(&conn->scid_set, 2) == XQC_OK);
+    CU_ASSERT_FATAL(xqc_cid_set_insert_cid(&conn->scid_set, &scid,
+                                           XQC_CID_USED, 8, 2) == XQC_OK);
+    dcid.cid_len = 8;
+    memset(dcid.cid_buf, 0xb5, dcid.cid_len);
+    CU_ASSERT_FATAL(xqc_cid_set_add_path(&conn->dcid_set, 2) == XQC_OK);
+    CU_ASSERT_FATAL(xqc_cid_set_insert_cid(&conn->dcid_set, &dcid,
+                                           XQC_CID_UNUSED, 8, 2) == XQC_OK);
+
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 1));
+    xqc_test_key_update_server_update(&t, 1);
+    CU_ASSERT(xqc_test_key_update_deliver(&t, 1, 2));
+
+    CU_ASSERT(xqc_test_key_update_deliver_frames(&t, &scid, 2, 1, 5,
+                                                 XQC_FALSE, challenge,
+                                                 sizeof(challenge)));
+    created = xqc_conn_find_path_by_path_id(conn, 2);
+    CU_ASSERT_FATAL(created != NULL);
+    CU_ASSERT_EQUAL(created->path_ku_first_recv_pktno, 5);
+
+    CU_ASSERT(!xqc_test_key_update_deliver_frames(&t, &scid, 2, 0, 6,
+                                                  XQC_FALSE, &ping, 1));
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_KEY_UPDATE_ERROR);
+
+    xqc_test_key_update_teardown(&t);
+}
 
 void
 xqc_test_tls(void)

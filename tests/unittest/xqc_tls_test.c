@@ -11,6 +11,8 @@
 
 #define XQC_TEST_MAX_CRYPTO_DATA_BUF 16 * 1024
 
+extern xqc_bool_t xqc_tls_check_session_ticket_timeout(SSL_SESSION *session);
+
 #define XQC_TEST_SESSION_TICKET_KEY "\xa8\x6d\x19\x70\x06\x08\x9b\x2d" \
 "\xa7\x17\x50\xf7\x97\x78\xf7\xe8\x3c\x5a\xc4\x9d\x61\x34\xe3\xa1\xfa" \
 "\x62\x7b\x66\xf0\x2f\x5b\xdc\x63\x12\x8d\x10\x9a\x57\x5c\xdd\x1b\xc3" \
@@ -420,6 +422,69 @@ xqc_test_tls_default_cert_without_sni(void)
     CU_ASSERT_EQUAL(xqc_test_tls_default_cert_handshake(
         XQC_FALSE, &cert_cb_called), XQC_OK);
     CU_ASSERT_EQUAL(cert_cb_called, 0);
+}
+
+
+static xqc_usec_t
+xqc_test_session_time_boottime(void)
+{
+    /* an application clock with another epoch: one hour after boot */
+    return 3600 * (xqc_usec_t) 1000000;
+}
+
+/*
+ * A session to resume is checked against gettimeofday(), the clock BoringSSL
+ * stamps it with: time() may still report the previous second for a while
+ * after gettimeofday() has moved to the next. The clock an application
+ * installs as realtime_ts is not read.
+ */
+void
+xqc_test_tls_session_ticket_timeout(void)
+{
+    xqc_log_callbacks_t    log_cb = xqc_null_log_cb;
+    xqc_log_t             *log;
+    xqc_tls_ctx_t         *ctx;
+    SSL_SESSION           *session;
+    xqc_timestamp_pt       saved_realtime = xqc_realtime_timestamp;
+    struct timeval         tv;
+    time_t                 sec;
+    def_engine_ssl_config_cli;
+
+    log = xqc_log_init(0, 0, 0, 0, 0, NULL, &log_cb, NULL);
+    ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_CLIENT, &engine_ssl_config_cli,
+                             &tls_test_cbs, log);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(ctx);
+#ifdef OPENSSL_IS_BORINGSSL
+    session = SSL_SESSION_new(xqc_tls_ctx_get_ssl_ctx(ctx));
+#else
+    session = SSL_SESSION_new();
+#endif
+    CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+    SSL_SESSION_set_timeout(session, 3600);
+
+    /* stamped right after gettimeofday() has entered a new second */
+    gettimeofday(&tv, NULL);
+    sec = tv.tv_sec;
+    do {
+        gettimeofday(&tv, NULL);
+    } while (tv.tv_sec == sec);
+    SSL_SESSION_set_time(session, tv.tv_sec);
+    CU_ASSERT_EQUAL(xqc_tls_check_session_ticket_timeout(session), XQC_TRUE);
+
+    /* the same session with an application realtime_ts installed */
+    xqc_realtime_timestamp = xqc_test_session_time_boottime;
+    CU_ASSERT_EQUAL(xqc_tls_check_session_ticket_timeout(session), XQC_TRUE);
+    xqc_realtime_timestamp = saved_realtime;
+
+    /* abnormal: stamped in the future, or expired */
+    SSL_SESSION_set_time(session, tv.tv_sec + 2);
+    CU_ASSERT_EQUAL(xqc_tls_check_session_ticket_timeout(session), XQC_FALSE);
+    SSL_SESSION_set_time(session, tv.tv_sec - 3601);
+    CU_ASSERT_EQUAL(xqc_tls_check_session_ticket_timeout(session), XQC_FALSE);
+
+    SSL_SESSION_free(session);
+    xqc_tls_ctx_destroy(ctx);
+    xqc_log_release(log);
 }
 
 void

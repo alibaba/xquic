@@ -90,7 +90,20 @@ SSL_QUIC_METHOD xqc_ssl_quic_method;
 xqc_bool_t
 xqc_tls_check_session_ticket_timeout(SSL_SESSION *session)
 {
-    uint32_t now = (uint32_t)time(NULL);
+    struct timeval tv;
+
+    /*
+     * Read gettimeofday(), the clock BoringSSL (no current_time_cb is set)
+     * and Tongsuo 8.5 stamp a session with: time() may still report the
+     * previous second for a while after gettimeofday() has moved to the next
+     * one, and a session received then would look as if it came from the
+     * future. BabaSSL 8.3 stamps it with time(), which is never ahead of
+     * gettimeofday(). The realtime_ts engine callback is not read: an
+     * application may install a clock with another epoch there.
+     */
+    gettimeofday(&tv, NULL);
+
+    uint32_t now = (uint32_t)tv.tv_sec;
     uint32_t session_time = SSL_get_time(session);
     if (session_time > now) {
         return XQC_FALSE;

@@ -1040,6 +1040,314 @@ xqc_test_send_ctl_lost_packet_cc(xqc_bool_t pmtud_probe)
 }
 
 
+
+/*
+ * Every ack-eliciting packet sent on a path restarts its PTO timer
+ * (RFC 9002 Section 6.2.1), so a path that stops delivering while packets
+ * keep being sent on it more often than once per PTO never gets a PTO, and
+ * ctl_pto_count stays 0. The effective PTO count counts the expiries those
+ * sends hid, from the last progress on the path to its last send.
+ *
+ * With srtt = 10 ms, rttvar = 1.25 ms and the peer's max_ack_delay = 25 ms,
+ * the first Application Data PTO is 10 + max(4 * 1.25, 1) + 25 = 40 ms.
+ */
+static xqc_usec_t
+xqc_test_effective_pto_setup(xqc_connection_t *conn)
+{
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    conn->conn_settings.pto_backoff_factor = 2.0;
+    conn->remote_settings.max_ack_delay = 25;
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 1250;
+    send_ctl->ctl_minrtt = 10000;
+    send_ctl->ctl_latest_rtt = 10000;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+
+    return xqc_send_ctl_get_pto_duration(send_ctl, XQC_PNS_APP_DATA, 0);
+}
+
+
+/*
+ * Send an Application Data packet on the initial path through the sending
+ * accounting of xqc_send_ctl_on_packet_sent(): a 100-byte PING, or with
+ * probe, a 1450-byte PMTUD probe (PING and PADDING).
+ */
+static xqc_packet_out_t *
+xqc_test_effective_pto_send_packet(xqc_connection_t *conn,
+    xqc_packet_number_t pkt_num, xqc_usec_t sent_time, xqc_bool_t probe)
+{
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+
+    xqc_packet_out_t *po = xqc_packet_out_get(sq);
+    if (po == NULL) {
+        return NULL;
+    }
+
+    po->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    po->po_pkt.pkt_pns  = XQC_PNS_APP_DATA;
+    po->po_pkt.pkt_num  = pkt_num;
+    po->po_path_id      = path->path_id;
+    po->po_sent_time    = sent_time;
+    po->po_frame_types  = XQC_FRAME_BIT_PING;
+    po->po_used_size    = 100;
+    if (probe) {
+        po->po_frame_types |= XQC_FRAME_BIT_PADDING;
+        po->po_flag |= XQC_POF_PMTUD_PROBING;
+        po->po_used_size = 1450;
+    }
+
+    xqc_send_queue_insert_unacked(po,
+        &sq->sndq_unacked_packets[XQC_PNS_APP_DATA], sq);
+    xqc_send_ctl_on_packet_sent(path->path_send_ctl, path->path_pn_ctl, po,
+                                sent_time);
+
+    return po;
+}
+
+
+static xqc_packet_out_t *
+xqc_test_effective_pto_send(xqc_connection_t *conn,
+    xqc_packet_number_t pkt_num, xqc_usec_t sent_time)
+{
+    return xqc_test_effective_pto_send_packet(conn, pkt_num, sent_time,
+                                              XQC_FALSE);
+}
+
+
+static xqc_packet_out_t *
+xqc_test_effective_pto_send_probe(xqc_connection_t *conn,
+    xqc_packet_number_t pkt_num, xqc_usec_t sent_time)
+{
+    return xqc_test_effective_pto_send_packet(conn, pkt_num, sent_time,
+                                              XQC_TRUE);
+}
+
+
+/*
+ * Happy path: a path keeps getting a packet every half PTO and none is
+ * acknowledged. Over 3 PTOs of sends it hides two PTO expiries, which is the
+ * minrtt/backup threshold (pto_cnt_thr = 2), so it falls to the LOW class
+ * although ctl_pto_count is still 0. The first ACK that acknowledges a
+ * packet sent on it restores it.
+ */
+void
+xqc_test_effective_pto_count_silent_path(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_usec_t pto = xqc_test_effective_pto_setup(conn);
+    CU_ASSERT_FATAL(pto == 40000);
+    CU_ASSERT_FATAL(conn->conn_settings.scheduler_params.pto_cnt_thr == 2);
+    path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+
+    /* Healthy and idle: not LOW. */
+    CU_ASSERT(xqc_path_get_perf_class(path) != XQC_PATH_CLASS_AVAILABLE_LOW);
+
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t first = now - 4 * pto;
+    for (int i = 0; i < 7; i++) {
+        CU_ASSERT_FATAL(xqc_test_effective_pto_send(conn, 10 + i,
+                                                    first + i * pto / 2)
+                        != NULL);
+    }
+
+    /* The last send came 3 PTOs after the first one: expiries at 1 and 3. */
+    CU_ASSERT_EQUAL(send_ctl->ctl_pto_count, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_progress_time, first);
+    CU_ASSERT_EQUAL(xqc_send_ctl_get_effective_pto_count(send_ctl), 2);
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_LOW);
+
+    /* The peer acknowledges the last packet sent on the path. */
+    xqc_ack_info_t ack_info;
+    memset(&ack_info, 0, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_APP_DATA;
+    ack_info.path_id = path->path_id;
+    ack_info.n_ranges = 1;
+    ack_info.ranges[0].low = 16;
+    ack_info.ranges[0].high = 16;
+    ack_info.largest_acked = 16;
+
+    now = xqc_monotonic_timestamp();
+    CU_ASSERT_EQUAL(xqc_send_ctl_on_ack_received(send_ctl, path->path_pn_ctl,
+                        conn->conn_send_queue, &ack_info, now, XQC_TRUE),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(send_ctl->ctl_progress_time, now);
+    CU_ASSERT_EQUAL(xqc_send_ctl_get_effective_pto_count(send_ctl), 0);
+    CU_ASSERT(xqc_path_get_perf_class(path) != XQC_PATH_CLASS_AVAILABLE_LOW);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* the initial path of a connection set up by xqc_test_effective_pto_setup() */
+static xqc_path_ctx_t *
+xqc_test_effective_pto_path(xqc_connection_t *conn)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+
+    CU_ASSERT_FATAL(path != NULL);
+    CU_ASSERT_FATAL(xqc_test_effective_pto_setup(conn) == 40000);
+    CU_ASSERT_FATAL(conn->conn_settings.scheduler_params.pto_cnt_thr == 2);
+    path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+    return path;
+}
+
+
+/*
+ * Abnormal path: PMTUD probes alone. The loss of a probe can mean that the
+ * path MTU is smaller than the probe (RFC 9000 Section 14.4), and sending
+ * one does not arm the PTO timer, so two 1450-byte probes sent 500 ms
+ * apart, 12.5 PTOs, and never acknowledged hide no expiry: the path keeps
+ * its class.
+ */
+void
+xqc_test_effective_pto_count_pmtud_only(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_path_ctx_t *path = xqc_test_effective_pto_path(conn);
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_timer_t *timer =
+        &send_ctl->path_timer_manager.timer[XQC_TIMER_LOSS_DETECTION];
+    xqc_path_perf_class_t perf_class = xqc_path_get_perf_class(path);
+    uint32_t inflight = send_ctl->ctl_bytes_in_flight;
+    uint8_t timer_is_set = timer->timer_is_set;
+    xqc_usec_t expire_time = timer->expire_time;
+    CU_ASSERT(perf_class != XQC_PATH_CLASS_AVAILABLE_LOW);
+
+    xqc_usec_t first = xqc_monotonic_timestamp() - 600000;
+    CU_ASSERT_FATAL(xqc_test_effective_pto_send_probe(conn, 10, first)
+                    != NULL);
+    CU_ASSERT_FATAL(xqc_test_effective_pto_send_probe(conn, 11,
+                                                      first + 500000)
+                    != NULL);
+
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, inflight + 2900);
+    CU_ASSERT_EQUAL(send_ctl->ctl_pto_count, 0);
+    CU_ASSERT_EQUAL(timer->timer_is_set, timer_is_set);
+    CU_ASSERT_EQUAL(timer->expire_time, expire_time);
+    CU_ASSERT_EQUAL(xqc_send_ctl_get_effective_pto_count(send_ctl), 0);
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path), perf_class);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * PMTUD probes among ordinary packets: only the ordinary packets count.
+ *
+ * - A probe sent 4 PTOs before the first ordinary packet does not start
+ *   the count, and one sent 2 PTOs after the last does not extend it:
+ *   ordinary packets every half PTO for 1.5 PTOs hide one expiry.
+ * - Ordinary packets every half PTO for 3 PTOs, with a probe between each
+ *   two, still hide two expiries: the path falls to the LOW class.
+ * - Once the ordinary packets are acknowledged, a probe left in flight and
+ *   one sent two PTO periods later hide nothing.
+ */
+void
+xqc_test_effective_pto_count_pmtud_interleaved(void)
+{
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_send_ctl_t *send_ctl;
+    xqc_usec_t pto, t0, ack_time;
+    xqc_ack_info_t ack_info;
+    int i;
+
+    /* probes before and after 1.5 PTOs of ordinary packets */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    path = xqc_test_effective_pto_path(conn);
+    send_ctl = path->path_send_ctl;
+    pto = 40000;
+    t0 = xqc_monotonic_timestamp() - 10 * pto;
+
+    CU_ASSERT_FATAL(xqc_test_effective_pto_send_probe(conn, 10, t0) != NULL);
+    for (i = 0; i < 4; i++) {
+        CU_ASSERT_FATAL(xqc_test_effective_pto_send(conn, 11 + i,
+                                                    t0 + 4 * pto
+                                                    + i * pto / 2)
+                        != NULL);
+    }
+    CU_ASSERT_FATAL(xqc_test_effective_pto_send_probe(conn, 15,
+                                                      t0 + 7 * pto + pto / 2)
+                    != NULL);
+
+    CU_ASSERT_EQUAL(send_ctl->ctl_progress_time, t0 + 4 * pto);
+    CU_ASSERT_EQUAL(xqc_send_ctl_get_effective_pto_count(send_ctl), 1);
+    CU_ASSERT(xqc_path_get_perf_class(path) != XQC_PATH_CLASS_AVAILABLE_LOW);
+    xqc_engine_destroy(conn->engine);
+
+    /* 3 PTOs of ordinary packets with probes between them */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    path = xqc_test_effective_pto_path(conn);
+    send_ctl = path->path_send_ctl;
+    t0 = xqc_monotonic_timestamp() - 10 * pto;
+
+    for (i = 0; i < 7; i++) {
+        CU_ASSERT_FATAL(xqc_test_effective_pto_send(conn, 10 + 2 * i,
+                                                    t0 + i * pto / 2)
+                        != NULL);
+        if (i < 6) {
+            CU_ASSERT_FATAL(xqc_test_effective_pto_send_probe(conn,
+                                11 + 2 * i, t0 + i * pto / 2 + pto / 4)
+                            != NULL);
+        }
+    }
+
+    CU_ASSERT_EQUAL(send_ctl->ctl_pto_count, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_progress_time, t0);
+    CU_ASSERT_EQUAL(xqc_send_ctl_get_effective_pto_count(send_ctl), 2);
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_LOW);
+    xqc_engine_destroy(conn->engine);
+
+    /* a probe left in flight once the ordinary packet is acknowledged */
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    path = xqc_test_effective_pto_path(conn);
+    send_ctl = path->path_send_ctl;
+    t0 = xqc_monotonic_timestamp() - 10 * pto;
+
+    CU_ASSERT_FATAL(xqc_test_effective_pto_send(conn, 10, t0) != NULL);
+    CU_ASSERT_FATAL(xqc_test_effective_pto_send_probe(conn, 11, t0 + pto / 2)
+                    != NULL);
+
+    memset(&ack_info, 0, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_APP_DATA;
+    ack_info.path_id = path->path_id;
+    ack_info.n_ranges = 1;
+    ack_info.ranges[0].low = 10;
+    ack_info.ranges[0].high = 10;
+    ack_info.largest_acked = 10;
+    ack_time = t0 + pto;
+    CU_ASSERT_EQUAL(xqc_send_ctl_on_ack_received(send_ctl, path->path_pn_ctl,
+                        conn->conn_send_queue, &ack_info, ack_time, XQC_TRUE),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(send_ctl->ctl_progress_time, ack_time);
+    CU_ASSERT(send_ctl->ctl_bytes_in_flight > 0);
+
+    CU_ASSERT_FATAL(xqc_test_effective_pto_send_probe(conn, 12,
+        ack_time
+        + xqc_send_ctl_get_pto_duration(send_ctl, XQC_PNS_APP_DATA, 0)
+        + xqc_send_ctl_get_pto_duration(send_ctl, XQC_PNS_APP_DATA, 1))
+                    != NULL);
+    CU_ASSERT_EQUAL(xqc_send_ctl_get_effective_pto_count(send_ctl), 0);
+    CU_ASSERT(xqc_path_get_perf_class(path) != XQC_PATH_CLASS_AVAILABLE_LOW);
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void)
 {
@@ -1051,4 +1359,385 @@ void
 xqc_test_send_ctl_lost_packet_cc_reaction(void)
 {
     xqc_test_send_ctl_lost_packet_cc(XQC_FALSE);
+}
+
+
+/*
+ * The effective PTO count with the last ack-eliciting send other than a
+ * PMTUD probe at last_sent.
+ */
+static unsigned
+xqc_test_effective_pto_at(xqc_send_ctl_t *send_ctl, xqc_usec_t last_sent)
+{
+    send_ctl->ctl_progress_last_sent = last_sent;
+    return xqc_send_ctl_get_effective_pto_count(send_ctl);
+}
+
+
+/*
+ * Boundaries and guards: the expiries follow the configured backoff, with
+ * the timer's cap, the real ctl_pto_count still wins when it is larger, the
+ * count is capped, and a path without bytes in flight, or a connection
+ * whose handshake is not confirmed, only reports ctl_pto_count.
+ */
+void
+xqc_test_effective_pto_count_bounds(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_usec_t pto = xqc_test_effective_pto_setup(conn);
+    CU_ASSERT_FATAL(pto == 40000);
+
+    xqc_usec_t since = 1000000;
+    send_ctl->ctl_progress_time = since;
+    send_ctl->ctl_progress_bytes_inflight = 100;
+
+    /* Backoff 2: expiries 1, 3 and 7 PTOs after the last progress. */
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + pto - 1), 0);
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + pto), 1);
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 3 * pto - 1),
+                    1);
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 3 * pto), 2);
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 7 * pto), 3);
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 100000 * pto),
+                    XQC_EFFECTIVE_PTO_COUNT_MAX);
+
+    /* Backoff 1.5: expiries 1, 2.5 and 4.75 PTOs after the last progress. */
+    conn->conn_settings.pto_backoff_factor = 1.5;
+    CU_ASSERT_EQUAL(
+        xqc_test_effective_pto_at(send_ctl, since + 5 * pto / 2 - 1), 1);
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 5 * pto / 2),
+                    2);
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 19 * pto / 4),
+                    3);
+
+    /* Backoff 3: 11 expiries after (3^11 - 1) / 2 PTOs, then the 12th
+     * period is capped at 2^16 PTOs, as the timer caps it. */
+    conn->conn_settings.pto_backoff_factor = 3.0;
+    xqc_usec_t eleven = (177147 - 1) / 2 * pto;
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + eleven), 11);
+    CU_ASSERT_EQUAL(
+        xqc_test_effective_pto_at(send_ctl, since + eleven + 65536 * pto - 1),
+        11);
+    CU_ASSERT_EQUAL(
+        xqc_test_effective_pto_at(send_ctl, since + eleven + 65536 * pto), 12);
+    conn->conn_settings.pto_backoff_factor = 2.0;
+
+    /* An ACK that acknowledged a packet sent on the path restarts it. */
+    send_ctl->ctl_progress_time = since + 3 * pto;
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 4 * pto - 1),
+                    0);
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 4 * pto), 1);
+
+    /* The real count wins when it is larger. */
+    send_ctl->ctl_pto_count = 5;
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 4 * pto), 5);
+
+    /* An idle path is not unresponsive. */
+    send_ctl->ctl_pto_count = 1;
+    send_ctl->ctl_progress_bytes_inflight = 0;
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 100000 * pto),
+                    1);
+
+    /* Any PTO, even one at the top of the xqc_usec_t range, where the
+     * last progress plus one PTO wraps: one millisecond after the last
+     * progress, no expiry has been hidden. */
+    xqc_usec_t srtt = send_ctl->ctl_srtt;
+    send_ctl->ctl_pto_count = 0;
+    send_ctl->ctl_progress_bytes_inflight = 100;
+    send_ctl->ctl_srtt = XQC_MAX_UINT64_VALUE - (1 << 20);
+    send_ctl->ctl_progress_time = 1 << 21;
+    CU_ASSERT_FATAL(send_ctl->ctl_progress_time
+                    + xqc_send_ctl_get_pto_duration(send_ctl,
+                                                    XQC_PNS_APP_DATA, 0)
+                    < send_ctl->ctl_progress_time);
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, (1 << 21) + 1000), 0);
+    send_ctl->ctl_srtt = srtt;
+    send_ctl->ctl_progress_time = since;
+
+    /* Before the handshake is confirmed, only the PTO timer counts. */
+    send_ctl->ctl_pto_count = 0;
+    send_ctl->ctl_progress_bytes_inflight = 100;
+    conn->conn_flag &= ~XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + 100000 * pto),
+                    0);
+
+    send_ctl->ctl_progress_bytes_inflight = 0;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+static xqc_usec_t
+xqc_test_pto_frozen_timestamp(void)
+{
+    return 1000000;
+}
+
+
+/*
+ * The PTO period that the loss detection timer arms after pto_count PTOs,
+ * with ack-eliciting packets of pns alone in flight, or with nothing in
+ * flight when pns is XQC_PNS_N; 0 when it arms none, as for Application
+ * Data before the handshake is confirmed.
+ */
+static xqc_usec_t
+xqc_test_timer_pto_period(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns,
+    unsigned pto_count)
+{
+    xqc_timestamp_pt saved_clock = xqc_monotonic_timestamp;
+    unsigned saved_count = send_ctl->ctl_pto_count;
+    unsigned saved_bytes = send_ctl->ctl_bytes_in_flight;
+    uint32_t saved_inflight[XQC_PNS_N];
+    xqc_usec_t saved_sent[XQC_PNS_N];
+    xqc_pkt_num_space_t pns_ret;
+
+    memcpy(saved_inflight, send_ctl->ctl_bytes_ack_eliciting_inflight,
+           sizeof(saved_inflight));
+    memcpy(saved_sent, send_ctl->ctl_time_of_last_sent_ack_eliciting_packet,
+           sizeof(saved_sent));
+
+    /* the last ack-eliciting packets were sent, or the clock reads, 1 s */
+    xqc_usec_t now = xqc_test_pto_frozen_timestamp();
+    xqc_monotonic_timestamp = xqc_test_pto_frozen_timestamp;
+    send_ctl->ctl_pto_count = pto_count;
+    send_ctl->ctl_bytes_in_flight = pns < XQC_PNS_N ? 100 : 0;
+    for (int i = 0; i < XQC_PNS_N; i++) {
+        send_ctl->ctl_bytes_ack_eliciting_inflight[i] = i == pns ? 100 : 0;
+        send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[i] = now;
+    }
+
+    xqc_usec_t timeout =
+        xqc_send_ctl_get_pto_time_and_space(send_ctl, now, &pns_ret);
+
+    xqc_monotonic_timestamp = saved_clock;
+    send_ctl->ctl_pto_count = saved_count;
+    send_ctl->ctl_bytes_in_flight = saved_bytes;
+    memcpy(send_ctl->ctl_bytes_ack_eliciting_inflight, saved_inflight,
+           sizeof(saved_inflight));
+    memcpy(send_ctl->ctl_time_of_last_sent_ack_eliciting_packet, saved_sent,
+           sizeof(saved_sent));
+
+    if (timeout == XQC_MAX_UINT64_VALUE) {
+        return 0;
+    }
+    if (pns < XQC_PNS_N) {
+        CU_ASSERT_EQUAL(pns_ret, pns);
+    }
+    return timeout - now;
+}
+
+
+/*
+ * The hidden expiries are those of the PTO timer itself, with the
+ * connection's PTO settings. With control_pto_value, the timer's period is
+ * srtt + srtt / 4 + max_ack_delay: 150 ms with srtt = rttvar = 100 ms, not
+ * the 525 ms of srtt + 4 * rttvar + max_ack_delay. Sends without progress
+ * for 450 ms hide its expiries at 150 and 450 ms, and demote the path.
+ */
+void
+xqc_test_effective_pto_count_control_pto_value(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_test_effective_pto_setup(conn);
+    conn->conn_settings.control_pto_value = 1;
+    send_ctl->ctl_srtt = 100000;
+    send_ctl->ctl_rttvar = 100000;
+    path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+
+    CU_ASSERT_EQUAL(
+        xqc_test_timer_pto_period(send_ctl, XQC_PNS_APP_DATA, 0), 150000);
+    CU_ASSERT_EQUAL(
+        xqc_test_timer_pto_period(send_ctl, XQC_PNS_APP_DATA, 1), 300000);
+
+    /* A send every 50 ms, none acknowledged. */
+    static const unsigned expected[] = {0, 0, 0, 1, 1, 1, 1, 1, 1, 2};
+    xqc_usec_t first = xqc_monotonic_timestamp() - 1000000;
+    for (int i = 0; i < 10; i++) {
+        CU_ASSERT_FATAL(xqc_test_effective_pto_send(conn, 10 + i,
+                                                    first + i * 50000)
+                        != NULL);
+        CU_ASSERT_EQUAL(xqc_send_ctl_get_effective_pto_count(send_ctl),
+                        expected[i]);
+    }
+
+    CU_ASSERT_EQUAL(send_ctl->ctl_pto_count, 0);
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_LOW);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Before the path's first RTT sample, the timer's period is
+ * initial_pto_duration + max_ack_delay when initial_pto_duration is set:
+ * 2025 ms with 2 s, not the 325 ms of srtt + 4 * rttvar + max_ack_delay
+ * with the initial srtt = 100 ms and rttvar = 50 ms. Sends without
+ * progress for 975 ms hide no expiry, so the path keeps its class; the
+ * expiries at 2025 and 6075 ms count.
+ */
+void
+xqc_test_effective_pto_count_initial_pto_duration(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_test_effective_pto_setup(conn);
+    conn->conn_settings.initial_pto_duration = 2000000;
+    send_ctl->ctl_srtt = 100000;
+    send_ctl->ctl_rttvar = 50000;
+    send_ctl->ctl_first_rtt_sample_time = 0;
+    path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+
+    CU_ASSERT_EQUAL(
+        xqc_test_timer_pto_period(send_ctl, XQC_PNS_APP_DATA, 0), 2025000);
+    CU_ASSERT_EQUAL(
+        xqc_test_timer_pto_period(send_ctl, XQC_PNS_APP_DATA, 1), 4050000);
+
+    /* A send every 75 ms for 975 ms, none acknowledged. */
+    xqc_usec_t first = xqc_monotonic_timestamp() - 7000000;
+    xqc_packet_number_t pn = 10;
+    for (int i = 0; i <= 13; i++) {
+        CU_ASSERT_FATAL(xqc_test_effective_pto_send(conn, pn++,
+                                                    first + i * 75000)
+                        != NULL);
+    }
+
+    CU_ASSERT_EQUAL(xqc_send_ctl_get_effective_pto_count(send_ctl), 0);
+    CU_ASSERT(xqc_path_get_perf_class(path) != XQC_PATH_CLASS_AVAILABLE_LOW);
+
+    static const struct {
+        xqc_usec_t  sent;
+        unsigned    count;
+    } later[] = {
+        {2025000 - 1, 0}, {2025000, 1}, {6075000 - 1, 1}, {6075000, 2},
+    };
+    for (size_t i = 0; i < sizeof(later) / sizeof(later[0]); i++) {
+        CU_ASSERT_FATAL(xqc_test_effective_pto_send(conn, pn++,
+                                                    first + later[i].sent)
+                        != NULL);
+        CU_ASSERT_EQUAL(xqc_send_ctl_get_effective_pto_count(send_ctl),
+                        later[i].count);
+    }
+
+    CU_ASSERT_EQUAL(send_ctl->ctl_pto_count, 0);
+    CU_ASSERT_EQUAL(xqc_path_get_perf_class(path),
+                    XQC_PATH_CLASS_AVAILABLE_LOW);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * The PTO timer and the effective PTO count follow one PTO period policy:
+ * for each control_pto_value, with or without an RTT sample on the path,
+ * with or without initial_pto_duration, and before or after the handshake
+ * is confirmed, the timer arms the Application Data periods of the table
+ * after 0 and 1 PTOs, the same without max_ack_delay for Handshake packets
+ * or with nothing in flight, and sends without progress count the
+ * Application Data expiries exactly. Before the handshake is confirmed,
+ * the timer arms no Application Data PTO, and only ctl_pto_count counts.
+ */
+void
+xqc_test_effective_pto_count_timer_policy(void)
+{
+    /* srtt = rttvar = 100 ms, the peer's max_ack_delay = 25 ms, backoff 2 */
+    static const struct {
+        uint8_t     control_pto_value;
+        xqc_bool_t  rtt_sample;
+        xqc_usec_t  initial_pto_duration;
+        xqc_usec_t  pto;
+    } cases[] = {
+        /* srtt + max(4 * rttvar, 1 ms) + max_ack_delay */
+        {0,   XQC_TRUE,  0,       525000},
+        {0,   XQC_FALSE, 0,       525000},
+        {0,   XQC_TRUE,  2000000, 525000},
+        /* srtt + srtt / 4 + max_ack_delay */
+        {1,   XQC_TRUE,  0,       150000},
+        {2,   XQC_TRUE,  0,       150000},
+        {255, XQC_TRUE,  0,       150000},
+        {1,   XQC_FALSE, 0,       150000},
+        {1,   XQC_TRUE,  2000000, 150000},
+        /* no RTT sample yet: initial_pto_duration + max_ack_delay */
+        {0,   XQC_FALSE, 2000000, 2025000},
+        {1,   XQC_FALSE, 2000000, 2025000},
+        {2,   XQC_FALSE, 2000000, 2025000},
+    };
+    size_t n = sizeof(cases) / sizeof(cases[0]);
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_test_effective_pto_setup(conn);
+    send_ctl->ctl_srtt = 100000;
+    send_ctl->ctl_rttvar = 100000;
+
+    xqc_usec_t since = 1000000;
+    for (size_t i = 0; i < n; i++) {
+        for (int confirmed = 0; confirmed <= 1; confirmed++) {
+            xqc_usec_t pto = cases[i].pto;
+
+            conn->conn_settings.control_pto_value =
+                cases[i].control_pto_value;
+            conn->conn_settings.initial_pto_duration =
+                cases[i].initial_pto_duration;
+            send_ctl->ctl_first_rtt_sample_time = cases[i].rtt_sample;
+            if (confirmed) {
+                conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+
+            } else {
+                conn->conn_flag &= ~XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+            }
+
+            /* the timer: pto, then 2 * pto, for Application Data, and the
+             * same without max_ack_delay for Handshake or with nothing in
+             * flight */
+            CU_ASSERT_EQUAL(
+                xqc_test_timer_pto_period(send_ctl, XQC_PNS_APP_DATA, 0),
+                confirmed ? pto : 0);
+            CU_ASSERT_EQUAL(
+                xqc_test_timer_pto_period(send_ctl, XQC_PNS_APP_DATA, 1),
+                confirmed ? 2 * pto : 0);
+            CU_ASSERT_EQUAL(xqc_test_timer_pto_period(send_ctl, XQC_PNS_HSK, 0),
+                            pto - 25000);
+            CU_ASSERT_EQUAL(xqc_test_timer_pto_period(send_ctl, XQC_PNS_HSK, 1),
+                            2 * (pto - 25000));
+            if (!confirmed) {
+                CU_ASSERT_EQUAL(
+                    xqc_test_timer_pto_period(send_ctl, XQC_PNS_N, 0),
+                    pto - 25000);
+            }
+
+            /* the effective count: expiries at pto and 3 * pto */
+            send_ctl->ctl_pto_count = 0;
+            send_ctl->ctl_progress_time = since;
+            send_ctl->ctl_progress_bytes_inflight = 100;
+            CU_ASSERT_EQUAL(
+                xqc_test_effective_pto_at(send_ctl, since + pto - 1), 0);
+            CU_ASSERT_EQUAL(xqc_test_effective_pto_at(send_ctl, since + pto),
+                            confirmed ? 1 : 0);
+            CU_ASSERT_EQUAL(
+                xqc_test_effective_pto_at(send_ctl, since + 3 * pto - 1),
+                confirmed ? 1 : 0);
+            CU_ASSERT_EQUAL(
+                xqc_test_effective_pto_at(send_ctl, since + 3 * pto),
+                confirmed ? 2 : 0);
+            send_ctl->ctl_progress_bytes_inflight = 0;
+        }
+    }
+
+    xqc_engine_destroy(conn->engine);
 }

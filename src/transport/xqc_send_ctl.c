@@ -23,6 +23,8 @@
 #include "src/transport/xqc_reinjection.h"
 #include "src/transport/xqc_transport_params.h"
 
+static xqc_bool_t xqc_send_ctl_counts_progress(xqc_packet_out_t *packet_out);
+
 int 
 xqc_send_ctl_may_remove_unacked_dgram(xqc_connection_t *conn, xqc_packet_out_t *po)
 {
@@ -199,6 +201,7 @@ xqc_send_ctl_destroy(xqc_send_ctl_t *send_ctl)
         send_ctl->ctl_bytes_ack_eliciting_inflight[pns] = 0;
     }
 
+    send_ctl->ctl_progress_bytes_inflight = 0;
     send_ctl->ctl_bytes_in_flight = 0;
 }
 
@@ -224,6 +227,8 @@ xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl)
         send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[i] = 0;
         send_ctl->ctl_loss_time[i] = 0;
     }
+
+    send_ctl->ctl_progress_last_sent = 0;
 
     memset(&send_ctl->ctl_largest_acked_sent_time, 0,
            sizeof(send_ctl->ctl_largest_acked_sent_time));
@@ -560,6 +565,19 @@ xqc_send_ctl_on_reset_stream_acked(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *p
     }
 }
 
+/*
+ * Whether an ack-eliciting packet counts for the progress tracking of
+ * xqc_send_ctl_get_effective_pto_count(): application data other than a
+ * PMTUD probe, whose loss can mean that the path MTU is smaller (RFC 9000
+ * Section 14.4) rather than that the path stopped delivering.
+ */
+static xqc_bool_t
+xqc_send_ctl_counts_progress(xqc_packet_out_t *packet_out)
+{
+    return packet_out->po_pkt.pkt_pns == XQC_PNS_APP_DATA
+           && !(packet_out->po_flag & XQC_POF_PMTUD_PROBING);
+}
+
 void
 xqc_send_ctl_increase_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 {
@@ -572,6 +590,17 @@ xqc_send_ctl_increase_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     if (!(packet_out->po_flag & XQC_POF_IN_FLIGHT) && XQC_CAN_IN_FLIGHT(packet_out->po_frame_types)) {
         if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
+            if (xqc_send_ctl_counts_progress(packet_out)) {
+                if (send_ctl->ctl_progress_bytes_inflight == 0) {
+                    send_ctl->ctl_progress_time = packet_out->po_sent_time
+                                                  ? packet_out->po_sent_time
+                                                  : xqc_monotonic_timestamp();
+                }
+
+                send_ctl->ctl_progress_bytes_inflight +=
+                    packet_out->po_used_size;
+            }
+
             send_ctl->ctl_bytes_in_flight += packet_out->po_used_size;
             send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns] += packet_out->po_used_size;
             packet_out->po_flag |= XQC_POF_IN_FLIGHT;
@@ -591,6 +620,13 @@ xqc_send_ctl_decrease_inflight(xqc_connection_t *conn, xqc_packet_out_t *packet_
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     if (packet_out->po_flag & XQC_POF_IN_FLIGHT) {
         if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
+            if (xqc_send_ctl_counts_progress(packet_out)) {
+                send_ctl->ctl_progress_bytes_inflight =
+                    xqc_uint32_bounded_subtract(
+                        send_ctl->ctl_progress_bytes_inflight,
+                        packet_out->po_used_size);
+            }
+
             send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns] = xqc_uint32_bounded_subtract(send_ctl->ctl_bytes_ack_eliciting_inflight[packet_out->po_pkt.pkt_pns], packet_out->po_used_size);
             send_ctl->ctl_bytes_in_flight = xqc_uint32_bounded_subtract(send_ctl->ctl_bytes_in_flight, packet_out->po_used_size);
             packet_out->po_flag &= ~XQC_POF_IN_FLIGHT;
@@ -694,6 +730,9 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
             packet_out->po_sent_time;
             send_ctl->ctl_last_sent_ack_eliciting_packet_number[pns] =
             packet_out->po_pkt.pkt_num;
+            if (xqc_send_ctl_counts_progress(packet_out)) {
+                send_ctl->ctl_progress_last_sent = packet_out->po_sent_time;
+            }
         }
 
         xqc_conn_update_stream_stats_on_sent(send_ctl->ctl_conn, send_ctl, packet_out, now);
@@ -980,6 +1019,8 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     if (!has_acked) {
         return XQC_OK;
     }
+
+    send_ctl->ctl_progress_time = ack_recv_time;
 
     if (update_largest_ack && has_ack_eliciting && ack_on_same_path) {
         if (!ignore_rtt) {
@@ -1725,37 +1766,19 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
 xqc_usec_t
 xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *send_ctl, xqc_usec_t now, xqc_pkt_num_space_t *pns_ret)
 {
-    xqc_usec_t t, duration;
+    xqc_usec_t t;
     xqc_usec_t pto_timeout = XQC_MAX_UINT64_VALUE;
     xqc_connection_t *c = send_ctl->ctl_conn;
     xqc_int_t pto_cnt = send_ctl->ctl_pto_count;
-    double  backoff = xqc_send_ctl_pow_x(c->conn_settings.pto_backoff_factor, send_ctl->ctl_pto_count);
 
-    /* set a cap to avoid PTO timeout overflow */
-    backoff = xqc_min(backoff, 1 << 16);
-
-    /* get pto duration */
-    if (c->conn_settings.control_pto_value) {
-        duration = send_ctl->ctl_srtt + send_ctl->ctl_srtt / 4;
-
-    } else {
-        duration = (send_ctl->ctl_srtt
-                   + xqc_max(4 * send_ctl->ctl_rttvar, XQC_kGranularity * 1000));
-    }
-
-    /* RTT has not been measured yet*/
-    if (send_ctl->ctl_first_rtt_sample_time == 0
-        && c->conn_settings.initial_pto_duration != 0) 
-    {
-        duration = c->conn_settings.initial_pto_duration;
-    }
-
-    duration *= backoff;
-    
     xqc_log(c->log, XQC_LOG_DEBUG, 
             "|srtt:%ud|rtt_var:%ud|pto_duration:%ud|backoff_factor:%.2f|backoff:%.2f|pto_cnt:%d|max_ack_delay:%d|",
-            send_ctl->ctl_srtt, send_ctl->ctl_rttvar, duration, 
-            c->conn_settings.pto_backoff_factor, backoff, pto_cnt, c->remote_settings.max_ack_delay);
+            send_ctl->ctl_srtt, send_ctl->ctl_rttvar,
+            xqc_send_ctl_get_pto_duration(send_ctl, XQC_PNS_INIT,
+                                          send_ctl->ctl_pto_count),
+            c->conn_settings.pto_backoff_factor,
+            xqc_send_ctl_get_pto_backoff(send_ctl, send_ctl->ctl_pto_count),
+            pto_cnt, c->remote_settings.max_ack_delay);
 
     /* Arm PTO from now when there are no inflight packets */
     if (send_ctl->ctl_bytes_in_flight == 0) {
@@ -1765,13 +1788,16 @@ xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *send_ctl, xqc_usec_t now, xq
             /* return pto_timeout; */
         }
 
-        pto_timeout = xqc_monotonic_timestamp() + duration;
         if (xqc_conn_has_hsk_keys(c)) {
             *pns_ret = XQC_PNS_HSK;
 
         } else {
             *pns_ret = XQC_PNS_INIT;
         }
+
+        pto_timeout = xqc_monotonic_timestamp()
+                      + xqc_send_ctl_get_pto_duration(send_ctl, *pns_ret,
+                                                      send_ctl->ctl_pto_count);
 
     } else {
         *pns_ret = XQC_PNS_INIT;
@@ -1788,11 +1814,11 @@ xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *send_ctl, xqc_usec_t now, xq
                         xqc_log(c->log, XQC_LOG_DEBUG, "|handshake not confirmed|");
                         break;
                     }
-
-                    duration += c->remote_settings.max_ack_delay * 1000 * backoff;
                 }
 
-                t = send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[pns] + duration;
+                t = send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[pns]
+                    + xqc_send_ctl_get_pto_duration(send_ctl, pns,
+                                                    send_ctl->ctl_pto_count);
                 if (t < pto_timeout) {
                     pto_timeout = t;
                     *pns_ret = pns;
@@ -1883,6 +1909,53 @@ xqc_usec_t
 xqc_send_ctl_get_srtt(xqc_send_ctl_t *send_ctl)
 {
     return send_ctl->ctl_srtt;
+}
+
+/*
+ * Every ack-eliciting packet sent on a path restarts its PTO timer (RFC 9002
+ * Section 6.2.1), and ctl_pto_count only grows when that timer fires. When
+ * a path stops delivering without any error while packets keep being sent
+ * on it more often than once per PTO, the timer never fires, ctl_pto_count
+ * stays 0, and the schedulers keep choosing the path until its cwnd is
+ * full. Count the expiries that those sends hid, with the periods that the
+ * timer itself arms for Application Data after 0, 1, 2... PTOs
+ * (xqc_send_ctl_get_pto_duration()): from the last progress on the path
+ * (ctl_progress_time) to its last ack-eliciting send (ctl_progress_last_sent).
+ * After that send the timer itself, which is not changed, counts. PMTUD
+ * probes are left out of both (xqc_send_ctl_counts_progress()): sending one
+ * does not arm the timer, and the loss of one alone does not show that the
+ * path stopped delivering. The inline xqc_send_ctl_get_effective_pto_count()
+ * calls this only once the first period has passed without progress.
+ */
+unsigned
+xqc_send_ctl_count_hidden_ptos(xqc_send_ctl_t *send_ctl)
+{
+    xqc_connection_t *conn = send_ctl->ctl_conn;
+    unsigned count = send_ctl->ctl_pto_count;
+    xqc_usec_t last_sent, since, elapsed, pto;
+    unsigned k;
+
+    last_sent = send_ctl->ctl_progress_last_sent;
+    since = send_ctl->ctl_progress_time;
+    if (since == 0 || last_sent <= since
+        || !xqc_conn_is_handshake_confirmed(conn))
+    {
+        return count;
+    }
+
+    /* the k-th expiry comes the k-th period after the previous one, the
+     * first one the first period after the last progress; subtracting
+     * each period cannot overflow, whatever the periods */
+    elapsed = last_sent - since;
+    for (k = 0; k < XQC_EFFECTIVE_PTO_COUNT_MAX; k++) {
+        pto = xqc_send_ctl_get_pto_duration(send_ctl, XQC_PNS_APP_DATA, k);
+        if (elapsed < pto) {
+            break;
+        }
+        elapsed -= pto;
+    }
+
+    return xqc_max(count, k);
 }
 
 float

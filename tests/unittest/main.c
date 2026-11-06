@@ -775,6 +775,11 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_ins", xqc_test_ins)
         || !CU_add_test(pSuite, "xqc_test_h3_rep", xqc_test_rep)
         || !CU_add_test(pSuite, "xqc_qpack_test", xqc_qpack_test)
+        || !CU_add_test(pSuite, "xqc_test_qpack_create_alloc_failures",
+                        xqc_test_qpack_create_alloc_failures)
+        || !CU_add_test(pSuite,
+                        "xqc_test_qpack_h3_conn_create_alloc_failures",
+                        xqc_test_qpack_h3_conn_create_alloc_failures)
         || !CU_add_test(pSuite, "xqc_test_prefixed_str", xqc_test_prefixed_str)
         || !CU_add_test(pSuite, "xqc_test_id_hash", xqc_test_id_hash)
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)

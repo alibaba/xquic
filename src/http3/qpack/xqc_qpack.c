@@ -76,7 +76,7 @@ xqc_qpack_create(uint64_t enc_max_cap, uint64_t dec_max_cap, xqc_log_t *log, con
         return NULL;
     }
 
-    xqc_qpack_t *qpk = xqc_malloc(sizeof(xqc_qpack_t));
+    xqc_qpack_t *qpk = xqc_calloc(1, sizeof(xqc_qpack_t));
     if (qpk == NULL) {
         return NULL;
     }

@@ -16,6 +16,22 @@ case_qpack_blocked_reject_after_close()
 
 case_test_case "qpack_blocked_reject_after_close" --id native \
     --run case_qpack_blocked_reject_after_close
+case_qpack_blocked_resume()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_h3_qpack"
+    "${binary}" blocked-resume
+}
+
+case_test_case "qpack_blocked_resume" --id native \
+    --run case_qpack_blocked_resume
+case_qpack_blocked_again()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_h3_qpack"
+    "${binary}" blocked-again
+}
+
+case_test_case "qpack_blocked_again" --id native \
+    --run case_qpack_blocked_again
 case_qpack_section_end()
 {
     local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_h3_qpack"

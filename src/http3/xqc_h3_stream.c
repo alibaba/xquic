@@ -980,7 +980,13 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
     xqc_http_headers_t *hdrs = NULL;
     xqc_var_buf_t *buf;
 
-    if (data_len == 0) {
+    /*
+     * RFC 9204 Section 2.2.1: a field section that blocked on the last byte
+     * received resumes without any once its stream is unblocked
+     */
+    if (data_len == 0
+        && !(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED))
+    {
         if (fin_flag) {
             /* process fin only */
             ret = xqc_h3_request_on_recv_empty_fin(h3s->h3r);
@@ -992,8 +998,8 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
         return 0;
     }
 
-    /* process request bytes */
-    while (processed < data_len) {
+    /* process request bytes, at least once to resume a blocked stream */
+    do {
         xqc_log(h3s->log, XQC_LOG_DEBUG, "|parse frame|state:%d|data_len:%uz|process:%z|",
                 pctx->state, data_len, processed);
 
@@ -1234,7 +1240,7 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 xqc_h3_frm_reset_pctx(pctx);
             }
         }
-    }
+    } while (processed < data_len);
 
     return processed;
 }
@@ -1756,8 +1762,14 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
             // TODO: define an errorcode for bytstream?
             return errcode;
 
-        } else if (processed != data_len) {
-            /* if not all bytes are processed, the decoder shall be blocked */
+        } else if (processed != data_len
+                   || ((h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED)
+                       && xqc_list_empty(&h3s->blocked_buf)))
+        {
+            /*
+             * if not all bytes are processed, the decoder shall be blocked;
+             * blocked on the last byte, it gets an empty buffer to resume
+             */
             if (!(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED)) {
                 xqc_log(h3c->log, XQC_LOG_ERROR, "|h3_stream is not blocked|processed:%z|"
                         "data_len:%uz", processed, data_len);
@@ -2068,12 +2080,16 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
         h3s->blocked_buf_size -= processed;
         h3s->h3c->total_blocked_buf_size -= processed;
 
-        if (buf->consumed_len == buf->data_len) {
-            xqc_list_buf_free(list_buf);
-
-        } else {
+        if (buf->consumed_len < buf->data_len) {
             goto end;
         }
+
+        /* blocked again on the last byte: the buffer resumes the stream */
+        if (h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED) {
+            break;
+        }
+
+        xqc_list_buf_free(list_buf);
     }
 
     /* notify DATA to application ASAP */

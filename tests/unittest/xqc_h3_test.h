@@ -73,6 +73,9 @@ void xqc_test_h3_data_before_headers_rejected();
 
 /* RFC 9204 Sections 2.2.2.1 and 4.5.1: the end of a field section */
 void xqc_test_h3_qpack_section_ack();
+/* RFC 9204 Section 2.2.1: unblocked once the Insert Count is reached */
+void xqc_test_h3_qpack_blocked_resume();
+void xqc_test_h3_qpack_blocked_again();
 void xqc_test_h3_qpack_section_cut_short();
 void xqc_test_h3_qpack_section_cut_short_after_close();
 

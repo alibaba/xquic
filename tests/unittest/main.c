@@ -775,6 +775,10 @@ main(int argc, char *argv[])
         /* RFC 9204 Sections 2.2.2.1 and 4.5.1: the end of a field section */
         || !CU_add_test(pSuite, "xqc_test_h3_qpack_section_ack",
                         xqc_test_h3_qpack_section_ack)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_blocked_resume",
+                        xqc_test_h3_qpack_blocked_resume)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_blocked_again",
+                        xqc_test_h3_qpack_blocked_again)
         || !CU_add_test(pSuite, "xqc_test_h3_qpack_section_cut_short",
                         xqc_test_h3_qpack_section_cut_short)
         || !CU_add_test(pSuite,

@@ -1925,6 +1925,191 @@ xqc_test_h3_qpack_section_ack()
 }
 
 
+static xqc_int_t xqc_h3_resume_insert(xqc_h3_section_ctx_t *ctx,
+    const char *name);
+static void xqc_h3_resume_check(xqc_h3_section_ctx_t *ctx, int section,
+    const char *name);
+
+
+/* the peer's encoder inserts name: 1, with a literal name */
+static xqc_int_t
+xqc_h3_resume_insert(xqc_h3_section_ctx_t *ctx, const char *name)
+{
+    xqc_var_buf_t *ins = xqc_var_buf_create(32);
+    xqc_int_t ret;
+
+    if (ins == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    ret = xqc_ins_write_insert_literal_name(ins, (unsigned char *) name,
+                                            strlen(name),
+                                            (unsigned char *) "1", 1);
+    if (ret == XQC_OK) {
+        ret = xqc_h3_stream_process_in(ctx->h3s[XQC_H3_SECTION_PEER_ENC],
+                                       ins->data, ins->data_len, XQC_FALSE);
+    }
+
+    xqc_var_buf_free(ins);
+    return ret;
+}
+
+
+/* the given field section of stream 0 is the single field line name: 1 */
+static void
+xqc_h3_resume_check(xqc_h3_section_ctx_t *ctx, int section, const char *name)
+{
+    xqc_h3_request_t *h3r = ctx->h3s[XQC_H3_SECTION_REQUEST]->h3r;
+    xqc_http_headers_t *hdrs;
+
+    CU_ASSERT_FATAL(h3r != NULL);
+    CU_ASSERT(h3r->completed_header_count == section + 1);
+    if (h3r->completed_header_count <= section) {
+        return;
+    }
+
+    hdrs = &h3r->h3_header[section];
+    CU_ASSERT(hdrs->count == 1
+              && hdrs->headers[0].name.iov_len == strlen(name)
+              && memcmp(hdrs->headers[0].name.iov_base, name,
+                        strlen(name)) == 0
+              && hdrs->headers[0].value.iov_len == 1
+              && memcmp(hdrs->headers[0].value.iov_base, "1", 1) == 0);
+}
+
+
+/*
+ * RFC 9204 Section 2.2.1: a stream becomes unblocked when the Insert Count
+ * reaches the Required Insert Count of its field section, even when no
+ * byte arrived after the one that it blocked on. The first bytes of a
+ * HEADERS frame end with the prefix of its field section, whole or cut
+ * after the Required Insert Count: nothing is left to buffer. Once the
+ * insertion unblocks the stream, the bytes that arrive next are decoded,
+ * and the field section is acknowledged once. The same holds for a
+ * trailer section on the next entry.
+ */
+void
+xqc_test_h3_qpack_blocked_resume()
+{
+    /* HEADERS: Required Insert Count 1 (encoded as 2), Base 1 */
+    static const unsigned char prefix_1[] = { 0x01, 0x03, 0x02, 0x00 };
+    /* HEADERS: Required Insert Count 2 (encoded as 3), Base 2 */
+    static const unsigned char prefix_2[] = { 0x01, 0x03, 0x03, 0x00 };
+    /* Indexed Field Line, dynamic, relative index 0 */
+    static const unsigned char line[] = { 0x80 };
+    /* Insert Count Increment 1, then Section Acknowledgment of stream 0 */
+    static const unsigned char dec[] = { 0x01, 0x80, 0x01, 0x80 };
+    xqc_h3_section_ctx_t ctx;
+    xqc_h3_stream_t *h3s;
+    size_t cut;
+    xqc_int_t ret;
+
+    /* the bytes end with the whole prefix, or inside it */
+    for (cut = sizeof(prefix_1); cut >= 3; cut--) {
+        CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+        h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+
+        ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, prefix_1,
+                                  cut, 32);
+        xqc_h3_section_check_err(&ctx, ret, 0);
+        CU_ASSERT(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+        CU_ASSERT(h3s->blocked_buf_size == 0);
+
+        CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+        CU_ASSERT(xqc_h3_conn_process_blocked_stream(ctx.h3c) == XQC_OK);
+        CU_ASSERT(!(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED));
+        CU_ASSERT(xqc_list_empty(&ctx.h3c->block_stream_head));
+        CU_ASSERT(ctx.h3c->block_stream_count == 0);
+        xqc_h3_section_check_dec(&ctx, dec, 1);
+
+        /* the rest of the prefix, if any, then the field line */
+        ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                                  prefix_1 + cut, sizeof(prefix_1) - cut, 32);
+        xqc_h3_section_check_err(&ctx, ret, 0);
+        ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, line,
+                                  sizeof(line), 32);
+        xqc_h3_section_check_err(&ctx, ret, 0);
+        xqc_h3_resume_check(&ctx, 0, "x-one");
+        xqc_h3_section_check_dec(&ctx, dec, 2);
+
+        /* a trailer section, on the next entry */
+        ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, prefix_2,
+                                  sizeof(prefix_2), 32);
+        xqc_h3_section_check_err(&ctx, ret, 0);
+        CU_ASSERT(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+        CU_ASSERT(xqc_h3_resume_insert(&ctx, "x-two") == XQC_OK);
+        CU_ASSERT(xqc_h3_conn_process_blocked_stream(ctx.h3c) == XQC_OK);
+        CU_ASSERT(!(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED));
+        xqc_h3_section_check_dec(&ctx, dec, 3);
+
+        ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, line,
+                                  sizeof(line), 32);
+        xqc_h3_section_check_err(&ctx, ret, 0);
+        xqc_h3_resume_check(&ctx, 1, "x-two");
+        xqc_h3_section_check_dec(&ctx, dec, 4);
+        CU_ASSERT(ctx.h3c->block_stream_count == 0);
+        CU_ASSERT(ctx.h3c->total_blocked_buf_size == 0);
+        xqc_h3_section_teardown(&ctx);
+    }
+}
+
+
+/*
+ * A header section blocks on its prefix, and its stream buffers the rest
+ * of the bytes, which end with the prefix of a trailer section on the next
+ * entry, then the field line of the trailer section in another piece. The
+ * first insertion unblocks the header section, and the trailer section
+ * blocks on the last byte of the first piece: the stream is blocked again,
+ * which is no protocol error, and keeps the second piece until the second
+ * insertion.
+ */
+void
+xqc_test_h3_qpack_blocked_again()
+{
+    /* the header section, on entry 0, then the trailer section's prefix */
+    static const unsigned char first[] = {
+        0x01, 0x03, 0x02, 0x00, 0x80,
+        0x01, 0x03, 0x03, 0x00,
+    };
+    static const unsigned char line[] = { 0x80 };
+    static const unsigned char dec[] = { 0x01, 0x80, 0x01, 0x80 };
+    xqc_h3_section_ctx_t ctx;
+    xqc_h3_stream_t *h3s;
+    xqc_int_t ret;
+
+    CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, first,
+                              sizeof(first), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, line,
+                              sizeof(line), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(h3s->blocked_buf_size == sizeof(first) - 4 + sizeof(line));
+
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    xqc_h3_resume_check(&ctx, 0, "x-one");
+    xqc_h3_section_check_dec(&ctx, dec, 2);
+    CU_ASSERT(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    CU_ASSERT(ctx.h3c->block_stream_count == 1);
+    CU_ASSERT(h3s->blocked_buf_size == sizeof(line));
+
+    CU_ASSERT(xqc_h3_resume_insert(&ctx, "x-two") == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    xqc_h3_resume_check(&ctx, 1, "x-two");
+    xqc_h3_section_check_dec(&ctx, dec, 4);
+    CU_ASSERT(!(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED));
+    CU_ASSERT(ctx.h3c->block_stream_count == 0);
+    CU_ASSERT(h3s->blocked_buf_size == 0);
+    CU_ASSERT(ctx.h3c->total_blocked_buf_size == 0);
+    xqc_h3_section_teardown(&ctx);
+}
+
+
 /*
  * A HEADERS frame that ends inside the prefix or a field line of its field
  * section, an empty one included, closes the connection with
@@ -2319,11 +2504,11 @@ xqc_h3_unblock_check(xqc_h3_unblock_ctx_t *ctx, int n, const char *name)
 /*
  * The bytes received on a request stream end with the prefix of its field
  * section, which refers to an entry not inserted yet: the stream blocks
- * with no field line byte buffered, in no buffer at all, or in an empty one
- * once it reads its transport stream again and finds nothing new. The
- * insertion unblocks it: the walk returns, the stream is no longer blocked
- * nor recorded, and the field line that arrives next is decoded on the
- * normal receive path.
+ * with no field line byte buffered, in the empty buffer it keeps to resume
+ * from, and in one more once it reads its transport stream again and finds
+ * nothing new. The insertion unblocks it: the walk returns, the stream is
+ * no longer blocked nor recorded, its empty buffers are gone, and the field
+ * line that arrives next is decoded on the normal receive path.
  */
 void
 xqc_test_h3_blocked_stream_unblock_no_bytes()
@@ -2345,7 +2530,8 @@ xqc_test_h3_blocked_stream_unblock_no_bytes()
                                            XQC_FALSE) == XQC_OK);
         CU_ASSERT(ctx.h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
         CU_ASSERT(ctx.h3c->block_stream_count == 1);
-        CU_ASSERT(xqc_list_empty(&ctx.h3s->blocked_buf));
+        CU_ASSERT(!xqc_list_empty(&ctx.h3s->blocked_buf));
+        CU_ASSERT(ctx.h3s->blocked_buf_size == 0);
 
         if (empty_buf) {
             fin = XQC_FALSE;

@@ -55,6 +55,8 @@ xqc_test_fec_negotiation()
     params.fec_encoder_schemes_num = 1;
     params.fec_decoder_schemes_num = 1;
 
+    /* conn was destroyed with its engine above: set the server's */
+    ls = &conn_server->local_settings;
     ls->fec_encoder_schemes[0] = 8;
     ls->fec_decoder_schemes[0] = 8;
     ls->fec_encoder_schemes_num = 1;

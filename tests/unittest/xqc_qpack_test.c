@@ -432,13 +432,14 @@ xqc_qpack_test_duplicate()
 
 
 
-const unsigned char chars[63] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const unsigned char chars[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 void
 xqc_gen_rand_str(char *dst, size_t len)
 {
     srandom(time(NULL));
     for (size_t i = 0; i < len; i++) {
-        dst[i] = chars[random() & 63];
+        /* one of the 62 characters, not the terminating NUL */
+        dst[i] = chars[random() % (sizeof(chars) - 1)];
     }
 }
 

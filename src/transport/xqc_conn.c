@@ -4375,6 +4375,12 @@ xqc_conn_handshake_confirmed(xqc_connection_t *conn)
     if (!(conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_CONFIRMED)) {
         xqc_log(conn->log, XQC_LOG_INFO, "|handshake confirmed|conn:%p|", conn);
         conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+        /*
+         * ACKs that arrived by this time are not capped at max_ack_delay
+         * even when processed later, a deviation from RFC 9002 Section 5.3
+         * explained in xqc_send_ctl_update_rtt().
+         */
+        conn->handshake_confirmed_time = xqc_monotonic_timestamp();
         xqc_send_queue_drop_handshake_packets(conn);
     }
 

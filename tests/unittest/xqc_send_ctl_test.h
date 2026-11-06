@@ -25,12 +25,22 @@ void xqc_test_path_validation_timeout_new_path_pto_dominates(void);
 void xqc_test_path_validation_timer_not_extended_by_packet(void);
 
 /*
- * Regression test for issue #724 (RFC 9002 5.3):
- * xqc_send_ctl_update_rtt must cap ack_delay by max_ack_delay
- * before subtracting it from latest_rtt, using the default 25ms
- * cap until the handshake is confirmed.
+ * RFC 9002 5.3: xqc_send_ctl_update_rtt caps ack_delay by the peer's
+ * max_ack_delay once the handshake is confirmed, judged by when the ACK
+ * arrived rather than when it is processed (a deviation, see
+ * xqc_send_ctl_update_rtt). Before that it subtracts ack_delay in full,
+ * and ignores a sample that ack_delay would take below min_rtt.
  */
 void xqc_test_send_ctl_update_rtt_ack_delay_cap(void);
+
+/*
+ * The same deviation through xqc_conn_handshake_confirmed and
+ * xqc_send_ctl_on_ack_received: an ACK that arrived before the
+ * confirmation and is processed after it is not capped; one that arrived
+ * after it is.
+ */
+void xqc_test_send_ctl_ack_before_confirmation_not_capped(void);
+void xqc_test_send_ctl_ack_after_confirmation_capped(void);
 
 /*
  * RFC 9002 Section 5.3 permits subtracting ack_delay when the result is

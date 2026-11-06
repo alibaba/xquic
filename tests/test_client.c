@@ -936,21 +936,78 @@ xqc_client_set_event_timer(xqc_usec_t wake_after, void *user_data)
 
 }
 
+/*
+ * The session ticket, the transport parameters and the token are written to
+ * their files when the client exits, not from the callbacks that deliver
+ * them. These run while xquic processes the handshake, and on a busy disk,
+ * truncating and rewriting a file can block for hundreds of milliseconds: the
+ * client then reads no packet, and both peers take the stall as round-trip
+ * time. Only the next client process reads the files.
+ */
+typedef struct client_saved_file_s {
+    const char     *path;
+    char           *data;
+    size_t          len;
+} client_saved_file_t;
+
+static client_saved_file_t g_saved_session = { "test_session", NULL, 0 };
+static client_saved_file_t g_saved_tp = { "tp_localhost", NULL, 0 };
+static client_saved_file_t g_saved_token = { "./xqc_token", NULL, 0 };
+
+static void
+xqc_client_keep_saved_file(client_saved_file_t *file, const void *data,
+    size_t len)
+{
+    char *copy = malloc(len > 0 ? len : 1);
+    if (copy == NULL) {
+        printf("save %s error: out of memory\n", file->path);
+        return;
+    }
+
+    memcpy(copy, data, len);
+    free(file->data);
+    file->data = copy;
+    file->len = len;
+}
+
+static void
+xqc_client_write_saved_file(client_saved_file_t *file)
+{
+    if (file->data == NULL) {
+        return;
+    }
+
+    FILE *fp = fopen(file->path, "wb");
+    if (fp == NULL) {
+        printf("save %s error %s\n", file->path, strerror(get_sys_errno()));
+
+    } else {
+        if (fwrite(file->data, 1, file->len, fp) != file->len) {
+            printf("save %s error\n", file->path);
+        }
+        fclose(fp);
+    }
+
+    free(file->data);
+    file->data = NULL;
+    file->len = 0;
+}
+
+static void
+xqc_client_write_saved_files(void)
+{
+    xqc_client_write_saved_file(&g_saved_session);
+    xqc_client_write_saved_file(&g_saved_tp);
+    xqc_client_write_saved_file(&g_saved_token);
+}
+
 void
 save_session_cb(const char * data, size_t data_len, void *user_data)
 {
     user_conn_t *user_conn = (user_conn_t*)user_data;
     printf("save_session_cb use server domain as the key. h3[%d]\n", user_conn->h3);
 
-    FILE * fp  = fopen("test_session", "wb");
-    int write_size = fwrite(data, 1, data_len, fp);
-    if (data_len != write_size) {
-        printf("save _session_cb error\n");
-        fclose(fp);
-        return;
-    }
-    fclose(fp);
-    return;
+    xqc_client_keep_saved_file(&g_saved_session, data, data_len);
 }
 
 
@@ -960,15 +1017,7 @@ save_tp_cb(const char * data, size_t data_len, void * user_data)
     user_conn_t *user_conn = (user_conn_t*)user_data;
     printf("save_tp_cb use server domain as the key. h3[%d]\n", user_conn->h3);
 
-    FILE * fp = fopen("tp_localhost", "wb");
-    int write_size = fwrite(data, 1, data_len, fp);
-    if (data_len != write_size) {
-        printf("save _tp_cb error\n");
-        fclose(fp);
-        return;
-    }
-    fclose(fp);
-    return;
+    xqc_client_keep_saved_file(&g_saved_tp, data, data_len);
 }
 
 void
@@ -980,19 +1029,8 @@ xqc_client_save_token(const unsigned char *token, unsigned token_len, void *user
     if (g_test_case == 16) { /* test application delay */
         usleep(300*1000);
     }
-    int fd = open("./xqc_token", O_TRUNC | O_CREAT | O_WRONLY, 0666);
-    if (fd < 0) {
-        printf("save token error %s\n", strerror(get_sys_errno()));
-        return;
-    }
 
-    ssize_t n = write(fd, token, token_len);
-    if (n < token_len) {
-        printf("save token error %s\n", strerror(get_sys_errno()));
-        close(fd);
-        return;
-    }
-    close(fd);
+    xqc_client_keep_saved_file(&g_saved_token, token, token_len);
 }
 
 int
@@ -6617,7 +6655,8 @@ int main(int argc, char *argv[]) {
         }
 
         event_base_dispatch(ctx->eb);
-        return 0;    
+        xqc_client_write_saved_files();
+        return 0;
     }
 
 
@@ -7143,6 +7182,7 @@ skip_data:
     }
 
     xqc_engine_destroy(ctx.engine);
+    xqc_client_write_saved_files();
     xqc_client_close_keylog_file(&ctx);
     xqc_client_close_log_file(&ctx);
     destroy_cdf();

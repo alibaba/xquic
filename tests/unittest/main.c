@@ -561,6 +561,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_negotiated_multipath_frozen_frame",
                         xqc_test_negotiated_multipath_frozen_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
+        || !CU_add_test(pSuite, "xqc_test_stream_frame_length_error_log",
+                        xqc_test_stream_frame_length_error_log)
 #ifdef XQC_PING_ATTACK_PROTECT
         || !CU_add_test(pSuite,
                         "xqc_test_initial_ping_before_crypto_accepted",

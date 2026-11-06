@@ -26,6 +26,7 @@ void xqc_test_h3_registered_settings(void);
 void xqc_test_h3_registered_settings_errors(void);
 void xqc_test_h3_settings_validation_log(void);
 void xqc_test_h3_settings_validation_log_errors(void);
+void xqc_test_h3_stream_send_buf_error_log(void);
 void xqc_test_h3_frame_created_log_headers(void);
 void xqc_test_h3_frame_created_log_no_headers(void);
 void xqc_test_h3_frame_created_log_truncated(void);

@@ -944,8 +944,14 @@ xqc_engine_main_logic(xqc_engine_t *engine)
         if (el->time_us <= now) {
             xqc_engine_remove_wakeup_queue(engine, conn);
             if (xqc_engine_add_active_queue(engine, conn) != XQC_OK) {
+                /*
+                 * The active queue is full and cannot grow: the connection
+                 * is back in the wakeup queue, due at once. This run
+                 * processes the connections moved so far, and the next
+                 * one, with the active queue emptied, moves it.
+                 */
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conns_pq_push error|");
-                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+                break;
             }
 
         } else {
@@ -1589,6 +1595,17 @@ xqc_engine_add_active_queue(xqc_engine_t *engine, xqc_connection_t *conn)
             xqc_log(conn->log, XQC_LOG_DEBUG, "|last_ticked_time:%ui|", conn->last_ticked_time);
             conn->conn_flag |= XQC_CONN_FLAG_TICKING;
             ret = XQC_OK;
+
+        } else {
+            /*
+             * The active queue could not grow. Callers take the connection
+             * out of the wakeup queue first: put it back there, due at once,
+             * for the next run to process it, rather than leave it in neither
+             * queue, where nothing would process or destroy it again. The
+             * wakeup queue has room for a connection that was in it.
+             */
+            conn->next_tick_time = xqc_monotonic_timestamp();
+            xqc_engine_add_wakeup_queue(engine, conn);
         }
     }
     return ret;

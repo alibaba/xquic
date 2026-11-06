@@ -23,6 +23,7 @@ void xqc_test_alpn_information_log_truncated(void);
 const xqc_cid_t *test_cid_connect(xqc_engine_t *engine);
 xqc_connection_t *test_engine_connect();
 xqc_engine_t *test_create_engine();
+xqc_engine_t *test_create_engine_with_config(const xqc_config_t *config);
 xqc_engine_t *test_create_engine_server();
 
 

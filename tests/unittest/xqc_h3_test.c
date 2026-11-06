@@ -18,6 +18,7 @@
 
 #include "xqc_common_test.h"
 #include "xqc_h3_test.h"
+#include "xqc_alloc_wrap.h"
 
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
@@ -1613,6 +1614,589 @@ xqc_test_h3_blocked_stream_walk_uaf()
     xqc_destroy_stream(sb);
     xqc_h3_conn_destroy(h3c);
     xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 9204 Sections 2.2.2.1 and 4.5.1: the end of a HEADERS frame ends its
+ * encoded field section. The decoder then acknowledges a complete field
+ * section that refers to the dynamic table, and the HTTP/3 layer rejects
+ * one that the frame cuts inside its prefix or a field line. Our QPACK
+ * decoder stream keeps its instructions in its send buffer: the test
+ * connection cannot send 1-RTT data.
+ */
+enum {
+    XQC_H3_SECTION_OWN_DEC,
+    XQC_H3_SECTION_PEER_ENC,
+    XQC_H3_SECTION_REQUEST,     /* stream 0 */
+    XQC_H3_SECTION_REQUEST_2,   /* stream 4 */
+    XQC_H3_SECTION_STREAMS,
+};
+
+typedef struct {
+    xqc_connection_t   *conn;
+    xqc_h3_conn_t      *h3c;
+    xqc_stream_t       *stream[XQC_H3_SECTION_STREAMS];
+    xqc_h3_stream_t    *h3s[XQC_H3_SECTION_STREAMS];
+} xqc_h3_section_ctx_t;
+
+/* HEADERS: Required Insert Count 1 (encoded as 2), Base 1, dynamic 0 */
+static const unsigned char xqc_h3_section_dyn[] = {
+    0x01, 0x03, 0x02, 0x00, 0x80
+};
+
+static xqc_int_t xqc_h3_section_setup(xqc_h3_section_ctx_t *ctx);
+static void xqc_h3_section_teardown(xqc_h3_section_ctx_t *ctx);
+static xqc_int_t xqc_h3_section_insert(xqc_h3_section_ctx_t *ctx);
+static xqc_int_t xqc_h3_section_feed(xqc_h3_section_ctx_t *ctx, int i,
+    const unsigned char *data, size_t len, size_t piece);
+static void xqc_h3_section_check_dec(xqc_h3_section_ctx_t *ctx,
+    const unsigned char *ins, size_t len);
+static void xqc_h3_section_check_err(xqc_h3_section_ctx_t *ctx,
+    xqc_int_t ret, uint64_t err);
+
+
+static xqc_int_t
+xqc_h3_section_setup(xqc_h3_section_ctx_t *ctx)
+{
+    static const xqc_h3_stream_type_t type[XQC_H3_SECTION_STREAMS] = {
+        XQC_H3_STREAM_TYPE_QPACK_DECODER, XQC_H3_STREAM_TYPE_QPACK_ENCODER,
+        XQC_H3_STREAM_TYPE_REQUEST, XQC_H3_STREAM_TYPE_REQUEST,
+    };
+    xqc_stream_type_t stream_type;
+
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->conn = test_engine_connect();
+    if (ctx->conn == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    if (ctx->conn->alpn) {
+        xqc_free(ctx->conn->alpn);
+    }
+    ctx->conn->alpn_len = strlen(XQC_ALPN_H3);
+    ctx->conn->alpn = xqc_calloc(1, ctx->conn->alpn_len + 1);
+    if (ctx->conn->alpn == NULL) {
+        return -XQC_EMALLOC;
+    }
+    xqc_memcpy(ctx->conn->alpn, XQC_ALPN_H3, ctx->conn->alpn_len);
+    ctx->conn->conn_state = XQC_CONN_STATE_ESTABED;
+    ctx->conn->conn_flow_ctl.fc_max_streams_uni_can_send = 16;
+    ctx->conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 16;
+
+    ctx->h3c = xqc_h3_conn_create(ctx->conn, NULL);
+    if (ctx->h3c == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    for (int i = 0; i < XQC_H3_SECTION_STREAMS; i++) {
+        stream_type = type[i] == XQC_H3_STREAM_TYPE_REQUEST
+                      ? XQC_CLI_BID : XQC_CLI_UNI;
+        ctx->stream[i] = xqc_create_stream_with_conn(ctx->conn,
+                             XQC_UNDEFINE_STREAM_ID, stream_type, NULL, NULL);
+        if (ctx->stream[i] == NULL) {
+            return -XQC_EMALLOC;
+        }
+
+        ctx->h3s[i] = xqc_h3_stream_create(ctx->h3c, ctx->stream[i],
+                                           type[i], NULL);
+        if (ctx->h3s[i] == NULL) {
+            return -XQC_EMALLOC;
+        }
+    }
+
+    ctx->h3c->qdec_stream = ctx->h3s[XQC_H3_SECTION_OWN_DEC];
+    ctx->h3s[XQC_H3_SECTION_PEER_ENC]->flags
+        |= XQC_HTTP3_STREAM_FLAG_TYPE_IDENTIFIED;
+
+    return XQC_OK;
+}
+
+
+static void
+xqc_h3_section_teardown(xqc_h3_section_ctx_t *ctx)
+{
+    for (int i = XQC_H3_SECTION_STREAMS - 1; i >= 0; i--) {
+        if (ctx->stream[i] == NULL) {
+            continue;
+        }
+
+        ctx->stream[i]->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+        if (ctx->h3s[i] != NULL) {
+            xqc_h3_stream_destroy(ctx->h3s[i]);
+        }
+        xqc_destroy_stream(ctx->stream[i]);
+    }
+
+    if (ctx->h3c != NULL) {
+        xqc_h3_conn_destroy(ctx->h3c);
+    }
+
+    if (ctx->conn != NULL) {
+        xqc_engine_destroy(ctx->conn->engine);
+    }
+}
+
+
+/* the peer's encoder sets a capacity of 256 and inserts x-one: 1 */
+static xqc_int_t
+xqc_h3_section_insert(xqc_h3_section_ctx_t *ctx)
+{
+    xqc_var_buf_t *ins = xqc_var_buf_create(64);
+    xqc_int_t ret;
+
+    if (ins == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    ret = xqc_ins_write_set_dtable_cap(ins, 256);
+    if (ret == XQC_OK) {
+        ret = xqc_ins_write_insert_literal_name(ins,
+                  (unsigned char *) "x-one", 5, (unsigned char *) "1", 1);
+    }
+    if (ret == XQC_OK) {
+        ret = xqc_h3_stream_process_in(ctx->h3s[XQC_H3_SECTION_PEER_ENC],
+                                       ins->data, ins->data_len, XQC_FALSE);
+    }
+
+    xqc_var_buf_free(ins);
+    return ret;
+}
+
+
+/* feed bytes to request stream i, in pieces of at most piece bytes */
+static xqc_int_t
+xqc_h3_section_feed(xqc_h3_section_ctx_t *ctx, int i,
+    const unsigned char *data, size_t len, size_t piece)
+{
+    unsigned char buf[32];
+    size_t off, n;
+    xqc_int_t ret = XQC_OK;
+
+    if (len > sizeof(buf)) {
+        return -XQC_EPARAM;
+    }
+
+    memcpy(buf, data, len);
+    for (off = 0; off < len && ret == XQC_OK; off += n) {
+        n = xqc_min(piece, len - off);
+        ret = xqc_h3_stream_process_in(ctx->h3s[i], buf + off, n, XQC_FALSE);
+    }
+
+    return ret;
+}
+
+
+/* our decoder stream holds exactly the instructions ins */
+static void
+xqc_h3_section_check_dec(xqc_h3_section_ctx_t *ctx,
+    const unsigned char *ins, size_t len)
+{
+    xqc_h3_stream_t *h3s = ctx->h3s[XQC_H3_SECTION_OWN_DEC];
+    unsigned char buf[32];
+    size_t n = 0;
+    xqc_list_head_t *pos;
+
+    CU_ASSERT(h3s->stream->stream_send_offset == 0);
+    xqc_list_for_each(pos, &h3s->send_buf) {
+        xqc_list_buf_t *lb = xqc_list_entry(pos, xqc_list_buf_t, list_head);
+        size_t pending = lb->buf->data_len - lb->buf->consumed_len;
+
+        CU_ASSERT_FATAL(n + pending <= sizeof(buf));
+        memcpy(buf + n, lb->buf->data + lb->buf->consumed_len, pending);
+        n += pending;
+    }
+
+    CU_ASSERT(n == len);
+    CU_ASSERT(n != len || len == 0 || memcmp(buf, ins, len) == 0);
+}
+
+
+/* the bytes were accepted (err 0), or closed the connection with err */
+static void
+xqc_h3_section_check_err(xqc_h3_section_ctx_t *ctx, xqc_int_t ret,
+    uint64_t err)
+{
+    if (err == 0) {
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(ctx->conn->conn_err == 0);
+        CU_ASSERT((ctx->conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+        return;
+    }
+
+    CU_ASSERT(ret < 0);
+    CU_ASSERT(XQC_CONN_ERR_CODE(ctx->conn->conn_err) == err);
+    CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(ctx->conn->conn_err));
+    CU_ASSERT((ctx->conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+}
+
+
+/*
+ * A field section with a dynamic table reference is acknowledged once its
+ * HEADERS frame ends: after the Insert Count Increment of its entry, in one
+ * piece or in single bytes, once unblocked, and for each of the header and
+ * trailer sections of a stream. One without any is not acknowledged.
+ */
+void
+xqc_test_h3_qpack_section_ack()
+{
+    /* Required Insert Count 0, Base 0, static index 0 (:authority) */
+    static const unsigned char static_only[] = {
+        0x01, 0x03, 0x00, 0x00, 0xc0
+    };
+    static const unsigned char ici[] = { 0x01 };
+    static const unsigned char ack_0[] = { 0x01, 0x80 };
+    static const unsigned char ack_4[] = { 0x01, 0x84, 0x84 };
+    size_t len = sizeof(xqc_h3_section_dyn);
+    xqc_h3_section_ctx_t ctx;
+    xqc_http_headers_t *hdrs;
+    xqc_int_t ret;
+
+    /* in one piece, and in single bytes: not before the frame ends */
+    for (size_t piece = len; piece > 0; piece = piece > 1 ? 1 : 0) {
+        CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+        CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+        xqc_h3_section_check_dec(&ctx, ici, sizeof(ici));
+
+        for (size_t off = 0; off < len; off += piece) {
+            ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                                      xqc_h3_section_dyn + off, piece, piece);
+            xqc_h3_section_check_err(&ctx, ret, 0);
+            if (off + piece < len) {
+                xqc_h3_section_check_dec(&ctx, ici, sizeof(ici));
+            }
+        }
+        xqc_h3_section_check_dec(&ctx, ack_0, sizeof(ack_0));
+
+        hdrs = &ctx.h3s[XQC_H3_SECTION_REQUEST]->h3r->h3_header[0];
+        CU_ASSERT(ctx.h3s[XQC_H3_SECTION_REQUEST]->h3r
+                  ->completed_header_count == 1);
+        CU_ASSERT(hdrs->count == 1
+                  && hdrs->headers[0].name.iov_len == 5
+                  && memcmp(hdrs->headers[0].name.iov_base, "x-one", 5) == 0
+                  && hdrs->headers[0].value.iov_len == 1
+                  && memcmp(hdrs->headers[0].value.iov_base, "1", 1) == 0);
+        xqc_h3_section_teardown(&ctx);
+    }
+
+    /* blocked: acknowledged once the insertion unblocks it */
+    CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn,
+                              sizeof(xqc_h3_section_dyn), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(ctx.h3s[XQC_H3_SECTION_REQUEST]->flags
+              & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    xqc_h3_section_check_dec(&ctx, NULL, 0);
+
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    xqc_h3_section_check_dec(&ctx, ici, sizeof(ici));
+    CU_ASSERT(xqc_h3_conn_process_blocked_stream(ctx.h3c) == XQC_OK);
+    xqc_h3_section_check_err(&ctx, XQC_OK, 0);
+    xqc_h3_section_check_dec(&ctx, ack_0, sizeof(ack_0));
+    CU_ASSERT(ctx.h3s[XQC_H3_SECTION_REQUEST]->h3r
+              ->completed_header_count == 1);
+    xqc_h3_section_teardown(&ctx);
+
+    /* a header and a trailer section on stream 4: one acknowledgment each */
+    CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    for (int i = 0; i < 2; i++) {
+        ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST_2,
+                                  xqc_h3_section_dyn,
+                                  sizeof(xqc_h3_section_dyn), 32);
+        xqc_h3_section_check_err(&ctx, ret, 0);
+    }
+    xqc_h3_section_check_dec(&ctx, ack_4, sizeof(ack_4));
+    CU_ASSERT(ctx.h3s[XQC_H3_SECTION_REQUEST_2]->h3r
+              ->completed_header_count == 2);
+    xqc_h3_section_teardown(&ctx);
+
+    /* no reference to the dynamic table: no acknowledgment */
+    CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, static_only,
+                              sizeof(static_only), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    xqc_h3_section_check_dec(&ctx, ici, sizeof(ici));
+    CU_ASSERT(ctx.h3s[XQC_H3_SECTION_REQUEST]->h3r
+              ->completed_header_count == 1);
+    xqc_h3_section_teardown(&ctx);
+}
+
+
+/*
+ * A HEADERS frame that ends inside the prefix or a field line of its field
+ * section, an empty one included, closes the connection with
+ * QPACK_DECOMPRESSION_FAILED, and the field section is neither delivered
+ * nor acknowledged. One that ends between two field lines carries a
+ * shorter field section.
+ */
+void
+xqc_test_h3_qpack_section_cut_short()
+{
+    /*
+     * Required Insert Count 0 and Base 0; :path /ab (Literal Field Line
+     * With Name Reference to static index 1); ab: c (Literal Field Line
+     * With Literal Name); static index 98, on two bytes
+     */
+    static const unsigned char section[] = {
+        0x00, 0x00,
+        0x51, 0x03, '/', 'a', 'b',
+        0x22, 'a', 'b', 0x01, 'c',
+        0xff, 0x23,
+    };
+    /* the field lines that end before each length, -1 inside one */
+    static const int lines[sizeof(section) + 1] = {
+        -1, -1, 0, -1, -1, -1, -1, 1, -1, -1, -1, -1, 2, -1, 3,
+    };
+    /* Required Insert Count 1, Base 1, a dynamic index cut in its prefix */
+    static const unsigned char dyn_cut[] = { 0x01, 0x03, 0x02, 0x00, 0xbf };
+    static const unsigned char ici[] = { 0x01 };
+    static const unsigned char ack_0[] = { 0x01, 0x80 };
+    unsigned char frame[2 + sizeof(section)];
+    xqc_h3_section_ctx_t ctx;
+    xqc_h3_request_t *h3r;
+    xqc_int_t ret;
+
+    /* every length of the field section, in one piece and in single bytes */
+    for (size_t len = 0; len <= sizeof(section); len++) {
+        frame[0] = 0x01;
+        frame[1] = (unsigned char) len;
+        memcpy(frame + 2, section, len);
+
+        for (size_t piece = 32; piece > 0; piece = piece > 1 ? 1 : 0) {
+            CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+            ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, frame,
+                                      2 + len, piece);
+            h3r = ctx.h3s[XQC_H3_SECTION_REQUEST]->h3r;
+
+            if (lines[len] < 0) {
+                xqc_h3_section_check_err(&ctx, ret,
+                                         QPACK_DECOMPRESSION_FAILED);
+                CU_ASSERT(h3r->completed_header_count == 0);
+
+            } else {
+                xqc_h3_section_check_err(&ctx, ret, 0);
+                CU_ASSERT(h3r->completed_header_count == 1);
+                CU_ASSERT(h3r->h3_header[0].count == (size_t) lines[len]);
+            }
+            xqc_h3_section_teardown(&ctx);
+        }
+    }
+
+    /* a dynamic reference cut short: no acknowledgment */
+    CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, dyn_cut,
+                              sizeof(dyn_cut), 32);
+    xqc_h3_section_check_err(&ctx, ret, QPACK_DECOMPRESSION_FAILED);
+    xqc_h3_section_check_dec(&ctx, ici, sizeof(ici));
+    xqc_h3_section_teardown(&ctx);
+
+    /* the same, once the insertion unblocks it */
+    CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, dyn_cut,
+                              sizeof(dyn_cut), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, QPACK_DECOMPRESSION_FAILED);
+    xqc_h3_section_check_dec(&ctx, ici, sizeof(ici));
+    CU_ASSERT(ctx.h3s[XQC_H3_SECTION_REQUEST]->h3r
+              ->completed_header_count == 0);
+    xqc_h3_section_teardown(&ctx);
+
+    /* a trailer section cut short, after an acknowledged header section */
+    CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn,
+                              sizeof(xqc_h3_section_dyn), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, dyn_cut,
+                              sizeof(dyn_cut), 32);
+    xqc_h3_section_check_err(&ctx, ret, QPACK_DECOMPRESSION_FAILED);
+    xqc_h3_section_check_dec(&ctx, ack_0, sizeof(ack_0));
+    CU_ASSERT(ctx.h3s[XQC_H3_SECTION_REQUEST]->h3r
+              ->completed_header_count == 1);
+    xqc_h3_section_teardown(&ctx);
+}
+
+
+/* count the allocations not freed yet, where the linker's --wrap does */
+static void
+xqc_h3_section_track(void)
+{
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+#endif
+}
+
+
+static long
+xqc_h3_section_left(void)
+{
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_tracking = 0;
+    return xqc_test_alloc_live;
+#else
+    return 0;
+#endif
+}
+
+
+/*
+ * The request stream receives frame with its FIN, and its field section
+ * blocks; its transport stream closes; the peer's encoder inserts the entry,
+ * and the blocked streams are resumed, as xqc_h3_stream_process_data() does
+ * once the Insert Count grew. Returns the allocations left once the streams,
+ * the h3 connection and the engine are destroyed.
+ */
+static long
+xqc_h3_section_after_close(const unsigned char *frame, size_t len,
+    uint64_t err)
+{
+    static const unsigned char ici[] = { 0x01 };
+    static const unsigned char ack_0[] = { 0x01, 0x80 };
+    unsigned char buf[32];
+    xqc_h3_section_ctx_t ctx;
+    xqc_h3_stream_t *h3s;
+    xqc_int_t ret;
+
+    CU_ASSERT_FATAL(len <= sizeof(buf));
+    xqc_h3_section_track();
+    CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+
+    /* xqc_h3_stream_process_data() read the FIN with the frame */
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
+    memcpy(buf, frame, len);
+    ret = xqc_h3_stream_process_in(h3s, buf, len, XQC_TRUE);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(h3s->blocked_stream != NULL);
+
+    /* the h3 stream waits for the insertion: the library owns it now */
+    CU_ASSERT(xqc_h3_stream_close_notify(ctx.stream[XQC_H3_SECTION_REQUEST],
+                                         h3s) == XQC_OK);
+    CU_ASSERT(h3s->stream == NULL);
+    ctx.h3s[XQC_H3_SECTION_REQUEST] = NULL;
+
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, err);
+    xqc_h3_section_check_dec(&ctx, err == 0 ? ack_0 : ici,
+                             err == 0 ? sizeof(ack_0) : sizeof(ici));
+
+    /* the h3 stream was destroyed */
+    CU_ASSERT(ctx.h3c->block_stream_count == 0);
+    CU_ASSERT(xqc_list_empty(&ctx.h3c->block_stream_head));
+    CU_ASSERT(ctx.h3c->total_blocked_buf_size == 0);
+
+    xqc_h3_section_teardown(&ctx);
+    return xqc_h3_section_left();
+}
+
+
+/*
+ * The setup of xqc_test_h3_blocked_stream_reject_after_close: frame and its
+ * FIN are buffered as if the field section had blocked, the transport stream
+ * closes, and the buffered frame is processed again. Returns the allocations
+ * left once the stream, the h3 connection and the engine are destroyed.
+ */
+static long
+xqc_h3_section_buffered_after_close(const unsigned char *frame, size_t len,
+    uint64_t err)
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s;
+    xqc_stream_t *stream;
+    xqc_engine_t *engine;
+    xqc_var_buf_t *buf;
+    xqc_int_t ret;
+
+    xqc_h3_section_track();
+    h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+    stream = h3s->stream;
+    engine = conn->engine;
+
+    buf = xqc_var_buf_create(len);
+    CU_ASSERT_FATAL(buf != NULL);
+    CU_ASSERT(xqc_var_buf_save_data(buf, (unsigned char *) frame, len)
+              == XQC_OK);
+    buf->fin_flag = 1;
+    CU_ASSERT(xqc_list_buf_to_tail(&h3s->blocked_buf, buf) == XQC_OK);
+    h3s->blocked_buf_size += len;
+    h3c->total_blocked_buf_size += len;
+
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED
+                | XQC_HTTP3_STREAM_FLAG_READ_EOF;
+    h3s->blocked_stream = xqc_h3_conn_add_blocked_stream(h3c, h3s, 0);
+    CU_ASSERT_FATAL(h3s->blocked_stream != NULL);
+
+    CU_ASSERT(xqc_h3_stream_close_notify(stream, h3s) == XQC_OK);
+    CU_ASSERT(h3s->stream == NULL);
+
+    ret = xqc_h3_conn_process_blocked_stream(h3c);
+    if (err == 0) {
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(conn->conn_err == 0);
+
+    } else {
+        CU_ASSERT(ret < 0);
+        CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == err);
+        CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
+    }
+
+    /* the h3 stream was destroyed */
+    CU_ASSERT(h3c->block_stream_count == 0);
+    CU_ASSERT(xqc_list_empty(&h3c->block_stream_head));
+    CU_ASSERT(h3c->total_blocked_buf_size == 0);
+
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
+    xqc_engine_destroy(engine);
+    return xqc_h3_section_left();
+}
+
+
+/*
+ * A request stream whose transport stream closed while its field section
+ * was blocked waits for the insertion before it is destroyed. A field
+ * section cut short is then rejected with QPACK_DECOMPRESSION_FAILED, and
+ * the h3 stream is destroyed with its request and buffers, as it is once a
+ * complete field section is decoded. Also with a HEADERS frame buffered as
+ * if it had blocked.
+ */
+void
+xqc_test_h3_qpack_section_cut_short_after_close()
+{
+    /* xqc_h3_section_dyn, then :path (static 1) with 1 of its 3 bytes */
+    static const unsigned char dyn_cut[] = {
+        0x01, 0x06, 0x02, 0x00, 0x80, 0x51, 0x03, 0x61
+    };
+    /* the same field lines after xqc_h3_msgerr_valid_headers' line */
+    static const unsigned char static_cut[] = {
+        0x01, 0x06, 0x00, 0x00, 0xc0, 0x51, 0x03, 0x61
+    };
+
+    /* the first run also makes the allocations made once in a process */
+    (void) xqc_h3_section_after_close(xqc_h3_section_dyn,
+                                      sizeof(xqc_h3_section_dyn), 0);
+
+    CU_ASSERT(xqc_h3_section_after_close(xqc_h3_section_dyn,
+                                         sizeof(xqc_h3_section_dyn), 0) == 0);
+    CU_ASSERT(xqc_h3_section_after_close(dyn_cut, sizeof(dyn_cut),
+                                         QPACK_DECOMPRESSION_FAILED) == 0);
+    CU_ASSERT(xqc_h3_section_buffered_after_close(
+                  xqc_h3_msgerr_valid_headers,
+                  sizeof(xqc_h3_msgerr_valid_headers), 0) == 0);
+    CU_ASSERT(xqc_h3_section_buffered_after_close(static_cut,
+                  sizeof(static_cut), QPACK_DECOMPRESSION_FAILED) == 0);
 }
 
 

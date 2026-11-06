@@ -784,6 +784,14 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_qpack_h3_conn_create_alloc_failures",
                         xqc_test_qpack_h3_conn_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_qpack_decoder_ins_log",
+                        xqc_test_qpack_decoder_ins_log)
+        || !CU_add_test(pSuite, "xqc_test_qpack_encoder_ins_log",
+                        xqc_test_qpack_encoder_ins_log)
+        || !CU_add_test(pSuite, "xqc_test_qpack_state_updated_log",
+                        xqc_test_qpack_state_updated_log)
+        || !CU_add_test(pSuite, "xqc_test_qpack_dtable_duplicate_log",
+                        xqc_test_qpack_dtable_duplicate_log)
         || !CU_add_test(pSuite, "xqc_test_prefixed_str", xqc_test_prefixed_str)
         || !CU_add_test(pSuite, "xqc_test_id_hash", xqc_test_id_hash)
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)

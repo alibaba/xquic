@@ -414,9 +414,9 @@ xqc_send_queue_drop_packets(xqc_connection_t *conn)
     xqc_send_queue_pre_destroy(send_queue);
 
     xqc_path_ctx_t *path = NULL;
-    xqc_list_head_t *pos, *next;
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+    for (path = xqc_conn_all_paths_first(conn); path != NULL;
+         path = xqc_conn_all_paths_next(conn, path))
+    {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|ctl_bytes_in_flight:%ui|",
                 path->path_id, path->path_send_ctl->ctl_bytes_in_flight);
 

@@ -18,6 +18,7 @@
 
 #include "xqc_common_test.h"
 #include "xqc_h3_test.h"
+#include "xqc_alloc_wrap.h"
 
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
@@ -3916,3 +3917,142 @@ xqc_test_h3_empty_data_fin()
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
 }
+
+
+#ifdef XQC_TEST_ALLOC_WRAP
+
+static int  g_h3r_created, g_h3r_closed;
+
+static ssize_t
+xqc_test_h3r_write(const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
+{
+    return size;
+}
+
+static void
+xqc_test_h3r_set_timer(xqc_msec_t wake_after, void *user_data)
+{
+}
+
+static int
+xqc_test_h3r_create_notify(xqc_h3_request_t *h3_request, void *user_data)
+{
+    g_h3r_created++;
+    return 0;
+}
+
+static int
+xqc_test_h3r_close_notify(xqc_h3_request_t *h3_request, void *user_data)
+{
+    g_h3r_closed++;
+    return 0;
+}
+
+static int
+xqc_test_h3r_conn_streams(xqc_connection_t *conn)
+{
+    int                 n = 0;
+    xqc_list_head_t    *pos;
+
+    xqc_list_for_each(pos, &conn->conn_all_streams) {
+        n++;
+    }
+    return n;
+}
+
+/*
+ * Each allocation that xqc_h3_request_create() makes on an h3 client
+ * connection fails in turn (xqc_alloc_wrap.h). A creation that fails frees
+ * what it allocated, the transport stream it created included, and notifies
+ * the application of nothing: the connection is left with the streams it
+ * had. The sweep ends with a run in which nothing fails and the request is
+ * created on a new stream.
+ */
+void
+xqc_test_h3_request_create_alloc_failures(void)
+{
+    long                        n;
+    int                         initial, streams;
+    const xqc_cid_t            *cid;
+    xqc_engine_t               *engine;
+    xqc_connection_t           *conn;
+    xqc_h3_request_t           *h3r;
+    xqc_h3_callbacks_t          h3_cbs;
+    xqc_conn_settings_t         settings;
+    xqc_conn_ssl_config_t       conn_ssl;
+    xqc_engine_ssl_config_t     ssl;
+    xqc_engine_callback_t       cb = {
+        .log_callbacks = xqc_null_log_cb,
+        .set_event_timer = xqc_test_h3r_set_timer,
+    };
+    xqc_transport_callbacks_t   tcbs = {
+        .write_socket = xqc_test_h3r_write,
+    };
+
+    memset(&ssl, 0, sizeof(ssl));
+    ssl.ciphers = XQC_TLS_CIPHERS;
+    ssl.groups = XQC_TLS_GROUPS;
+    engine = xqc_engine_create(XQC_ENGINE_CLIENT, NULL, &ssl, &cb, &tcbs,
+                               NULL);
+    CU_ASSERT_FATAL(engine != NULL);
+
+    memset(&h3_cbs, 0, sizeof(h3_cbs));
+    h3_cbs.h3r_cbs.h3_request_create_notify = xqc_test_h3r_create_notify;
+    h3_cbs.h3r_cbs.h3_request_close_notify = xqc_test_h3r_close_notify;
+    CU_ASSERT_FATAL(xqc_h3_ctx_init(engine, &h3_cbs) == XQC_OK);
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl, 0, sizeof(conn_ssl));
+    cid = xqc_h3_connect(engine, &settings, NULL, 0, "", 0, &conn_ssl,
+                         NULL, 0, NULL);
+    CU_ASSERT_FATAL(cid != NULL);
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_FATAL(conn != NULL);
+
+    initial = xqc_test_h3r_conn_streams(conn);
+    g_h3r_created = 0;
+    g_h3r_closed = 0;
+    for (n = 1; n < 1000; n++) {
+        streams = xqc_test_h3r_conn_streams(conn);
+        xqc_test_alloc_live = 0;
+        xqc_test_alloc_tracking = 1;
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        h3r = xqc_h3_request_create(engine, cid, NULL, NULL);
+        xqc_test_alloc_count = -1;
+        xqc_test_alloc_tracking = 0;
+
+        if (h3r == NULL) {
+            CU_ASSERT(xqc_test_alloc_failed);
+            CU_ASSERT(xqc_test_h3r_conn_streams(conn) == streams);
+            CU_ASSERT(xqc_test_alloc_live == 0);
+            continue;
+        }
+
+        CU_ASSERT(xqc_test_h3r_conn_streams(conn) == streams + 1);
+        CU_ASSERT(h3r->h3_stream->stream->user_data == h3r->h3_stream);
+        if (!xqc_test_alloc_failed) {
+            /* nothing failed: the request was created */
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+    CU_ASSERT(g_h3r_created == xqc_test_h3r_conn_streams(conn) - initial);
+    CU_ASSERT(g_h3r_closed == 0);
+
+    xqc_engine_destroy(engine);
+    CU_ASSERT(g_h3r_closed == g_h3r_created);
+}
+
+#else
+
+void
+xqc_test_h3_request_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+#endif

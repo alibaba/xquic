@@ -77,6 +77,7 @@ void xqc_test_h3_settings_frame_size_limit();
 /* the h3 connection needs three uni streams (RFC 9114 Section 6.2) */
 void xqc_test_h3_conn_create_three_uni_streams(void);
 void xqc_test_h3_conn_create_fails_without_uni_streams(void);
+void xqc_test_h3_conn_create_remembered_uni_limit(void);
 void xqc_test_h3_conn_create_alloc_failures(void);
 void xqc_test_h3_stream_create_alloc_failures(void);
 

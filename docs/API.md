@@ -777,7 +777,7 @@ Aggregation of http3 connection events.
 http3 connection creation callback, REQUIRED for server, OPTIONAL for client.
 
 #### h3_conn_close_notify
-http3 connection closing callback.
+http3 connection closing callback. It is triggered once for each http3 connection whose h3_conn_create_notify succeeded, including one whose creation fails afterwards, for instance when the transport parameters allow fewer than three unidirectional streams (RFC 9114 Section 6.2). A client's `xqc_h3_connect` then returns NULL, and a server refuses the connection: `server_refuse` receives the user data the connection had before h3_conn_create_notify, not the one set with `xqc_h3_conn_set_user_data`.
 
 
 #### h3_conn_handshake_finished

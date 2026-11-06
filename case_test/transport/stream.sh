@@ -418,6 +418,27 @@ else
 fi
 }
 
+case_transport_stream_close_wait_rttvar_drop()
+{
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+echo -e "close wait after an rttvar drop ...\c"
+${CLIENT_BIN} -s 1024 -l d -E -n 2 -t 1 -x 1704 > stdlog
+dropped=`grep "\[close-wait-rttvar\]|dropped|.*|exercised:1|" stdlog`
+if [ -n "$dropped" ] \
+    && [[ `grep ">>>>>>>> pass:1" stdlog|wc -l` -eq 2 ]]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "close_wait_rttvar_drop" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "close_wait_rttvar_drop" "fail"
+fi
+
+}
+
 case_transport_stream_stream_concurrency_flow_control()
 {
 grep_err_log
@@ -1023,6 +1044,8 @@ case_test_case "reliable_reset_zero_error" --id 743 --mode self-reporting --run 
 case_test_case "reliable_reset_direction_error" --id 744 --mode self-reporting --run case_reliable_reset_direction_error
 case_test_case "reliable_reset_zero_fin" --id 745 --mode self-reporting --run case_reliable_reset_zero_fin
 case_test_case "reliable_reset_zero_close" --id 746 --mode self-reporting --run case_reliable_reset_zero_close
+case_test_case "close_wait_rttvar_drop" --id 1704 \
+    --mode self-reporting --run case_transport_stream_close_wait_rttvar_drop
 
 
 if case_test_is_discovery; then

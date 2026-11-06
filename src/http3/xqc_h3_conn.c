@@ -792,6 +792,23 @@ xqc_h3_conn_send_settings(xqc_h3_conn_t *h3c)
 }
 
 
+/*
+ * Destroy a uni stream created on an h3 connection, with its transport
+ * stream. The transport stream is detached from the h3 stream first:
+ * otherwise its close notification would reach the h3 stream once freed.
+ */
+static void
+xqc_h3_conn_destroy_uni_stream(xqc_h3_stream_t *h3s)
+{
+    xqc_stream_t *stream = h3s->stream;
+
+    stream->stream_flag &= ~XQC_STREAM_FLAG_HAS_H3;
+    stream->user_data = NULL;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+}
+
+
 xqc_h3_stream_t *
 xqc_h3_conn_create_uni_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_type_t h3s_type)
 {
@@ -834,10 +851,9 @@ xqc_h3_conn_create_uni_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_type_t h3s_type)
 
 error:
     if (NULL != h3s) {
-        xqc_h3_stream_destroy(h3s);
-    }
+        xqc_h3_conn_destroy_uni_stream(h3s);
 
-    if (stream) {
+    } else if (stream) {
         xqc_destroy_stream(stream);
     }
 

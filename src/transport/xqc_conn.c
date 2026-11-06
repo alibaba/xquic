@@ -180,6 +180,8 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     engine->default_conn_settings.ping_on   = settings->ping_on;
     engine->default_conn_settings.so_sndbuf = settings->so_sndbuf;
     engine->default_conn_settings.sndq_packets_used_max = settings->sndq_packets_used_max;
+    engine->default_conn_settings.max_stream_frame_buffered_cnt =
+        settings->max_stream_frame_buffered_cnt;
     engine->default_conn_settings.linger    = settings->linger;
     engine->default_conn_settings.spurious_loss_detect_on = settings->spurious_loss_detect_on;
     engine->default_conn_settings.datagram_force_retrans_on = settings->datagram_force_retrans_on;

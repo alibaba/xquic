@@ -8,6 +8,9 @@
  * for exceeding the field-section limit once the encoder instruction
  * finally arrives. The server must destroy the rejected h3 stream without
  * touching the dead transport stream, and the connection must stay usable.
+ *
+ * A second case bounds the client encoder's dynamic table capacity by the
+ * server's SETTINGS_QPACK_MAX_TABLE_CAPACITY.
  */
 #include <arpa/inet.h>
 #include <poll.h>
@@ -23,6 +26,7 @@
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_stream.h"
+#include "src/http3/qpack/xqc_qpack.h"
 
 #define HQ_PAD_VALUE_LEN    200
 #define HQ_THROTTLE_WINDOW  64
@@ -38,6 +42,12 @@
  * heavily loaded CI machine cannot fail the case on wall-clock alone.
  */
 #define HQ_WAIT_DEADLINE    (xqc_complex_case_now_us() + 5000000)
+/*
+ * The dynamic table capacity the client asks for, below its encoder's
+ * maximum (16384) and above the 256 bytes the server announces.
+ */
+#define HQ_CAP_REQUEST      4096
+#define HQ_CAP_SERVER_MAX   256
 
 typedef struct {
     xqc_complex_case_engine_t   base;
@@ -424,6 +434,125 @@ fail:
     return rc;
 }
 
+/* the client has the server's SETTINGS, or a connection is closed */
+static int
+hq_settings_received(hq_endpoint_t *client, hq_endpoint_t *server)
+{
+    return client->h3 == NULL || client->conn_closed || server->conn_closed
+        || (server->h3 != NULL
+            && client->h3->peer_h3_conn_settings.qpack_dec_max_table_capacity
+               != XQC_H3_SETTINGS_UNSET);
+}
+
+/*
+ * RFC 9204 Section 3.2.3: the client's encoder MUST NOT set a dynamic table
+ * capacity above the server's SETTINGS_QPACK_MAX_TABLE_CAPACITY, which is 0
+ * until the server's SETTINGS arrives, and sends no encoder instruction
+ * while it is 0. The server's decoder treats a capacity above its maximum
+ * as a connection error (Section 4.3.1). The client asks for HQ_CAP_REQUEST
+ * before and after the server's SETTINGS, then sends a request with a field
+ * line that its encoder can insert into the dynamic table.
+ */
+static int
+hq_peer_max_table_capacity(uint64_t server_max)
+{
+    hq_endpoint_t client, server;
+    xqc_complex_case_engine_t *engines[] = {&client.base, &server.base};
+    xqc_conn_ssl_config_t ssl = {0};
+    xqc_h3_request_t *request;
+    xqc_stream_t *enc, *svr_enc;
+    xqc_int_t expected;
+    xqc_usec_t dl;
+    int rc = 1, i;
+
+    memset(&client, 0, sizeof(client));
+    memset(&server, 0, sizeof(server));
+    client.base.socket.fd = server.base.socket.fd = -1;
+    HQ_CHECK(hq_engine_init(&server, XQC_ENGINE_SERVER) == 0);
+    HQ_CHECK(hq_engine_init(&client, XQC_ENGINE_CLIENT) == 0);
+    xqc_h3_engine_set_max_dtable_capacity(server.base.engine, server_max);
+
+    const xqc_cid_t *cid = xqc_h3_connect(client.base.engine,
+        &client.base.engine->default_conn_settings, NULL, 0, "localhost", 0,
+        &ssl, (struct sockaddr *)&server.base.local, server.base.locallen,
+        &client);
+    HQ_CHECK(cid != NULL && client.h3 != NULL);
+
+    /* before the server's SETTINGS, its maximum is 0 */
+    HQ_CHECK(xqc_h3_conn_set_qpack_dtable_cap(client.h3, HQ_CAP_REQUEST)
+             == -XQC_QPACK_STATE_ERROR);
+
+    dl = HQ_WAIT_DEADLINE;
+    for (i = 0; !hq_settings_received(&client, &server)
+         && xqc_complex_case_now_us() < dl; i++)
+    {
+        xqc_complex_case_pump(engines, 2, 10);
+    }
+    HQ_CHECK(!client.conn_closed && !server.conn_closed);
+    HQ_CHECK(client.h3 != NULL && server.h3 != NULL);
+    HQ_CHECK(client.h3->peer_h3_conn_settings.qpack_dec_max_table_capacity
+             == server_max);
+
+    /* the capacity is lowered to a maximum that is not 0 */
+    expected = server_max > 0 ? XQC_OK : -XQC_QPACK_STATE_ERROR;
+    HQ_CHECK(xqc_h3_conn_set_qpack_dtable_cap(client.h3, HQ_CAP_REQUEST)
+             == expected);
+
+    request = xqc_h3_request_create(client.base.engine, cid, NULL, &client);
+    HQ_CHECK(request != NULL);
+    xqc_http_header_t fields[] = {
+        {.name = {(void *)":method", 7}, .value = {(void *)"GET", 3}},
+        {.name = {(void *)":scheme", 7}, .value = {(void *)"https", 5}},
+        {.name = {(void *)":authority", 10},
+         .value = {(void *)"localhost", 9}},
+        {.name = {(void *)":path", 5}, .value = {(void *)"/", 1}},
+        {.name = {(void *)"x-peer-max", 10},
+         .value = {(void *)"inserted", 8}},
+    };
+    xqc_http_headers_t headers = {.headers = fields,
+        .count = sizeof(fields) / sizeof(fields[0])};
+    HQ_CHECK(xqc_h3_request_send_headers(request, &headers, 1) >= 0);
+
+    dl = HQ_WAIT_DEADLINE;
+    for (i = 0; !client.resp_headers && !client.conn_closed
+         && !server.conn_closed && xqc_complex_case_now_us() < dl; i++)
+    {
+        xqc_complex_case_pump(engines, 2, 10);
+    }
+    if (client.conn_closed || server.conn_closed) {
+        fprintf(stderr, "server_max:%lu closed: client:%d err:%d"
+                " server:%d err:%d\n", (unsigned long)server_max,
+                client.conn_closed, client.conn_error, server.conn_closed,
+                server.conn_error);
+    }
+    HQ_CHECK(!client.conn_closed && !server.conn_closed);
+    HQ_CHECK(server.req_headers == 1 && client.resp_headers == 1);
+
+    /*
+     * The server's decoder holds the client's entries only with a maximum
+     * that is not 0. With 0, the client's encoder stream carries only its
+     * stream type.
+     */
+    enc = client.h3->qenc_stream->stream;
+    svr_enc = xqc_find_stream_by_id(enc->stream_id,
+                                    server.h3->conn->streams_hash);
+    HQ_CHECK(svr_enc != NULL);
+    if (server_max > 0) {
+        HQ_CHECK(xqc_qpack_get_dec_insert_count(server.h3->qpack) > 0);
+
+    } else {
+        HQ_CHECK(xqc_qpack_get_dec_insert_count(server.h3->qpack) == 0);
+        HQ_CHECK(enc->stream_send_offset == 1);
+        HQ_CHECK(svr_enc->stream_data_in.merged_offset_end == 1);
+    }
+    rc = 0;
+
+fail:
+    xqc_complex_case_engine_release(&client.base);
+    xqc_complex_case_engine_release(&server.base);
+    return rc;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -432,8 +561,13 @@ main(int argc, char **argv)
     if (argc == 2 && !strcmp(argv[1], "blocked-reject-after-close")) {
         rc = hq_blocked_reject_after_close();
 
+    } else if (argc == 2 && !strcmp(argv[1], "peer-max-table-capacity")) {
+        rc = hq_peer_max_table_capacity(HQ_CAP_SERVER_MAX)
+             || hq_peer_max_table_capacity(0);
+
     } else {
-        fprintf(stderr, "usage: %s blocked-reject-after-close\n", argv[0]);
+        fprintf(stderr, "usage: %s blocked-reject-after-close"
+                "|peer-max-table-capacity\n", argv[0]);
     }
     printf("h3 qpack %s: %s\n", argc == 2 ? argv[1] : "usage",
            rc == 0 ? "pass" : "fail");

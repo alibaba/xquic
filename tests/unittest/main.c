@@ -345,6 +345,12 @@ main(int argc, char *argv[])
                         xqc_test_mp_abandon_rejected_without_cid_set)
         || !CU_add_test(pSuite, "xqc_test_mp_retire_cid_without_cid_set",
                         xqc_test_mp_retire_cid_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_retire_cid_empty_cid_set",
+                        xqc_test_mp_retire_cid_empty_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_retire_cid_abandoned",
+                        xqc_test_mp_retire_cid_abandoned)
+        || !CU_add_test(pSuite, "xqc_test_mp_retire_cid_removed",
+                        xqc_test_mp_retire_cid_removed)
         || !CU_add_test(pSuite, "xqc_test_cid_set_lookup_error",
                         xqc_test_cid_set_lookup_error)
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)

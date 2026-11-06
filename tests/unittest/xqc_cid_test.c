@@ -1520,6 +1520,170 @@ xqc_test_mp_retire_cid_without_cid_set()
 
 
 /*
+ * RFC 9000 Section 19.16, applied per path by draft-ietf-quic-multipath-10
+ * Section 7.6. With both limits at 8, path IDs 1 to 8 have connection ID
+ * sets, but ours are issued only for the path IDs in use and the next one,
+ * path ID 1. Retiring sequence number 0 of path ID 1 retires the connection
+ * ID issued for it, while the set of path ID 2 is empty: its sequence
+ * number 0 is greater than any sent, a PROTOCOL_VIOLATION.
+ */
+void
+xqc_test_mp_retire_cid_empty_cid_set()
+{
+    xqc_int_t               ret;
+    xqc_cid_inner_t        *inner_cid;
+    xqc_connection_t       *conn;
+    xqc_cid_set_inner_t    *inner_set;
+
+    conn = xqc_test_mp_cid_conn(8, 8);
+
+    ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, 1);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_test_cid_recv_mp_retire_cid(conn, 1, 0);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    inner_cid = xqc_get_inner_cid_by_seq(&conn->scid_set, 0, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_cid);
+    CU_ASSERT(inner_cid->state == XQC_CID_RETIRED);
+
+    inner_set = xqc_get_path_cid_set(&conn->scid_set, 2);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+    CU_ASSERT(xqc_list_empty(&inner_set->cid_list));
+    ret = xqc_test_cid_recv_mp_retire_cid(conn, 2, 0);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_PROTOCOL_VIOLATION);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * draft-ietf-quic-multipath-10 Section 3.3.4 lets the peer abandon a path ID
+ * that no path used. With both limits at 8, ours are issued for path ID 1
+ * only. Once the peer abandons path IDs 1 and 2, retiring sequence number 0
+ * of path ID 1 retires the connection ID issued for it, while that of path
+ * ID 2 is greater than any sent for it, a PROTOCOL_VIOLATION (RFC 9000
+ * Section 19.16, applied per path by draft-ietf-quic-multipath-10 Section
+ * 7.6). The same goes for path ID 5, above the peer's limit of 1, whose
+ * connection ID sets the PATH_ABANDON frame adds.
+ */
+void
+xqc_test_mp_retire_cid_abandoned()
+{
+    xqc_int_t               ret;
+    xqc_cid_inner_t        *inner_cid;
+    xqc_connection_t       *conn;
+    xqc_cid_set_inner_t    *inner_set;
+
+    conn = xqc_test_mp_cid_conn(8, 8);
+    ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, 1);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_test_cid_recv_path_abandon(conn, 1);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_test_cid_recv_path_abandon(conn, 2);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+
+    inner_set = xqc_get_path_cid_set(&conn->scid_set, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+    CU_ASSERT(inner_set->set_state == XQC_CID_SET_ABANDONED);
+    ret = xqc_test_cid_recv_mp_retire_cid(conn, 1, 0);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    inner_cid = xqc_get_inner_cid_by_seq(&conn->scid_set, 0, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_cid);
+    CU_ASSERT(inner_cid->state == XQC_CID_RETIRED);
+
+    inner_set = xqc_get_path_cid_set(&conn->scid_set, 2);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+    CU_ASSERT(inner_set->set_state == XQC_CID_SET_ABANDONED);
+    CU_ASSERT(xqc_list_empty(&inner_set->cid_list));
+    ret = xqc_test_cid_recv_mp_retire_cid(conn, 2, 0);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_PROTOCOL_VIOLATION);
+    xqc_engine_destroy(conn->engine);
+
+    conn = xqc_test_mp_cid_conn(8, 1);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 5) == NULL);
+    ret = xqc_test_cid_recv_path_abandon(conn, 5);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 5) != NULL);
+    ret = xqc_test_cid_recv_mp_retire_cid(conn, 5, 0);
+    CU_ASSERT(ret == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_PROTOCOL_VIOLATION);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Retiring a connection ID of ours that its set no longer holds is accepted,
+ * as a retransmitted frame can arrive after the removal. The peer retires
+ * both connection IDs issued for path ID 1, and they are removed. Path ID 1,
+ * the next one, gets replacements before that, so its set never runs empty;
+ * once abandoned, it gets none, and its set ends up empty.
+ */
+void
+xqc_test_mp_retire_cid_removed()
+{
+    int                     abandoned, i;
+    xqc_int_t               ret;
+    xqc_usec_t              now;
+    xqc_list_head_t        *pos;
+    xqc_cid_inner_t        *inner_cid;
+    xqc_connection_t       *conn;
+    xqc_cid_set_inner_t    *inner_set;
+
+    for (abandoned = 0; abandoned <= 1; abandoned++) {
+        conn = xqc_test_mp_cid_conn(8, 8);
+        conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+        ret = xqc_conn_try_add_new_conn_id(conn, 0);
+        CU_ASSERT(ret == XQC_OK);
+        inner_set = xqc_get_path_cid_set(&conn->scid_set, 1);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+        CU_ASSERT(inner_set->unused_cnt == 2);
+
+        if (abandoned) {
+            ret = xqc_test_cid_recv_path_abandon(conn, 1);
+            CU_ASSERT(ret == XQC_OK);
+            CU_ASSERT(inner_set->set_state == XQC_CID_SET_ABANDONED);
+        }
+
+        ret = xqc_test_cid_recv_mp_retire_cid(conn, 1, 0);
+        CU_ASSERT(ret == XQC_OK);
+        ret = xqc_test_cid_recv_mp_retire_cid(conn, 1, 1);
+        CU_ASSERT(ret == XQC_OK);
+        ret = xqc_conn_try_add_new_conn_id(conn, 0);
+        CU_ASSERT(ret == XQC_OK);
+
+        now = xqc_monotonic_timestamp();
+        xqc_list_for_each(pos, &inner_set->cid_list) {
+            inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+            if (inner_cid->state == XQC_CID_RETIRED) {
+                inner_cid->retired_ts = now - 1;
+            }
+        }
+
+        /* the first expiry marks them removed, the second purges them */
+        for (i = 0; i < 2; i++) {
+            xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_RETIRE_CID,
+                          now - 1, 0);
+            xqc_conn_timer_expire(conn, now);
+        }
+        CU_ASSERT(xqc_get_inner_cid_by_seq(&conn->scid_set, 0, 1) == NULL);
+        CU_ASSERT(xqc_get_inner_cid_by_seq(&conn->scid_set, 1, 1) == NULL);
+        CU_ASSERT(xqc_list_empty(&inner_set->cid_list) == abandoned);
+
+        ret = xqc_test_cid_recv_mp_retire_cid(conn, 1, 0);
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(conn->conn_err == 0);
+
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+/*
  * A failed connection ID set lookup is an internal error. It must neither
  * retire the connection ID of a NEW_CONNECTION_ID frame nor accept a
  * RETIRE_CONNECTION_ID frame. The sets of path ID 0 exist for the whole

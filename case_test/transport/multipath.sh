@@ -58,6 +58,78 @@ case_transport_multipath_MPNS_unnegotiated_frozen_rejected()
     fi
 }
 
+# Both sides allow path IDs up to 8, and the server issues its connection IDs
+# only for the path IDs in use and the next one, path ID 1.
+# 1303: the client retires one of path ID 1 that it never used: the server
+# retires it and the request completes.
+case_transport_multipath_MP_retire_issued_cid_accepted()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    clear_log
+    rm -rf tp_localhost test_session xqc_token
+    echo -e "MP retirement of an issued connection ID is accepted ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -M -i lo -x 1303 \
+        > stdlog
+    sent=`grep -E "\[mp-retire-test\]\|path:1\|seq:[0-9]+\|ret:0\|" stdlog`
+    seq=`echo "$sent" | sed -n 's/.*|seq:\([0-9]*\)|.*/\1/p'`
+    retired=`grep -E "\|retired\|cid:[0-9a-f]+\|seq:${seq:-none}\|" slog`
+    rejected=`grep -E "\|no scid issued for path\||\|no match seq_num\|" slog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    conn_err_zero=`grep -E "conn_err:0([^0-9]|$)" stdlog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -n "$sent" ] && [ -n "$retired" ] \
+        && [ -z "$rejected" ] && [ -n "$result" ] \
+        && [ -n "$conn_err_zero" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MP_retire_issued_cid_accepted" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MP_retire_issued_cid_accepted" "fail"
+        echo "sent:${sent:+y} retired:${retired:+y} rejected:${rejected:+y}" \
+            "result:${result:+y} conn_err_zero:${conn_err_zero:+y}" \
+            "errlog:${errlog:+y}"
+    fi
+    rm -rf tp_localhost test_session xqc_token
+}
+
+# 1304: the client retires sequence number 0 of path ID 2, which has its
+# connection ID set but none of the server's connection IDs, a sequence
+# number greater than any sent (RFC 9000 Section 19.16,
+# draft-ietf-quic-multipath-10 Section 7.6): the server closes the
+# connection with PROTOCOL_VIOLATION.
+case_transport_multipath_MP_retire_cid_not_issued_rejected()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    clear_log
+    rm -rf tp_localhost test_session xqc_token
+    echo -e "MP retirement of a connection ID never issued is rejected ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -M -i lo -x 1304 \
+        > stdlog
+    sent=`grep "\[mp-retire-test\]|path:2|seq:0|ret:0|" stdlog`
+    rejected=`grep "|no scid issued for path|seq:0|path:2|" slog`
+    protocol_err=`grep -E "conn_err:10([^0-9]|$)" stdlog`
+    transport_type=`grep "conn_err_type:1" stdlog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    if [ -n "$sent" ] && [ -n "$rejected" ] && [ -n "$protocol_err" ] \
+        && [ -n "$transport_type" ] && [ -z "$result" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MP_retire_cid_not_issued_rejected" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MP_retire_cid_not_issued_rejected" "fail"
+        echo "sent:${sent:+y} rejected:${rejected:+y}" \
+            "protocol_err:${protocol_err:+y} transport_type:${transport_type:+y}" \
+            "result:${result:+y}"
+    fi
+    rm -rf tp_localhost test_session xqc_token
+}
+
 case_transport_multipath_MPNS_send_1M_data_on_multiple_paths()
 {
 grep_err_log
@@ -828,6 +900,8 @@ fi
 
 case_test_case "MPNS_enable_multipath_negotiate" --id native --mode self-reporting --run case_transport_multipath_MPNS_enable_multipath_negotiate
 case_test_case "MPNS_unnegotiated_frozen_rejected" --id 1302 --mode self-reporting --run case_transport_multipath_MPNS_unnegotiated_frozen_rejected
+case_test_case "MP_retire_issued_cid_accepted" --id 1303 --mode self-reporting --run case_transport_multipath_MP_retire_issued_cid_accepted
+case_test_case "MP_retire_cid_not_issued_rejected" --id 1304 --mode self-reporting --run case_transport_multipath_MP_retire_cid_not_issued_rejected
 case_test_case "MPNS_send_1M_data_on_multiple_paths" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_1M_data_on_multiple_paths
 case_test_case "MPNS_multipath_30_percent_loss" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss --timeout 120
 case_test_case "MPNS_multipath_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_initial_path

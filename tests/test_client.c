@@ -77,6 +77,8 @@ printf_null(const char *format, ...)
 #define XQC_MAX_LOG_LEN 2048
 
 #define XQC_TEST_CASE_MP_FROZEN_UNNEGOTIATED 1302
+#define XQC_TEST_CASE_MP_RETIRE_ISSUED_CID 1303
+#define XQC_TEST_CASE_MP_RETIRE_CID_NOT_ISSUED 1304
 #define XQC_TEST_CASE_H3_RESERVED_UNI_STREAM 1000
 #define XQC_TEST_CASE_H3_CLIENT_PUSH_STREAM 1001
 #define XQC_TEST_CASE_H3_RESERVED_REQUEST_FRAME 1002
@@ -2933,6 +2935,49 @@ xqc_client_send_max_stream_data_test_frame(xqc_connection_t *conn)
            XQC_MAX_FLOW_CONTROL_WINDOW);
 }
 
+/*
+ * cases 1303 and 1304: path IDs up to 8 are allowed on both sides, and the
+ * server issues its connection IDs only for the path IDs in use and the next
+ * one, path ID 1, which the client holds once it is ready to create a path.
+ * 1303 retires one of them that the client never used. 1304 retires
+ * sequence number 0 of path ID 2, for which the server issued none
+ * (RFC 9000 Section 19.16, draft-ietf-quic-multipath-10 Section 7.6).
+ */
+static void
+xqc_client_send_mp_retire_test_frame(xqc_connection_t *conn)
+{
+    uint64_t             path_id = 2, seq_num = 0;
+    xqc_int_t            ret;
+    xqc_list_head_t     *pos;
+    xqc_cid_inner_t     *inner_cid, *unused_cid = NULL;
+    xqc_cid_set_inner_t *inner_set;
+
+    if (g_test_case == XQC_TEST_CASE_MP_RETIRE_ISSUED_CID) {
+        path_id = 1;
+        inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
+        if (inner_set != NULL) {
+            xqc_list_for_each(pos, &inner_set->cid_list) {
+                inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+                if (inner_cid->state == XQC_CID_UNUSED) {
+                    unused_cid = inner_cid;
+                    break;
+                }
+            }
+        }
+
+        if (unused_cid == NULL) {
+            printf("[mp-retire-test]|no unused cid|path:%"PRIu64"|\n",
+                   path_id);
+            return;
+        }
+        seq_num = unused_cid->cid.cid_seq_num;
+    }
+
+    ret = xqc_write_mp_retire_conn_id_frame_to_packet(conn, seq_num, path_id);
+    printf("[mp-retire-test]|path:%"PRIu64"|seq:%"PRIu64"|ret:%d|\n",
+           path_id, seq_num, ret);
+}
+
 static xqc_int_t
 xqc_client_write_test_datagram_frame(xqc_connection_t *conn,
     xqc_pkt_type_t pkt_type)
@@ -5464,6 +5509,17 @@ xqc_client_ready_to_create_path(const xqc_cid_t *cid,
 
     if (!g_enable_multipath) {
         return;
+    }
+
+    if (g_test_case == XQC_TEST_CASE_MP_RETIRE_ISSUED_CID
+        || g_test_case == XQC_TEST_CASE_MP_RETIRE_CID_NOT_ISSUED)
+    {
+        xqc_connection_t *conn;
+
+        conn = xqc_engine_conns_hash_find(ctx.engine, cid, 's');
+        if (conn != NULL) {
+            xqc_client_send_mp_retire_test_frame(conn);
+        }
     }
 
     if (g_test_case != 110) {

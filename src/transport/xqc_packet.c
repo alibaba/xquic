@@ -205,7 +205,7 @@ xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
     } else {
         xqc_log(c->log, XQC_LOG_INFO, "unknown packet type, first byte[%d], "
-                "skip all buf, skip length: %d", pos[0], packet_in->last - packet_in->pos);
+                "skip all buf, skip length: %uz", pos[0], (size_t) (packet_in->last - packet_in->pos));
         return -XQC_EIGNORE_PKT;
     }
 

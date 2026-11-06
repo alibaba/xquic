@@ -985,7 +985,7 @@ xqc_insert_src_symbol_by_seq(xqc_connection_t *conn, xqc_list_head_t *symbol_lis
     // push into src symbol list;
     src_symbol = xqc_build_src_symbol(conn, block_id, symbol_idx, symbol, symbol_size);
     if (src_symbol == NULL) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|build source symbol error|block_id:%d|symbol_idx:%d|symbol_size:%d", block_id, symbol_idx, symbol_size);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|build source symbol error|block_id:%ui|symbol_idx:%ui|symbol_size:%d", block_id, symbol_idx, symbol_size);
         return -XQC_EMALLOC;
     }
 
@@ -1034,7 +1034,7 @@ xqc_insert_rpr_symbol_by_seq(xqc_connection_t *conn, xqc_list_head_t *symbol_lis
     // insert into rpr symbol list;
     *rpr_symbol = xqc_build_rpr_symbol(conn, tmp_rpr_symbol);
     if (*rpr_symbol == NULL) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|build repair symbol error|block_id:%d|symbol_idx:%d|symbol_size:%d", block_id, symbol_idx, tmp_rpr_symbol->payload_size);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|build repair symbol error|block_id:%d|symbol_idx:%d|symbol_size:%uz", block_id, symbol_idx, tmp_rpr_symbol->payload_size);
         return -XQC_EMALLOC;
     }
 
@@ -1243,7 +1243,7 @@ xqc_build_rpr_symbol(xqc_connection_t *conn, xqc_fec_rpr_syb_t *tmp_rpr_symbol)
     repair_key_size = tmp_rpr_symbol->repair_key_size;
 
     if (symbol_size > XQC_MAX_SYMBOL_SIZE || repair_key_size > XQC_MAX_RPR_KEY_SIZE) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|invalid symbol params|symbol_size:%d|symbol_key_size:%d|", symbol_size, repair_key_size);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|invalid symbol params|symbol_size:%uz|symbol_key_size:%uz|", symbol_size, repair_key_size);
         return rpr_symbol;
     }
 
@@ -1372,7 +1372,7 @@ xqc_process_src_symbol(xqc_connection_t *conn, uint64_t block_id, uint64_t symbo
     // insert into src symbol_list according to block id and symbol idx
     ret = xqc_insert_src_symbol_by_seq(conn, symbol_list, block_id, symbol_idx, &conn->fec_ctl->fec_src_syb_num, symbol, symbol_size);
     if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|current symbol is already exists|block_id:%d|symbol_idx:%d", block_id, symbol_idx);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|quic_fec|current symbol is already exists|block_id:%ui|symbol_idx:%ui", block_id, symbol_idx);
         return ret;
     }
 

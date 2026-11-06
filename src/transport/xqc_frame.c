@@ -690,7 +690,7 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     /* if stream is discarded, drop all data */
     if (stream->stream_flag & XQC_STREAM_FLAG_DISCARDED) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|stream[%ui] data discarded|"
-                "offset:%ui|len:%ui", stream->stream_id,
+                "offset:%ui|len:%ud", stream->stream_id,
                 stream_frame->data_offset,
                 stream_frame->data_length);
 
@@ -2145,7 +2145,7 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|state:%d|RECV path_response_data:%*s|",
-            path->path_id, path->path_state, XQC_PATH_CHALLENGE_DATA_LEN, path_response_data);
+            path->path_id, path->path_state, (size_t) XQC_PATH_CHALLENGE_DATA_LEN, path_response_data);
 
     /*
      * If the content of a PATH_RESPONSE frame does not match the content of

@@ -18,6 +18,7 @@
 
 #include "xqc_common_test.h"
 #include "xqc_h3_test.h"
+#include "xqc_alloc_wrap.h"
 
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
@@ -3612,6 +3613,120 @@ xqc_test_h3_blocked_stream_limit_uses_local()
     xqc_h3_conn_destroy(h3c);
     xqc_engine_destroy(conn->engine);
 }
+
+#ifdef XQC_TEST_ALLOC_WRAP
+
+/*
+ * A request stream receives a field section that refers to an entry not
+ * inserted yet, and is blocked. Each allocation made for its bytes fails
+ * in turn (xqc_alloc_wrap.h). When the record of the blocked stream cannot
+ * be allocated, the connection is closed with H3_INTERNAL_ERROR (RFC 9114
+ * Section 8.1). Once the transport stream closes and the connection is
+ * destroyed, nothing allocated is left, also when the FIN of the request
+ * was read with its bytes: the close then leaves a blocked stream to the
+ * h3 connection, and destroys any other. Each sweep ends with a run in
+ * which nothing fails and the stream is blocked.
+ */
+static void
+xqc_h3_blocked_stream_alloc_sweep(xqc_bool_t fin)
+{
+    /* HEADERS: Required Insert Count 1, Base 1, dynamic index 0 */
+    static const unsigned char frame[] = { 0x01, 0x03, 0x02, 0x00, 0x80 };
+    unsigned char buf[sizeof(frame)];
+    xqc_connection_t *conn;
+    xqc_h3_conn_t *h3c;
+    xqc_stream_t *stream;
+    xqc_h3_stream_t *h3s;
+    xqc_int_t ret;
+    long n;
+    int failed, unrecorded = 0;
+
+    /* run 0 fails nothing, and makes the allocations made once */
+    for (n = 0; n < 1000; n++) {
+        xqc_test_alloc_live = 0;
+        xqc_test_alloc_tracking = 1;
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+        if (conn->alpn) {
+            xqc_free(conn->alpn);
+        }
+        conn->alpn_len = strlen(XQC_ALPN_H3);
+        conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+        CU_ASSERT_FATAL(conn->alpn != NULL);
+        xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+        conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 16;
+        conn->conn_state = XQC_CONN_STATE_ESTABED;
+
+        h3c = xqc_h3_conn_create(conn, NULL);
+        CU_ASSERT_FATAL(h3c != NULL);
+        stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                             XQC_CLI_BID, NULL, NULL);
+        CU_ASSERT_FATAL(stream != NULL);
+        h3s = xqc_h3_stream_create(h3c, stream, XQC_H3_STREAM_TYPE_REQUEST,
+                                   NULL);
+        CU_ASSERT_FATAL(h3s != NULL);
+        if (fin) {
+            /* xqc_h3_stream_process_data() read the FIN with the bytes */
+            h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
+        }
+
+        memcpy(buf, frame, sizeof(frame));
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf), fin);
+        xqc_test_alloc_count = -1;
+        failed = xqc_test_alloc_failed;
+
+        if (!failed) {
+            CU_ASSERT(ret == XQC_OK);
+            CU_ASSERT(h3c->block_stream_count == 1);
+            CU_ASSERT(conn->conn_err == 0);
+
+        } else if (xqc_qpack_get_req_rqrd_insert_cnt(h3s->ctx) == 1
+                   && h3c->block_stream_count == 0)
+        {
+            /* the decoder blocked, without a record of the stream */
+            unrecorded++;
+            CU_ASSERT(ret < 0);
+            CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_INTERNAL_ERROR);
+            CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
+        }
+
+        /* the transport stream closes; h3s is not touched from here */
+        CU_ASSERT(xqc_h3_stream_close_notify(stream, h3s) == XQC_OK);
+        stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+        xqc_destroy_stream(stream);
+        xqc_h3_conn_destroy(h3c);
+        xqc_engine_destroy(conn->engine);
+        xqc_test_alloc_tracking = 0;
+        CU_ASSERT(n == 0 || xqc_test_alloc_live == 0);
+
+        if (n > 0 && !failed) {
+            /* nothing failed: the stream was blocked */
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+    CU_ASSERT(unrecorded == 1);
+}
+
+void
+xqc_test_h3_blocked_stream_alloc_failures()
+{
+    xqc_h3_blocked_stream_alloc_sweep(XQC_FALSE);
+    xqc_h3_blocked_stream_alloc_sweep(XQC_TRUE);
+}
+
+#else
+
+void
+xqc_test_h3_blocked_stream_alloc_failures()
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+#endif
 
 /*
  * Test that oversized SETTINGS frame is rejected to prevent memory exhaustion.

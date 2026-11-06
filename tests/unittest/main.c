@@ -733,7 +733,17 @@ main(int argc, char *argv[])
                         xqc_test_h3_blocked_stream_reject_after_close)
         || !CU_add_test(pSuite, "xqc_test_h3_qpack_duplicate_uses_excessive_load",
                         xqc_test_h3_qpack_duplicate_uses_excessive_load)
-        || !CU_add_test(pSuite, "xqc_test_h3_frame_parse_error_uses_frame_error", xqc_test_h3_frame_parse_error_uses_frame_error)
+        /* RFC 9204 Section 6: QPACK error codes */
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_encoder_stream_error",
+                        xqc_test_h3_qpack_encoder_stream_error)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_decoder_stream_error",
+                        xqc_test_h3_qpack_decoder_stream_error)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_decompression_failed",
+                        xqc_test_h3_qpack_decompression_failed)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_blocked_decode_error",
+                        xqc_test_h3_qpack_blocked_decode_error)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_blocked_stream_limit_error",
+                        xqc_test_h3_qpack_blocked_stream_limit_error)
                 || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_size_limit", xqc_test_h3_settings_frame_size_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_control_frame_unexpected", xqc_test_h3_control_frame_unexpected)
         || !CU_add_test(pSuite, "xqc_test_h3_missing_settings", xqc_test_h3_missing_settings)

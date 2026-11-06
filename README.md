@@ -82,6 +82,9 @@ To run test cases, you need
 
 XQUIC can be built with BabaSSL(Tongsuo) or BoringSSL.
 
+On Ubuntu, install the `libcunit1-dev` package before following either build
+example to include the CUnit unit-test runner.
+
 ### Build with BoringSSL
 
 ```bash

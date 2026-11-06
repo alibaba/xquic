@@ -10,6 +10,7 @@
 #include "xqc_alloc_wrap.h"
 
 #include "src/common/xqc_malloc.h"
+#include "src/congestion_control/xqc_bbr.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_conn.h"
@@ -105,6 +106,327 @@ xqc_test_pto_remote_default_when_unset(void)
     CU_ASSERT_EQUAL(got, expected);
     CU_ASSERT(got > 0);
 
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* a client connection with BBR, whose paths always pace */
+static xqc_connection_t *
+xqc_test_pacing_bbr_conn_create(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    if (engine == NULL) {
+        return NULL;
+    }
+
+    xqc_conn_settings_t conn_settings;
+    memset(&conn_settings, 0, sizeof(conn_settings));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    conn_settings.cong_ctrl_callback = xqc_bbr_cb;
+
+    xqc_conn_ssl_config_t conn_ssl_config;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+
+    const xqc_cid_t *cid = xqc_connect(engine, &conn_settings, NULL, 0, "", 0,
+                                       &conn_ssl_config, NULL, 0, "transport",
+                                       NULL);
+    if (cid == NULL) {
+        xqc_engine_destroy(engine);
+        return NULL;
+    }
+
+    return xqc_engine_conns_hash_find(engine, cid, 's');
+}
+
+/*
+ * The pacing tests run on a clock they advance by hand. It starts at the
+ * time it is installed, after the connection's first send, so the pacer
+ * never sees time go backwards.
+ */
+static xqc_usec_t xqc_test_pacing_now;
+
+static xqc_usec_t
+xqc_test_pacing_timestamp(void)
+{
+    return xqc_test_pacing_now;
+}
+
+static xqc_timestamp_pt
+xqc_test_pacing_clock_install(void)
+{
+    xqc_timestamp_pt saved = xqc_monotonic_timestamp;
+
+    xqc_test_pacing_now = saved();
+    xqc_monotonic_timestamp = xqc_test_pacing_timestamp;
+    return saved;
+}
+
+/*
+ * An application that runs out of data restarts the pacer. Once the credit
+ * of the restart is spent, the pacer waits at least one timer granularity
+ * (1 ms), so at 10 Gbit/s a restart after 1 ms or more of idle time gives
+ * what that rate sends in 1 ms: a burst of 20 packets leaves at once, where a
+ * credit of ten packets held it behind the pacing timer for 1 ms.
+ */
+void
+xqc_test_pacing_app_limit_restart_high_rate(void)
+{
+    xqc_connection_t *conn = xqc_test_pacing_bbr_conn_create();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_pacing_t *pacing = &send_ctl->ctl_pacing;
+    xqc_bbr_t *bbr = (xqc_bbr_t *)send_ctl->ctl_cong;
+    CU_ASSERT_FATAL(xqc_pacing_is_on(pacing));
+    xqc_timestamp_pt saved_timestamp = xqc_test_pacing_clock_install();
+
+    /* 10 Gbit/s: 1 ms is 1.25 MB */
+    bbr->pacing_rate = 1250000000;
+    xqc_test_pacing_now += 5000;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 1250000);
+
+    CU_ASSERT(xqc_pacing_can_write(pacing, 20 * XQC_MSS));
+    CU_ASSERT(!xqc_timer_is_set(&send_ctl->path_timer_manager,
+                                XQC_TIMER_PACING));
+
+    /* so does a pacer that never sent, from a clock that starts at zero */
+    xqc_pacing_init(pacing, 1, send_ctl);
+    xqc_test_pacing_now = 500;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 1250000);
+
+    xqc_monotonic_timestamp = saved_timestamp;
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * Below a pacing rate of 10 packets per millisecond, about 115 Mbit/s, the
+ * restart keeps its credit of ten packets, and a burst above it waits for the
+ * pacing timer as before. Just above that rate, the credit is 1 ms of data.
+ */
+void
+xqc_test_pacing_app_limit_restart_low_rate(void)
+{
+    xqc_connection_t *conn = xqc_test_pacing_bbr_conn_create();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_pacing_t *pacing = &send_ctl->ctl_pacing;
+    xqc_bbr_t *bbr = (xqc_bbr_t *)send_ctl->ctl_cong;
+    CU_ASSERT_FATAL(xqc_pacing_is_on(pacing));
+    xqc_timestamp_pt saved_timestamp = xqc_test_pacing_clock_install();
+
+    /* 8 Mbit/s: 1 ms is 1000 bytes */
+    bbr->pacing_rate = 1000000;
+    xqc_test_pacing_now += 5000;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 10 * XQC_MSS);
+
+    CU_ASSERT(xqc_pacing_can_write(pacing, 10 * XQC_MSS));
+    CU_ASSERT(!xqc_timer_is_set(&send_ctl->path_timer_manager,
+                                XQC_TIMER_PACING));
+    CU_ASSERT(!xqc_pacing_can_write(pacing, 11 * XQC_MSS));
+    CU_ASSERT(xqc_timer_is_set(&send_ctl->path_timer_manager,
+                               XQC_TIMER_PACING));
+    xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_PACING);
+
+    /* ten packets per millisecond, then one byte per millisecond more */
+    bbr->pacing_rate = 10 * XQC_MSS * 1000;
+    xqc_test_pacing_now += 1000;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 10 * XQC_MSS);
+
+    bbr->pacing_rate = 10 * XQC_MSS * 1000 + 1000;
+    xqc_test_pacing_now += 1000;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 10 * XQC_MSS + 1);
+
+    xqc_monotonic_timestamp = saved_timestamp;
+    xqc_engine_destroy(conn->engine);
+}
+
+/* sends n packets of XQC_MSS at the current time, as the send path does */
+static void
+xqc_test_pacing_send(xqc_pacing_t *pacing, int n)
+{
+    int i;
+
+    for (i = 0; i < n; i++) {
+        xqc_pacing_on_packet_sent(pacing, XQC_MSS);
+    }
+}
+
+/*
+ * Every write that finds the send queue empty restarts the pacer, however
+ * recently the path sent. A restart less than 1 ms after the last send gets
+ * what the pacer earned since then, at least ten packets, and never the
+ * fresh 1 ms of a restart after idle time.
+ */
+void
+xqc_test_pacing_app_limit_restart_back_to_back(void)
+{
+    xqc_connection_t *conn = xqc_test_pacing_bbr_conn_create();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_pacing_t *pacing = &send_ctl->ctl_pacing;
+    xqc_bbr_t *bbr = (xqc_bbr_t *)send_ctl->ctl_cong;
+    CU_ASSERT_FATAL(xqc_pacing_is_on(pacing));
+    xqc_timestamp_pt saved_timestamp = xqc_test_pacing_clock_install();
+
+    /* 10 Gbit/s: 1250 bytes per microsecond, 1.25 MB per millisecond */
+    bbr->pacing_rate = 1250000000;
+    xqc_test_pacing_now += 5000;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 1250000);
+
+    /* 870 packets spend all but 680 bytes of it */
+    xqc_test_pacing_send(pacing, 870);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 680);
+
+    /* 100 us later, the pacer earned 125 KB */
+    xqc_test_pacing_now += 100;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 680 + 125000);
+
+    /* 87 packets leave 748 bytes; 1 us later, ten packets are more */
+    xqc_test_pacing_send(pacing, 87);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 748);
+    xqc_test_pacing_now += 1;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 10 * XQC_MSS);
+    CU_ASSERT(!xqc_pacing_can_write(pacing, 11 * XQC_MSS));
+    CU_ASSERT(xqc_timer_is_set(&send_ctl->path_timer_manager,
+                               XQC_TIMER_PACING));
+    xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_PACING);
+
+    /* 999 us after the last send, just under 1 ms of data, then 1 ms */
+    xqc_test_pacing_send(pacing, 10);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 0);
+    xqc_test_pacing_now += 999;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 999 * 1250);
+
+    xqc_test_pacing_send(pacing, 869);
+    xqc_test_pacing_now += 1000;
+    xqc_pacing_on_app_limit(pacing);
+    CU_ASSERT_EQUAL(pacing->bytes_budget, 1250000);
+
+    xqc_monotonic_timestamp = saved_timestamp;
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * After 5 ms of idle time, writes of pkts packets every gap_us microseconds,
+ * each through the write-time check of xqc_stream_send() and then through the
+ * pacer packet by packet, as the send path drives them. A packet the pacer
+ * holds stays queued, so no later write can restart the pacer: the writes
+ * end there. Returns the bytes sent before then and the time they took.
+ */
+static uint64_t
+xqc_test_pacing_writes(xqc_connection_t *conn, uint32_t rate, uint32_t cwnd,
+    int pkts, xqc_usec_t gap_us, int writes, xqc_usec_t *elapsed, int *held)
+{
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_pacing_t *pacing = &send_ctl->ctl_pacing;
+    xqc_bbr_t *bbr = (xqc_bbr_t *)send_ctl->ctl_cong;
+    xqc_usec_t start;
+    uint64_t sent = 0;
+    int w, p;
+
+    bbr->pacing_rate = rate;
+    bbr->congestion_window = cwnd;
+    send_ctl->ctl_bytes_in_flight = 0;
+    xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_PACING);
+
+    xqc_test_pacing_now += 5000;
+    start = xqc_test_pacing_now;
+    *held = 0;
+
+    for (w = 0; w < writes && !*held; w++) {
+        if (w > 0) {
+            xqc_test_pacing_now += gap_us;
+        }
+
+        xqc_conn_check_app_limit(conn);
+
+        for (p = 0; p < pkts; p++) {
+            if (!xqc_pacing_can_write(pacing, XQC_MSS)) {
+                *held = 1;
+                break;
+            }
+
+            xqc_pacing_on_packet_sent(pacing, XQC_MSS);
+            send_ctl->ctl_bytes_in_flight += XQC_MSS;
+            sent += XQC_MSS;
+        }
+    }
+
+    *elapsed = xqc_test_pacing_now - start;
+    return sent;
+}
+
+/*
+ * RFC 9002 Section 7.7: senders must pace or limit bursts. Writes of more
+ * than ten packets, faster than the pacing rate, each find the queue drained
+ * and restart the pacer; the pacer must hold them once the first restart's
+ * 1 ms of credit and what the rate earned since are spent, and not let them
+ * out up to the congestion window. Writes slower than the rate never wait.
+ */
+void
+xqc_test_pacing_app_limit_restart_write_patterns(void)
+{
+    static const struct {
+        uint32_t    rate;       /* bytes per second */
+        uint32_t    cwnd;
+        int         pkts;       /* packets per write */
+        xqc_usec_t  gap_us;     /* between writes */
+        int         paced;      /* faster than the rate */
+    } patterns[] = {
+        { 125000000,  5000000,  22,   10, 1 },  /* 1 Gbit/s */
+        { 1250000000, 50000000, 22,   10, 1 },  /* 10 Gbit/s */
+        { 125000000,  5000000,  80,  100, 1 },
+        { 25000000,   2000000,  15,   50, 1 },  /* 200 Mbit/s */
+        { 125000000,  5000000,  22, 1000, 0 },
+        { 125000000,  5000000,  22,  300, 0 },
+    };
+    xqc_connection_t *conn = xqc_test_pacing_bbr_conn_create();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path->path_state
+                    == XQC_PATH_STATE_ACTIVE);
+    CU_ASSERT_FATAL(xqc_pacing_is_on(
+                        &conn->conn_initial_path->path_send_ctl->ctl_pacing));
+    xqc_timestamp_pt saved_timestamp = xqc_test_pacing_clock_install();
+    size_t i;
+
+    for (i = 0; i < sizeof(patterns) / sizeof(patterns[0]); i++) {
+        uint64_t rate = patterns[i].rate;
+        uint64_t credit = rate * 1000 / 1000000;    /* 1 ms of data */
+        xqc_usec_t elapsed;
+        int held;
+        int writes = patterns[i].paced ? 100000 : 50;
+
+        uint64_t sent = xqc_test_pacing_writes(conn, patterns[i].rate,
+                                               patterns[i].cwnd,
+                                               patterns[i].pkts,
+                                               patterns[i].gap_us, writes,
+                                               &elapsed, &held);
+        if (patterns[i].paced) {
+            /* the first restart's credit, then the rate, then ten packets */
+            CU_ASSERT(held);
+            CU_ASSERT(sent + XQC_MSS > credit);
+            CU_ASSERT(sent <= credit + rate * elapsed / 1000000
+                              + 10 * XQC_MSS);
+
+        } else {
+            CU_ASSERT(!held);
+            CU_ASSERT_EQUAL(sent, (uint64_t)writes * patterns[i].pkts
+                                  * XQC_MSS);
+        }
+    }
+
+    xqc_monotonic_timestamp = saved_timestamp;
     xqc_engine_destroy(conn->engine);
 }
 

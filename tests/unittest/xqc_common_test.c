@@ -14,6 +14,8 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_send_ctl.h"
+#include "src/transport/xqc_stream.h"
+#include "src/transport/xqc_frame.h"
 #include "src/congestion_control/xqc_bbr_common.h"
 
 
@@ -292,6 +294,136 @@ xqc_test_alpn_information_log_truncated(void)
         }
     }
     CU_ASSERT(i == capture.size);
+}
+
+/* a log that writes every qlog event into capture */
+static void
+xqc_test_qlog_init(xqc_log_t *log, xqc_log_callbacks_t *callbacks,
+    xqc_test_log_capture_t *capture)
+{
+    memset(log, 0, sizeof(*log));
+    memset(callbacks, 0, sizeof(*callbacks));
+    memset(capture, 0, sizeof(*capture));
+    callbacks->xqc_qlog_event_write = xqc_test_qlog_write;
+    log->log_event = 1;
+    log->qlog_importance = EVENT_IMPORTANCE_EXTRA;
+    log->log_callbacks = callbacks;
+    log->user_data = capture;
+}
+
+/*
+ * The packet numbers, stream IDs and transport parameters of these events
+ * are 64-bit values: each is printed in full, here above 32 bits.
+ */
+void
+xqc_test_packets_acked_log(void)
+{
+    xqc_test_log_capture_t  capture;
+    xqc_log_callbacks_t     callbacks;
+    xqc_log_t               log;
+    xqc_packet_in_t         packet_in = {0};
+
+    xqc_test_qlog_init(&log, &callbacks, &capture);
+    packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+
+    xqc_log_TRA_PACKETS_ACKED_callback(&log, "xqc_test", &packet_in,
+                                       0x100000005ULL, 0x100000001ULL, 7);
+
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|pkt_space:2|high:4294967301|low:4294967297|path_id:7|");
+}
+
+void
+xqc_test_stream_state_updated_log(void)
+{
+    xqc_test_log_capture_t  capture;
+    xqc_log_callbacks_t     callbacks;
+    xqc_log_t               log;
+    xqc_stream_t            stream = {0};
+
+    xqc_test_qlog_init(&log, &callbacks, &capture);
+    stream.stream_id = 0x100000004ULL;
+    stream.stream_state_send = XQC_SEND_STREAM_ST_SEND;
+    stream.stream_state_recv = XQC_RECV_STREAM_ST_RECV;
+
+    xqc_log_TRA_STREAM_STATE_UPDATED_callback(&log, "xqc_test", &stream,
+        XQC_LOG_STREAM_SEND, XQC_SEND_STREAM_ST_DATA_SENT);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|stream_id:4294967300|send_stream|old:1|new:2|");
+
+    xqc_log_TRA_STREAM_STATE_UPDATED_callback(&log, "xqc_test", &stream,
+        XQC_LOG_STREAM_RECV, XQC_RECV_STREAM_ST_SIZE_KNOWN);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|stream_id:4294967300|recv_stream|old:0|new:1|");
+}
+
+void
+xqc_test_parameters_set_log(void)
+{
+    xqc_test_log_capture_t  capture;
+    xqc_log_callbacks_t     callbacks;
+    xqc_log_t               log;
+    xqc_connection_t        conn = {0};
+
+    xqc_test_qlog_init(&log, &callbacks, &capture);
+    conn.local_settings.disable_active_migration = 1;
+    conn.local_settings.max_idle_timeout = 0x100000000ULL + 30000000;
+    conn.local_settings.max_udp_payload_size = 1500;
+    conn.local_settings.active_connection_id_limit = 8;
+    conn.local_settings.max_data = 0x200000000ULL;
+    conn.remote_settings.max_idle_timeout = 30000000;
+    conn.remote_settings.max_udp_payload_size = 0x100000000ULL + 1350;
+    conn.remote_settings.active_connection_id_limit = 0x100000002ULL;
+    conn.remote_settings.max_data = 16 * 1024 * 1024;
+
+    xqc_log_TRA_PARAMETERS_SET_callback(&log, "xqc_test", &conn,
+                                        XQC_LOG_LOCAL_EVENT);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|local|migration:1|max_idle_timeout:4324967296|"
+        "max_udp_payload_size:1500|active_connection_id_limit:8|"
+        "max_data:8589934592|");
+
+    xqc_log_TRA_PARAMETERS_SET_callback(&log, "xqc_test", &conn,
+                                        XQC_LOG_REMOTE_EVENT);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|remote|migration:0|max_idle_timeout:30000000|"
+        "max_udp_payload_size:4294968646|"
+        "active_connection_id_limit:4294967298|max_data:16777216|");
+}
+
+/* The packet number comes before a string: on a 32-bit target a 32-bit
+   conversion of it moved the string's pointer onto another argument. */
+void
+xqc_test_packet_lost_log(void)
+{
+    xqc_test_log_capture_t  capture;
+    xqc_log_callbacks_t     callbacks;
+    xqc_log_t               log;
+    xqc_packet_out_t        packet_out = {0};
+    xqc_engine_t           *engine;
+
+    /* the event writes the frame types into the engine's buffer */
+    engine = xqc_calloc(1, sizeof(xqc_engine_t));
+    CU_ASSERT_FATAL(engine != NULL);
+    xqc_test_qlog_init(&log, &callbacks, &capture);
+    log.engine = engine;
+    packet_out.po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    packet_out.po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    packet_out.po_pkt.pkt_num = 0x100000009ULL;
+    packet_out.po_sent_time = 0x10000000aULL;
+    packet_out.po_frame_types = XQC_FRAME_BIT_PING;
+    packet_out.po_path_id = 1;
+
+    xqc_log_REC_PACKET_LOST_callback(&log, "xqc_test", &packet_out,
+                                     0x10000000bULL, 0x10000000cULL,
+                                     0x10000000dULL);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|pkt_pns:2|pkt_type:4|pkt_num:4294967305|"
+        "lost_pn:4294967307|po_sent_time:4294967306|"
+        "lost_send_time:4294967308|loss_delay:4294967309|frame:PING |"
+        "repair:0|path_id:1|");
+
+    xqc_free(engine);
 }
 
 static inline void

@@ -7,6 +7,8 @@
 #include "src/http3/qpack/dtable/xqc_dtable.h"
 #include <inttypes.h>
 #include "tests/unittest/xqc_common_test.h"
+#include "tests/unittest/xqc_alloc_wrap.h"
+#include "src/common/xqc_str.h"
 
 
 void
@@ -372,6 +374,120 @@ xqc_test_dtable_set_capacity()
     xqc_engine_destroy(engine);
 
 }
+
+
+#ifdef XQC_TEST_ALLOC_WRAP
+
+/*
+ * After an insertion fails, each index still names the entry inserted at
+ * it: insert 20 more entries of 47 bytes into the table of 250 bytes,
+ * which holds 5, so that the entries before are evicted too, and check
+ * each.
+ */
+static void
+xqc_test_dtable_check_indexes(xqc_dtable_t *dt, uint64_t first)
+{
+    int                 i;
+    uint64_t            idx, found;
+    size_t              nlen, vlen;
+    unsigned char       name[16], value[16];
+    xqc_var_buf_t      *nbuf = xqc_var_buf_create(64);
+    xqc_var_buf_t      *vbuf = xqc_var_buf_create(64);
+
+    CU_ASSERT_FATAL(nbuf != NULL && vbuf != NULL);
+    for (i = 0; i < 20; i++) {
+        nlen = xqc_sprintf(name, name + sizeof(name), "name-%02d", i) - name;
+        vlen = xqc_sprintf(value, value + sizeof(value), "value-%02d", i)
+               - value;
+        CU_ASSERT(xqc_dtable_add(dt, name, nlen, value, vlen, &idx) == XQC_OK);
+        CU_ASSERT(idx == first + i);
+
+        xqc_var_buf_clear(nbuf);
+        xqc_var_buf_clear(vbuf);
+        CU_ASSERT(xqc_dtable_get_nv(dt, idx, nbuf, vbuf) == XQC_OK);
+        CU_ASSERT(nbuf->data_len == nlen
+                  && memcmp(nbuf->data, name, nlen) == 0);
+        CU_ASSERT(vbuf->data_len == vlen
+                  && memcmp(vbuf->data, value, vlen) == 0);
+        if (i == 0) {
+            CU_ASSERT(xqc_dtable_lookup(dt, name, nlen, value, vlen, &found)
+                      == XQC_NV_REF_NAME_AND_VALUE && found == idx);
+        }
+    }
+
+    xqc_var_buf_free(nbuf);
+    xqc_var_buf_free(vbuf);
+}
+
+/*
+ * The hash node of an insertion, or of a copy, cannot be allocated: the
+ * insertion fails and leaves the table as it was, so that the next one
+ * takes its index.
+ */
+void
+xqc_test_dtable_insert_alloc_failure(void)
+{
+    uint64_t                idx, found;
+    xqc_int_t               ret;
+    xqc_dtable_t           *dt;
+    xqc_log_callbacks_t     callbacks = xqc_null_log_cb;
+    xqc_log_t               log = {0};
+
+    log.log_level = XQC_LOG_DEBUG;
+    log.log_callbacks = &callbacks;
+
+    /* an insertion */
+    dt = xqc_dtable_create(16, &log, 1);
+    CU_ASSERT_FATAL(dt != NULL);
+    CU_ASSERT_FATAL(xqc_dtable_set_capacity(dt, 250) == XQC_OK);
+    CU_ASSERT(xqc_dtable_add(dt, (unsigned char *) "name-a", 6,
+                             (unsigned char *) "value-a", 7, &idx) == XQC_OK);
+
+    xqc_test_alloc_failed = 0;
+    xqc_test_alloc_fail_at = 1;
+    xqc_test_alloc_count = 0;
+    ret = xqc_dtable_add(dt, (unsigned char *) "name-x", 6,
+                         (unsigned char *) "value-x", 7, &idx);
+    xqc_test_alloc_count = -1;
+    CU_ASSERT(ret != XQC_OK && xqc_test_alloc_failed);
+    CU_ASSERT(xqc_dtable_get_insert_cnt(dt) == 1);
+    CU_ASSERT(xqc_dtable_lookup(dt, (unsigned char *) "name-x", 6,
+                                (unsigned char *) "value-x", 7, &found)
+              == XQC_NV_REF_NONE);
+
+    xqc_test_dtable_check_indexes(dt, 1);
+    xqc_dtable_free(dt);
+
+#ifdef XQC_COMPAT_DUPLICATE
+    /* a copy */
+    dt = xqc_dtable_create(16, &log, 1);
+    CU_ASSERT_FATAL(dt != NULL);
+    CU_ASSERT_FATAL(xqc_dtable_set_capacity(dt, 250) == XQC_OK);
+    CU_ASSERT(xqc_dtable_add(dt, (unsigned char *) "name-a", 6,
+                             (unsigned char *) "value-a", 7, &idx) == XQC_OK);
+
+    xqc_test_alloc_failed = 0;
+    xqc_test_alloc_fail_at = 1;
+    xqc_test_alloc_count = 0;
+    ret = xqc_dtable_duplicate_compat(dt, idx, &idx);
+    xqc_test_alloc_count = -1;
+    CU_ASSERT(ret != XQC_OK && xqc_test_alloc_failed);
+    CU_ASSERT(xqc_dtable_get_insert_cnt(dt) == 1);
+
+    xqc_test_dtable_check_indexes(dt, 1);
+    xqc_dtable_free(dt);
+#endif
+}
+
+#else
+
+void
+xqc_test_dtable_insert_alloc_failure(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+#endif
 
 
 void

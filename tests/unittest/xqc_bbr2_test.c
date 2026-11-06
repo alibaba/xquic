@@ -246,3 +246,118 @@ xqc_test_bbr2_probe_up_log(void)
     bbr2_test_probe_up_log(XQC_TRUE, "|queuing:1|bw:1250000|");
 #endif
 }
+
+
+#ifdef XQC_ENABLE_BBR2
+
+typedef struct bbr2_test_raise_log_s {
+    char    line[XQC_MAX_LOG_LEN];
+    int     lines;
+} bbr2_test_raise_log_t;
+
+/* keep the debug line of an increase of inflight_hi */
+static void
+bbr2_test_raise_log_write(xqc_log_level_t lvl, const void *buf, size_t size,
+    void *user_data)
+{
+    bbr2_test_raise_log_t  *capture = user_data;
+
+    size = xqc_min(size, sizeof(capture->line) - 1);
+    if (memmem(buf, size, "|increase_inflight_hi|", 22) != NULL) {
+        memcpy(capture->line, buf, size);
+        capture->line[size] = '\0';
+        capture->lines++;
+    }
+}
+
+#endif
+
+/*
+ * In PROBE_UP, an ACK of a cwnd-limited flight with no loss raises
+ * inflight_hi; the debug line shows each value in its own field.
+ */
+void
+xqc_test_bbr2_increase_inflight_hi_log(void)
+{
+#ifdef XQC_ENABLE_BBR2
+    xqc_conn_settings_t     settings;
+    xqc_conn_ssl_config_t   ssl_config;
+    xqc_engine_t           *engine;
+    xqc_connection_t       *conn;
+    xqc_send_ctl_t         *ctl;
+    xqc_bbr2_t             *bbr2;
+    xqc_sample_t            sampler;
+    const xqc_cid_t        *cid;
+    xqc_usec_t              now;
+    xqc_log_callbacks_t    *log_callbacks;
+    void                   *log_user_data;
+    xqc_log_callbacks_t     callbacks = {0};
+    bbr2_test_raise_log_t   capture = {0};
+
+    engine = test_create_engine();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    settings.cong_ctrl_callback = xqc_bbr2_cb;
+
+    memset(&ssl_config, 0, sizeof(ssl_config));
+    cid = xqc_connect(engine, &settings, NULL, 0, "", 0, &ssl_config,
+                      NULL, 0, "transport", NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cid);
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    ctl = conn->conn_initial_path->path_send_ctl;
+    bbr2 = (xqc_bbr2_t *)ctl->ctl_cong;
+    now = xqc_monotonic_timestamp();
+
+    bbr2->mode = BBR2_PROBE_BW;
+    bbr2->cycle_idx = BBR2_BW_PROBE_UP;
+    bbr2->cycle_start_stamp = now;
+    bbr2->full_bandwidth_reached = TRUE;
+    bbr2->bw_hi[0] = 1250000;
+    bbr2->min_rtt = 20000;
+    bbr2->min_rtt_stamp = now;
+    bbr2->probe_rtt_min_us = 20000;
+    bbr2->probe_rtt_min_us_stamp = now;
+    bbr2->congestion_window = 100000;
+    bbr2->inflight_hi = 50000;
+    bbr2->bw_probe_up_cnt = 2;
+    bbr2->bw_probe_up_acks = 0;
+    bbr2->bw_probe_up_rounds = 3;
+
+    memset(&sampler, 0, sizeof(sampler));
+    sampler.send_ctl = ctl;
+    sampler.now = now;
+    sampler.rtt = 20000;
+    sampler.srtt = 20000;
+    sampler.prior_inflight = 100000;
+    sampler.tx_in_flight = 40000;
+    sampler.acked = 10 * XQC_MSS;
+
+    callbacks.xqc_log_write_err = bbr2_test_raise_log_write;
+    log_callbacks = conn->log->log_callbacks;
+    log_user_data = conn->log->user_data;
+    conn->log->log_level = XQC_LOG_DEBUG;
+    conn->log->log_callbacks = &callbacks;
+    conn->log->user_data = &capture;
+
+    xqc_bbr2_cb.xqc_cong_ctl_on_ack_multiple_pkts(bbr2, &sampler);
+
+    conn->log->log_callbacks = log_callbacks;
+    conn->log->user_data = log_user_data;
+
+#if !defined(XQC_DISABLE_LOG) && !defined(XQC_ONLY_ERROR_LOG)
+    CU_ASSERT(capture.lines == 1);
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.line,
+                                  "|probe_up_cnt:2|inflight_hi:"));
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.line,
+                                  "|delta:5|probe_up_rounds:3|"));
+#else
+    /* the debug line is compiled out */
+    CU_ASSERT(capture.lines == 0);
+#endif
+    xqc_engine_destroy(engine);
+#endif
+}

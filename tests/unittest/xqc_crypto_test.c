@@ -525,6 +525,55 @@ xqc_test_crypto()
     xqc_test_derive_packet_protection_keys();
 }
 
+
+typedef struct xqc_test_crypto_log_s {
+    char    line[XQC_MAX_LOG_LEN];
+    int     lines;
+} xqc_test_crypto_log_t;
+
+static void
+xqc_test_crypto_log_write(xqc_log_level_t lvl, const void *buf, size_t size,
+    void *user_data)
+{
+    xqc_test_crypto_log_t  *capture = user_data;
+
+    size = xqc_min(size, sizeof(capture->line) - 1);
+    memcpy(capture->line, buf, size);
+    capture->line[size] = '\0';
+    capture->lines++;
+}
+
+/*
+ * A crypto context is created for a supported cipher, and not for an
+ * unsupported one, whose error line shows the cipher ID.
+ */
+void
+xqc_test_crypto_unsupported_cipher_log(void)
+{
+    xqc_crypto_t           *crypto;
+    xqc_test_crypto_log_t   capture = {0};
+    xqc_log_callbacks_t     callbacks = {0};
+    xqc_log_t               log = {0};
+
+    callbacks.xqc_log_write_err = xqc_test_crypto_log_write;
+    log.log_level = XQC_LOG_ERROR;
+    log.log_callbacks = &callbacks;
+    log.user_data = &capture;
+
+    crypto = xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256, &log);
+    CU_ASSERT_PTR_NOT_NULL(crypto);
+    CU_ASSERT(capture.lines == 0);
+    xqc_crypto_destroy(crypto);
+
+    crypto = xqc_crypto_create(0xdead, &log);
+    CU_ASSERT_PTR_NULL(crypto);
+#ifndef XQC_DISABLE_LOG
+    CU_ASSERT(capture.lines == 1);
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.line,
+                                  "|not supoort cipher_id|57005|"));
+#endif
+}
+
 /* RFC 9001 §6.6: AEAD integrity limit values */
 void
 xqc_test_aead_integrity_limit()

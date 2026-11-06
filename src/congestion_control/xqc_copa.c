@@ -428,7 +428,7 @@ xqc_copa_on_ack(void *cong, xqc_sample_t *sampler)
     if (numerator_bytes == 0) {
         xqc_log(copa->ctl_ctx->ctl_conn->log, XQC_LOG_WARN, 
                 "|copa|acked_bytes_too_less|velocity:%.4f|delta:%.4f|"
-                "newly_acked_bytes:%ui|", 
+                "newly_acked_bytes:%ud|", 
                 copa->v, copa->delta, newly_acked_bytes);
     }
     copa->cwnd_adjustment_accumulated += (aiad_sign * numerator_bytes);

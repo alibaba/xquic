@@ -1816,7 +1816,12 @@ xqc_get_po_remained_size(xqc_packet_out_t *po)
 size_t
 xqc_get_po_remained_size_with_ack_spc(xqc_packet_out_t *po)
 {
-    return xqc_get_po_remained_size(po) + XQC_ACK_SPACE;
+    size_t limit, used;
+
+    limit = xqc_min(po->po_buf_size + XQC_ACK_SPACE, XQC_MSS);
+    used = po->po_used_size + po->po_reserved_size;
+
+    return limit > used ? limit - used : 0;
 }
 
 xqc_int_t

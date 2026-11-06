@@ -771,6 +771,8 @@ main(int argc, char *argv[])
                         xqc_test_h3_empty_data_fin)
         || !CU_add_test(pSuite, "xqc_test_stable", xqc_test_stable)
         || !CU_add_test(pSuite, "xqc_test_dtable", xqc_test_dtable)
+        || !CU_add_test(pSuite, "xqc_test_dtable_evicted_entries",
+                        xqc_test_dtable_evicted_entries)
         || !CU_add_test(pSuite, "test_2d_hash_table", test_2d_hash_table)
         || !CU_add_test(pSuite, "test_ring_array", test_ring_array)
         || !CU_add_test(pSuite, "xqc_test_ring_mem", xqc_test_ring_mem)

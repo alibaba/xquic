@@ -7,6 +7,8 @@
 #include "src/http3/qpack/dtable/xqc_dtable.h"
 #include <inttypes.h>
 #include "tests/unittest/xqc_common_test.h"
+#include "tests/unittest/xqc_alloc_wrap.h"
+#include "src/common/xqc_str.h"
 
 
 void
@@ -175,6 +177,8 @@ xqc_test_dtable_dulicate()
 
     char buf[256];
 
+    /* its last byte is the hash of the value */
+    memset(buf, 'v', sizeof(buf));
     ret = xqc_dtable_set_capacity(dt, 256);
     CU_ASSERT(ret == XQC_OK);
 
@@ -205,6 +209,8 @@ xqc_test_dtable_dulicate_compat()
 
     char buf[256];
 
+    /* its last byte is the hash of the value */
+    memset(buf, 'v', sizeof(buf));
     ret = xqc_dtable_set_capacity(dt, 256);
     CU_ASSERT(ret == XQC_OK);
 
@@ -382,4 +388,63 @@ xqc_test_dtable()
     xqc_test_dtable_robust();
 
     xqc_test_dtable_set_capacity();
+}
+
+
+/*
+ * Distinct entries of 53 bytes are inserted one after the other into a
+ * table of 300 bytes, so that each insertion evicts an older entry once
+ * the table holds 5. Each new entry is found by its name and value at its
+ * index, and the hash table keeps one node per entry in the table, which
+ * the eviction of an entry frees: insertions no longer leave allocations
+ * behind once the table is full.
+ */
+void
+xqc_test_dtable_evicted_entries(void)
+{
+    int                     i;
+    long                    live = 0;
+    uint64_t                idx, found;
+    size_t                  nlen, vlen;
+    unsigned char           name[32], value[32];
+    xqc_dtable_t           *dt;
+    xqc_nv_ref_type_t       ref;
+    xqc_log_callbacks_t     callbacks = xqc_null_log_cb;
+    xqc_log_t               log = {0};
+
+    log.log_level = XQC_LOG_DEBUG;
+    log.log_callbacks = &callbacks;
+    dt = xqc_dtable_create(16, &log, 1);
+    CU_ASSERT_FATAL(dt != NULL);
+    CU_ASSERT_FATAL(xqc_dtable_set_capacity(dt, 300) == XQC_OK);
+
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+#endif
+    for (i = 0; i < 2000; i++) {
+        nlen = xqc_sprintf(name, name + sizeof(name), "name-%05d", i) - name;
+        vlen = xqc_sprintf(value, value + sizeof(value), "value-%05d", i)
+               - value;
+        CU_ASSERT(xqc_dtable_add(dt, name, nlen, value, vlen, &idx) == XQC_OK);
+        CU_ASSERT(idx == i);
+
+        ref = xqc_dtable_lookup(dt, name, nlen, value, vlen, &found);
+        CU_ASSERT(ref == XQC_NV_REF_NAME_AND_VALUE);
+        CU_ASSERT(found == idx);
+
+#ifdef XQC_TEST_ALLOC_WRAP
+        if (i == 99) {
+            /* the table has been full for 95 insertions */
+            live = xqc_test_alloc_live;
+        }
+#endif
+    }
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(live == 5);
+    CU_ASSERT(xqc_test_alloc_live == live);
+#endif
+
+    xqc_dtable_free(dt);
 }

@@ -935,6 +935,13 @@ main(int argc, char *argv[])
                         xqc_test_alpn_server_cb_propagates_error)
         || !CU_add_test(pSuite, "xqc_test_alpn_client_handshake_no_alpn",
                         xqc_test_alpn_client_handshake_no_alpn)
+        /* RFC 9000 Section 10.3.1: stateless reset tokens */
+        || !CU_add_test(pSuite, "xqc_test_stateless_reset_token_of_unused_cid",
+                        xqc_test_stateless_reset_token_of_unused_cid)
+        || !CU_add_test(pSuite, "xqc_test_stateless_reset_token_of_used_cid",
+                        xqc_test_stateless_reset_token_of_used_cid)
+        || !CU_add_test(pSuite, "xqc_test_stateless_reset_token_of_retired_cid",
+                        xqc_test_stateless_reset_token_of_retired_cid)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

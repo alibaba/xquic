@@ -644,3 +644,27 @@ xqc_test_murmur_hash2_high_bytes(void)
     CU_ASSERT_EQUAL(xqc_murmur_hash2(all, 4), 0x14acb3daU);
     CU_ASSERT_EQUAL(xqc_murmur_hash2(high, 4), 0x26de7447U);
 }
+
+/*
+ * "%*s" takes a length and a pointer, and an empty string may come with a
+ * NULL pointer, which must not reach memcpy().
+ */
+void
+xqc_test_sprintf_counted_string(void)
+{
+    unsigned char  buf[16];
+    unsigned char *end;
+
+    end = xqc_sprintf(buf, buf + sizeof(buf), "[%*s]",
+                      (size_t) 0, (unsigned char *) NULL);
+    CU_ASSERT(end - buf == 2 && memcmp(buf, "[]", 2) == 0);
+
+    end = xqc_sprintf(buf, buf + sizeof(buf), "[%*s]",
+                      (size_t) 3, (unsigned char *) "abcdef");
+    CU_ASSERT(end - buf == 5 && memcmp(buf, "[abc]", 5) == 0);
+
+    /* abnormal: a string longer than the buffer is cut at its end */
+    end = xqc_sprintf(buf, buf + 4, "[%*s]",
+                      (size_t) 6, (unsigned char *) "abcdef");
+    CU_ASSERT(end - buf == 4 && memcmp(buf, "[abc", 4) == 0);
+}

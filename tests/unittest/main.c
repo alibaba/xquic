@@ -436,6 +436,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_murmur_hash2", xqc_test_murmur_hash2)
         || !CU_add_test(pSuite, "xqc_test_murmur_hash2_high_bytes",
                         xqc_test_murmur_hash2_high_bytes)
+        || !CU_add_test(pSuite, "xqc_test_sprintf_counted_string",
+                        xqc_test_sprintf_counted_string)
         || !CU_add_test(pSuite, "xqc_test_vint", xqc_test_vint)
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_clamp_boundary", xqc_test_flow_ctl_clamp_boundary)
         || !CU_add_test(pSuite, "xqc_test_stream_flow_ctl_clamp", xqc_test_stream_flow_ctl_clamp)
@@ -669,6 +671,10 @@ main(int argc, char *argv[])
                         xqc_test_tls_default_cert_without_sni)
         || !CU_add_test(pSuite, "xqc_test_tls_session_ticket_timeout",
                         xqc_test_tls_session_ticket_timeout)
+        || !CU_add_test(pSuite, "xqc_test_tls_ctx_alpn_list",
+                        xqc_test_tls_ctx_alpn_list)
+        || !CU_add_test(pSuite, "xqc_test_tls_client_session_ticket",
+                        xqc_test_tls_client_session_ticket)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)

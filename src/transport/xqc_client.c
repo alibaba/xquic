@@ -185,8 +185,10 @@ xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_
         ret = -XQC_EMALLOC;
         goto end;
     }
-    xqc_memcpy(cfg.session_ticket, conn_ssl_config->session_ticket_data,
-               conn_ssl_config->session_ticket_len);
+    if (conn_ssl_config->session_ticket_len > 0) {
+        xqc_memcpy(cfg.session_ticket, conn_ssl_config->session_ticket_data,
+                   conn_ssl_config->session_ticket_len);
+    }
     cfg.session_ticket_len = conn_ssl_config->session_ticket_len;
 
     /* copy alpn */

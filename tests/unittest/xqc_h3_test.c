@@ -1420,6 +1420,84 @@ xqc_test_h3_blocked_stream_reject_after_close()
 }
 
 
+/*
+ * A request stream is blocked by QPACK beyond the decoder's
+ * SETTINGS_QPACK_BLOCKED_STREAMS limit, so it is not recorded as blocked.
+ * Its FIN was read with its bytes, and then its transport stream closes.
+ * The h3 stream must be destroyed at once: with no record, a stream left
+ * flagged as blocked is never destroyed, so it leaks with its request and
+ * buffers for the lifetime of the connection and beyond. The request's
+ * close callback counts the destruction.
+ */
+static int xqc_h3_limit_leak_closed;
+
+static int
+xqc_h3_limit_leak_close_notify(xqc_h3_request_t *h3_request, void *user_data)
+{
+    xqc_h3_limit_leak_closed++;
+    return 0;
+}
+
+void
+xqc_test_h3_blocked_stream_limit_leak()
+{
+    /* HEADERS: Required Insert Count 1, Base 1, dynamic index 0 — blocks */
+    static const unsigned char frame[] = { 0x01, 0x03, 0x02, 0x00, 0x80 };
+    unsigned char buf[sizeof(frame)];
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    CU_ASSERT_FATAL(conn->alpn != NULL);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+    conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 16;
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    /* the decoder admits no blocked stream: the stream exceeds the limit */
+    h3c->local_h3_conn_settings.qpack_blocked_streams = 0;
+    /* observe the destruction of the rejected request */
+    xqc_h3_limit_leak_closed = 0;
+    h3c->h3_request_callbacks.h3_request_close_notify =
+        xqc_h3_limit_leak_close_notify;
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_REQUEST, NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /* the request's FIN was read with its bytes */
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
+
+    memcpy(buf, frame, sizeof(frame));
+    xqc_int_t ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf), XQC_TRUE);
+    CU_ASSERT(ret < 0);
+
+    /* the stream was not recorded, and must not stay flagged as blocked */
+    CU_ASSERT(h3c->block_stream_count == 0);
+    CU_ASSERT(h3s->blocked_stream == NULL);
+    CU_ASSERT(!(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED));
+
+    /* the transport stream closes: the h3 stream is destroyed, not kept */
+    CU_ASSERT(xqc_h3_stream_close_notify(stream, h3s) == XQC_OK);
+    CU_ASSERT(xqc_h3_limit_leak_closed == 1);
+    CU_ASSERT(xqc_list_empty(&h3c->block_stream_head));
+
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
+    xqc_engine_destroy(conn->engine);
+}
+
+
 static xqc_usec_t xqc_h3_test_duplicate_now;
 
 

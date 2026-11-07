@@ -49,9 +49,9 @@ xqc_recv_timestamps_info_add_pkt(xqc_recv_timestamps_info_t *ts_info,
     if (pkt_num < ts_info->expected_next_pkt_num) {
         return;
     } else if (pkt_num > ts_info->expected_next_pkt_num) {
-        ts_info->new_range_flag |= 1 << (ts_info->end_idx);
+        ts_info->new_range_flag |= 1ULL << ts_info->end_idx;
     } else {
-        ts_info->new_range_flag &= ~(1 << (ts_info->end_idx));
+        ts_info->new_range_flag &= ~(1ULL << ts_info->end_idx);
     }
     ts_info->pkt_nums[ts_info->end_idx] = pkt_num;
     ts_info->recv_timestamps[ts_info->end_idx] = recv_time;

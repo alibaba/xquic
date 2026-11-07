@@ -51,6 +51,14 @@ void xqc_test_h3_valid_headers_smoke();
 void xqc_test_h3_blocked_stream_reject_after_close();
 /* a stream blocked beyond the limit is destroyed, not leaked, on close */
 void xqc_test_h3_blocked_stream_limit_leak();
+/* unblocking one stream frees a sibling's record mid-walk (use-after-free) */
+void xqc_test_h3_blocked_stream_walk_uaf();
+/* a stream blocked with no field line byte buffered is unblocked */
+void xqc_test_h3_blocked_stream_unblock_no_bytes();
+/* a stream resumed blocks again on its trailer section, then resumes */
+void xqc_test_h3_blocked_stream_reblock();
+/* a resumed stream kept for a delayed destroy fails: it is destroyed */
+void xqc_test_h3_blocked_stream_unblock_error();
 void xqc_test_h3_qpack_duplicate_uses_excessive_load();
 void xqc_test_h3_frame_parse_error_uses_frame_error();
 void xqc_test_h3_control_frame_unexpected();

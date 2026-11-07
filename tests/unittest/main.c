@@ -751,6 +751,14 @@ main(int argc, char *argv[])
                         xqc_test_h3_blocked_stream_reject_after_close)
         || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_limit_leak",
                         xqc_test_h3_blocked_stream_limit_leak)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_walk_uaf",
+                        xqc_test_h3_blocked_stream_walk_uaf)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_unblock_no_bytes",
+                        xqc_test_h3_blocked_stream_unblock_no_bytes)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_reblock",
+                        xqc_test_h3_blocked_stream_reblock)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_unblock_error",
+                        xqc_test_h3_blocked_stream_unblock_error)
         || !CU_add_test(pSuite, "xqc_test_h3_qpack_duplicate_uses_excessive_load",
                         xqc_test_h3_qpack_duplicate_uses_excessive_load)
         || !CU_add_test(pSuite, "xqc_test_h3_frame_parse_error_uses_frame_error", xqc_test_h3_frame_parse_error_uses_frame_error)

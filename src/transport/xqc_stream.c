@@ -1617,7 +1617,11 @@ xqc_stream_recv(xqc_stream_t *stream, unsigned char *recv_buf, size_t recv_buf_s
         frame_left = stream_frame->data_length - stream_frame->next_read_offset;
 
         if (read + frame_left <= recv_buf_size) {
-            memcpy(recv_buf + read, stream_frame->data + stream_frame->next_read_offset, frame_left);
+            if (frame_left > 0) {
+                memcpy(recv_buf + read,
+                       stream_frame->data + stream_frame->next_read_offset,
+                       frame_left);
+            }
             stream->stream_data_in.next_read_offset += frame_left;
             stream_frame->next_read_offset = stream_frame->data_length;
             read += frame_left;

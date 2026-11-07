@@ -1067,12 +1067,22 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                     xqc_log_event(h3s->log, QPACK_STREAM_STATE_UPDATED, h3s);
 
                     /* add blocked stream to h3 connection */
-                    h3s->flags |= XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED;
                     h3s->blocked_stream = xqc_h3_conn_add_blocked_stream(
                         h3s->h3c, h3s, xqc_qpack_get_req_rqrd_insert_cnt(h3s->ctx));
                     if (h3s->blocked_stream == NULL) {
+                        /*
+                         * not recorded as blocked: the limit was reached, or
+                         * the record could not be allocated. The stream is
+                         * left unflagged, so that when its transport stream
+                         * closes with the FIN read it is destroyed at once,
+                         * not kept for a delayed destroy that nothing would
+                         * complete without a record.
+                         */
                         return -XQC_H3_BLOCKED_STREAM_EXCEED;
                     }
+
+                    /* flag the stream blocked only once it is recorded */
+                    h3s->flags |= XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED;
 
                     xqc_h3_request_blocked(h3s->h3r);
 

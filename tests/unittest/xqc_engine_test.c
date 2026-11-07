@@ -174,6 +174,56 @@ xqc_test_engine_min_unknown_0rtt_not_pre_dropped()
 }
 
 
+/*
+ * Every encrypted length of a load balancer CID: 16 bytes take one AES
+ * pass, the others the four-pass cipher, whose truncations shift by more
+ * than a byte for the long lengths. Each CID is encrypted into a buffer of
+ * exactly its length, followed by a guard byte that must stay intact.
+ * Encryption is deterministic and keeps the first octet; lengths and keys
+ * out of range are refused.
+ */
+void
+xqc_test_engine_lb_cid_encryption()
+{
+    uint8_t key[XQC_LB_CID_KEY_LEN];
+    uint8_t in[XQC_MAX_CID_LEN];
+    uint8_t out1[XQC_MAX_CID_LEN + 1], out2[XQC_MAX_CID_LEN + 1];
+    xqc_engine_t *engine = test_create_engine();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    for (size_t i = 0; i < sizeof(key); i++) {
+        key[i] = (uint8_t) (0x30 + i);
+    }
+    for (size_t i = 0; i < sizeof(in); i++) {
+        in[i] = (uint8_t) (0x11 * i + 7);
+    }
+
+    for (size_t len = 1; len < XQC_MAX_CID_LEN; len++) {
+        memcpy(out1, in, len + 1);
+        memcpy(out2, in, len + 1);
+        out1[len + 1] = 0xa5;
+        out2[len + 1] = 0xa5;
+        CU_ASSERT(xqc_lb_cid_encryption(in, len, out1, len + 1,
+                                        key, sizeof(key), engine) == XQC_OK);
+        CU_ASSERT(xqc_lb_cid_encryption(in, len, out2, len + 1,
+                                        key, sizeof(key), engine) == XQC_OK);
+        CU_ASSERT(memcmp(out1, out2, len + 1) == 0);
+        CU_ASSERT(out1[0] == in[0]);
+        CU_ASSERT(out1[len + 1] == 0xa5);
+    }
+
+    /* abnormal: too long, a short output buffer, a wrong key length */
+    CU_ASSERT(xqc_lb_cid_encryption(in, XQC_MAX_CID_LEN, out1, sizeof(out1),
+                                    key, sizeof(key), engine) == -XQC_EPARAM);
+    CU_ASSERT(xqc_lb_cid_encryption(in, 8, out1, 8, key, sizeof(key),
+                                    engine) == -XQC_EPARAM);
+    CU_ASSERT(xqc_lb_cid_encryption(in, 8, out1, sizeof(out1), key,
+                                    sizeof(key) - 1, engine) == -XQC_EPARAM);
+
+    xqc_engine_destroy(engine);
+}
+
+
 void
 xqc_test_rebinding_candidate_budget_limit()
 {

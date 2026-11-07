@@ -953,11 +953,17 @@ xqc_h3_conn_remove_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_blocked_stream_t *b
 void
 xqc_h3_conn_destroy_blocked_stream_list(xqc_h3_conn_t *h3c)
 {
-    xqc_list_head_t *pos, *next;
-
-    xqc_list_for_each_safe(pos, next, &h3c->block_stream_head) {
+    /*
+     * Destroying a blocked h3 stream notifies the application, which may
+     * close another still-blocked request and free its record from this
+     * list, possibly the record a cached next pointer would follow. Take
+     * the head each time instead of caching the next record. Each stream
+     * destroyed removes its own record, so the list shrinks to empty.
+     */
+    while (!xqc_list_empty(&h3c->block_stream_head)) {
         xqc_h3_blocked_stream_t *blocked_stream =
-                xqc_list_entry(pos, xqc_h3_blocked_stream_t, head);
+                xqc_list_entry(h3c->block_stream_head.next,
+                               xqc_h3_blocked_stream_t, head);
 
         /**
          * when destroying h3 connection, and a h3 stream is still blocked, it means that Transport
@@ -974,14 +980,27 @@ xqc_h3_conn_process_blocked_stream(xqc_h3_conn_t *h3c)
 {
     uint64_t known_received_count = xqc_qpack_get_dec_insert_count(h3c->qpack);
     xqc_list_head_t *pos, *next;
+
+    /*
+     * Unblocking a stream runs its field-section callbacks, which may close
+     * another blocked request whose transport stream has already closed;
+     * that destroys its h3 stream and frees its record from this list,
+     * possibly the record this walk cached as the next one. Restart the walk
+     * from the head after each stream, so a record a callback freed is never
+     * followed. The walk ends because each processed stream is removed from
+     * the list, or re-blocks with a Required Insert Count above the current
+     * Insert Count, which the ordered list places after the break below.
+     */
+again:
     xqc_list_for_each_safe(pos, next, &h3c->block_stream_head) {
-        xqc_h3_blocked_stream_t *blocked_stream = 
+        xqc_h3_blocked_stream_t *blocked_stream =
             xqc_list_entry(pos, xqc_h3_blocked_stream_t, head);
         if (blocked_stream->ricnt <= known_received_count) {
             xqc_int_t ret = xqc_h3_stream_process_blocked_stream(blocked_stream->h3s);
             if (ret < 0) {
                 return ret;
             }
+            goto again;
 
         } else {
             break;

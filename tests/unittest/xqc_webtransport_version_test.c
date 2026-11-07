@@ -361,6 +361,8 @@ version_engine_sessions(xqc_webtransport_draft_version_t version,
         .webtransport_session_create_notify = version_created,
         .webtransport_session_close_notify = version_closed,
     };
+    /* replace the h3 context that test_create_engine() set up */
+    xqc_h3_ctx_destroy(engine);
     CU_ASSERT(xqc_h3_ctx_init(engine, &app) == XQC_OK);
     CU_ASSERT(xqc_wt_ctx_init(engine, NULL, &callbacks, NULL) == XQC_OK);
     xqc_webtransport_conn_settings_t settings =

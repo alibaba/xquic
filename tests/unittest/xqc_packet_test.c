@@ -179,6 +179,17 @@ xqc_test_server_write(const unsigned char *buf, size_t size,
     return size;
 }
 
+/*
+ * A server must have it: without it, xquic accepts the connection again,
+ * with a new TLS instance, for each Initial packet it receives.
+ */
+static int
+xqc_test_server_accept(xqc_engine_t *engine, xqc_connection_t *conn,
+    const xqc_cid_t *cid, void *user_data)
+{
+    return 0;
+}
+
 int
 xqc_test_server_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
     void *user_data, void *conn_proto_data)
@@ -226,7 +237,7 @@ xqc_test_set_event_timer(xqc_msec_t wake_after, void *engine_user_data)
 xqc_engine_t *
 test_create_engine_buf_server(test_ctx *tctx)
 {
-    xqc_engine_ssl_config_t  engine_ssl_config;
+    xqc_engine_ssl_config_t  engine_ssl_config = {0};
     engine_ssl_config.private_key_file = "./server.key";
     engine_ssl_config.cert_file = "./server.crt";
     engine_ssl_config.ciphers = XQC_TLS_CIPHERS;
@@ -239,6 +250,7 @@ test_create_engine_buf_server(test_ctx *tctx)
     };
 
     xqc_transport_callbacks_t tcbs = {
+        .server_accept = xqc_test_server_accept,
         .write_socket = xqc_test_server_write,
     };
 
@@ -264,7 +276,7 @@ test_create_engine_buf_server(test_ctx *tctx)
 xqc_engine_t *
 test_create_engine_buf_client(test_ctx *tctx)
 {
-    xqc_engine_ssl_config_t  engine_ssl_config;
+    xqc_engine_ssl_config_t  engine_ssl_config = {0};
     engine_ssl_config.private_key_file = "./server.key";
     engine_ssl_config.cert_file = "./server.crt";
     engine_ssl_config.ciphers = XQC_TLS_CIPHERS;

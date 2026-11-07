@@ -896,6 +896,8 @@ wt_test_connect_request(int scenario)
     if (scenario == 6) {
         app.h3c_cbs.h3_conn_create_notify = NULL;
     }
+    /* replace the h3 context that test_create_engine() set up */
+    xqc_h3_ctx_destroy(engine);
     CU_ASSERT(xqc_h3_ctx_init(engine, &app) == XQC_OK);
     xqc_webtransport_session_callbacks_t cbs = {
         .webtransport_will_create_session_notify = wt_accept,

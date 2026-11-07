@@ -17,6 +17,7 @@ void xqc_test_h3_critical_stream_close();
 void xqc_test_h3_second_control_stream_rejected();
 void xqc_test_h3_reserved_uni_stream_accepted();
 void xqc_test_h3_push_stream_error_codes();
+void xqc_test_h3_request_create_stream_count(void);
 void xqc_test_h3_max_push_id_valid();
 void xqc_test_h3_max_push_id_errors();
 void xqc_test_h3_goaway_id_valid();

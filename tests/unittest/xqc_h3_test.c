@@ -1420,6 +1420,138 @@ xqc_test_h3_blocked_stream_reject_after_close()
 }
 
 
+/*
+ * A use-after-free in the blocked-stream walk. Two request streams are
+ * blocked. The second (B) had its FIN read and its transport stream then
+ * closed, so it is kept for a delayed destroy (FLAG_CLOSED, stream == NULL)
+ * with its record still in the connection's list, right after the first
+ * (A). When an insertion unblocks the list,
+ * xqc_h3_conn_process_blocked_stream() processes A, whose header callback
+ * closes request B: B is destroyed at once and its record freed. A walk
+ * that cached B as the next record then reads freed memory. The walk must
+ * not follow a record that a callback freed.
+ */
+static xqc_h3_request_t *xqc_h3_walk_uaf_sibling;
+static int xqc_h3_walk_uaf_closed;
+static int xqc_h3_walk_uaf_destroyed;
+
+static int
+xqc_h3_walk_uaf_on_headers(xqc_h3_request_t *h3_request,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    /* the application abandons the sibling request from this callback */
+    if (xqc_h3_walk_uaf_sibling != NULL) {
+        xqc_h3_request_close(xqc_h3_walk_uaf_sibling);
+        xqc_h3_walk_uaf_sibling = NULL;
+        xqc_h3_walk_uaf_closed++;
+    }
+    return 0;
+}
+
+static int
+xqc_h3_walk_uaf_on_close(xqc_h3_request_t *h3_request, void *user_data)
+{
+    xqc_h3_walk_uaf_destroyed++;
+    return 0;
+}
+
+void
+xqc_test_h3_blocked_stream_walk_uaf()
+{
+    /* HEADERS: Insert Count 0, Base 0, Indexed static 0: does not block */
+    static const unsigned char headers[] = { 0x01, 0x03, 0x00, 0x00, 0xC0 };
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    CU_ASSERT_FATAL(conn->alpn != NULL);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+    conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 16;
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+    xqc_h3_walk_uaf_sibling = NULL;
+    xqc_h3_walk_uaf_closed = 0;
+    xqc_h3_walk_uaf_destroyed = 0;
+    h3c->h3_request_callbacks.h3_request_read_notify =
+        xqc_h3_walk_uaf_on_headers;
+    h3c->h3_request_callbacks.h3_request_close_notify =
+        xqc_h3_walk_uaf_on_close;
+
+    /* stream A: blocked, with a buffered field section that decodes now */
+    xqc_stream_t *sa = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(sa != NULL);
+    xqc_h3_stream_t *a = xqc_h3_stream_create(h3c, sa,
+            XQC_H3_STREAM_TYPE_REQUEST, NULL);
+    CU_ASSERT_FATAL(a != NULL);
+    a->h3r = xqc_h3_request_create_inner(h3c, a, NULL);
+    CU_ASSERT_FATAL(a->h3r != NULL);
+
+    /* stream B: blocked, FIN read, transport stream about to close */
+    xqc_stream_t *sb = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(sb != NULL);
+    xqc_h3_stream_t *b = xqc_h3_stream_create(h3c, sb,
+            XQC_H3_STREAM_TYPE_REQUEST, NULL);
+    CU_ASSERT_FATAL(b != NULL);
+    b->h3r = xqc_h3_request_create_inner(h3c, b, NULL);
+    CU_ASSERT_FATAL(b->h3r != NULL);
+
+    /* record A first, then B, so B is the record cached after A */
+    a->flags |= XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED;
+    a->blocked_stream = xqc_h3_conn_add_blocked_stream(h3c, a, 0);
+    CU_ASSERT_FATAL(a->blocked_stream != NULL);
+
+    b->flags |= XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED
+              | XQC_HTTP3_STREAM_FLAG_READ_EOF;
+    b->blocked_stream = xqc_h3_conn_add_blocked_stream(h3c, b, 0);
+    CU_ASSERT_FATAL(b->blocked_stream != NULL);
+    CU_ASSERT(h3c->block_stream_count == 2);
+
+    /* A's buffered field section */
+    xqc_var_buf_t *buf = xqc_var_buf_create(sizeof(headers));
+    CU_ASSERT_FATAL(buf != NULL);
+    CU_ASSERT(xqc_var_buf_save_data(buf, (unsigned char *)headers,
+                                    sizeof(headers)) == XQC_OK);
+    buf->fin_flag = 0;
+    CU_ASSERT(xqc_list_buf_to_tail(&a->blocked_buf, buf) == XQC_OK);
+    a->blocked_buf_size += sizeof(headers);
+    h3c->total_blocked_buf_size += sizeof(headers);
+
+    /* B's transport stream closes while blocked with FIN read: B is kept */
+    CU_ASSERT(xqc_h3_stream_close_notify(sb, b) == XQC_OK);
+    CU_ASSERT(b->stream == NULL);
+    CU_ASSERT(b->flags & XQC_HTTP3_STREAM_FLAG_CLOSED);
+    CU_ASSERT(h3c->block_stream_count == 2);
+
+    /* unblocking A closes request B from A's header callback */
+    xqc_h3_walk_uaf_sibling = b->h3r;
+    CU_ASSERT(xqc_h3_conn_process_blocked_stream(h3c) == XQC_OK);
+
+    /* B was abandoned and destroyed; the walk did not follow its record */
+    CU_ASSERT(xqc_h3_walk_uaf_closed == 1);
+    CU_ASSERT(xqc_h3_walk_uaf_destroyed == 1);
+    CU_ASSERT(xqc_list_empty(&h3c->block_stream_head));
+    CU_ASSERT(h3c->block_stream_count == 0);
+
+    /* A is still open: close it so its h3 stream is destroyed too */
+    CU_ASSERT(xqc_h3_stream_close_notify(sa, a) == XQC_OK);
+    sa->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_destroy_stream(sa);
+    /* B's h3 stream was destroyed during the walk; neutralize its stream */
+    sb->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_destroy_stream(sb);
+    xqc_h3_conn_destroy(h3c);
+    xqc_engine_destroy(conn->engine);
+}
+
+
 static xqc_usec_t xqc_h3_test_duplicate_now;
 
 

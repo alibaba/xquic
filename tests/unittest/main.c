@@ -731,6 +731,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_valid_headers_smoke", xqc_test_h3_valid_headers_smoke)
         || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_reject_after_close",
                         xqc_test_h3_blocked_stream_reject_after_close)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_walk_uaf",
+                        xqc_test_h3_blocked_stream_walk_uaf)
         || !CU_add_test(pSuite, "xqc_test_h3_qpack_duplicate_uses_excessive_load",
                         xqc_test_h3_qpack_duplicate_uses_excessive_load)
         || !CU_add_test(pSuite, "xqc_test_h3_frame_parse_error_uses_frame_error", xqc_test_h3_frame_parse_error_uses_frame_error)

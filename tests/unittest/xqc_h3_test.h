@@ -71,6 +71,8 @@ void xqc_test_h3_allowed_headers_pass();
 
 /* vul 42057008: blocked stream limit must use local settings (RFC 9204 §2.1.2) */
 void xqc_test_h3_blocked_stream_limit_uses_local();
+/* allocation failures of a blocked stream's record */
+void xqc_test_h3_blocked_stream_alloc_failures();
 /* ALIBABA-2026-42073004: SETTINGS frame size limit */
 void xqc_test_h3_settings_frame_size_limit();
 

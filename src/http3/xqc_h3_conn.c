@@ -926,6 +926,17 @@ xqc_h3_conn_add_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_t *h3s, uint64_
     }
 
     xqc_h3_blocked_stream_t *blocked_stream = xqc_h3_blocked_stream_create(h3s, ric);
+    if (blocked_stream == NULL) {
+        xqc_log(h3c->log, XQC_LOG_ERROR, "|create blocked stream error|");
+        XQC_H3_CONN_ERR(h3c, H3_INTERNAL_ERROR, -XQC_H3_EMALLOC);
+
+        /*
+         * the stream is not recorded as blocked: it must not be kept for a
+         * delayed destroy when its transport stream closes
+         */
+        h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED;
+        return NULL;
+    }
 
     /* insert into list order by required insert count asc */
     xqc_list_head_t *pos, *next;

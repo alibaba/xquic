@@ -755,6 +755,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_forbidden_headers_rejected", xqc_test_h3_forbidden_headers_rejected)
         || !CU_add_test(pSuite, "xqc_test_h3_allowed_headers_pass", xqc_test_h3_allowed_headers_pass)
         || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_limit_uses_local", xqc_test_h3_blocked_stream_limit_uses_local)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_alloc_failures",
+                        xqc_test_h3_blocked_stream_alloc_failures)
         /* issue #748: RFC 9114 §4.2 uppercase field name rejection */
         || !CU_add_test(pSuite, "xqc_test_h3_field_name_uppercase_rejection", xqc_test_h3_field_name_uppercase_rejection)
         || !CU_add_test(pSuite, "xqc_test_h3_lowercase_field_name_stream_accepted",

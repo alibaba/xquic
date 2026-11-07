@@ -1,0 +1,270 @@
+name: Sanitizers
+
+# Runs the complete CUnit suite and the native client-to-server case groups
+# under AddressSanitizer, LeakSanitizer and UndefinedBehaviorSanitizer.
+# Every process that finds something writes one report file,
+# sanitizer.<pid>, into its working directory: the build directory for the
+# unit suite, the shard directory of its group for the cases. The job fails
+# on a failing test or on any report file, so a report counts even when the
+# process that wrote it exits normally or is a server that its case stops.
+#
+# Checks that main still fails stay off; each comment below names the
+# change after which its check can be turned back on.
+# .github/sanitizers/ubsan.supp and .github/sanitizers/lsan.supp hold the
+# reports that can be suppressed one code site at a time. To reproduce a
+# report, build with the flags of the Build XQUIC step and run the test or
+# case group with the environment of this job.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The BoringSSL release that the jobs build: a tag, not BoringSSL's main
+  # branch, so that a BoringSSL commit cannot break the jobs on its own.
+  # Raise it to a newer tag of https://github.com/google/boringssl/tags
+  # once the jobs pass with it.
+  XQC_BORINGSSL_TAG: 0.20261105.0
+
+jobs:
+
+  sanitizers-ubuntu:
+
+    name: Sanitizers on Ubuntu
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 45
+
+    env:
+      ASAN_OPTIONS: log_path=sanitizer:detect_leaks=1:exitcode=0
+      ASAN_SYMBOLIZER_PATH: /usr/lib/llvm-18/bin/llvm-symbolizer
+      LSAN_OPTIONS: suppressions=${{ github.workspace }}/.github/sanitizers/lsan.supp:print_suppressions=0
+      UBSAN_OPTIONS: log_path=sanitizer:print_stacktrace=1:report_error_type=1:suppressions=${{ github.workspace }}/.github/sanitizers/ubsan.supp
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y \
+            build-essential \
+            clang-18 \
+            libclang-rt-18-dev \
+            llvm-18 \
+            libcunit1 \
+            libcunit1-dev \
+            libevent-dev \
+            lsof \
+            psmisc
+        # sudo resets the environment: keep the sanitizer options for the
+        # cases that start the client with sudo.
+        echo 'Defaults env_keep += "ASAN_OPTIONS ASAN_SYMBOLIZER_PATH LSAN_OPTIONS UBSAN_OPTIONS"' \
+          | sudo tee /etc/sudoers.d/xquic-sanitizers > /dev/null
+        sudo chmod 0440 /etc/sudoers.d/xquic-sanitizers
+
+    - name: Build BoringSSL
+      run: |
+        git clone --depth 1 --branch "$XQC_BORINGSSL_TAG" \
+          https://github.com/google/boringssl.git ./third_party/boringssl
+        cmake -S third_party/boringssl -B third_party/boringssl/build \
+          -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC"
+        cmake --build third_party/boringssl/build --parallel --target ssl crypto
+
+    - name: Build XQUIC
+      run: |
+        # -fno-sanitize=alignment until the memory pool aligns large
+        # allocations (#1054) and the version and token fields of packets
+        # are read and written bytewise.
+        # -fno-sanitize=function until the functions that are called through
+        # a (void) prototype, xqc_now() and the *_size() callbacks of the
+        # congestion controllers, schedulers and reinjection controllers,
+        # are defined with (void) instead of an empty parameter list.
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        SSL_INC_PATH_STR="${SSL_PATH_STR}/include"
+        SSL_LIB_PATH_STR="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        cmake -S . -B build \
+          -DCMAKE_C_COMPILER=clang-18 \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DASAN=ON \
+          -DCMAKE_C_FLAGS="-fsanitize=undefined -fno-sanitize=alignment,function" \
+          -DXQC_ENABLE_TESTING=1 \
+          -DXQC_PRINT_SECRET=1 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DXQC_ENABLE_UNLIMITED=1 \
+          -DXQC_ENABLE_COPA=1 \
+          -DXQC_COMPAT_DUPLICATE=1 \
+          -DXQC_ENABLE_FEC=1 \
+          -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 \
+          -DXQC_ENABLE_PKM=1 \
+          -DXQC_ENABLE_WEBTRANSPORT=1 \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_INC_PATH_STR}" \
+          -DSSL_LIB_PATH="${SSL_LIB_PATH_STR}"
+        cmake --build build --parallel
+
+    - name: Test
+      timeout-minutes: 30
+      run: |
+        cd build
+        openssl req -newkey rsa:2048 -x509 -nodes \
+          -keyout server.key \
+          -new \
+          -out server.crt \
+          -subj /CN=test.xquic.com
+
+        # Leak detection is off for the unit suite until the unit tests
+        # release what their helpers allocate (#1057).
+        ASAN_OPTIONS="${ASAN_OPTIONS}:detect_leaks=0" ./tests/run_tests 2>&1 \
+          | tee ../xquic_sanitizers_unit.log
+
+        # Groups that main fails with AddressSanitizer errors, which no
+        # suppression can hide; add a group back once its errors are fixed:
+        # - the debug log of a PATH_RESPONSE frame reads past its 8-byte
+        #   data (#1041): http3.core, transport.core, transport.fec,
+        #   transport.multipath;
+        # - the qlog event of a name-only QPACK insertion passes an int
+        #   where its callback reads a size_t value length: http3.core;
+        # - xqc_array_right_shift() copies overlapping bytes with memcpy():
+        #   transport.core.
+        excluded_groups=" http3.core transport.core transport.fec transport.multipath "
+        # Groups run without leak detection: transport.stream, until the
+        # test client frees the request context of a request it fails to
+        # create.
+        unchecked_leak_groups=" transport.stream "
+        checked_args=()
+        unchecked_args=()
+        for group in $(bash ../scripts/case_test.sh --execution-plan \
+          | awk -F'[= ]' '/^implemented_group=/{print $2}'); do
+          case "$excluded_groups" in
+            *" $group "*) continue ;;
+          esac
+          case "$unchecked_leak_groups" in
+            *" $group "*) unchecked_args+=(--group "$group") ;;
+            *) checked_args+=(--group "$group") ;;
+          esac
+        done
+
+        expected=0
+        case_status=0
+        run_groups()
+        {
+          local plan
+          local count
+
+          plan="$(bash ../scripts/case_test.sh --execution-plan "$@")"
+          echo "$plan" | tee -a ../xquic_sanitizers_case_test.log
+          count="$(printf '%s\n' "$plan" | awk -F= '/^implemented_unique_cases=/{print $2}')"
+          expected=$((expected + ${count:-0}))
+          XQC_BUILD_DIR="${PWD}" \
+            CASE_TEST_CASE_TIMEOUT=300 \
+            CASE_TEST_SHARD_TIMEOUT=600 \
+            bash ../scripts/case_test.sh --execute --parallel --jobs auto \
+              --require-complete "$@" \
+            2>&1 | tee -a ../xquic_sanitizers_case_test.log
+          if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+            case_status=1
+          fi
+        }
+        run_groups "${checked_args[@]}"
+        if [ "${#unchecked_args[@]}" -gt 0 ]; then
+          ASAN_OPTIONS="${ASAN_OPTIONS}:detect_leaks=0" \
+            run_groups "${unchecked_args[@]}"
+        fi
+        printf '%s\n' "$expected" > ../xquic_sanitizers_case_expected
+        printf '%s\n' "$case_status" > ../xquic_sanitizers_case_status
+
+    - name: Check Test Result
+      if: always()
+      run: |
+        # the cases that run the client with sudo leave root-owned reports
+        sudo chmod -R a+rX build
+        report_count=0
+        while IFS= read -r report; do
+          report_count=$((report_count + 1))
+          echo "::group::$report"
+          cat "$report"
+          echo "::endgroup::"
+        done < <(find build -type f -name 'sanitizer.[0-9]*' | sort)
+        echo "sanitizer reports:$report_count"
+
+        unit_summary=$(awk '
+          $1 == "tests" && NF == 6 && $2 ~ /^[0-9]+$/ \
+            && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/ {
+            summary = $2 " " $3 " " $4 " " $5
+          }
+          END {print summary}
+        ' xquic_sanitizers_unit.log 2> /dev/null || true)
+        read -r unit_total unit_ran unit_passed unit_failed \
+          <<< "${unit_summary:-0 0 0 1}"
+        echo "unit test total:$unit_total ran:$unit_ran" \
+          "passed:$unit_passed failed:$unit_failed"
+
+        case_passed=$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:1$/ {count++} END {print count + 0}' xquic_sanitizers_case_test.log 2> /dev/null || echo 0)
+        case_failed=$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:0$/ {count++} END {print count + 0}' xquic_sanitizers_case_test.log 2> /dev/null || echo 0)
+        case_expected=$(cat xquic_sanitizers_case_expected 2> /dev/null || echo 0)
+        case_status=$(cat xquic_sanitizers_case_status 2> /dev/null || echo 1)
+        echo "case test passed:$case_passed failed:$case_failed" \
+          "expected:$case_expected status:$case_status"
+        grep -E '^\[case-test:[^]]+\] .+ >>>>>>>> pass:0$' \
+          xquic_sanitizers_case_test.log 2> /dev/null || true
+
+        if [ "$unit_total" -gt 0 ] \
+          && [ "$unit_ran" -eq "$unit_total" ] \
+          && [ "$unit_passed" -eq "$unit_total" ] \
+          && [ "$unit_failed" -eq 0 ] \
+          && [ "$case_expected" -gt 0 ] \
+          && [ "$case_status" -eq 0 ] \
+          && [ "$case_failed" -eq 0 ] \
+          && [ "$case_passed" -eq "$case_expected" ] \
+          && [ "$report_count" -eq 0 ]; then
+          echo "===== No test failure or sanitizer report ====="
+        else
+          echo "===== Test failure or sanitizer report ====="
+          exit 1
+        fi
+
+    - name: Upload sanitizer logs
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: sanitizers-ubuntu-logs
+        path: |
+          xquic_sanitizers_unit.log
+          xquic_sanitizers_case_test.log
+          xquic_sanitizers_case_expected
+          xquic_sanitizers_case_status
+          build/sanitizer.*
+          build/case_test_parallel/*/*/sanitizer.*
+          build/case_test_parallel/*/*/case_test.log
+          build/case_test_parallel/*/*/case_test.failures
+          build/case_test_parallel/*/*/case_test.results
+          build/case_test_parallel/*/*/case_test.events
+          build/case_test_parallel/*/*/case-output-*.log
+        retention-days: 1

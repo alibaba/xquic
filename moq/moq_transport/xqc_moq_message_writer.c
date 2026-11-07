@@ -37,7 +37,9 @@ xqc_moq_msg_write(xqc_moq_session_t *session, xqc_moq_stream_t *stream, xqc_moq_
 
     ret = xqc_moq_stream_write(stream);
     if (ret < 0) {
-        xqc_log(session->log, XQC_LOG_ERROR, "|xqc_moq_stream_write error|ret:%d|msg_type:0x%xi|", ret, msg_base->type());
+        xqc_log(session->log, XQC_LOG_ERROR,
+                "|xqc_moq_stream_write error|ret:%d|msg_type:0x%xd|",
+                ret, msg_base->type());
         return ret;
     }
     return XQC_OK;

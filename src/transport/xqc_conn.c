@@ -3453,8 +3453,7 @@ xqc_conn_send_version_negotiation(xqc_connection_t *c)
     *p++ = (1 << 7);
 
     /* version */
-    *(uint32_t *)p = 0;
-    p += sizeof(uint32_t);
+    p = xqc_put_uint32be(p, 0);
 
     /* dcid len */
     *p = c->dcid_set.current_dcid.cid_len;
@@ -3478,8 +3477,7 @@ xqc_conn_send_version_negotiation(xqc_connection_t *c)
     unsigned char *end = packet_out->po_buf + packet_out->po_buf_size;
     for (size_t i = 0; i < version_count; ++i) {
         if (p + sizeof(uint32_t) <= end) {
-            *(uint32_t*)p = htonl(version_list[i]);
-            p += sizeof(uint32_t);
+            p = xqc_put_uint32be(p, version_list[i]);
 
         } else {
             break;
@@ -3986,20 +3984,19 @@ xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *enc_data, unsi
     struct sockaddr *sa = (struct sockaddr *)conn->peer_addr;
     const unsigned char *pos = token;
     if (*pos++ & 0x80) {
-        struct in6_addr *in6 = (struct in6_addr *)pos;
         struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)sa;
         if (token_len != 21) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|token_len error|token_len:%ui|", token_len);
             return XQC_ERROR;
         }
-        if (memcmp(&sa6->sin6_addr, in6, sizeof(struct in6_addr)) != 0) {
+        if (memcmp(&sa6->sin6_addr, pos, sizeof(struct in6_addr)) != 0) {
             xqc_log(conn->log, XQC_LOG_WARN, "|ipv6 not match|");
             return XQC_ERROR;
         }
         pos += sizeof(struct in6_addr);
 
     } else {
-        struct in_addr *in4 = (struct in_addr *)pos;
+        struct in_addr in4;
         struct sockaddr_in *sa4 = (struct sockaddr_in *)sa;
         if (token_len != 9) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|token_len error|token_len:%ui|", token_len);
@@ -4008,23 +4005,25 @@ xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *enc_data, unsi
         xqc_log(conn->log, XQC_LOG_DEBUG, "|peer_addr:%s|", inet_ntoa(sa4->sin_addr));
 
         if (memcmp(&sa4->sin_addr, pos, sizeof(struct in_addr)) != 0) {
-            xqc_log(conn->log, XQC_LOG_INFO, "|ipv4 not match|token_addr:%s|", inet_ntoa(*in4));
+            memcpy(&in4, pos, sizeof(in4));
+            xqc_log(conn->log, XQC_LOG_INFO, "|ipv4 not match|token_addr:%s|",
+                    inet_ntoa(in4));
             return XQC_ERROR;
         }
         pos += sizeof(struct in_addr);
     }
 
     /* check token lifetime */
-    uint32_t *expire = (uint32_t *)pos;
-    *expire = ntohl(*expire);
+    uint32_t expire = xqc_parse_uint32(pos);
     uint64_t now = xqc_monotonic_timestamp() / 1000000;
-    if (*expire < now) {
-        xqc_log(conn->log, XQC_LOG_INFO, "|token_expire|expire:%ud|now:%ui|", *expire, now);
+    if (expire < now) {
+        xqc_log(conn->log, XQC_LOG_INFO, "|token_expire|expire:%ud|now:%ui|",
+                expire, now);
         return XQC_ERROR;
 
-    } else if (*expire - now <= XQC_TOKEN_UPDATE_DELTA) {
+    } else if (expire - now <= XQC_TOKEN_UPDATE_DELTA) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|new token|expire:%ud|now:%ui|delta:%ud|",
-                *expire, now, XQC_TOKEN_UPDATE_DELTA);
+                expire, now, XQC_TOKEN_UPDATE_DELTA);
         conn->conn_flag |= XQC_CONN_FLAG_UPDATE_NEW_TOKEN;
     }
 

@@ -770,9 +770,15 @@ xqc_client_h3_ext_datagram_send(user_conn_t *user_conn)
                     dgram_blk->data_sent = dgram_blk->data_len;
                     break;
                 }
+                uint32_t dgram_seq = dgram_blk->dgram_id++;
+                xqc_usec_t send_time = xqc_now();
+
+                /* the fields are unaligned: copy them */
                 dgram_blk->data[dgram_blk->data_sent] = 0x32;
-                *(uint32_t*)(dgram_blk->data + dgram_blk->data_sent + 1) = dgram_blk->dgram_id++;
-                *(uint64_t*)(dgram_blk->data + dgram_blk->data_sent + 5) = xqc_now();
+                memcpy(dgram_blk->data + dgram_blk->data_sent + 1, &dgram_seq,
+                       sizeof(dgram_seq));
+                memcpy(dgram_blk->data + dgram_blk->data_sent + 5, &send_time,
+                       sizeof(send_time));
 
             } else {
                 dgram_blk->data[dgram_blk->data_sent] = 0x31;
@@ -3558,7 +3564,10 @@ xqc_client_stream_close_notify(xqc_stream_t *stream, void *user_data)
         printf("user_stream->recv_fin:%d, user_stream->send_body_len:%zu, user_stream->recv_body_len:%zd\n",
                user_stream->recv_fin, user_stream->send_body_len, user_stream->recv_body_len);
         if (user_stream->recv_fin && user_stream->send_body_len == user_stream->recv_body_len
-            && memcmp(user_stream->send_body, user_stream->recv_body, user_stream->send_body_len) == 0) {
+            && (user_stream->send_body_len == 0
+                || memcmp(user_stream->send_body, user_stream->recv_body,
+                          user_stream->send_body_len) == 0))
+        {
             pass = 1;
         }
         printf(">>>>>>>> pass:%d\n", pass);
@@ -4658,7 +4667,9 @@ xqc_client_request_close_notify(xqc_h3_request_t *h3_request, void *user_data)
     {
         int pass = 0;
         if (user_stream->recv_fin && user_stream->send_body_len == user_stream->recv_body_len
-            && memcmp(user_stream->send_body, user_stream->recv_body, user_stream->send_body_len) == 0)
+            && (user_stream->send_body_len == 0
+                || memcmp(user_stream->send_body, user_stream->recv_body,
+                          user_stream->send_body_len) == 0))
         {
             pass = 1;
 
@@ -5230,7 +5241,11 @@ conn_close:
                 memcpy(user_conn->dgram_blk->recv_data + dgram2_size, sock_op_buffer, dgram1_size);
             }
         }
-        printf("[dgram]|echo_check|same_content:%s|\n", !memcmp(user_conn->dgram_blk->data, user_conn->dgram_blk->recv_data, user_conn->dgram_blk->data_len) ? "yes" : "no");
+        printf("[dgram]|echo_check|same_content:%s|\n",
+               (user_conn->dgram_blk->data_len == 0
+                || !memcmp(user_conn->dgram_blk->data,
+                           user_conn->dgram_blk->recv_data,
+                           user_conn->dgram_blk->data_len)) ? "yes" : "no");
     }
     printf("xqc_client_timeout_callback | conn_close\n");
     g_timeout_flag = 1;

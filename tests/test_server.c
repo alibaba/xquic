@@ -605,8 +605,8 @@ xqc_server_h3_ext_datagram_read_callback(xqc_h3_conn_t *conn, const void *data, 
 
     if (data_len >= 13) {
         dgram_type = *(uint8_t*)data;
-        dgram_id = *(uint32_t*)((uint8_t *)data + 1);
-        timestamp = *(uint64_t*)((uint8_t *)data + 5);
+        memcpy(&dgram_id, (uint8_t *)data + 1, sizeof(dgram_id));
+        memcpy(&timestamp, (uint8_t *)data + 5, sizeof(timestamp));
 
         if (dgram_type == 0x32) {
             printf("[h3-dgram-benchmark]|dgram_id:%u|time:%"PRIu64"|\n", dgram_id, xqc_now() - timestamp);

@@ -34,6 +34,11 @@
  */
 #define HQ_FIELD_LIMIT      256
 /*
+ * Pass cap of the wait for the server's transport stream to close, which
+ * takes a few passes before its STREAM_CLOSE timer runs.
+ */
+#define HQ_CLOSE_PASSES     5000
+/*
  * Wait loops are bounded by both a pass cap and a real-time deadline so a
  * heavily loaded CI machine cannot fail the case on wall-clock alone.
  */
@@ -352,16 +357,29 @@ hq_blocked_reject_after_close(void)
     HQ_CHECK(xqc_h3_request_close(request) == XQC_OK);
 
     /*
-     * A terminally-closed transport stream is destroyed only after the
-     * STREAM_CLOSE timer expires (3*PTO), so wait on a real-time deadline
-     * instead of a pass count.
+     * The reset completes the server's transport stream within a few
+     * passes, then xquic destroys the stream when its STREAM_CLOSE timer
+     * expires, 3*PTO later. Under load one pass can stall for seconds, and
+     * the stalls inflate the RTT samples and so the PTO: no fixed deadline
+     * fits. Wait for the stream to go. Passes made while its timer is
+     * pending do not count: the wait gives up only after both
+     * HQ_CLOSE_PASSES other passes and the real-time deadline.
      */
     xqc_usec_t close_deadline = xqc_complex_case_now_us() + 5000000;
-    while (h3s->stream != NULL
-           && xqc_complex_case_now_us() < close_deadline)
-    {
+    int close_passes = 0;
+    while (!client.conn_closed && !server.conn_closed && h3s->stream != NULL) {
+        ts = h3s->stream;
+        if ((!(ts->stream_flag & XQC_STREAM_FLAG_NEED_CLOSE)
+             || xqc_complex_case_now_us() >= ts->stream_close_time)
+            && ++close_passes > HQ_CLOSE_PASSES
+            && xqc_complex_case_now_us() >= close_deadline)
+        {
+            break;
+        }
         hq_pump_pass(&client, &server, enc, HQ_THROTTLE_WINDOW);
     }
+    /* h3s is freed with the server's connection: check before using it */
+    HQ_CHECK(!client.conn_closed && !server.conn_closed);
     if (h3s->stream != NULL) {
         ts = xqc_find_stream_by_id(sid, server.h3->conn->streams_hash);
         fprintf(stderr, "transport stream not closed: ts:%p sid:%lu blocked:%d "

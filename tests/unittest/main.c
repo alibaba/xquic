@@ -780,6 +780,11 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_qpack_section_cut_short_after_close",
                         xqc_test_h3_qpack_section_cut_short_after_close)
+        /* RFC 9204 Section 2.2.2.2: abandonment of a stream */
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_stream_cancel",
+                        xqc_test_h3_qpack_stream_cancel)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_stream_cancel_omitted",
+                        xqc_test_h3_qpack_stream_cancel_omitted)
         || !CU_add_test(pSuite,
                         "xqc_test_h3_server_reserved_request_frame_accepted",
                         xqc_test_h3_server_reserved_request_frame_accepted)

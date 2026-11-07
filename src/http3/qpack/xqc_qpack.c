@@ -234,6 +234,38 @@ fail:
     return ret;
 }
 
+/* write and notify Stream Cancellation */
+xqc_int_t
+xqc_qpack_cancel_stream(xqc_qpack_t *qpk, uint64_t stream_id)
+{
+    ssize_t cb_ret;
+    xqc_var_buf_t *buf = qpk->ins_cb.get_buf_cb(XQC_INS_TYPE_DECODER,
+                                                qpk->user_data);
+    if (NULL == buf) {
+        xqc_log(qpk->log, XQC_LOG_ERROR, "|get decoder instruction error|");
+        return -XQC_ENOBUF;
+    }
+
+    xqc_int_t ret = xqc_ins_write_stream_cancel(buf, stream_id);
+    if (ret != XQC_OK) {
+        xqc_log(qpk->log, XQC_LOG_ERROR, "|write stream cancel error|ret:%d|",
+                ret);
+        return ret;
+    }
+    xqc_log_event(qpk->log, QPACK_INSTRUCTION_CREATED, XQC_LOG_DECODER_EVENT,
+                  XQC_INS_TYPE_DEC_STREAM_CANCEL, stream_id);
+
+    cb_ret = qpk->ins_cb.write_ins_cb(XQC_INS_TYPE_DECODER, buf,
+                                      qpk->user_data);
+    if (cb_ret < 0) {
+        xqc_log(qpk->log, XQC_LOG_ERROR,
+                "|decoder instruction callback error|ret:%z|", cb_ret);
+        return cb_ret;
+    }
+
+    return XQC_OK;
+}
+
 xqc_int_t
 xqc_qpack_set_enc_max_dtable_cap(xqc_qpack_t *qpk, size_t max_cap)
 {

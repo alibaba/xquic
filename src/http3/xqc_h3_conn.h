@@ -165,6 +165,13 @@ xqc_h3_blocked_stream_t *xqc_h3_conn_add_blocked_stream(xqc_h3_conn_t *h3c, xqc_
 /* remove a blocked request stream when unblocked or abandoned */
 void xqc_h3_conn_remove_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_blocked_stream_t *blocked_stream);
 
+/*
+ * a blocked request stream was cancelled: it no longer counts as blocked,
+ * nor is it unblocked; its record is removed with the stream
+ */
+void xqc_h3_conn_cancel_blocked_stream(xqc_h3_conn_t *h3c,
+    xqc_h3_blocked_stream_t *blocked_stream);
+
 xqc_int_t xqc_h3_conn_process_blocked_stream(xqc_h3_conn_t *h3c);
 
 xqc_var_buf_t *xqc_h3_conn_get_ins_buf(xqc_qpack_ins_type_t type, void *user_data);

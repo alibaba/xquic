@@ -132,6 +132,13 @@ uint64_t xqc_qpack_get_req_rqrd_insert_cnt(void *ctx);
  */
 xqc_bool_t xqc_qpack_is_field_section_complete(xqc_rep_ctx_t *ctx);
 
+/**
+ * @brief write a Stream Cancellation instruction (RFC 9204 Section 4.4.2)
+ * on the decoder stream: the field sections of the stream that the decoder
+ * did not acknowledge no longer refer to the dynamic table
+ */
+xqc_int_t xqc_qpack_cancel_stream(xqc_qpack_t *qpk, uint64_t stream_id);
+
 
 /**
  * @brief set encoder's dtable insert limit for name and entry. long name and large entry exceed

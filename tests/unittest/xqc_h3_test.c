@@ -2474,6 +2474,487 @@ xqc_test_h3_blocked_stream_unblock_error()
 }
 
 
+static xqc_int_t xqc_h3_cancel_setup(xqc_h3_section_ctx_t *ctx);
+static xqc_int_t xqc_h3_cancel_insert(xqc_h3_section_ctx_t *ctx,
+    const char *name);
+static xqc_int_t xqc_h3_cancel_reset(xqc_h3_section_ctx_t *ctx);
+static int xqc_h3_cancel_on_headers(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data);
+static int xqc_h3_cancel_on_body(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data);
+static int xqc_h3_cancel_closed(xqc_h3_request_t *h3r, void *user_data);
+static xqc_int_t xqc_h3_cancel_buffer(xqc_h3_section_ctx_t *ctx,
+    const unsigned char *data, size_t len);
+
+
+/* the streams of xqc_h3_section_setup(), with the request on stream 0 sent */
+static xqc_int_t
+xqc_h3_cancel_setup(xqc_h3_section_ctx_t *ctx)
+{
+    xqc_int_t ret = xqc_h3_section_setup(ctx);
+
+    if (ret == XQC_OK) {
+        ctx->stream[XQC_H3_SECTION_REQUEST]->stream_send_offset = 1;
+    }
+
+    return ret;
+}
+
+
+/* the peer's encoder sets a capacity of 256 and inserts name: 1 */
+static xqc_int_t
+xqc_h3_cancel_insert(xqc_h3_section_ctx_t *ctx, const char *name)
+{
+    xqc_var_buf_t *ins = xqc_var_buf_create(64);
+    xqc_int_t ret;
+
+    if (ins == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    ret = xqc_ins_write_set_dtable_cap(ins, 256);
+    if (ret == XQC_OK) {
+        ret = xqc_ins_write_insert_literal_name(ins, (unsigned char *) name,
+                                                strlen(name),
+                                                (unsigned char *) "1", 1);
+    }
+    if (ret == XQC_OK) {
+        ret = xqc_h3_stream_process_in(ctx->h3s[XQC_H3_SECTION_PEER_ENC],
+                                       ins->data, ins->data_len, XQC_FALSE);
+    }
+
+    xqc_var_buf_free(ins);
+    return ret;
+}
+
+
+/* the peer resets stream 0: its transport stream tells the h3 stream */
+static xqc_int_t
+xqc_h3_cancel_reset(xqc_h3_section_ctx_t *ctx)
+{
+    xqc_stream_t *stream = ctx->stream[XQC_H3_SECTION_REQUEST];
+
+    stream->stream_state_recv = XQC_RECV_STREAM_ST_RESET_RECVD;
+    return h3_stream_callbacks.stream_read_notify(
+               stream, ctx->h3s[XQC_H3_SECTION_REQUEST]);
+}
+
+
+/*
+ * once it reads the header section of a request, the application closes
+ * the request given as user_data, or else that one
+ */
+static int
+xqc_h3_cancel_on_headers(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    if (!(flag & XQC_REQ_NOTIFY_READ_HEADER)) {
+        return XQC_OK;
+    }
+
+    return xqc_h3_request_close(user_data != NULL ? user_data : h3r);
+}
+
+
+/* once told of body bytes, the application closes the request */
+static int
+xqc_h3_cancel_on_body(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    if (!(flag & XQC_REQ_NOTIFY_READ_BODY)) {
+        return XQC_OK;
+    }
+
+    return xqc_h3_request_close(h3r);
+}
+
+
+/* the request was destroyed: count it in user_data */
+static int
+xqc_h3_cancel_closed(xqc_h3_request_t *h3r, void *user_data)
+{
+    (*(int *) user_data)++;
+    return XQC_OK;
+}
+
+
+/*
+ * the transport read path buffers the last bytes of blocked stream 0, with
+ * the end of the stream
+ */
+static xqc_int_t
+xqc_h3_cancel_buffer(xqc_h3_section_ctx_t *ctx, const unsigned char *data,
+    size_t len)
+{
+    xqc_h3_stream_t *h3s = ctx->h3s[XQC_H3_SECTION_REQUEST];
+    xqc_var_buf_t *buf = xqc_var_buf_create(XQC_DATA_BUF_SIZE_4K);
+    xqc_int_t ret;
+
+    if (buf == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    ret = xqc_var_buf_save_data(buf, data, len);
+    if (ret == XQC_OK) {
+        ret = xqc_list_buf_to_tail(&h3s->blocked_buf, buf);
+    }
+    if (ret != XQC_OK) {
+        xqc_var_buf_free(buf);
+        return ret;
+    }
+
+    buf->fin_flag = 1;
+    h3s->blocked_buf_size += len;
+    ctx->h3c->total_blocked_buf_size += len;
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
+    return XQC_OK;
+}
+
+
+/*
+ * RFC 9204 Sections 2.2.2.2 and 4.4.2: a request stream that is reset, or
+ * whose reading is abandoned, before its end gets a Stream Cancellation on
+ * our decoder stream, after the instructions written before it, and then
+ * decodes no field section: the peer's encoder may have recorded field
+ * sections that our decoder never received. Stream 0 carries the client's
+ * request, and here the bytes of the response.
+ */
+void
+xqc_test_h3_qpack_stream_cancel()
+{
+    /* Required Insert Count 0, Base 0, then a field line not received */
+    static const unsigned char static_cut[] = { 0x01, 0x03, 0x00, 0x00 };
+    /* Stream Cancellation of stream 0, then Insert Count Increment 1 */
+    static const unsigned char cancel_ici[] = { 0x40, 0x01 };
+    /*
+     * Insert Count Increment 1, then Section Acknowledgment and Stream
+     * Cancellation of stream 0
+     */
+    static const unsigned char ici_ack_cancel[] = { 0x01, 0x80, 0x40 };
+    /* the same, with the Stream Cancellation of stream 4 */
+    static const unsigned char ici_ack_cancel_4[] = { 0x01, 0x80, 0x44 };
+    /* Stream Cancellation of stream 8 */
+    static const unsigned char cancel_8[] = { 0x48 };
+    /*
+     * a header section on entry 0, a DATA frame, then the prefix of a
+     * trailer section on entry 1
+     */
+    static const unsigned char body_trailer[] = {
+        0x01, 0x03, 0x02, 0x00, 0x80,
+        0x00, 0x01, 0x61,
+        0x01, 0x03, 0x03, 0x00,
+    };
+    unsigned char two[2 * sizeof(xqc_h3_section_dyn) - 1];
+    xqc_h3_request_callbacks_t callbacks;
+    xqc_h3_section_ctx_t ctx;
+    xqc_h3_stream_t *h3s;
+    xqc_stream_t *stream;
+    xqc_int_t ret;
+    int closed;
+
+    /* blocked, then reset: no acknowledgment once the entry is inserted */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn,
+                              sizeof(xqc_h3_section_dyn), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    CU_ASSERT(ctx.h3c->block_stream_count == 1);
+    CU_ASSERT(xqc_h3_cancel_reset(&ctx) == XQC_OK);
+    xqc_h3_section_check_dec(&ctx, cancel_ici, 1);
+    CU_ASSERT(!(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED));
+    CU_ASSERT(ctx.h3c->block_stream_count == 0);
+
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    xqc_h3_section_check_dec(&ctx, cancel_ici, sizeof(cancel_ici));
+    CU_ASSERT(h3s->h3r->completed_header_count == 0);
+    xqc_h3_section_teardown(&ctx);
+
+    /* a field section without dynamic reference, cut short by a reset */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, static_cut,
+                              sizeof(static_cut), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(xqc_h3_cancel_reset(&ctx) == XQC_OK);
+    xqc_h3_section_check_dec(&ctx, cancel_ici, 1);
+    xqc_h3_section_teardown(&ctx);
+
+    /*
+     * the application abandons the stream after a field section that was
+     * acknowledged: a trailer section that arrives later is not decoded
+     */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn,
+                              sizeof(xqc_h3_section_dyn), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(xqc_h3_stream_close(h3s) == XQC_OK);
+    xqc_h3_section_check_dec(&ctx, ici_ack_cancel, sizeof(ici_ack_cancel));
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn,
+                              sizeof(xqc_h3_section_dyn), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    xqc_h3_section_check_dec(&ctx, ici_ack_cancel, sizeof(ici_ack_cancel));
+    CU_ASSERT(h3s->h3r->completed_header_count == 1);
+    xqc_h3_section_teardown(&ctx);
+
+    /*
+     * the same from the callback of the header section, with the trailer
+     * section in the same piece
+     */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn, 1, 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT_FATAL(h3s->h3r != NULL);
+    callbacks = *h3s->h3r->request_if;
+    callbacks.h3_request_read_notify = xqc_h3_cancel_on_headers;
+    h3s->h3r->request_if = &callbacks;
+    memcpy(two, xqc_h3_section_dyn + 1, sizeof(xqc_h3_section_dyn) - 1);
+    memcpy(two + sizeof(xqc_h3_section_dyn) - 1, xqc_h3_section_dyn,
+           sizeof(xqc_h3_section_dyn));
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, two,
+                              sizeof(two), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    xqc_h3_section_check_dec(&ctx, ici_ack_cancel, sizeof(ici_ack_cancel));
+    CU_ASSERT(h3s->h3r->completed_header_count == 1);
+    xqc_h3_section_teardown(&ctx);
+
+    /*
+     * the callback of stream 0, which the insertion unblocks, closes the
+     * request of stream 4, blocked on the same entry: while the blocked
+     * streams are walked, stream 4 is cancelled, and not unblocked
+     */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    ctx.stream[XQC_H3_SECTION_REQUEST_2]->stream_send_offset = 1;
+    for (int i = XQC_H3_SECTION_REQUEST; i <= XQC_H3_SECTION_REQUEST_2; i++) {
+        ret = xqc_h3_section_feed(&ctx, i, xqc_h3_section_dyn,
+                                  sizeof(xqc_h3_section_dyn), 32);
+        xqc_h3_section_check_err(&ctx, ret, 0);
+    }
+    CU_ASSERT(ctx.h3c->block_stream_count == 2);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    callbacks = *h3s->h3r->request_if;
+    callbacks.h3_request_read_notify = xqc_h3_cancel_on_headers;
+    h3s->h3r->request_if = &callbacks;
+    h3s->h3r->user_data = ctx.h3s[XQC_H3_SECTION_REQUEST_2]->h3r;
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    xqc_h3_section_check_dec(&ctx, ici_ack_cancel_4,
+                             sizeof(ici_ack_cancel_4));
+    CU_ASSERT(h3s->h3r->completed_header_count == 1);
+    CU_ASSERT(ctx.h3s[XQC_H3_SECTION_REQUEST_2]->h3r
+              ->completed_header_count == 0);
+    CU_ASSERT(ctx.h3c->block_stream_count == 0);
+    xqc_h3_section_teardown(&ctx);
+
+    /*
+     * a malformed message (RFC 9114 Section 4.1.2), here an uppercase name:
+     * its stream is reset and its reading abandoned, after the field
+     * section was acknowledged
+     */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    CU_ASSERT(xqc_h3_cancel_insert(&ctx, "X-one") == XQC_OK);
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn,
+                              sizeof(xqc_h3_section_dyn), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(h3s->stream->stream_err == H3_MESSAGE_ERROR);
+    xqc_h3_section_check_dec(&ctx, ici_ack_cancel, sizeof(ici_ack_cancel));
+    xqc_h3_section_teardown(&ctx);
+
+    /* the same message on a blocked stream, rejected once resumed */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn,
+                              sizeof(xqc_h3_section_dyn), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    CU_ASSERT(xqc_h3_cancel_insert(&ctx, "X-one") == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(h3s->stream->stream_err == H3_MESSAGE_ERROR);
+    xqc_h3_section_check_dec(&ctx, ici_ack_cancel, sizeof(ici_ack_cancel));
+    CU_ASSERT(ctx.h3c->block_stream_count == 0);
+    xqc_h3_section_teardown(&ctx);
+
+    /*
+     * the peer's GOAWAY covers the blocked stream, which stops reading it,
+     * once even if told twice: no acknowledgment once the entry is inserted
+     */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn,
+                              sizeof(xqc_h3_section_dyn), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    ctx.h3c->flags |= XQC_H3_CONN_FLAG_GOAWAY_RECVD;
+    ctx.h3c->goaway_stream_id = 0;
+    for (int i = 0; i < 2; i++) {
+        CU_ASSERT(h3_stream_callbacks.stream_read_notify(
+                      ctx.stream[XQC_H3_SECTION_REQUEST], h3s) == XQC_OK);
+    }
+    xqc_h3_section_check_dec(&ctx, cancel_ici, 1);
+    CU_ASSERT(ctx.h3c->block_stream_count == 0);
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    xqc_h3_section_check_dec(&ctx, cancel_ici, sizeof(cancel_ici));
+    CU_ASSERT(h3s->h3r->completed_header_count == 0);
+    xqc_h3_section_teardown(&ctx);
+
+    /*
+     * at a server, a request stream that the peer resets before any byte
+     * gave it a type
+     */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    stream = xqc_create_stream_with_conn(ctx.conn, XQC_UNDEFINE_STREAM_ID,
+                                         XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL && stream->stream_id == 8);
+    h3s = xqc_h3_stream_create(ctx.h3c, stream, XQC_H3_STREAM_TYPE_UNKNOWN,
+                               NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+    ctx.conn->conn_type = XQC_CONN_TYPE_SERVER;
+    stream->stream_state_recv = XQC_RECV_STREAM_ST_RESET_RECVD;
+    CU_ASSERT(h3_stream_callbacks.stream_read_notify(stream, h3s) == XQC_OK);
+    ctx.conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_h3_section_check_dec(&ctx, cancel_8, sizeof(cancel_8));
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+    xqc_h3_section_teardown(&ctx);
+
+    /*
+     * the transport stream closed while the stream was blocked, with all
+     * its bytes: once resumed, the stream blocks again on the prefix of its
+     * trailer section, and the application, told of the body, closes the
+     * request. The cancelled stream is not resumed any more: it is
+     * destroyed at once.
+     */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, body_trailer,
+                              sizeof(body_trailer), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    callbacks = *h3s->h3r->request_if;
+    callbacks.h3_request_read_notify = xqc_h3_cancel_on_body;
+    callbacks.h3_request_close_notify = xqc_h3_cancel_closed;
+    h3s->h3r->request_if = &callbacks;
+    closed = 0;
+    h3s->h3r->user_data = &closed;
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
+    CU_ASSERT(h3_stream_callbacks.stream_close_notify(
+                  ctx.stream[XQC_H3_SECTION_REQUEST], h3s) == XQC_OK);
+    CU_ASSERT_FATAL(h3s->stream == NULL);
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    xqc_h3_section_check_dec(&ctx, ici_ack_cancel, sizeof(ici_ack_cancel));
+    CU_ASSERT(closed == 1);
+    CU_ASSERT(xqc_list_empty(&ctx.h3c->block_stream_head));
+    CU_ASSERT(ctx.h3c->block_stream_count == 0);
+    CU_ASSERT(ctx.h3c->total_blocked_buf_size == 0);
+    if (closed == 1) {
+        ctx.h3s[XQC_H3_SECTION_REQUEST] = NULL;
+    }
+    xqc_h3_section_teardown(&ctx);
+}
+
+
+/*
+ * No Stream Cancellation when the stream's end was processed, when our
+ * decoder has no dynamic table (RFC 9204 Section 2.2.2.2 allows to omit
+ * it), when the client did not send its request, or a second time.
+ */
+void
+xqc_test_h3_qpack_stream_cancel_omitted()
+{
+    static const unsigned char static_cut[] = { 0x01, 0x03, 0x00, 0x00 };
+    static const unsigned char ici_ack[] = { 0x01, 0x80 };
+    static const unsigned char cancel[] = { 0x40 };
+    unsigned char buf[sizeof(xqc_h3_section_dyn)];
+    xqc_h3_request_callbacks_t callbacks;
+    xqc_h3_section_ctx_t ctx;
+    xqc_h3_stream_t *h3s;
+    xqc_int_t ret;
+
+    /* a field section and the end of the stream, then a close */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    memcpy(buf, xqc_h3_section_dyn, sizeof(buf));
+    ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf), XQC_TRUE);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(h3s->h3r->fin_flag);
+    CU_ASSERT(xqc_h3_stream_close(h3s) == XQC_OK);
+    xqc_h3_section_check_dec(&ctx, ici_ack, sizeof(ici_ack));
+    xqc_h3_section_teardown(&ctx);
+
+    /*
+     * the same, blocked on the prefix, the rest buffered with the end of the
+     * stream: once resumed, the application closes the request from the
+     * callback of its header section, the last bytes of the stream
+     */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST,
+                              xqc_h3_section_dyn,
+                              sizeof(xqc_h3_section_dyn) - 1, 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+    CU_ASSERT(xqc_h3_cancel_buffer(&ctx, xqc_h3_section_dyn + 4, 1)
+              == XQC_OK);
+    callbacks = *h3s->h3r->request_if;
+    callbacks.h3_request_read_notify = xqc_h3_cancel_on_headers;
+    h3s->h3r->request_if = &callbacks;
+    CU_ASSERT(xqc_h3_section_insert(&ctx) == XQC_OK);
+    ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(h3s->h3r->fin_flag);
+    CU_ASSERT(h3s->h3r->completed_header_count == 1);
+    xqc_h3_section_check_dec(&ctx, ici_ack, sizeof(ici_ack));
+    xqc_h3_section_teardown(&ctx);
+
+    /* no dynamic table */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    ctx.h3c->local_h3_conn_settings.qpack_dec_max_table_capacity = 0;
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, static_cut,
+                              sizeof(static_cut), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(xqc_h3_cancel_reset(&ctx) == XQC_OK);
+    xqc_h3_section_check_dec(&ctx, NULL, 0);
+    xqc_h3_section_teardown(&ctx);
+
+    /* the client closes a request it did not send */
+    CU_ASSERT_FATAL(xqc_h3_section_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    CU_ASSERT(xqc_h3_stream_close(h3s) == XQC_OK);
+    xqc_h3_section_check_dec(&ctx, NULL, 0);
+    xqc_h3_section_teardown(&ctx);
+
+    /* reset, then closed: one Stream Cancellation */
+    CU_ASSERT_FATAL(xqc_h3_cancel_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_SECTION_REQUEST];
+    ret = xqc_h3_section_feed(&ctx, XQC_H3_SECTION_REQUEST, static_cut,
+                              sizeof(static_cut), 32);
+    xqc_h3_section_check_err(&ctx, ret, 0);
+    CU_ASSERT(xqc_h3_cancel_reset(&ctx) == XQC_OK);
+    CU_ASSERT(xqc_h3_stream_close(h3s) == XQC_OK);
+    xqc_h3_section_check_dec(&ctx, cancel, sizeof(cancel));
+    xqc_h3_section_teardown(&ctx);
+}
+
+
 static xqc_usec_t xqc_h3_test_duplicate_now;
 
 

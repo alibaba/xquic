@@ -75,6 +75,9 @@ void xqc_test_h3_data_before_headers_rejected();
 void xqc_test_h3_qpack_section_ack();
 void xqc_test_h3_qpack_section_cut_short();
 void xqc_test_h3_qpack_section_cut_short_after_close();
+/* RFC 9204 Section 2.2.2.2: abandonment of a stream */
+void xqc_test_h3_qpack_stream_cancel();
+void xqc_test_h3_qpack_stream_cancel_omitted();
 
 /* issue #849: RFC 9114 §7.2.5 PUSH_PROMISE sender role */
 void xqc_test_h3_server_reserved_request_frame_accepted();

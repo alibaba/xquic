@@ -357,6 +357,173 @@ fail:
     return rc;
 }
 
+static void hq_pump_pass(hq_endpoint_t *client, hq_endpoint_t *server,
+    xqc_stream_t *throttle, uint64_t window);
+
+/*
+ * RFC 9204 Sections 2.2.2.2 and 4.4.2: when the client abandons a request
+ * whose field section is blocked at the server, the server's decoder sends
+ * a Stream Cancellation, and the client's encoder no longer keeps the
+ * entry that field section refers to. The client's encoder inserts the
+ * entry for the request's stream while its encoder stream holds back the
+ * insertion, and the client writes the HEADERS bytes itself. The server's
+ * request stream is gone when the insertion arrives: only the cancellation
+ * can release the entry, which a table capacity of 0 then evicts. With
+ * omitted set, the server has no dynamic table, and sends no cancellation
+ * for a field section without dynamic reference.
+ */
+static int
+hq_stream_cancel(int omitted)
+{
+    /* HEADERS: Required Insert Count 1, Base 1, dynamic index 0 */
+    unsigned char blocked[] = { 0x01, 0x03, 0x02, 0x00, 0x80 };
+    /* HEADERS: Required Insert Count 0, Base 0, then no field line yet */
+    unsigned char unblocked[] = { 0x01, 0x03, 0x00, 0x00 };
+    xqc_http_header_t field = {
+        .name = {(void *)"x-cancel", 8}, .value = {(void *)"1", 1},
+    };
+    xqc_http_headers_t headers = {.headers = &field, .count = 1};
+    hq_endpoint_t client, server;
+    xqc_complex_case_engine_t *engines[] = {&client.base, &server.base};
+    xqc_conn_ssl_config_t ssl = {0};
+    xqc_h3_request_t *request;
+    xqc_var_buf_t *efs = NULL;
+    xqc_stream_t *enc, *svr_enc = NULL;
+    uint64_t window, limit, svr_window, sid, sent, cancelled;
+    xqc_int_t cap_ret = XQC_OK;
+    xqc_usec_t dl;
+    int rc = 1;
+
+    memset(&client, 0, sizeof(client));
+    memset(&server, 0, sizeof(server));
+    client.base.socket.fd = server.base.socket.fd = -1;
+    HQ_CHECK(hq_engine_init(&server, XQC_ENGINE_SERVER) == 0);
+    HQ_CHECK(hq_engine_init(&client, XQC_ENGINE_CLIENT) == 0);
+    if (omitted) {
+        xqc_h3_engine_set_dec_max_dtable_capacity(server.base.engine, 0);
+    }
+
+    const xqc_cid_t *cid = xqc_h3_connect(client.base.engine,
+        &client.base.engine->default_conn_settings, NULL, 0, "localhost", 0,
+        &ssl, (struct sockaddr *)&server.base.local, server.base.locallen,
+        &client);
+    HQ_CHECK(cid != NULL);
+
+    /* the client's encoder applied the server's SETTINGS */
+    dl = HQ_WAIT_DEADLINE;
+    while ((client.h3 == NULL || server.h3 == NULL
+            || client.h3->peer_h3_conn_settings.qpack_dec_max_table_capacity
+               == XQC_H3_SETTINGS_UNSET)
+           && xqc_complex_case_now_us() < dl)
+    {
+        xqc_complex_case_pump(engines, 2, 10);
+    }
+    HQ_CHECK(client.h3 != NULL && server.h3 != NULL);
+    HQ_CHECK(client.h3->peer_h3_conn_settings.qpack_dec_max_table_capacity
+             != XQC_H3_SETTINGS_UNSET);
+
+    /* as in blocked-reject-after-close, the encoder stream holds back */
+    enc = client.h3->qenc_stream->stream;
+    window = enc->stream_flow_ctl.fc_max_stream_data_can_send;
+    limit = enc->stream_send_offset;
+    enc->stream_flow_ctl.fc_max_stream_data_can_send = limit;
+    dl = HQ_WAIT_DEADLINE;
+    while (svr_enc == NULL && xqc_complex_case_now_us() < dl) {
+        svr_enc = xqc_find_stream_by_id(enc->stream_id,
+                                        server.h3->conn->streams_hash);
+        if (svr_enc == NULL) {
+            hq_pump_pass(&client, &server, enc, limit);
+        }
+    }
+    HQ_CHECK(svr_enc != NULL);
+    svr_window = svr_enc->stream_flow_ctl.fc_stream_recv_window_size;
+    svr_enc->stream_flow_ctl.fc_stream_recv_window_size = 0;
+
+    request = xqc_h3_request_create(client.base.engine, cid, NULL, &client);
+    HQ_CHECK(request != NULL);
+    sid = request->h3_stream->stream_id;
+    if (!omitted) {
+        efs = xqc_var_buf_create(64);
+        HQ_CHECK(efs != NULL);
+        HQ_CHECK(xqc_qpack_enc_headers(client.h3->qpack, sid, &headers, efs)
+                 == XQC_OK);
+        HQ_CHECK(xqc_stream_send(request->h3_stream->stream, blocked,
+                                 sizeof(blocked), 0)
+                 == (ssize_t) sizeof(blocked));
+        dl = HQ_WAIT_DEADLINE;
+        while (server.h3->block_stream_count == 0
+               && xqc_complex_case_now_us() < dl)
+        {
+            hq_pump_pass(&client, &server, enc, limit);
+        }
+        HQ_CHECK(server.h3->block_stream_count == 1);
+
+    } else {
+        HQ_CHECK(xqc_stream_send(request->h3_stream->stream, unblocked,
+                                 sizeof(unblocked), 0)
+                 == (ssize_t) sizeof(unblocked));
+        dl = HQ_WAIT_DEADLINE;
+        while (xqc_find_stream_by_id(sid, server.h3->conn->streams_hash)
+               == NULL && xqc_complex_case_now_us() < dl)
+        {
+            hq_pump_pass(&client, &server, enc, limit);
+        }
+    }
+    sent = hq_section_dec_sent(&server);
+
+    /* the client abandons the request; the server's stream goes away */
+    HQ_CHECK(xqc_h3_request_close(request) == XQC_OK);
+    dl = xqc_complex_case_now_us() + 5000000;
+    while (xqc_find_stream_by_id(sid, server.h3->conn->streams_hash) != NULL
+           && xqc_complex_case_now_us() < dl)
+    {
+        hq_pump_pass(&client, &server, enc, limit);
+    }
+    HQ_CHECK(xqc_find_stream_by_id(sid, server.h3->conn->streams_hash)
+             == NULL);
+    cancelled = hq_section_dec_sent(&server) - sent;
+
+    /* the insertion arrives, and the client gets the server's instructions */
+    enc->stream_flow_ctl.fc_max_stream_data_can_send = window;
+    enc->stream_flag &= ~XQC_STREAM_FLAG_DATA_BLOCKED;
+    svr_enc->stream_flow_ctl.fc_stream_recv_window_size = svr_window;
+    xqc_stream_ready_to_write(enc);
+    dl = HQ_WAIT_DEADLINE;
+    while ((xqc_qpack_get_dec_insert_count(server.h3->qpack) < !omitted
+            || hq_section_dec_rcvd(&client, &server)
+               < hq_section_dec_sent(&server))
+           && xqc_complex_case_now_us() < dl)
+    {
+        hq_pump_pass(&client, &server, NULL, 0);
+    }
+    HQ_CHECK(xqc_qpack_get_dec_insert_count(server.h3->qpack)
+             == (uint64_t) !omitted);
+    HQ_CHECK(hq_section_dec_rcvd(&client, &server)
+             == hq_section_dec_sent(&server));
+    if (!omitted) {
+        cap_ret = xqc_h3_conn_set_qpack_dtable_cap(client.h3, 0);
+    }
+
+    printf("h3 qpack stream cancel%s: %llu byte(s) on the server's decoder "
+           "stream after the request was abandoned, client table emptied "
+           "%d, server 0x%llx, client 0x%llx\n", omitted ? " omitted" : "",
+           (unsigned long long) cancelled, cap_ret == XQC_OK,
+           (unsigned long long) hq_section_err(&server),
+           (unsigned long long) hq_section_err(&client));
+    HQ_CHECK(cancelled == (uint64_t) !omitted && cap_ret == XQC_OK);
+    HQ_CHECK(server.h3->block_stream_count == 0);
+    HQ_CHECK(hq_section_err(&client) == 0 && hq_section_err(&server) == 0);
+    rc = 0;
+
+fail:
+    if (efs != NULL) {
+        xqc_var_buf_free(efs);
+    }
+    xqc_complex_case_engine_release(&client.base);
+    xqc_complex_case_engine_release(&server.base);
+    return rc;
+}
+
 /*
  * Single pump pass: one receive/process/send step per engine. Unlike
  * xqc_complex_case_pump, which loops until its deadline expires, one pass
@@ -615,6 +782,10 @@ main(int argc, char **argv)
         rc = hq_blocked_reject_after_close();
     } else if (argc == 2 && !strcmp(argv[1], "section-end")) {
         rc = hq_section_end();
+    } else if (argc == 2 && !strcmp(argv[1], "stream-cancel")) {
+        rc = hq_stream_cancel(0);
+    } else if (argc == 2 && !strcmp(argv[1], "stream-cancel-omitted")) {
+        rc = hq_stream_cancel(1);
 
     } else {
         fprintf(stderr, "usage: %s blocked-reject-after-close\n", argv[0]);

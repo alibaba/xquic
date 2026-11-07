@@ -10,6 +10,8 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_ext_bytestream.h"
 
+static void xqc_h3_stream_qpack_cancel(xqc_h3_stream_t *h3s);
+
 xqc_h3_stream_t *
 xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_type_t type,
     void *user_data)
@@ -48,6 +50,85 @@ xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_typ
     return h3s;
 }
 
+/*
+ * RFC 9204 Sections 2.2.2.2 and 4.4.2: when a request stream is reset, or
+ * its reading is abandoned, before its end was processed, the peer's
+ * encoder may keep references to the dynamic table for field sections of
+ * the stream that the decoder never acknowledges: partial ones, and ones
+ * the decoder did not receive, which the encoder recorded when it encoded
+ * them. A Stream Cancellation releases them. The stream then decodes no
+ * field section: a Section Acknowledgment must not follow.
+ */
+static void
+xqc_h3_stream_qpack_cancel(xqc_h3_stream_t *h3s)
+{
+    xqc_h3_conn_t *h3c = h3s->h3c;
+    xqc_int_t ret;
+
+    /*
+     * RFC 9114 Section 6.1: client-initiated bidirectional streams carry
+     * requests, also before any byte of theirs gave them a type, unless
+     * the bytestream extension may use them
+     */
+    xqc_bool_t request = h3s->type == XQC_H3_STREAM_TYPE_REQUEST
+        || (h3s->type == XQC_H3_STREAM_TYPE_UNKNOWN
+            && (h3s->stream_id & 0x03) == 0
+            && !(h3c->flags & XQC_H3_CONN_FLAG_EXT_ENABLED));
+
+    if (!request || (h3s->flags & XQC_HTTP3_STREAM_FLAG_RESET)
+        || h3c->conn->conn_err != 0
+        || h3c->conn->conn_state >= XQC_CONN_STATE_CLOSING)
+    {
+        return;
+    }
+
+    /* a decoder whose dynamic table capacity is 0 may omit it */
+    if (h3c->local_h3_conn_settings.qpack_dec_max_table_capacity == 0) {
+        return;
+    }
+
+    /*
+     * the field sections of the stream were all processed, to its end; while
+     * xqc_h3_stream_process_blocked_stream() resumes the stream (ref_cnt),
+     * the buffer it processes, which then held the FIN, still counts
+     */
+    if (h3s->h3r != NULL && h3s->h3r->fin_flag
+        && !(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED)
+        && (h3s->blocked_buf_size == 0 || h3s->ref_cnt > 0)
+        && h3s->pctx.frame_pctx.state == XQC_H3_FRM_STATE_TYPE)
+    {
+        return;
+    }
+
+    /* the server received nothing of our request, so encoded no response */
+    if (h3c->conn->conn_type == XQC_CONN_TYPE_CLIENT && h3s->stream != NULL
+        && h3s->stream->stream_send_offset == 0)
+    {
+        return;
+    }
+
+    ret = xqc_qpack_cancel_stream(h3s->qpack, h3s->stream_id);
+    if (ret != XQC_OK) {
+        xqc_log(h3s->log, XQC_LOG_ERROR,
+                "|qpack stream cancel error|ret:%d|stream_id:%ui|", ret,
+                h3s->stream_id);
+        return;
+    }
+
+    xqc_log(h3s->log, XQC_LOG_DEBUG, "|qpack stream cancelled|stream_id:%ui|",
+            h3s->stream_id);
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_RESET;
+
+    /* no insertion resumes the stream; its bytes are freed with it */
+    if (h3s->blocked_stream != NULL) {
+        xqc_h3_conn_cancel_blocked_stream(h3c, h3s->blocked_stream);
+        h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED;
+        if (h3s->h3r != NULL) {
+            xqc_h3_request_unblocked(h3s->h3r);
+        }
+    }
+}
+
 /* close h3 stream actively */
 xqc_int_t
 xqc_h3_stream_close(xqc_h3_stream_t *h3s)
@@ -55,6 +136,9 @@ xqc_h3_stream_close(xqc_h3_stream_t *h3s)
     h3s->flags |= XQC_HTTP3_STREAM_FLAG_ACTIVELY_CLOSED;
 
     xqc_log(h3s->log, XQC_LOG_DEBUG, "|h3s close");
+
+    /* reading is abandoned */
+    xqc_h3_stream_qpack_cancel(h3s);
 
     if (h3s->flags & XQC_HTTP3_STREAM_FLAG_CLOSED) {
         /*
@@ -960,6 +1044,11 @@ ssize_t
 xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_len,
     xqc_bool_t fin_flag)
 {
+    /* the stream was cancelled (RFC 9204 Section 2.2.2.2): drop its bytes */
+    if (h3s->flags & XQC_HTTP3_STREAM_FLAG_RESET) {
+        return data_len;
+    }
+
     if (h3s->h3r == NULL) {
         h3s->h3r = xqc_h3_request_create_inner(h3s->h3c, h3s, h3s->user_data);
         if (!h3s->h3r) {
@@ -1133,6 +1222,11 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                     if (ret != XQC_OK) {
                         xqc_log(h3s->log, XQC_LOG_ERROR, "|recv header error|%d|", ret);
                         return ret;
+                    }
+
+                    /* cancelled by the application from its callback */
+                    if (h3s->flags & XQC_HTTP3_STREAM_FLAG_RESET) {
+                        return data_len;
                     }
                 }
                 break;
@@ -1745,6 +1839,7 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
                  * the processing error after resetting this stream so the
                  * caller does not promote it to a connection error.
                  */
+                xqc_h3_stream_qpack_cancel(h3s);
                 xqc_stream_close_with_error(h3s->stream,
                                             H3_MESSAGE_ERROR);
                 return XQC_OK;
@@ -1897,6 +1992,10 @@ xqc_h3_stream_process_blocked_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, x
 
         } else if (rcvd < 0) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|xqc_stream_recv error|%z|", rcvd);
+            if (rcvd == -XQC_ESTREAM_RESET) {
+                /* the peer reset the stream before its end */
+                xqc_h3_stream_qpack_cancel(h3s);
+            }
             return -XQC_H3_STREAM_RECV_ERROR;
         }
 
@@ -1943,6 +2042,10 @@ xqc_h3_stream_process_data(xqc_stream_t *stream, xqc_h3_stream_t *h3s, xqc_bool_
 
         } else if (read < 0) {
             xqc_log(h3c->log, XQC_LOG_ERROR, "|xqc_stream_recv error|%z|", read);
+            if (read == -XQC_ESTREAM_RESET) {
+                /* the peer reset the stream before its end */
+                xqc_h3_stream_qpack_cancel(h3s);
+            }
             return -XQC_H3_STREAM_RECV_ERROR;
         }
         xqc_log(h3c->log, XQC_LOG_DEBUG, "|xqc_stream_recv|read:%z|fin:%ud|", read, (unsigned int)*fin);
@@ -2041,6 +2144,9 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
                 }
                 xqc_list_buf_list_free(&h3s->blocked_buf);
 
+                /* reading is abandoned */
+                xqc_h3_stream_qpack_cancel(h3s);
+
                 if (h3s->stream != NULL) {
                     xqc_stream_close_with_error(h3s->stream,
                                                 H3_MESSAGE_ERROR);
@@ -2099,9 +2205,12 @@ end:
      * NOTICE: if there is a trailer section, h3 stream might be blocked again. If it will be
      * unblocked again, it will be destroyed after all bytes processed; If the connection is closed,
      * it will be destroyed when h3 connection destroy the blocked stream list.
+     * A stream cancelled meanwhile, blocked again or not, is not resumed.
      */
     if ((h3s->flags & XQC_HTTP3_STREAM_FLAG_CLOSED)
-        && h3s->blocked_stream == NULL && h3s->ref_cnt == 0)
+        && (h3s->blocked_stream == NULL
+            || (h3s->flags & XQC_HTTP3_STREAM_FLAG_RESET))
+        && h3s->ref_cnt == 0)
     {
         /* QUIC transport stream was closed while h3_stream was being blocked, destroy h3_stream */
         xqc_log(h3s->log, XQC_LOG_INFO, "|h3 stream unblocked and destroyed while transport stream"
@@ -2176,6 +2285,9 @@ xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data)
             h3s->flags &= ~XQC_HTTP3_STREAM_IN_READING;
             return ret;
         }
+
+        /* reading is abandoned */
+        xqc_h3_stream_qpack_cancel(h3s);
 
         h3s->flags &= ~XQC_HTTP3_STREAM_IN_READING;
         return XQC_OK;

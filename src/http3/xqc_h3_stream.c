@@ -1032,6 +1032,9 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 }
 
                 len = xqc_min(pctx->frame.len - pctx->frame.consumed_len, data_len - processed);
+
+                /* the encoded field section ends with the frame payload */
+                fin = pctx->frame.consumed_len + len == pctx->frame.len;
                 read = xqc_qpack_dec_headers(h3s->qpack, h3s->ctx, data + processed, len,
                                              hdrs,
                                              h3s->h3c->local_h3_conn_settings.max_field_section_size,
@@ -1093,6 +1096,20 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                 }
 
                 if (pctx->frame.len == pctx->frame.consumed_len) {
+                    /*
+                     * RFC 9204 Section 4.5.1: the payload is an encoded field
+                     * section, a prefix and whole field lines
+                     */
+                    if (!xqc_qpack_is_field_section_complete(h3s->ctx)) {
+                        xqc_log(h3s->log, XQC_LOG_ERROR, "|field section cut "
+                                "short|stream_id:%ui|len:%ui|", h3s->stream_id,
+                                pctx->frame.len);
+                        xqc_h3_frm_reset_pctx(pctx);
+                        XQC_H3_CONN_ERR(h3s->h3c, QPACK_DECOMPRESSION_FAILED,
+                                        -XQC_QPACK_DECODER_ERROR);
+                        return -XQC_QPACK_DECODER_ERROR;
+                    }
+
                     xqc_log_event(h3s->log, HTTP_FRAME_PARSED, h3s);
                     fin = 1;
                     h3s->h3r->compressed_header_recvd += pctx->frame.len;
@@ -2030,6 +2047,20 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
                 return XQC_OK;
             }
             h3s->ref_cnt--;
+
+            /*
+             * the transport stream was closed while this h3 stream was
+             * blocked, and the h3 stream is no longer recorded as blocked:
+             * destroy it to finish the deferred cleanup.
+             */
+            if (h3s->stream == NULL && h3s->blocked_stream == NULL
+                && h3s->ref_cnt == 0)
+            {
+                xqc_log(h3s->log, XQC_LOG_DEBUG, "|destroy blocked h3 stream "
+                        "after processing error|stream_id:%ui|ret:%z|",
+                        h3s->stream_id, processed);
+                xqc_h3_stream_destroy(h3s);
+            }
             return processed;
         }
         buf->consumed_len += processed;

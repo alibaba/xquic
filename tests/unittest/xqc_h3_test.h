@@ -49,7 +49,12 @@ void xqc_test_h3_valid_headers_smoke();
 /* transport stream closed while QPACK-blocked, then oversized HEADERS rejected */
 void xqc_test_h3_blocked_stream_reject_after_close();
 void xqc_test_h3_qpack_duplicate_uses_excessive_load();
-void xqc_test_h3_frame_parse_error_uses_frame_error();
+/* RFC 9204 Section 6: QPACK error codes */
+void xqc_test_h3_qpack_encoder_stream_error();
+void xqc_test_h3_qpack_decoder_stream_error();
+void xqc_test_h3_qpack_decompression_failed();
+void xqc_test_h3_qpack_blocked_decode_error();
+void xqc_test_h3_qpack_blocked_stream_limit_error();
 void xqc_test_h3_control_frame_unexpected();
 void xqc_test_h3_missing_settings();
 

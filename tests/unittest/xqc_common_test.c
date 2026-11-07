@@ -479,6 +479,25 @@ xqc_test_memory_pool_large_alignment(void)
 
     CU_ASSERT_PTR_NULL(xqc_palloc(pool, SIZE_MAX));
     xqc_destroy_pool(pool);
+
+#if defined(XQC_PROTECT_POOL_MEM) && !defined(XQC_SYS_WINDOWS)
+    pool = xqc_create_pool(8192, XQC_TRUE);
+    CU_ASSERT_PTR_NOT_NULL(pool);
+    if (pool == NULL) {
+        return;
+    }
+
+    allocation = xqc_palloc(pool, XQC_MAX_MALLOC_FROM_POOL);
+    CU_ASSERT_PTR_NOT_NULL(allocation);
+    if (allocation != NULL) {
+        CU_ASSERT_EQUAL((uintptr_t)allocation % XQC_ALIGNMENT, 0);
+        ((unsigned char *)allocation)[XQC_MAX_MALLOC_FROM_POOL - 1] = 0x5a;
+    }
+
+    const size_t overhead = sizeof(xqc_memory_large_t) + XQC_ALIGNMENT - 1;
+    CU_ASSERT_PTR_NULL(xqc_palloc(pool, SIZE_MAX - overhead));
+    xqc_destroy_pool(pool);
+#endif
 }
 
 

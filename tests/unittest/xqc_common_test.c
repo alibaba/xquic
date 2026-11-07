@@ -6,6 +6,7 @@
 
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
+#include "src/common/xqc_memory_pool.h"
 #include "xqc_common_test.h"
 #include "src/common/xqc_object_manager.h"
 #include "src/common/xqc_rbtree.h"
@@ -454,6 +455,30 @@ xqc_test_common()
     }
 
     xqc_fifo_release(&fifo);
+}
+
+void
+xqc_test_memory_pool_large_alignment(void)
+{
+#ifdef XQC_PROTECT_POOL_MEM
+    xqc_memory_pool_t *pool = xqc_create_pool(8192, XQC_FALSE);
+#else
+    xqc_memory_pool_t *pool = xqc_create_pool(8192);
+#endif
+    CU_ASSERT_PTR_NOT_NULL(pool);
+    if (pool == NULL) {
+        return;
+    }
+
+    void *allocation = xqc_palloc(pool, XQC_MAX_MALLOC_FROM_POOL);
+    CU_ASSERT_PTR_NOT_NULL(allocation);
+    if (allocation != NULL) {
+        CU_ASSERT_EQUAL((uintptr_t)allocation % XQC_ALIGNMENT, 0);
+        ((unsigned char *)allocation)[XQC_MAX_MALLOC_FROM_POOL - 1] = 0x5a;
+    }
+
+    CU_ASSERT_PTR_NULL(xqc_palloc(pool, SIZE_MAX));
+    xqc_destroy_pool(pool);
 }
 
 

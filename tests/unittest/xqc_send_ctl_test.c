@@ -695,6 +695,122 @@ xqc_test_send_ctl_granularity_defers_before_boundary(void)
 }
 
 
+#define XQC_TEST_CROSS_ACK_RTT      30000
+#define XQC_TEST_CROSS_ACK_RTT_B    100000
+#define XQC_TEST_CROSS_ACK_PKTS     40
+#define XQC_TEST_CROSS_ACK_GAP      10000
+
+/* a multipath connection with the congestion controller cc, and its path 1 */
+static xqc_connection_t *
+xqc_test_cross_ack_connect(const xqc_cong_ctrl_callback_t *cc,
+    xqc_path_ctx_t **path1)
+{
+    xqc_connection_t *conn = test_engine_connect_cc(cc);
+
+    *path1 = NULL;
+    if (conn == NULL) {
+        return NULL;
+    }
+    test_enable_multipath(conn);
+    *path1 = test_add_path(conn, 1);
+    return *path1 != NULL ? conn : NULL;
+}
+
+/* packet pn of path 1, acknowledged rtt later on path 1 or on path 0 */
+static void
+xqc_test_cross_ack_round_trip(xqc_connection_t *conn, xqc_path_ctx_t *path1,
+    xqc_packet_number_t pn, xqc_usec_t sent_time, xqc_usec_t rtt,
+    xqc_bool_t ack_on_same_path)
+{
+    CU_ASSERT_PTR_NOT_NULL_FATAL(test_send_packet(conn, path1, pn,
+        XQC_FRAME_BIT_MAX_DATA, sent_time));
+    CU_ASSERT_EQUAL(test_ack_packets(conn, path1, pn, pn, sent_time + rtt,
+                                     ack_on_same_path), XQC_OK);
+}
+
+/*
+ * RFC 10069 Section 5.4: when all the PATH_ACK frames of a path come on
+ * another path, the RTT of the path is sampled from them. The estimates
+ * then follow the delay that they measure, and BBR, whose delivery rate
+ * samples need a minimum RTT, estimates a bandwidth.
+ */
+static void
+xqc_test_send_ctl_cross_path_rtt_case(const xqc_cong_ctrl_callback_t *cc)
+{
+    xqc_path_ctx_t *path1;
+    xqc_connection_t *conn = xqc_test_cross_ack_connect(cc, &path1);
+    xqc_usec_t t0 = xqc_monotonic_timestamp();
+    xqc_send_ctl_t *send_ctl;
+    xqc_packet_number_t pn;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    send_ctl = path1->path_send_ctl;
+    for (pn = 0; pn < XQC_TEST_CROSS_ACK_PKTS; pn++) {
+        xqc_test_cross_ack_round_trip(conn, path1, pn,
+                                      t0 + pn * XQC_TEST_CROSS_ACK_GAP,
+                                      XQC_TEST_CROSS_ACK_RTT, XQC_FALSE);
+    }
+
+    CU_ASSERT_NOT_EQUAL(send_ctl->ctl_first_rtt_sample_time, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, XQC_TEST_CROSS_ACK_RTT);
+    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, XQC_TEST_CROSS_ACK_RTT);
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt, XQC_TEST_CROSS_ACK_RTT);
+    if (cc->xqc_cong_ctl_get_bandwidth_estimate != NULL) {
+        CU_ASSERT(cc->xqc_cong_ctl_get_bandwidth_estimate(send_ctl->ctl_cong)
+                  > 0);
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_send_ctl_cross_path_rtt_cubic(void)
+{
+    xqc_test_send_ctl_cross_path_rtt_case(&xqc_cubic_cb);
+}
+
+void
+xqc_test_send_ctl_cross_path_rtt_bbr(void)
+{
+    xqc_test_send_ctl_cross_path_rtt_case(&xqc_bbr_cb);
+}
+
+/*
+ * The PATH_ACK frames that come on the path itself are the ones sampled: a
+ * PATH_ACK received on another path within 3 PTOs of the last one received
+ * on the path gives no sample, and one received later does.
+ */
+void
+xqc_test_send_ctl_same_path_rtt_preferred(void)
+{
+    xqc_path_ctx_t *path1;
+    xqc_connection_t *conn = xqc_test_cross_ack_connect(&xqc_cubic_cb,
+                                                        &path1);
+    xqc_usec_t t0 = xqc_monotonic_timestamp();
+    xqc_send_ctl_t *send_ctl;
+    xqc_usec_t late;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    send_ctl = path1->path_send_ctl;
+    xqc_test_cross_ack_round_trip(conn, path1, 0, t0,
+                                  XQC_TEST_CROSS_ACK_RTT, XQC_TRUE);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, XQC_TEST_CROSS_ACK_RTT);
+
+    xqc_test_cross_ack_round_trip(conn, path1, 1, t0 + XQC_TEST_CROSS_ACK_GAP,
+                                  XQC_TEST_CROSS_ACK_RTT_B, XQC_FALSE);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, XQC_TEST_CROSS_ACK_RTT);
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt, XQC_TEST_CROSS_ACK_RTT);
+
+    late = t0 + XQC_TEST_CROSS_ACK_RTT
+           + 3 * xqc_send_ctl_calc_pto(send_ctl) + 1;
+    xqc_test_cross_ack_round_trip(conn, path1, 2, late,
+                                  XQC_TEST_CROSS_ACK_RTT_B, XQC_FALSE);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, XQC_TEST_CROSS_ACK_RTT_B);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 /*
  * Build a send_ctl state that satisfies xqc_send_ctl_in_persistent_congestion:
  *   - pto_count == XQC_CONSECUTIVE_PTO_THRESH

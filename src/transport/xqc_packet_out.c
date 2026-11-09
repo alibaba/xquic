@@ -408,7 +408,9 @@ xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
 
     ret = xqc_gen_ack_frame(conn, packet_out, now, conn->local_settings.ack_delay_exponent,
-                            &pn_ctl->ctl_recv_record[pns], path->path_send_ctl->ctl_largest_recv_time[pns],
+                            &pn_ctl->ctl_recv_record[pns],
+                            &pn_ctl->ctl_ecn_recv[pns],
+                            path->path_send_ctl->ctl_largest_recv_time[pns],
                             &has_gap, &largest_ack);
     if (ret < 0) {
         goto error;
@@ -1700,6 +1702,7 @@ xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     ret = xqc_gen_ack_mp_frame(conn, path->path_id, packet_out, now,
 	                           conn->local_settings.ack_delay_exponent,
                                &pn_ctl->ctl_recv_record[packet_out->po_pkt.pkt_pns],
+                               &pn_ctl->ctl_ecn_recv[pns],
 							   path->path_send_ctl->ctl_largest_recv_time[pns],
                                &has_gap, &largest_ack);
     if (ret < 0) {

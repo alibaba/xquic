@@ -115,6 +115,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_stream_frame_test.c
         ${UNIT_TEST_DIR}/xqc_ack_frame_test.c
         ${UNIT_TEST_DIR}/xqc_process_frame_test.c
+        ${UNIT_TEST_DIR}/xqc_ecn_test.c
         ${UNIT_TEST_DIR}/xqc_tp_test.c
         ${UNIT_TEST_DIR}/xqc_tls_test.c
         ${UNIT_TEST_DIR}/xqc_crypto_test.c

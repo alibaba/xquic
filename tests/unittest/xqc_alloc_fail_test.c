@@ -211,6 +211,51 @@ xqc_test_conn_create_alloc_failures(void)
     xqc_engine_destroy(client);
 }
 
+/*
+ * An allocation that fails while a client engine is being created must
+ * fail the creation, not crash the process, and leave nothing allocated:
+ * each allocation of xqc_engine_create() fails in turn, and the sweep ends
+ * with a run in which nothing fails.
+ */
+void
+xqc_test_engine_create_alloc_failures(void)
+{
+    long n;
+
+    /*
+     * BoringSSL keeps the per-thread state that it allocates the first
+     * time, such as its error queue, which loading a server engine's
+     * certificate chain fills: set it up before anything is counted.
+     */
+    xqc_engine_t *warm = xqc_test_af_engine(XQC_ENGINE_SERVER);
+    CU_ASSERT_FATAL(warm != NULL);
+    xqc_engine_destroy(warm);
+    warm = xqc_test_af_engine(XQC_ENGINE_CLIENT);
+    CU_ASSERT_FATAL(warm != NULL);
+    xqc_engine_destroy(warm);
+
+    for (n = 1; n < 100000; n++) {
+        xqc_test_alloc_live = 0;
+        xqc_test_alloc_tracking = 1;
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        xqc_engine_t *engine = xqc_test_af_engine(XQC_ENGINE_CLIENT);
+        xqc_test_alloc_count = -1;
+        if (engine != NULL) {
+            xqc_engine_destroy(engine);
+        }
+        xqc_test_alloc_tracking = 0;
+        CU_ASSERT(xqc_test_alloc_live == 0);
+        if (!xqc_test_alloc_failed) {
+            /* nothing failed: the engine was created */
+            CU_ASSERT(engine != NULL);
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+}
+
 #endif
 
 /* the TLS callback that queues handshake data (src/transport/xqc_conn.c) */
@@ -437,6 +482,12 @@ xqc_test_client_connect_active_queue_full(void)
 
 void
 xqc_test_conn_create_alloc_failures(void)
+{
+    /* needs BoringSSL and the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_engine_create_alloc_failures(void)
 {
     /* needs BoringSSL and the linker's --wrap (see tests/CMakeLists.txt) */
 }

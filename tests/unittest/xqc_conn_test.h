@@ -25,6 +25,11 @@ void xqc_test_conn_tls_error_cb_constructs_crypto_error();
 void xqc_test_conn_crypto_error_base_value();
 void xqc_test_transport_error_code_passthrough(void);
 void xqc_test_0rtt_error_wire_codes(void);
+
+/* RFC 10069 Section 3: only a client opens a path */
+void xqc_test_conn_mp_server_cannot_open_path(void);
+void xqc_test_conn_mp_server_not_ready_to_open_path(void);
+
 void xqc_test_conn_close_transport_crypto_namespace(void);
 void xqc_test_conn_close_application_namespace(void);
 void xqc_test_conn_close_reason_phrase(void);

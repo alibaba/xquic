@@ -1218,6 +1218,39 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
     return 0;
 }
 
+/*
+ * Cases 1323 and 1324: only a client opens a path (RFC 10069 Section 3).
+ * In 1323 the server application tries to open one once the handshake is
+ * done, and again from ready_to_create_path_notify; the client uses one
+ * path. In 1324 the client opens a second path while the server application
+ * listens to ready_to_create_path_notify, which never fires on a server.
+ */
+#define XQC_TEST_CASE_MP_SERVER_OPEN_PATH   1323
+#define XQC_TEST_CASE_MP_SERVER_NOT_READY   1324
+
+static void
+xqc_server_mp_open_path(const xqc_cid_t *cid, const char *when)
+{
+    uint64_t  path_id = 0;
+    xqc_int_t ret;
+
+    ret = xqc_conn_create_path(ctx.engine, cid, &path_id, 0);
+    printf("[mp-server-open-path]|%s|ret:%d|path_id:%"PRIu64"|\n",
+           when, ret, path_id);
+    fflush(stdout);
+}
+
+static void
+xqc_server_ready_to_create_path(const xqc_cid_t *scid, void *conn_user_data)
+{
+    printf("[mp-server-open-path]|ready|\n");
+    fflush(stdout);
+
+    if (g_test_case == XQC_TEST_CASE_MP_SERVER_OPEN_PATH) {
+        xqc_server_mp_open_path(scid, "ready");
+    }
+}
+
 int
 xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, void *conn_user_data)
 {
@@ -1350,6 +1383,10 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
     if (g_test_case == 48) {
         printf("[initial-salt-test] server handshake ok, conn_err:%d\n",
                stats.conn_err);
+    }
+
+    if (g_test_case == XQC_TEST_CASE_MP_SERVER_OPEN_PATH) {
+        xqc_server_mp_open_path(&user_conn->cid, "handshake");
     }
 
     if (g_test_case == XQC_TEST_CASE_H3_MAX_PUSH_ID_WRONG_ROLE) {
@@ -3056,6 +3093,12 @@ int main(int argc, char *argv[]) {
         .conn_retry_packet_condition_check = xqc_retry_packet_check,
         .conn_send_packet_before_accept = xqc_server_write_socket, 
     };
+
+    if (g_test_case == XQC_TEST_CASE_MP_SERVER_OPEN_PATH
+        || g_test_case == XQC_TEST_CASE_MP_SERVER_NOT_READY)
+    {
+        tcbs.ready_to_create_path_notify = xqc_server_ready_to_create_path;
+    }
 
     xqc_cong_ctrl_callback_t cong_ctrl;
     uint32_t cong_flags = 0;

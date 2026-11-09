@@ -152,6 +152,19 @@ xqc_timer_path_idle_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_da
         xqc_path_abandon(path, XQC_PATH_ABANDON_UNSTABLE_OR_POOR);
     }
 
+    /*
+     * RFC 10069 Sections 3.4 and 3.4.3: an abandoned path is kept until its
+     * draining timer ends it, 3 PTOs after PATH_ABANDON, so that the packets
+     * still in flight on it are acknowledged. A PATH_IDLE that a packet
+     * received on the path re-armed does not end it earlier.
+     */
+    if (path->path_state == XQC_PATH_STATE_CLOSING
+        && xqc_timer_is_set(&send_ctl->path_timer_manager,
+                            XQC_TIMER_PATH_DRAINING))
+    {
+        return;
+    }
+
     if (path->path_state < XQC_PATH_STATE_CLOSED) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|closed path:%ui|", path->path_id);
         xqc_path_closed(path);

@@ -1041,6 +1041,8 @@ xqc_write_stop_sending_to_packet(xqc_connection_t *conn, xqc_stream_t *stream,
     }
 
     packet_out->po_used_size += ret;
+    /* the stream that the frame names: xqc_conn_write_buffed_1rtt_packets */
+    packet_out->po_stream_id = stream->stream_id;
 
     if (buff_pkt) {
         xqc_conn_buff_1rtt_packet(conn, packet_out);

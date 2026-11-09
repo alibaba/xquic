@@ -355,6 +355,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_engine_drop_small_unknown_0rtt", xqc_test_engine_drop_small_unknown_0rtt)
         || !CU_add_test(pSuite, "xqc_test_engine_min_initial_not_pre_dropped", xqc_test_engine_min_initial_not_pre_dropped)
         || !CU_add_test(pSuite, "xqc_test_engine_min_unknown_0rtt_not_pre_dropped", xqc_test_engine_min_unknown_0rtt_not_pre_dropped)
+        || !CU_add_test(pSuite, "xqc_test_engine_lb_cid_encryption",
+                        xqc_test_engine_lb_cid_encryption)
         || !CU_add_test(pSuite, "xqc_test_rebinding_candidate_budget_limit", xqc_test_rebinding_candidate_budget_limit)
         || !CU_add_test(pSuite, "xqc_test_rebinding_no_padding_flag", xqc_test_rebinding_no_padding_flag)
         || !CU_add_test(pSuite, "xqc_test_rebinding_min_padding_flag", xqc_test_rebinding_min_padding_flag)

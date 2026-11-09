@@ -103,7 +103,8 @@ xqc_array_right_shift(uint8_t *in_out, xqc_int_t in_out_len, xqc_int_t bits, siz
     if (bits > 8) {
         int byte = bits / 8;
         bits = bits % 8;
-        memcpy(in_out, in_out + byte, in_out_len - byte);
+        /* the ranges overlap */
+        memmove(in_out, in_out + byte, in_out_len - byte);
         memset(in_out, 0, byte);
     }
     if (bits == 0) {
@@ -193,6 +194,7 @@ xqc_cid_encryption_four_pass(uint8_t *in, size_t in_len, uint8_t *out, size_t ou
 {
     uint8_t left_0[XQC_HALF_CID_CIPHER_LEN], right_0[XQC_HALF_CID_CIPHER_LEN], left_1[XQC_HALF_CID_CIPHER_LEN], right_1[XQC_HALF_CID_CIPHER_LEN], left_2[XQC_HALF_CID_CIPHER_LEN], right_2[XQC_HALF_CID_CIPHER_LEN];
     uint8_t tmp_out[XQC_TMP_CIPHER_LEN], tmp_exp[XQC_TMP_CIPHER_LEN], tmp_tru[XQC_TMP_CIPHER_LEN];
+    uint8_t joined[XQC_MAX_CID_LEN];
     uint8_t const_buf[1];
     xqc_int_t bits_per_byte = 8;
     xqc_int_t octet_per_128bits = 16;
@@ -305,10 +307,16 @@ xqc_cid_encryption_four_pass(uint8_t *in, size_t in_len, uint8_t *out, size_t ou
     }
     xqc_array_xor(left_1, XQC_HALF_CID_CIPHER_LEN, tmp_tru, XQC_TMP_CIPHER_LEN, left_2, XQC_HALF_CID_CIPHER_LEN);
 
-    memcpy(out + right_len_byte, left_2, left_len_byte);
-    memcpy(out, right_2, right_len_byte);
-    xqc_array_right_shift(out + right_len_byte - 1, left_len_byte + 1, shift_offset, 1);
-    
+    /*
+     * for an odd length the halves share a byte, so they are joined over
+     * in_len + 1 bytes: join them here and copy out only the in_len bytes
+     */
+    memcpy(joined + right_len_byte, left_2, left_len_byte);
+    memcpy(joined, right_2, right_len_byte);
+    xqc_array_right_shift(joined + right_len_byte - 1, left_len_byte + 1,
+                          shift_offset, 1);
+    memcpy(out, joined, in_len);
+
     return XQC_OK;
 }
 

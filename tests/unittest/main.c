@@ -775,6 +775,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_server_reserved_request_frame_accepted",
                         xqc_test_h3_server_reserved_request_frame_accepted)
+        || !CU_add_test(pSuite, "xqc_test_h3_reserved_frame_before_fin",
+                        xqc_test_h3_reserved_frame_before_fin)
         || !CU_add_test(pSuite,
                         "xqc_test_h3_server_push_promise_rejected",
                         xqc_test_h3_server_push_promise_rejected)

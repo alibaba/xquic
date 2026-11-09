@@ -757,12 +757,21 @@ xqc_conn_multipath_version_negotiation(xqc_connection_t *conn)
 /*
  * RFC 10069 Section 3: "this extension only enables clients to open a new
  * path"; draft-ietf-quic-multipath-10 Section 1: "a QUIC server does not
- * initiate the creation of a path"
+ * initiate the creation of a path".
+ *
+ * RFC 10069 Section 2.2: "If an endpoint receives a disable_active_migration
+ * transport parameter, it is forbidden to establish new paths to the peer's
+ * handshake address", whatever the local address; RFC 9000 Section 18.2
+ * already forbids a new local address towards it. A path opened by
+ * xqc_conn_create_path() sends to the connection's peer address (see
+ * xqc_path_init()), which a client never changes after the handshake, so
+ * the parameter rules out every new path.
  */
 xqc_bool_t
 xqc_conn_may_open_paths(const xqc_connection_t *conn)
 {
-    return conn->conn_type == XQC_CONN_TYPE_CLIENT;
+    return conn->conn_type == XQC_CONN_TYPE_CLIENT
+           && !conn->remote_settings.disable_active_migration;
 }
 
 xqc_int_t

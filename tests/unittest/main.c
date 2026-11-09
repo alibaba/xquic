@@ -341,6 +341,12 @@ main(int argc, char *argv[])
                         xqc_test_mp_new_cid_above_curr_max_path_id)
         || !CU_add_test(pSuite, "xqc_test_mp_new_cid_rejected_without_cid_set",
                         xqc_test_mp_new_cid_rejected_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_create_path_peer_allows",
+                        xqc_test_mp_create_path_peer_allows)
+        || !CU_add_test(pSuite, "xqc_test_mp_create_path_migration_disabled",
+                        xqc_test_mp_create_path_migration_disabled)
+        || !CU_add_test(pSuite, "xqc_test_mp_ready_notify_migration_disabled",
+                        xqc_test_mp_ready_notify_migration_disabled)
         || !CU_add_test(pSuite, "xqc_test_mp_abandon_above_curr_max_path_id",
                         xqc_test_mp_abandon_above_curr_max_path_id)
         || !CU_add_test(pSuite, "xqc_test_mp_abandon_rejected_without_cid_set",

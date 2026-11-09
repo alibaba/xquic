@@ -177,7 +177,8 @@ typedef enum {
     XQC_EMP_NO_AVAILABLE_CID_FOR_PATH   = 658,      /**< Multipath - there's no available unused cid for this path */
     /**
      * Multipath - this endpoint may not open a new path: a server (RFC 10069
-     * Section 3)
+     * Section 3), or a client whose peer sent disable_active_migration
+     * (Section 2.2)
      */
     XQC_EMP_PATH_NOT_ALLOWED            = 659,
 

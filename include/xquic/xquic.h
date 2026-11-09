@@ -406,7 +406,8 @@ typedef ssize_t (*xqc_conn_pkt_filter_callback_pt)(const unsigned char *buf,
  *
  * this callback function will be triggered when a new connection id is received and endpoint
  * get unused cids. it's a precondition of multi-path.
- * Client connections only: a server does not open paths (RFC 10069 Section 3)
+ * Client connections only: a server does not open paths (RFC 10069 Section 3),
+ * nor does a client whose peer sent disable_active_migration (Section 2.2)
  *
  * @param scid source connection id of endpoint
  * @param conn_user_data user_data of connection
@@ -2248,7 +2249,8 @@ xqc_conn_qos_stats_t xqc_conn_get_qos_stats(xqc_engine_t *engine, const xqc_cid_
  * @param path_status the initial status of the new path (1 = STANDBY, other values = AVAILABLE)
  * @return XQC_OK (0) when success, <0 for error, among them
  * -XQC_EMP_PATH_NOT_ALLOWED where no new path may be opened: on a server
- * connection, as only a client opens a path (RFC 10069 Section 3)
+ * connection, as only a client opens a path (RFC 10069 Section 3), and after
+ * the peer sent disable_active_migration (Section 2.2)
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_create_path(xqc_engine_t *engine,

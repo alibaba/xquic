@@ -49,6 +49,7 @@
 #define XQC_TEST_CASE_RELIABLE_RESET_ZERO_FIN 745
 #define XQC_TEST_CASE_RELIABLE_RESET_ZERO_CLOSE 746
 #define XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE 905
+#define XQC_TEST_CASE_MP_MIGRATION_DISABLED 1326
 #define XQC_TEST_CASE_RESET_0RTT_DOWNGRADE 909
 #define XQC_TEST_CASE_RESET_0RTT_UPGRADE 910
 #define XQC_TEST_CASE_RESET_0RTT_DISABLED 911
@@ -1179,6 +1180,21 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
             printf("[max-ack-delay-boundary-test] "
                    "advertised_max_ack_delay:%"PRIu64"\n",
                    conn->local_settings.max_ack_delay);
+        }
+    }
+
+    /*
+     * RFC 10069 Section 2.2: a multipath server that takes no new path to
+     * its handshake address sends disable_active_migration.
+     */
+    if (g_test_case == XQC_TEST_CASE_MP_MIGRATION_DISABLED) {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+        if (conn == NULL) {
+            printf("[mp-migration-disabled] conn unavailable\n");
+
+        } else {
+            conn->local_settings.disable_active_migration = 1;
+            conn->conn_flag |= XQC_CONN_FLAG_LOCAL_TP_UPDATED;
         }
     }
 

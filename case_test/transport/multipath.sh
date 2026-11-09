@@ -509,6 +509,32 @@ else
 fi
 }
 
+# RFC 10069 Section 2.2: the server sends disable_active_migration; the
+# client, with a second interface, opens no path to it.
+case_transport_multipath_MPNS_disable_active_migration_no_new_path()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M -x 1326 > /dev/null
+    sleep 1
+
+    clear_log
+    echo -e "no new path after disable_active_migration ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 2 -M -i lo -i lo -E -x 1326 > stdlog
+    refused=`grep "|remote:1|create_path:-659|" stdlog`
+    opened=`grep "create a new path" stdlog`
+    challenged=`grep -a "PATH_CHALLENGE" clog slog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$refused" ] && [ -z "$opened" ] && [ -z "$challenged" ] \
+        && [ -n "$result" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MPNS_disable_active_migration_no_new_path" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MPNS_disable_active_migration_no_new_path" "fail"
+    fi
+}
+
 case_transport_multipath_Multipath_Compensate_and_Accelerate()
 {
 grep_err_log
@@ -916,6 +942,7 @@ case_test_case "MP_h3_ext_datagram_PMTUD_0RTT" --id native --mode self-reporting
 case_test_case "freeze_path0" --id native --mode self-reporting --run case_transport_multipath_freeze_path0
 case_test_case "freeze_path1" --id native --mode self-reporting --run case_transport_multipath_freeze_path1
 case_test_case "probing_standby_path" --id native --mode self-reporting --run case_transport_multipath_probing_standby_path
+case_test_case "MPNS_disable_active_migration_no_new_path" --id 1326 --mode self-reporting --run case_transport_multipath_MPNS_disable_active_migration_no_new_path
 
 if case_test_is_discovery; then
     case_test_run

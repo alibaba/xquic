@@ -797,6 +797,10 @@ main(int argc, char *argv[])
                         xqc_test_token_lifetime)
         || !CU_add_test(pSuite, "xqc_test_token_address_mismatch",
                         xqc_test_token_address_mismatch)
+        || !CU_add_test(pSuite, "xqc_test_token_all_validated_addresses",
+                        xqc_test_token_all_validated_addresses)
+        || !CU_add_test(pSuite, "xqc_test_token_no_new_address",
+                        xqc_test_token_no_new_address)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite,
                         "xqc_test_receive_dgram_at_valid_encryption_level",

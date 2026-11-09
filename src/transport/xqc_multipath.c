@@ -530,6 +530,7 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
 
     if (path->path_id == XQC_INITIAL_PATH_ID) {
         xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);
+        path->path_flag |= XQC_PATH_FLAG_VALIDATED;
         conn->validated_path_count++;
 
     } else {
@@ -1467,6 +1468,9 @@ xqc_path_validate(xqc_path_ctx_t *path)
             conn->conn_flag |= XQC_CONN_FLAG_PMTUD_PROBING;
             xqc_timer_unset(&conn->conn_timer_manager, XQC_TIMER_PMTUD_PROBING);
         }
+
+        path->path_flag |= XQC_PATH_FLAG_VALIDATED;
+        xqc_conn_token_on_path_validated(conn, path);
     }
 }
 

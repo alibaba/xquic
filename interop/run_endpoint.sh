@@ -75,11 +75,12 @@ if [ "$ROLE" == "client" ]; then
         echo "./demo_client $ARGS -U $REQUESTS -M -i eth0 -i eth0 -w 3000 -b"
         ./demo_client $ARGS -U "$REQUESTS" -M -i eth0 -i eth0 -w 3000 -b
     
-    # common testcase
+    # common testcase; -X: connectionmigration runs the client as for
+    # transfer, and expects it to move to the server's preferred address
     else
-        echo -e "./demo_client $ARGS -U \"$REQUESTS\"\n"
+        echo -e "./demo_client $ARGS -X -U \"$REQUESTS\"\n"
 
-        ./demo_client $ARGS -U "$REQUESTS"
+        ./demo_client $ARGS -X -U "$REQUESTS"
     fi
 
     #cp -r /downloads /logs/

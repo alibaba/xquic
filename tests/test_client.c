@@ -6553,6 +6553,11 @@ int main(int argc, char *argv[]) {
         conn_settings.simulate_ecn = 1;
     }
 
+    /* the server offers a preferred address (RFC 9000 Section 9.6) */
+    if (g_test_case == 756 || g_test_case == 757) {
+        conn_settings.enable_preferred_address_migration = 1;
+    }
+
     if (g_test_case == 455) {
         conn_settings.simulate_ecn = 0;
     }

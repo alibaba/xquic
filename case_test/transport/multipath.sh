@@ -80,6 +80,71 @@ else
 fi
 }
 
+# 1321: the client opens path 1 before the server has its connection IDs for
+# path ID 1 and issues them 300 ms later. The server leaves the path alone
+# until then, keeps the connection, and sets the path up when the client
+# sends its PATH_CHALLENGE again.
+case_transport_multipath_MP_path_set_up_after_client_cids()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    rm -f test_session tp_localhost xqc_token
+    clear_log
+    echo -e "MP path set up once the client's CIDs arrive ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 4 -M -i lo -i lo -E \
+        -x 1321 > stdlog
+    opened=`grep "\[mp-held-cids\]|path_opened|path_id:1|ret:0|" stdlog`
+    released=`grep "\[mp-held-cids\]|released|" stdlog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    delayed=`grep -a "|new path not set up|path:1|reason:no peer CID" slog`
+    svr_valid=`grep -a "|path validated|path_id:1|" slog`
+    cli_valid=`grep -a "|path validated|path_id:1|" clog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -n "$opened" ] && [ -n "$released" ] \
+        && [ -n "$result" ] && [ -n "$delayed" ] && [ -n "$svr_valid" ] \
+        && [ -n "$cli_valid" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MP_path_set_up_after_client_cids" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MP_path_set_up_after_client_cids" "fail"
+    fi
+}
+
+# 1322: the client never issues its connection IDs for path ID 1. The server
+# never sets path 1 up and keeps the connection; the client abandons path 1
+# at its validation deadline and completes the request on path 0.
+case_transport_multipath_MP_path_without_client_cids_not_set_up()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    rm -f test_session tp_localhost xqc_token
+    clear_log
+    echo -e "MP path without the client's CIDs not set up ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 4 -M -i lo -i lo -E \
+        -x 1322 > stdlog
+    opened=`grep "\[mp-held-cids\]|path_opened|path_id:1|ret:0|" stdlog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    delayed=`grep -a "|new path not set up|path:1|reason:no peer CID" slog`
+    abandoned=`grep -a "|no context for abandoned path|path_id:1|" slog`
+    cli_closed=`grep -a "|path closed|path:1|" clog`
+    svr_valid=`grep -a "|path validated|path_id:1|" slog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -n "$opened" ] && [ -n "$result" ] \
+        && [ -n "$delayed" ] && [ -n "$abandoned" ] && [ -n "$cli_closed" ] \
+        && [ -z "$svr_valid" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MP_path_without_client_cids_not_set_up" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MP_path_without_client_cids_not_set_up" "fail"
+    fi
+}
+
 case_transport_multipath_MPNS_multipath_30_percent_loss()
 {
 grep_err_log
@@ -829,6 +894,8 @@ fi
 case_test_case "MPNS_enable_multipath_negotiate" --id native --mode self-reporting --run case_transport_multipath_MPNS_enable_multipath_negotiate
 case_test_case "MPNS_unnegotiated_frozen_rejected" --id 1302 --mode self-reporting --run case_transport_multipath_MPNS_unnegotiated_frozen_rejected
 case_test_case "MPNS_send_1M_data_on_multiple_paths" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_1M_data_on_multiple_paths
+case_test_case "MP_path_set_up_after_client_cids" --id 1321 --mode self-reporting --run case_transport_multipath_MP_path_set_up_after_client_cids
+case_test_case "MP_path_without_client_cids_not_set_up" --id 1322 --mode self-reporting --run case_transport_multipath_MP_path_without_client_cids_not_set_up
 case_test_case "MPNS_multipath_30_percent_loss" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss --timeout 120
 case_test_case "MPNS_multipath_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_initial_path
 case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path --timeout 240

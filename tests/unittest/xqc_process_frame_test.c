@@ -13,8 +13,11 @@
 #include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_stream.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
+#include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_multipath.h"
 #include "xquic/xqc_errno.h"
+#include "xqc_alloc_wrap.h"
 
 char XQC_TEST_ILL_FRAME_1[] = {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 char XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME[] = {0x07, 0x00};
@@ -530,6 +533,491 @@ xqc_test_peer_key_update_error_not_0rtt(void)
     xqc_engine_destroy(conn->engine);
 }
 
+
+/*
+ * A multipath server facing a client that opens new paths. Path IDs 1 to
+ * XQC_TEST_MP_SERVER_MAX_PATH_ID are allowed on both sides; the server has
+ * issued one connection ID per path ID, the client none yet.
+ */
+#define XQC_TEST_MP_SERVER_MAX_PATH_ID  4
+#define XQC_TEST_MP_CID_LEN         8
+#define XQC_TEST_MP_SCID_BYTE       0x50
+#define XQC_TEST_MP_DCID_BYTE       0x60
+
+/* draft-ietf-quic-multipath-10 frame types, as 4-byte varints */
+#define XQC_TEST_FT_MP_ABANDON      0x95, 0x22, 0x8c, 0x05
+#define XQC_TEST_FT_MP_STANDBY      0x95, 0x22, 0x8c, 0x07
+#define XQC_TEST_FT_MP_NEW_CONN_ID  0x95, 0x22, 0x8c, 0x09
+
+#define XQC_TEST_PATH_CHALLENGE(...) 0x1a, __VA_ARGS__
+
+static xqc_connection_t *xqc_test_mp_server_conn(void);
+static void xqc_test_mp_cid(xqc_cid_t *cid, unsigned char byte,
+    uint64_t path_id);
+static void xqc_test_mp_add_scid(xqc_connection_t *conn, uint64_t path_id,
+    xqc_cid_t *scid);
+static void xqc_test_mp_add_dcid(xqc_connection_t *conn, uint64_t path_id);
+static xqc_int_t xqc_test_mp_feed(xqc_connection_t *conn,
+    unsigned char *frames, size_t len, const xqc_cid_t *pkt_dcid);
+static int xqc_test_mp_queued_response(xqc_connection_t *conn,
+    const unsigned char *data);
+
+
+static xqc_connection_t *
+xqc_test_mp_server_conn(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+
+    if (conn == NULL) {
+        return NULL;
+    }
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->enable_multipath = XQC_CONN_MP_ENABLED;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    conn->local_max_path_id = XQC_TEST_MP_SERVER_MAX_PATH_ID;
+    conn->remote_max_path_id = XQC_TEST_MP_SERVER_MAX_PATH_ID;
+    conn->curr_max_path_id = XQC_TEST_MP_SERVER_MAX_PATH_ID;
+    if (xqc_conn_add_path_cid_sets(conn, XQC_INITIAL_PATH_ID + 1,
+                                   XQC_TEST_MP_SERVER_MAX_PATH_ID) != XQC_OK)
+    {
+        xqc_engine_destroy(conn->engine);
+        return NULL;
+    }
+
+    return conn;
+}
+
+static void
+xqc_test_mp_cid(xqc_cid_t *cid, unsigned char byte, uint64_t path_id)
+{
+    memset(cid, 0, sizeof(*cid));
+    cid->cid_len = XQC_TEST_MP_CID_LEN;
+    memset(cid->cid_buf, byte + (unsigned char) path_id, XQC_TEST_MP_CID_LEN);
+    cid->path_id = path_id;
+}
+
+/* a connection ID the server issued for path_id */
+static void
+xqc_test_mp_add_scid(xqc_connection_t *conn, uint64_t path_id,
+    xqc_cid_t *scid)
+{
+    xqc_test_mp_cid(scid, XQC_TEST_MP_SCID_BYTE, path_id);
+    CU_ASSERT_EQUAL(xqc_cid_set_insert_cid(&conn->scid_set, scid,
+                                           XQC_CID_UNUSED,
+                                           XQC_CONN_ACTIVE_CID_LIMIT,
+                                           path_id), XQC_OK);
+}
+
+/* a connection ID the client issued for path_id */
+static void
+xqc_test_mp_add_dcid(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_cid_t dcid;
+
+    xqc_test_mp_cid(&dcid, XQC_TEST_MP_DCID_BYTE, path_id);
+    CU_ASSERT_EQUAL(xqc_cid_set_insert_cid(&conn->dcid_set, &dcid,
+                                           XQC_CID_UNUSED,
+                                           XQC_CONN_ACTIVE_CID_LIMIT,
+                                           path_id), XQC_OK);
+}
+
+/* a 1-RTT packet that came on the path ID of pkt_dcid */
+static xqc_int_t
+xqc_test_mp_feed(xqc_connection_t *conn, unsigned char *frames, size_t len,
+    const xqc_cid_t *pkt_dcid)
+{
+    xqc_packet_in_t pi;
+
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    pi.pi_pkt.pkt_dcid = *pkt_dcid;
+    pi.pi_path_id = pkt_dcid->path_id;
+    pi.pos = frames;
+    pi.last = frames + len;
+
+    return xqc_process_frames(conn, &pi);
+}
+
+/* number of queued PATH_RESPONSE frames echoing data */
+static int
+xqc_test_mp_queued_response(xqc_connection_t *conn, const unsigned char *data)
+{
+    xqc_list_head_t *queues[] = {
+        &conn->conn_send_queue->sndq_send_packets_high_pri,
+        &conn->conn_send_queue->sndq_send_packets,
+    };
+    xqc_list_head_t *pos;
+    xqc_packet_out_t *po;
+    unsigned char *p, *end;
+    int n = 0;
+
+    for (size_t i = 0; i < sizeof(queues) / sizeof(queues[0]); i++) {
+        xqc_list_for_each(pos, queues[i]) {
+            po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+            if (!(po->po_frame_types & XQC_FRAME_BIT_PATH_RESPONSE)) {
+                continue;
+            }
+
+            end = po->po_buf + po->po_used_size;
+            for (p = po->po_payload;
+                 p + 1 + XQC_PATH_CHALLENGE_DATA_LEN <= end; p++)
+            {
+                if (p[0] == 0x1b
+                    && memcmp(p + 1, data, XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+                {
+                    n++;
+                    break;
+                }
+            }
+        }
+    }
+
+    return n;
+}
+
+/*
+ * RFC 10069 Section 3.1: a server that has no connection ID of the client
+ * for a new path ID yet "could delay sending the PATH_RESPONSE until
+ * sufficient resources are available" (draft-ietf-quic-multipath-10
+ * Section 3.1: such a PATH_CHALLENGE SHOULD be ignored). The connection
+ * stays open, and the client's next PATH_CHALLENGE sets the path up once
+ * the client's connection IDs have arrived.
+ */
+void
+xqc_test_mp_server_delays_path_without_peer_cid(void)
+{
+    unsigned char frames[] = {XQC_TEST_PATH_CHALLENGE(1, 2, 3, 4, 5, 6, 7, 8)};
+    unsigned char *data = frames + 1;
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_cid_t scid;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_test_mp_add_scid(conn, 1, &scid);
+
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn, 1));
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, data), 0);
+    CU_ASSERT_EQUAL(conn->conn_flag & XQC_CONN_FLAG_RECV_NEW_PATH, 0);
+    CU_ASSERT_EQUAL(conn->create_path_count, 1);
+
+    /* the client's connection IDs arrive, then the PATH_CHALLENGE again */
+    xqc_test_mp_add_dcid(conn, 1);
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
+                    XQC_OK);
+    path = xqc_conn_find_path_by_path_id(conn, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_VALIDATING);
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, data), 1);
+    CU_ASSERT_NOT_EQUAL(conn->conn_flag & XQC_CONN_FLAG_RECV_NEW_PATH, 0);
+    CU_ASSERT_EQUAL(conn->validating_path_id, 1);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * draft-ietf-quic-multipath-10 Section 3.1: "the MP_NEW_CONNECTION_ID might
+ * be sent in the same packet and in this case the PATH_CHALLENGE SHOULD be
+ * processed", whatever the order of the two frames.
+ */
+void
+xqc_test_mp_server_path_cid_after_challenge(void)
+{
+    unsigned char frames[] = {
+        XQC_TEST_PATH_CHALLENGE(8, 7, 6, 5, 4, 3, 2, 1),
+        /* path ID 2, sequence number 0, retire prior to 0 */
+        XQC_TEST_FT_MP_NEW_CONN_ID, 0x02, 0x00, 0x00,
+        XQC_TEST_MP_CID_LEN,
+        0x62, 0x62, 0x62, 0x62, 0x62, 0x62, 0x62, 0x62,
+        0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+        0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,
+    };
+    unsigned char *data = frames + 1;
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_cid_t scid;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_test_mp_add_scid(conn, 2, &scid);
+
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
+                    XQC_OK);
+    path = xqc_conn_find_path_by_path_id(conn, 2);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_VALIDATING);
+    CU_ASSERT_EQUAL(path->path_dcid.cid_buf[0], 0x62);
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, data), 1);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A PATH_STANDBY that the client sends with the PATH_CHALLENGE opening the
+ * path applies to the new path (RFC 10069 Section 4.3), as does the second
+ * of two PATH_CHALLENGE frames with the client's connection IDs between
+ * them: each is answered on the one path.
+ */
+void
+xqc_test_mp_server_path_frames_after_challenge(void)
+{
+    unsigned char frames[] = {
+        XQC_TEST_PATH_CHALLENGE(1, 1, 1, 1, 1, 1, 1, 1),
+        XQC_TEST_FT_MP_STANDBY, 0x01, 0x01,
+    };
+    unsigned char two[] = {
+        XQC_TEST_PATH_CHALLENGE(2, 2, 2, 2, 2, 2, 2, 2),
+        /* path ID 2, sequence number 0, retire prior to 0 */
+        XQC_TEST_FT_MP_NEW_CONN_ID, 0x02, 0x00, 0x00,
+        XQC_TEST_MP_CID_LEN,
+        0x62, 0x62, 0x62, 0x62, 0x62, 0x62, 0x62, 0x62,
+        0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7,
+        0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,
+        XQC_TEST_PATH_CHALLENGE(9, 9, 9, 9, 9, 9, 9, 9),
+    };
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_cid_t scid;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_test_mp_add_scid(conn, 1, &scid);
+    xqc_test_mp_add_dcid(conn, 1);
+
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
+                    XQC_OK);
+    path = xqc_conn_find_path_by_path_id(conn, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, frames + 1), 1);
+
+    /* the PATH_STANDBY of the packet applies once the path is validated */
+    xqc_path_validate(path);
+    CU_ASSERT_EQUAL(path->app_path_status, XQC_APP_PATH_STATUS_STANDBY);
+
+    xqc_test_mp_add_scid(conn, 2, &scid);
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, two, sizeof(two), &scid), XQC_OK);
+    CU_ASSERT_PTR_NOT_NULL(xqc_conn_find_path_by_path_id(conn, 2));
+    CU_ASSERT_EQUAL(conn->create_path_count, 3);
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, two + 1), 1);
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, two + sizeof(two)
+                                                - XQC_PATH_CHALLENGE_DATA_LEN),
+                    1);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * RFC 10069 Section 3.4: "After a path is abandoned, the path ID MUST NOT be
+ * reused for new paths"; Section 4: frames for a path ID that cannot be
+ * processed anymore are silently ignored. The client abandons path 3 before
+ * its PATH_CHALLENGE, delayed, arrives.
+ */
+void
+xqc_test_mp_server_ignores_abandoned_path_id(void)
+{
+    unsigned char abandon[] = {XQC_TEST_FT_MP_ABANDON, 0x03, 0x00, 0x00};
+    unsigned char frames[] = {XQC_TEST_PATH_CHALLENGE(3, 3, 3, 3, 3, 3, 3, 3)};
+    xqc_connection_t *conn;
+    xqc_cid_t scid;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_test_mp_add_scid(conn, 3, &scid);
+    xqc_test_mp_add_dcid(conn, 3);
+
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, abandon, sizeof(abandon),
+                                     &conn->scid_set.user_scid), XQC_OK);
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
+                    XQC_OK);
+    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn, 3));
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, frames + 1), 0);
+    CU_ASSERT_EQUAL(xqc_get_path_cid_set(&conn->scid_set, 3)->set_state,
+                    XQC_CID_SET_ABANDONED);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * RFC 10069 Sections 3.1 and 4.2.1: a path the server lacks the resources
+ * for is not set up, and the connection stays open. Here the connection has
+ * created XQC_MAX_PATHS_COUNT paths.
+ */
+void
+xqc_test_mp_server_path_limit_keeps_connection(void)
+{
+    unsigned char frames[] = {XQC_TEST_PATH_CHALLENGE(4, 4, 4, 4, 4, 4, 4, 4)};
+    xqc_connection_t *conn;
+    xqc_cid_t scid;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_test_mp_add_scid(conn, 4, &scid);
+    xqc_test_mp_add_dcid(conn, 4);
+    conn->create_path_count = XQC_MAX_PATHS_COUNT;
+
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
+                    XQC_OK);
+    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn, 4));
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, frames + 1), 0);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* an allocation failure while the path is set up only delays it */
+void
+xqc_test_mp_server_path_alloc_failure_delays(void)
+{
+#ifdef XQC_TEST_ALLOC_WRAP
+    unsigned char frames[] = {XQC_TEST_PATH_CHALLENGE(5, 5, 5, 5, 5, 5, 5, 5)};
+    xqc_connection_t *conn;
+    xqc_cid_t scid;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_test_mp_add_scid(conn, 1, &scid);
+    xqc_test_mp_add_dcid(conn, 1);
+
+    /* the first allocation, the path context, fails */
+    xqc_test_alloc_failed = 0;
+    xqc_test_alloc_fail_at = 1;
+    xqc_test_alloc_count = 0;
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
+                    XQC_OK);
+    xqc_test_alloc_count = -1;
+    CU_ASSERT_EQUAL(xqc_test_alloc_failed, 1);
+    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn, 1));
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    /* nothing was taken: the next PATH_CHALLENGE sets the path up */
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
+                    XQC_OK);
+    CU_ASSERT_PTR_NOT_NULL(xqc_conn_find_path_by_path_id(conn, 1));
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, frames + 1), 1);
+
+    xqc_engine_destroy(conn->engine);
+
+    /*
+     * Each allocation of the setup fails in turn. One that fails before the
+     * path is listed leaves no path and the connection open; once the path
+     * is listed, a failure to initialize it closes the connection, which
+     * keeps no half set-up path.
+     */
+    int before_listed = 0, after_listed = 0;
+    for (long at = 1; at < 64; at++) {
+        conn = xqc_test_mp_server_conn();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_test_mp_add_scid(conn, 1, &scid);
+        xqc_test_mp_add_dcid(conn, 1);
+
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = at;
+        xqc_test_alloc_count = 0;
+        CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
+                        XQC_OK);
+        xqc_test_alloc_count = -1;
+
+        xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, 1);
+        if (!xqc_test_alloc_failed) {
+            /* the setup made fewer allocations: it succeeded */
+            CU_ASSERT_PTR_NOT_NULL(path);
+            CU_ASSERT_EQUAL(conn->conn_err, 0);
+            xqc_engine_destroy(conn->engine);
+            break;
+        }
+
+        if (path == NULL) {
+            before_listed++;
+            CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+        } else if (path->path_state == XQC_PATH_STATE_INIT) {
+            after_listed++;
+            CU_ASSERT_EQUAL(conn->conn_err, TRA_INTERNAL_ERROR);
+        }
+        xqc_engine_destroy(conn->engine);
+    }
+    CU_ASSERT(before_listed > 0);
+    CU_ASSERT(after_listed > 0);
+#endif
+}
+
+/*
+ * no path is created on path_id, for the reason xqc_conn_check_new_path()
+ * gives
+ */
+static void
+xqc_test_mp_path_refused(xqc_connection_t *conn, xqc_cid_t *scid,
+    uint64_t path_id, xqc_path_create_result_t reason)
+{
+    CU_ASSERT_EQUAL(xqc_conn_check_new_path(conn, scid, NULL, path_id),
+                    reason);
+    CU_ASSERT_PTR_NULL(xqc_conn_create_path_inner(conn, scid, NULL,
+                           XQC_APP_PATH_STATUS_AVAILABLE, path_id));
+}
+
+/* the reason xqc_conn_check_new_path() gives for each refusal */
+void
+xqc_test_mp_path_create_result(void)
+{
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_cid_t scid, unknown;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_test_mp_add_scid(conn, 1, &scid);
+
+    /* no connection ID of the client for path ID 1 */
+    xqc_test_mp_path_refused(conn, &scid, 1, XQC_PATH_CREATE_NO_PEER_CID);
+
+    /* a connection ID that is not the endpoint's for path ID 1 */
+    xqc_test_mp_add_dcid(conn, 1);
+    xqc_test_mp_cid(&unknown, 0x70, 1);
+    xqc_test_mp_path_refused(conn, &unknown, 1, XQC_PATH_CREATE_NO_LOCAL_CID);
+
+    /* no unused connection ID of the endpoint for path ID 2 */
+    xqc_test_mp_add_dcid(conn, 2);
+    xqc_test_mp_path_refused(conn, NULL, 2, XQC_PATH_CREATE_NO_LOCAL_CID);
+
+    /* too many paths */
+    conn->create_path_count = XQC_MAX_PATHS_COUNT;
+    xqc_test_mp_path_refused(conn, &scid, 1, XQC_PATH_CREATE_LIMIT_REACHED);
+    conn->create_path_count = 1;
+
+    /* created: the path ID is in use from now on */
+    CU_ASSERT_EQUAL(xqc_conn_check_new_path(conn, &scid, NULL, 1),
+                    XQC_PATH_CREATE_OK);
+    path = xqc_conn_create_path_inner(conn, &scid, NULL,
+                                      XQC_APP_PATH_STATUS_AVAILABLE, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    xqc_test_mp_add_dcid(conn, 1);
+    xqc_test_mp_path_refused(conn, &scid, 1, XQC_PATH_CREATE_PATH_ID_IN_USE);
+
+    /* a path ID the peer abandoned before it had a path */
+    xqc_test_mp_add_scid(conn, 3, &scid);
+    xqc_test_mp_add_dcid(conn, 3);
+    xqc_cid_set_update_state(&conn->scid_set, 3, XQC_CID_SET_ABANDONED);
+    xqc_cid_set_update_state(&conn->dcid_set, 3, XQC_CID_SET_ABANDONED);
+    xqc_test_mp_path_refused(conn, &scid, 3,
+                             XQC_PATH_CREATE_PATH_ID_ABANDONED);
+
+    CU_ASSERT_STRING_EQUAL(
+        xqc_path_create_result_str(XQC_PATH_CREATE_NO_PEER_CID),
+        "no peer CID for the path ID");
+    CU_ASSERT_STRING_EQUAL(
+        xqc_path_create_result_str(XQC_PATH_CREATE_RESULT_N), "unknown");
+
+    xqc_engine_destroy(conn->engine);
+}
 
 void
 xqc_test_large_ack_frame()

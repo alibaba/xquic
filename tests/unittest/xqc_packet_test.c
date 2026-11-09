@@ -16,6 +16,7 @@
 #include "src/common/xqc_str.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_send_ctl.h"
 
 
 #define XQC_TEST_SHORT_HEADER_PACKET_A "\x40\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
@@ -870,6 +871,156 @@ xqc_test_coalesced_initial_datagram_too_small(void)
 
     xqc_test_coalesced_teardown(&cli, &svr);
 }
+
+static void
+xqc_test_aal_deliver(test_ctx *dst, const unsigned char *buf, size_t len)
+{
+    struct sockaddr_in6 peer_addr;
+    struct sockaddr_in6 local_addr;
+
+    memset(&peer_addr, 0, sizeof(peer_addr));
+    memset(&local_addr, 0, sizeof(local_addr));
+    xqc_engine_packet_process(dst->engine, buf, len,
+                              (struct sockaddr *)&local_addr,
+                              sizeof(local_addr),
+                              (struct sockaddr *)&peer_addr,
+                              sizeof(peer_addr), xqc_now(), dst);
+}
+
+
+/*
+ * The server chooses its own connection ID and may send only as many bytes
+ * as it received before it validates the client address, so it sends its
+ * first Initial and is then blocked.
+ */
+static xqc_int_t
+xqc_test_aal_setup(test_ctx *cli, test_ctx *svr)
+{
+    xqc_conn_settings_t conn_settings;
+    xqc_conn_ssl_config_t conn_ssl_config;
+    const xqc_cid_t *cid;
+
+    svr->engine = test_create_engine_buf_server(svr);
+    cli->engine = test_create_engine_buf_client(cli);
+    if (svr->engine == NULL || cli->engine == NULL) {
+        return XQC_ERROR;
+    }
+    svr->engine->config->cid_negotiate = 1;
+    svr->engine->default_conn_settings.anti_amplification_limit = 1;
+
+    memset(&conn_settings, 0, sizeof(conn_settings));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+
+    cid = xqc_connect(cli->engine, &conn_settings, NULL, 0, "", 0,
+                      &conn_ssl_config, NULL, 0, "transport", cli);
+    if (cid == NULL || cli->c == NULL) {
+        return XQC_ERROR;
+    }
+
+    xqc_test_aal_deliver(svr, (unsigned char *)cli->buf, cli->buf_len);
+    if (svr->c == NULL || svr->buf_len == 0) {
+        return XQC_ERROR;
+    }
+
+    return XQC_OK;
+}
+
+
+/*
+ * RFC 9000 Section 8.1: an Initial packet that only echoes the server's
+ * connection ID earns credit, but does not validate the client address.
+ */
+void
+xqc_test_aal_server_cid_initial_keeps_limit(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    unsigned char pkt[XQC_PACKET_INITIAL_MIN_LENGTH];
+    xqc_send_ctl_t *ctl;
+    uint64_t recv_before;
+    size_t size;
+    xqc_int_t ret;
+
+    ret = xqc_test_aal_setup(&cli, &svr);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        xqc_test_coalesced_teardown(&cli, &svr);
+        return;
+    }
+
+    /* the connection ID was chosen by the server, not by the client */
+    CU_ASSERT_PTR_NULL(xqc_cid_in_cid_set(&svr.c->scid_set,
+                                          &svr.c->original_dcid,
+                                          XQC_INITIAL_PATH_ID));
+    ctl = svr.c->conn_initial_path->path_send_ctl;
+    CU_ASSERT_TRUE(xqc_send_ctl_check_anti_amplification(ctl, 0));
+    recv_before = ctl->ctl_bytes_recv;
+
+    size = xqc_test_build_initial(&cli, &svr.c->scid_set.user_scid, 1,
+                                  XQC_FALSE, sizeof(pkt), pkt, sizeof(pkt));
+    CU_ASSERT_EQUAL(size, sizeof(pkt));
+    if (size != sizeof(pkt)) {
+        xqc_test_coalesced_teardown(&cli, &svr);
+        return;
+    }
+
+    xqc_test_aal_deliver(&svr, pkt, size);
+
+    CU_ASSERT_EQUAL(ctl->ctl_bytes_recv, recv_before + size);
+    CU_ASSERT_FALSE(svr.c->conn_flag & XQC_CONN_FLAG_ADDR_VALIDATED);
+    CU_ASSERT_TRUE(xqc_send_ctl_check_anti_amplification(
+        ctl, ctl->ctl_bytes_recv));
+
+    xqc_test_coalesced_teardown(&cli, &svr);
+}
+
+
+/* RFC 9000 Section 8.1: a Handshake packet validates the client address. */
+void
+xqc_test_aal_hsk_packet_lifts_limit(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    xqc_send_ctl_t *ctl;
+    uint64_t sent_before;
+    xqc_int_t ret;
+
+    ret = xqc_test_aal_setup(&cli, &svr);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        xqc_test_coalesced_teardown(&cli, &svr);
+        return;
+    }
+
+    ctl = svr.c->conn_initial_path->path_send_ctl;
+    CU_ASSERT_TRUE(xqc_send_ctl_check_anti_amplification(ctl, 0));
+
+    /* the server's first Initial gives the client its Handshake keys */
+    xqc_test_aal_deliver(&cli, (unsigned char *)svr.buf, svr.buf_len);
+    xqc_conn_send_one_ack_eliciting_pkt(cli.c, XQC_PNS_HSK);
+    cli.buf_len = 0;
+    xqc_engine_conn_logic(cli.engine, cli.c);
+
+    /* long header, fixed bit, Handshake type */
+    CU_ASSERT_NOT_EQUAL(cli.buf_len, 0);
+    CU_ASSERT_EQUAL((unsigned char)cli.buf[0] & 0xf0, 0xe0);
+    if (cli.buf_len == 0 || ((unsigned char)cli.buf[0] & 0xf0) != 0xe0) {
+        xqc_test_coalesced_teardown(&cli, &svr);
+        return;
+    }
+
+    sent_before = ctl->ctl_bytes_send;
+    xqc_test_aal_deliver(&svr, (unsigned char *)cli.buf, cli.buf_len);
+
+    CU_ASSERT_TRUE(svr.c->conn_flag & XQC_CONN_FLAG_ADDR_VALIDATED);
+    CU_ASSERT_FALSE(xqc_send_ctl_check_anti_amplification(
+        ctl, ctl->ctl_bytes_recv));
+    CU_ASSERT(ctl->ctl_bytes_send > sent_before);
+
+    xqc_test_coalesced_teardown(&cli, &svr);
+}
+
 
 /* A version field with the top bit set (any byte >= 0x80 first) must not
  * shift into the sign bit of an int: that is undefined behaviour, and the

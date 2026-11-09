@@ -617,6 +617,120 @@ fi
 
 }
 
+# Print the type of the packet whose processing validated the client address
+# in a server log: the "====>" line follows the "Address Validated" line.
+case_transport_core_addr_validated_by()
+{
+awk '/\|Address Validated\|/ {found = 1}
+     found && /\|====>\|/ {print; exit}' "$1" \
+    | grep -a -o "pkt_type:[A-Z_]*"
+}
+
+# Print the first Initial packet that the server processed before validating
+# the client address and that carries the server's own connection ID.
+case_transport_core_cid_echo_before_validation()
+{
+awk '/\|Address Validated\|/ {exit}
+     /\|====>\|/ && /\|pkt_type:INIT\|/ {
+         match($0, /\|scid:[0-9a-f]+\|/)
+         scid = substr($0, RSTART + 6, RLENGTH - 7)
+         match($0, /\|dcid:[0-9a-f]+\|/)
+         dcid = substr($0, RSTART + 6, RLENGTH - 7)
+         if (scid != "" && scid == dcid) {print; exit}
+     }' "$1"
+}
+
+case_transport_core_server_addr_validated_by_handshake()
+{
+# RFC 9000 Section 8.1: the server chooses its own connection ID (-S), and
+# the client's Handshake packet, not its Initial ACK that echoes that ID,
+# validates the client address.
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -S "server_id_0" > /dev/null
+echo -e "server validates address by Handshake packet ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+validated_by=`case_transport_core_addr_validated_by slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] \
+    && [ "$validated_by" == "pkt_type:HSK" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_addr_validated_by_handshake" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_addr_validated_by_handshake" "fail"
+    echo "$result"
+    echo "$validated_by"
+    echo "$errlog"
+fi
+case_test_stop_server
+rm -f test_session xqc_token tp_localhost
+}
+
+case_transport_core_server_amplification_limit_cid_echo()
+{
+# RFC 9000 Section 8.1: with a certificate larger than three times the
+# client's first Initial (as in the interop amplificationlimit test), the
+# server is blocked by its anti-amplification limit. The client's Initial
+# that echoes the server's connection ID only adds credit; the client's
+# Handshake packet validates the address, and the request completes.
+local work_dir=`pwd`
+local dir="${work_dir}/amplification_cid_echo"
+local san="DNS:test.xquic.com"
+local i
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+rm -rf "$dir"
+mkdir -p "$dir"
+for i in $(seq 1 60); do
+    san="${san},DNS:$(printf 'a%0249d' "$i")"
+done
+echo -e "server amplification limit with echoed connection ID ...\c"
+if ! openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+    -nodes -keyout "$dir/server.key" -out "$dir/server.crt" -days 1 \
+    -subj "/CN=test.xquic.com" -addext "subjectAltName=${san}" \
+    > /dev/null 2>&1
+then
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_amplification_limit_cid_echo" "fail"
+    echo "large certificate generation failed"
+    rm -rf "$dir"
+    return
+fi
+
+cd "$dir" && case_test_start_server ${SERVER_BIN} -l d -e -S "server_id_0" \
+    > /dev/null
+cd "$work_dir"
+${CLIENT_BIN} -s 1024 -l d -t 3 -E > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+aal=`grep -a "blocked by anti amplification limit" "$dir/slog"`
+echo_init=`case_transport_core_cid_echo_before_validation "$dir/slog"`
+validated_by=`case_transport_core_addr_validated_by "$dir/slog"`
+errlog=`grep -a "\[error\]" clog "$dir/slog"`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$aal" ] \
+    && [ -n "$echo_init" ] && [ "$validated_by" == "pkt_type:HSK" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_amplification_limit_cid_echo" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_amplification_limit_cid_echo" "fail"
+    echo "$result"
+    echo "aal:${aal:0:200}"
+    echo "echo:${echo_init:0:200}"
+    echo "$validated_by"
+    echo "$errlog"
+fi
+case_test_stop_server
+rm -rf "$dir"
+rm -f test_session xqc_token tp_localhost
+
+
+}
+
 case_transport_core_version_negotiation()
 {
 case_test_stop_server
@@ -1154,6 +1268,12 @@ case_test_case "new_client_29_&_new_server" --id native --mode self-reporting --
 case_test_case "load_balancer_cid_generate_with_encryption" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate_with_encryption
 case_test_case "load_balancer_cid_generate" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate
 case_test_case "server_amplification_limit" --id native --mode self-reporting --run case_transport_core_server_amplification_limit
+case_test_case "server_addr_validated_by_handshake" --id native \
+    --mode self-reporting \
+    --run case_transport_core_server_addr_validated_by_handshake
+case_test_case "server_amplification_limit_cid_echo" --id native \
+    --mode self-reporting \
+    --run case_transport_core_server_amplification_limit_cid_echo
 case_test_case "version_negotiation" --id native --mode self-reporting --run case_transport_core_version_negotiation
 case_test_case "version_negotiation_abort_path" --id native --mode self-reporting --run case_transport_core_version_negotiation_abort_path
 case_test_case "version_negotiation_close_errno" --id native --mode self-reporting --run case_transport_core_version_negotiation_close_errno

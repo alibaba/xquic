@@ -18,6 +18,11 @@ void xqc_test_coalesced_mismatching_dcid_ignored(void);
 void xqc_test_coalesced_initial_datagram_minimum(void);
 void xqc_test_coalesced_initial_datagram_too_small(void);
 void xqc_test_parse_uint32_high_bytes(void);
+void xqc_test_server_initial_omits_retry_token(void);
+void xqc_test_server_initial_omits_invalid_token(void);
+void xqc_test_client_initial_token_len(void);
+void xqc_test_client_discards_server_initial_token(void);
+void xqc_test_client_discard_keeps_coalesced_packets(void);
 
 
 #endif

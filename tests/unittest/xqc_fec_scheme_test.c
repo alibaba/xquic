@@ -117,6 +117,7 @@ xqc_test_invalid_encoder_params()
 
     /** test null repair symbols buffer */
     conn->conn_settings.fec_callback = xqc_xor_code_cb;
+    xqc_free(conn->fec_ctl->fec_send_repair_symbols_buff[0][0].payload);
     conn->fec_ctl->fec_send_repair_symbols_buff[0][0].payload = NULL;
     ret = xqc_fec_encoder(conn, XQC_TEST_STREAM, 5, 0);
     CU_ASSERT(ret == -XQC_EMALLOC);
@@ -281,6 +282,8 @@ xqc_test_fec_decode()
          * so the buffer must be at least that large. */
         unsigned char *safe_buf = xqc_malloc(XQC_MAX_SYMBOL_SIZE);
         CU_ASSERT(safe_buf != NULL);
+        /* safe_buf replaces the connection's own buffer, restored above */
+        xqc_free(test_buffer);
         conn->fec_ctl->fec_gen_repair_symbols_buff[0].is_valid     = 1;
         conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload      = safe_buf;
         conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload_size = XQC_MAX_SYMBOL_SIZE;

@@ -376,6 +376,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_idle_timeout", xqc_test_conn_idle_timeout)
         || !CU_add_test(pSuite, "xqc_test_conn_next_wakeup_path_timers",
                         xqc_test_conn_next_wakeup_path_timers)
+        || !CU_add_test(pSuite, "xqc_test_pto_probes_own_path_packets",
+                        xqc_test_pto_probes_own_path_packets)
+        || !CU_add_test(pSuite, "xqc_test_pto_pings_without_own_packets",
+                        xqc_test_pto_pings_without_own_packets)
+        || !CU_add_test(pSuite, "xqc_test_pto_handshake_done_on_other_path",
+                        xqc_test_pto_handshake_done_on_other_path)
         || !CU_add_test(pSuite,
                         "xqc_test_conn_pmtud_deferred_until_handshake",
                         xqc_test_conn_pmtud_deferred_until_handshake)

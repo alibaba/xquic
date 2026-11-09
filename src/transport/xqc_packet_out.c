@@ -121,15 +121,17 @@ xqc_packet_out_can_attach_ack(xqc_packet_out_t *po,
     return XQC_TRUE;
 }
 
-xqc_bool_t 
+/*
+ * RFC 10069 Section 5.7: loss is detected for each path, so the PTO of a
+ * path probes it with the packets sent on it. A packet of another path is
+ * in flight there: a probe made of it would take it out of the bytes in
+ * flight and the congestion control of that path, although a PTO declares
+ * no packet lost (RFC 9002 Section 6.2).
+ */
+xqc_bool_t
 xqc_packet_out_can_pto_probe(xqc_packet_out_t *po, uint64_t path_id)
 {
-    if ((po->po_path_flag & (XQC_PATH_SPECIFIED_BY_PCPR | XQC_PATH_SPECIFIED_BY_REINJ | XQC_PATH_SPECIFIED_BY_PTMUD))
-        && path_id != po->po_path_id)
-    {
-        return XQC_FALSE;
-    }
-    return XQC_TRUE;
+    return po->po_path_id == path_id;
 }
 
 void 

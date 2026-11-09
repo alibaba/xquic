@@ -531,8 +531,10 @@ xqc_encoder_write_insert_ins(xqc_encoder_t *enc, xqc_var_buf_t *ins, xqc_hdr_enc
     case XQC_INSERT_NAME:
         /* insert only name will help to reduce the cost of dtable capacity */
         ret = xqc_ins_write_insert_literal_name(ins, name->iov_base, name->iov_len, NULL, 0);
+        /* the event reads each length as a size_t */
         xqc_log_event(enc->log, QPACK_INSTRUCTION_CREATED, XQC_LOG_ENCODER_EVENT,
-                      XQC_INS_TYPE_ENC_INSERT_LITERAL, name->iov_len, name->iov_base, 0, NULL);
+                      XQC_INS_TYPE_ENC_INSERT_LITERAL,
+                      name->iov_len, name->iov_base, (size_t) 0, NULL);
         break;
 
     case XQC_INSERT_NAME_REF_VALUE: {

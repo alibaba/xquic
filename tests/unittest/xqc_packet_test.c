@@ -16,6 +16,7 @@
 #include "src/common/xqc_str.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_send_ctl.h"
 
 
 #define XQC_TEST_SHORT_HEADER_PACKET_A "\x40\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
@@ -468,6 +469,153 @@ finish:
         }
         xqc_engine_destroy(svr_tctx.engine);
     }
+}
+
+
+/*
+ * RFC 9000 Section 13.2.1: the server acknowledges the client's Initial at
+ * once. The Initial with its ServerHello carries the ACK, so the client gets
+ * it even when the anti-amplification limit (here one time the received
+ * bytes) holds back every later packet of the server's flight.
+ */
+void
+xqc_test_ack_server_hello_carries_ack(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    xqc_conn_settings_t conn_settings;
+    xqc_conn_ssl_config_t conn_ssl_config;
+    struct sockaddr_in6 peer_addr;
+    struct sockaddr_in6 local_addr;
+    xqc_packet_out_t *po = NULL;
+    xqc_list_head_t *pos;
+    const xqc_cid_t *cid;
+
+    svr.engine = test_create_engine_buf_server(&svr);
+    cli.engine = test_create_engine_buf_client(&cli);
+    CU_ASSERT(svr.engine != NULL && cli.engine != NULL);
+    if (svr.engine == NULL || cli.engine == NULL) {
+        goto finish;
+    }
+    svr.engine->default_conn_settings.anti_amplification_limit = 1;
+
+    memset(&conn_settings, 0, sizeof(conn_settings));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+    cid = xqc_connect(cli.engine, &conn_settings, NULL, 0, "", 0,
+                      &conn_ssl_config, NULL, 0, "transport", &cli);
+    CU_ASSERT(cid != NULL && cli.c != NULL);
+    if (cid == NULL || cli.c == NULL) {
+        goto finish;
+    }
+
+    memset(&peer_addr, 0, sizeof(peer_addr));
+    memset(&local_addr, 0, sizeof(local_addr));
+    svr.buf_len = 0;
+    xqc_engine_packet_process(svr.engine, (unsigned char *)cli.buf,
+                              cli.buf_len, (struct sockaddr *)&local_addr,
+                              sizeof(local_addr),
+                              (struct sockaddr *)&peer_addr,
+                              sizeof(peer_addr), xqc_now(), &svr);
+    CU_ASSERT(svr.c != NULL && svr.buf_len != 0);
+    if (svr.c == NULL || svr.buf_len == 0) {
+        goto finish;
+    }
+
+    /* the server's only datagram so far is its first Initial */
+    CU_ASSERT_TRUE(xqc_send_ctl_check_anti_amplification(
+        svr.c->conn_initial_path->path_send_ctl, 0));
+    xqc_list_for_each(pos,
+        &svr.c->conn_send_queue->sndq_unacked_packets[XQC_PNS_INIT])
+    {
+        po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        break;
+    }
+    CU_ASSERT_PTR_NOT_NULL(po);
+    if (po != NULL) {
+        CU_ASSERT(po->po_frame_types & XQC_FRAME_BIT_CRYPTO);
+        CU_ASSERT(po->po_frame_types & XQC_FRAME_BIT_ACK);
+    }
+
+    xqc_engine_packet_process(cli.engine, (unsigned char *)svr.buf,
+                              svr.buf_len, (struct sockaddr *)&local_addr,
+                              sizeof(local_addr),
+                              (struct sockaddr *)&peer_addr,
+                              sizeof(peer_addr), xqc_now(), &cli);
+    CU_ASSERT_TRUE(xqc_send_ctl_ack_received_in_pns(
+        cli.c->conn_initial_path->path_send_ctl, XQC_PNS_INIT));
+    CU_ASSERT_NOT_EQUAL(
+        cli.c->conn_initial_path->path_send_ctl->ctl_first_rtt_sample_time,
+        0);
+
+finish:
+    if (cli.engine != NULL) {
+        if (cli.c != NULL) {
+            xqc_conn_close(cli.engine, &cli.cid);
+        }
+        xqc_engine_destroy(cli.engine);
+    }
+
+    if (svr.engine != NULL) {
+        if (svr.c != NULL) {
+            xqc_conn_close(svr.engine, &svr.cid);
+        }
+        xqc_engine_destroy(svr.engine);
+    }
+}
+
+
+/*
+ * A queued Initial packet with CRYPTO frames that cannot take the ACK frame,
+ * not even in the space reserved for one, keeps its size: the ACK goes into
+ * an Initial packet of its own.
+ */
+void
+xqc_test_ack_full_crypto_packet_unchanged(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_send_queue_t *send_queue;
+    xqc_packet_out_t *crypto;
+    xqc_packet_out_t *po;
+    xqc_pn_ctl_t *pn_ctl;
+    xqc_list_head_t *pos;
+    unsigned int used_size;
+    int ack_packets = 0;
+    int pn;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    send_queue = conn->conn_send_queue;
+
+    crypto = xqc_write_new_packet(conn, XQC_PTYPE_INIT);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(crypto);
+    crypto->po_frame_types |= XQC_FRAME_BIT_CRYPTO;
+    crypto->po_used_size = crypto->po_buf_size - crypto->po_reserved_size;
+    used_size = crypto->po_used_size;
+    xqc_send_queue_move_to_high_pri(&crypto->po_list, send_queue);
+
+    /* every other packet number: an ACK frame with 11 ranges */
+    pn_ctl = xqc_get_pn_ctl(conn, conn->conn_initial_path);
+    for (pn = 1; pn <= 21; pn += 2) {
+        xqc_recv_record_add(&pn_ctl->ctl_recv_record[XQC_PNS_INIT], pn);
+    }
+    conn->conn_initial_path->path_flag |= XQC_PATH_FLAG_SHOULD_ACK_INIT;
+
+    CU_ASSERT_EQUAL(xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(conn),
+                    XQC_OK);
+
+    CU_ASSERT_FALSE(crypto->po_frame_types & XQC_FRAME_BIT_ACK);
+    CU_ASSERT_EQUAL(crypto->po_used_size, used_size);
+    xqc_list_for_each(pos, &send_queue->sndq_send_packets_high_pri) {
+        po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (po->po_pkt.pkt_type == XQC_PTYPE_INIT
+            && (po->po_frame_types & XQC_FRAME_BIT_ACK))
+        {
+            ack_packets++;
+        }
+    }
+    CU_ASSERT_EQUAL(ack_packets, 1);
+
+    xqc_engine_destroy(conn->engine);
 }
 
 

@@ -388,6 +388,12 @@ main(int argc, char *argv[])
                         xqc_test_conn_pmtud_legacy_compatibility)
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject", xqc_test_conn_early_data_reject)
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject_flow_ctl", xqc_test_conn_early_data_reject_flow_ctl)
+        || !CU_add_test(pSuite,
+                        "xqc_test_high_pri_stream_data_limited_by_cwnd",
+                        xqc_test_high_pri_stream_data_limited_by_cwnd)
+        || !CU_add_test(pSuite,
+                        "xqc_test_high_pri_stream_data_within_cwnd",
+                        xqc_test_high_pri_stream_data_within_cwnd)
         || !CU_add_test(pSuite, "xqc_test_key_update_old_key_retention",
                         xqc_test_key_update_old_key_retention)
         || !CU_add_test(pSuite,

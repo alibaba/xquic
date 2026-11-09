@@ -614,6 +614,7 @@ xqc_test_conn_early_data_reject()
     xqc_destroy_stream(s2);
     xqc_destroy_stream(s3);
     xqc_destroy_stream(s4);
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1546,6 +1547,10 @@ xqc_test_alpn_server_cb_propagates_error(void)
 
     xqc_engine_t *engine = conn->engine;
     conn->conn_type = XQC_CONN_TYPE_SERVER;
+    /* a server has no ALPN before the select callback sets it */
+    xqc_free(conn->alpn);
+    conn->alpn = NULL;
+    conn->alpn_len = 0;
 
     xqc_int_t ret;
     ret = xqc_conn_tls_alpn_select_cb("transport", 9, conn);

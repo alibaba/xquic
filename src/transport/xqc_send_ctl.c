@@ -1757,8 +1757,21 @@ xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *send_ctl, xqc_usec_t now, xq
             send_ctl->ctl_srtt, send_ctl->ctl_rttvar, duration, 
             c->conn_settings.pto_backoff_factor, backoff, pto_cnt, c->remote_settings.max_ack_delay);
 
-    /* Arm PTO from now when there are no inflight packets */
-    if (send_ctl->ctl_bytes_in_flight == 0) {
+    /*
+     * Arm PTO from now when there are no inflight packets, and on a client
+     * whose address is not validated yet when no Initial or Handshake
+     * packet is in flight. RFC 9002 Section 6.2.2.1 has the client set the
+     * probe timer until it receives a Handshake ACK or the handshake is
+     * confirmed, "even if there are no packets in flight": its probes give
+     * a server blocked by the anti-amplification limit more credit. 0-RTT
+     * packets in flight do not count, as they arm no PTO before the
+     * handshake is confirmed (Section 6.2.1).
+     */
+    if (send_ctl->ctl_bytes_in_flight == 0
+        || (send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_INIT] == 0
+            && send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_HSK] == 0
+            && !xqc_conn_peer_complete_address_validation(c)))
+    {
         /* assert(!PeerCompletedAddressValidation()) */
         if (xqc_conn_peer_complete_address_validation(c)) {
             xqc_log(c->log, XQC_LOG_WARN, "|exception|handshake not confirmed");

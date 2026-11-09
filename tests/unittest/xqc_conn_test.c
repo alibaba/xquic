@@ -1413,6 +1413,11 @@ xqc_test_pto_space_no_max_ack_delay_before_confirm(void)
     send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_HSK] = 0;
     send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA] = 1000;
     send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[XQC_PNS_APP_DATA] = 500000;
+    /*
+     * a Handshake ACK validated the client's address, so no anti-deadlock
+     * PTO is armed either (RFC 9002 Section 6.2.2.1)
+     */
+    send_ctl->ctl_largest_acked_sent_time[XQC_PNS_HSK] = 1;
 
     xqc_pkt_num_space_t pns_ret;
 
@@ -1427,6 +1432,132 @@ xqc_test_pto_space_no_max_ack_delay_before_confirm(void)
     CU_ASSERT_EQUAL(pns_ret, XQC_PNS_APP_DATA);
     CU_ASSERT_EQUAL(t, 500000 + 18000 + 25000);
 
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A client whose ClientHello was acknowledged while the server's Initial
+ * was lost, with a 0-RTT request in flight: the 0-RTT packet arms no PTO
+ * before the handshake is confirmed, and a server that spent its
+ * anti-amplification credit on the lost flight cannot send again.
+ */
+static xqc_connection_t *
+xqc_test_0rtt_only_in_flight_conn(void)
+{
+    static const unsigned char req[] = "GET /\r\n";
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_send_queue_t *send_queue = conn->conn_send_queue;
+
+    xqc_stream_t *stream = xqc_stream_create_with_direction(conn,
+        XQC_STREAM_BIDI, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    size_t written = 0;
+    CU_ASSERT(xqc_write_stream_frame_to_packet(conn, stream, XQC_PTYPE_0RTT,
+        1, req, sizeof(req) - 1, &written) == XQC_OK);
+    CU_ASSERT_FATAL(!xqc_list_empty(&send_queue->sndq_send_packets));
+    xqc_packet_out_t *zrtt = xqc_list_entry(
+        send_queue->sndq_send_packets.prev, xqc_packet_out_t, po_list);
+    CU_ASSERT_FATAL(zrtt->po_pkt.pkt_type == XQC_PTYPE_0RTT);
+    xqc_send_queue_remove_send(&zrtt->po_list);
+    zrtt->po_path_id = conn->conn_initial_path->path_id;
+    zrtt->po_sent_time = xqc_monotonic_timestamp();
+    xqc_send_ctl_increase_inflight(conn, zrtt);
+    xqc_send_queue_insert_unacked(zrtt,
+        &send_queue->sndq_unacked_packets[XQC_PNS_APP_DATA], send_queue);
+
+    xqc_list_head_t *init = &send_queue->sndq_unacked_packets[XQC_PNS_INIT];
+    CU_ASSERT_FATAL(!xqc_list_empty(init));
+    xqc_packet_out_t *ch = xqc_list_entry(init->next, xqc_packet_out_t,
+                                          po_list);
+    CU_ASSERT(ch->po_frame_types & XQC_FRAME_BIT_CRYPTO);
+    xqc_send_ctl_on_packet_acked(send_ctl, ch, xqc_monotonic_timestamp(), 0);
+
+    CU_ASSERT(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_INIT] == 0);
+    CU_ASSERT(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_HSK] == 0);
+    CU_ASSERT(send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA]
+              > 0);
+    return conn;
+}
+
+
+/*
+ * RFC 9002 Section 6.2.2.1: until a Handshake ACK or the handshake
+ * confirmation, the client arms the probe timer even with no Initial or
+ * Handshake packet in flight, and without Handshake keys it probes with
+ * an Initial packet, which gives the server more credit.
+ */
+void
+xqc_test_pto_anti_deadlock_with_0rtt_in_flight(void)
+{
+    xqc_connection_t *conn = xqc_test_0rtt_only_in_flight_conn();
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_timer_manager_t *timers = &send_ctl->path_timer_manager;
+    xqc_pkt_num_space_t pns = XQC_PNS_APP_DATA;
+
+    CU_ASSERT(!xqc_conn_peer_complete_address_validation(conn));
+    xqc_usec_t before = xqc_monotonic_timestamp();
+    xqc_usec_t t = xqc_send_ctl_get_pto_time_and_space(send_ctl, before,
+                                                       &pns);
+    CU_ASSERT(pns == XQC_PNS_INIT);
+    CU_ASSERT(t != XQC_MAX_UINT64_VALUE);
+    CU_ASSERT(t > before);
+
+    xqc_send_ctl_set_loss_detection_timer(send_ctl);
+    CU_ASSERT_FATAL(xqc_timer_is_set(timers, XQC_TIMER_LOSS_DETECTION));
+    xqc_usec_t expire = timers->timer[XQC_TIMER_LOSS_DETECTION].expire_time;
+    CU_ASSERT_FATAL(expire != XQC_MAX_UINT64_VALUE);
+
+    xqc_timer_expire(timers, expire);
+    CU_ASSERT(send_ctl->ctl_pto_count == 1);
+    unsigned init_probes = 0, other_probes = 0;
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &conn->conn_send_queue->sndq_pto_probe_packets) {
+        xqc_packet_out_t *po = xqc_list_entry(pos, xqc_packet_out_t,
+                                              po_list);
+        if (po->po_pkt.pkt_type == XQC_PTYPE_INIT
+            && (po->po_frame_types & XQC_FRAME_BIT_PING))
+        {
+            init_probes++;
+
+        } else {
+            other_probes++;
+        }
+    }
+    CU_ASSERT(init_probes > 0);
+    CU_ASSERT(other_probes == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * The probe timer stays unarmed with only 0-RTT in flight once a
+ * Handshake ACK validated the client's address, and a server, which
+ * never waits for its own address to be validated, arms none either.
+ */
+void
+xqc_test_pto_no_anti_deadlock_after_validation(void)
+{
+    xqc_pkt_num_space_t pns;
+
+    xqc_connection_t *conn = xqc_test_0rtt_only_in_flight_conn();
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    send_ctl->ctl_largest_acked_sent_time[XQC_PNS_HSK] = 1;
+    CU_ASSERT(xqc_conn_peer_complete_address_validation(conn));
+    CU_ASSERT(xqc_send_ctl_get_pto_time_and_space(send_ctl,
+              xqc_monotonic_timestamp(), &pns) == XQC_MAX_UINT64_VALUE);
+    xqc_engine_destroy(conn->engine);
+
+    conn = xqc_test_0rtt_only_in_flight_conn();
+    send_ctl = conn->conn_initial_path->path_send_ctl;
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    CU_ASSERT(xqc_send_ctl_get_pto_time_and_space(send_ctl,
+              xqc_monotonic_timestamp(), &pns) == XQC_MAX_UINT64_VALUE);
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
     xqc_engine_destroy(conn->engine);
 }
 

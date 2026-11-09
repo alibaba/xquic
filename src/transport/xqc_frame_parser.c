@@ -33,6 +33,14 @@ typedef struct xqc_ack_gap_s {
 } xqc_ack_gap_t;
 
 /*
+ * draft-smith-quic-receive-ts-01 Section 5: the Extended Ack Features of
+ * an ACK_EXTENDED frame, the bit set of the optional fields after it.
+ */
+typedef struct xqc_ack_ext_features_s {
+    uint64_t                bits;
+} xqc_ack_ext_features_t;
+
+/*
  * RFC 9000 Section 19.3: the ACK frame fields between the Type and the
  * ACK Ranges.  ACK_MP puts a Path Identifier before them.
  */
@@ -66,7 +74,7 @@ static xqc_bool_t xqc_ack_range_largest(xqc_packet_number_t previous_smallest,
     xqc_ack_gap_t gap, xqc_packet_number_t *largest);
 static xqc_ack_parser_inline xqc_int_t xqc_parse_ack_frame_inner(
     xqc_packet_in_t *packet_in, xqc_connection_t *conn, uint64_t *path_id,
-    xqc_ack_info_t *ack_info);
+    xqc_ack_ext_features_t *features, xqc_ack_info_t *ack_info);
 
 /**
  * generate datagram frame
@@ -1286,7 +1294,7 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
 xqc_int_t
 xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_info_t *ack_info)
 {
-    return xqc_parse_ack_frame_inner(packet_in, conn, NULL, ack_info);
+    return xqc_parse_ack_frame_inner(packet_in, conn, NULL, NULL, ack_info);
 }
 
 
@@ -1377,14 +1385,19 @@ xqc_ack_range_largest(xqc_packet_number_t previous_smallest,
 /*
  * Parse an ACK frame (RFC 9000 Section 19.3) into ack_info or, given
  * path_id, an ACK_MP frame, which draft-ietf-quic-multipath-10 Section
- * 7.1 defines as the ACK frame with a Path Identifier after the Type.  A
- * negative packet number is a FRAME_ENCODING_ERROR (RFC 9000 Section
+ * 7.1 defines as the ACK frame with a Path Identifier after the Type, or,
+ * given features, the ACK part of an ACK_EXTENDED frame, which
+ * draft-smith-quic-receive-ts-01 Section 5 defines as the ACK frame
+ * followed by Extended Ack Features and the fields they announce: the ECN
+ * Counts (bit 0), then the Receive Timestamps (bit 1) left to the caller.
+ * A negative packet number is a FRAME_ENCODING_ERROR (RFC 9000 Section
  * 19.3.1), also in the ranges read past the XQC_MAX_ACK_RANGE_CNT kept.
- * Inline: each of the two callers gets a copy specialized for path_id.
+ * Inline: each caller gets a copy specialized for path_id and features.
  */
 static xqc_ack_parser_inline xqc_int_t
 xqc_parse_ack_frame_inner(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
-    uint64_t *path_id, xqc_ack_info_t *ack_info)
+    uint64_t *path_id, xqc_ack_ext_features_t *features,
+    xqc_ack_info_t *ack_info)
 {
     const unsigned char    *p = packet_in->pos;
     const unsigned char    *end = packet_in->last;
@@ -1395,6 +1408,7 @@ xqc_parse_ack_frame_inner(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     xqc_ack_range_len_t     length;
     uint64_t                frame_type, left;
     unsigned                n_ranges;
+    xqc_bool_t              has_ecn;
 
     if (!xqc_parse_vint(&p, end, &frame_type)) {
         return -XQC_EVINTREAD;
@@ -1468,7 +1482,18 @@ xqc_parse_ack_frame_inner(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
     ack_info->n_ranges = n_ranges;
 
-    if (xqc_ack_frame_has_ecn_counts(frame_type)) {
+    if (features != NULL) {
+        if (!xqc_parse_vint(&p, end, &features->bits)) {
+            return -XQC_EVINTREAD;
+        }
+
+        has_ecn = (features->bits & XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT) != 0;
+
+    } else {
+        has_ecn = xqc_ack_frame_has_ecn_counts(frame_type);
+    }
+
+    if (has_ecn) {
         /*
          * RFC 9000 Section 19.3: the counts serve endpoints that have
          * enabled ECN for the packets they send (Section 13.4.2.1).  xquic
@@ -2736,7 +2761,8 @@ xqc_int_t
 xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     uint64_t *path_id, xqc_ack_info_t *ack_info)
 {
-    return xqc_parse_ack_frame_inner(packet_in, conn, path_id, ack_info);
+    return xqc_parse_ack_frame_inner(packet_in, conn, path_id, NULL,
+                                     ack_info);
 }
 
 
@@ -3642,34 +3668,23 @@ xqc_int_t
 xqc_parse_ack_ext_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     xqc_ack_info_t *ack_info, xqc_ack_timestamp_info_t *ack_ts_info)
 {
-    int ack_parse_ret = xqc_parse_ack_frame(packet_in, conn, ack_info);
-    if (ack_parse_ret != XQC_OK) {
-        return ack_parse_ret;
+    xqc_ack_ext_features_t features;
+    xqc_int_t ret;
+
+    ret = xqc_parse_ack_frame_inner(packet_in, conn, NULL, &features,
+                                    ack_info);
+    if (ret != XQC_OK) {
+        return ret;
     }
-    /* parse ack_ext feature */
-    uint64_t ack_ext_feature = 0;
-    unsigned char *p = packet_in->pos;
-    const unsigned char *end = packet_in->last;
-    int vlen;
-    vlen = xqc_vint_read(p, end, &ack_ext_feature);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-    packet_in->pos = p;
-    /* parse ENC count */
-    /*
-     * if (ack_ext_feature & XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT) {
-     *     xqc_parse_enc_count_in_ack_ext(packet_in, conn, ack_ts_info, ack_info->largest_acked);
-     * }
-     */
 
     /* parse timestamps */
-    if (ack_ext_feature & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) {
-        int recv_ts_parse_ret = xqc_parse_timestamps_in_ack_ext(packet_in, conn, ack_ts_info, ack_info->largest_acked);
-        if (recv_ts_parse_ret != XQC_OK) {
-            return recv_ts_parse_ret;
+    if (features.bits & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) {
+        ret = xqc_parse_timestamps_in_ack_ext(packet_in, conn, ack_ts_info,
+                                              ack_info->largest_acked);
+        if (ret != XQC_OK) {
+            return ret;
         }
     }
+
     return XQC_OK;
 }

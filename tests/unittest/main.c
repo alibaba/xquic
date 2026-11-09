@@ -601,6 +601,8 @@ main(int argc, char *argv[])
                         xqc_test_ack_frame_range_count)
         || !CU_add_test(pSuite, "xqc_test_ack_frame_fuzz",
                         xqc_test_ack_frame_fuzz)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_ext_timestamps",
+                        xqc_test_ack_frame_ext_timestamps)
         /* issue #632: ACK_ECN frame parsing (RFC 9000 19.3) */
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_normal_parse", xqc_test_ack_ecn_normal_parse)
         || !CU_add_test(pSuite, "xqc_test_ack_plain_regression", xqc_test_ack_plain_regression)

@@ -5,10 +5,13 @@
 /*
  * The ACK frame (RFC 9000 Section 19.3) and the ACK_MP frame, which
  * draft-ietf-quic-multipath-10 Section 7.1 defines as an ACK frame with
- * a Path Identifier, each in a type without and a type with ECN Counts.
- * A frame body gives the same ranges in the four types, a negative packet
- * number is a FRAME_ENCODING_ERROR (RFC 9000 Section 19.3.1), and the ECN
- * Counts are read so that the next frame starts after them.
+ * a Path Identifier, each in a type without and a type with ECN Counts,
+ * and the ACK_EXTENDED frame of draft-smith-quic-receive-ts-01 Section 5,
+ * an ACK frame followed by Extended Ack Features, whose bit 0 announces
+ * ECN Counts and bit 1 Receive Timestamps.  A frame body gives the same
+ * ranges in every type, a negative packet number is a FRAME_ENCODING_ERROR
+ * (RFC 9000 Section 19.3.1), and the ECN Counts are read so that the next
+ * field or frame starts after them.
  */
 
 #include <stdio.h>
@@ -22,6 +25,7 @@
 #include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_packet_in.h"
+#include "src/transport/xqc_recv_timestamps_info.h"
 #include "xquic/xqc_errno.h"
 
 #define XQC_TEST_VINT_MAX               ((1ULL << 62) - 1)
@@ -39,14 +43,20 @@ typedef struct xqc_test_ack_kind_s {
     unsigned char               type[4];    /* shortest encoding */
     size_t                      type_len;
     xqc_bool_t                  mp;         /* Path Identifier first */
+    xqc_bool_t                  ext;        /* Extended Ack Features */
     xqc_bool_t                  ecn;        /* ECN Counts last */
 } xqc_test_ack_kind_t;
 
+/* ACK_EXT: Extended Ack Features 0; ACK_EXT_ECN: 1, the ECN Counts bit */
 static const xqc_test_ack_kind_t xqc_test_ack_kinds[] = {
-    { "ACK",        { 0x02 },                   1, XQC_FALSE, XQC_FALSE },
-    { "ACK_ECN",    { 0x03 },                   1, XQC_FALSE, XQC_TRUE  },
-    { "ACK_MP",     { 0x95, 0x22, 0x8c, 0x00 }, 4, XQC_TRUE,  XQC_FALSE },
-    { "ACK_MP_ECN", { 0x95, 0x22, 0x8c, 0x01 }, 4, XQC_TRUE,  XQC_TRUE  },
+    { "ACK",         { 0x02 },             1, XQC_FALSE, XQC_FALSE, XQC_FALSE },
+    { "ACK_ECN",     { 0x03 },             1, XQC_FALSE, XQC_FALSE, XQC_TRUE },
+    { "ACK_MP",      { 0x95, 0x22, 0x8c, 0x00 }, 4,
+      XQC_TRUE, XQC_FALSE, XQC_FALSE },
+    { "ACK_MP_ECN",  { 0x95, 0x22, 0x8c, 0x01 }, 4,
+      XQC_TRUE, XQC_FALSE, XQC_TRUE },
+    { "ACK_EXT",     { 0x40, 0xb1 },       2, XQC_FALSE, XQC_TRUE, XQC_FALSE },
+    { "ACK_EXT_ECN", { 0x40, 0xb1 },       2, XQC_FALSE, XQC_TRUE, XQC_TRUE },
 };
 
 #define XQC_TEST_ACK_KIND_N \
@@ -58,8 +68,9 @@ static const unsigned char xqc_test_ecn_counts[] = { 0x40, 0x40, 0x02, 0x01 };
 /*
  * Golden frames, each followed by a PING: Path Identifier 1 for ACK_MP,
  * Largest Acknowledged 10, ACK Delay 5, ACK Range Count 1, First ACK
- * Range 2 (10..8), Gap 1, ACK Range Length 2 (5..3), and for the ECN
- * types the counts above.
+ * Range 2 (10..8), Gap 1, ACK Range Length 2 (5..3), Extended Ack
+ * Features 0 or 1 for ACK_EXTENDED, and for the ECN types the counts
+ * above.
  */
 static const unsigned char xqc_test_golden_ack[] = {
     0x02, 0x0a, 0x05, 0x01, 0x02, 0x01, 0x02,
@@ -82,6 +93,17 @@ static const unsigned char xqc_test_golden_ack_mp_ecn[] = {
     0x01
 };
 
+static const unsigned char xqc_test_golden_ack_ext[] = {
+    0x40, 0xb1, 0x0a, 0x05, 0x01, 0x02, 0x01, 0x02, 0x00,
+    0x01
+};
+
+static const unsigned char xqc_test_golden_ack_ext_ecn[] = {
+    0x40, 0xb1, 0x0a, 0x05, 0x01, 0x02, 0x01, 0x02, 0x01,
+    0x40, 0x40, 0x02, 0x01,
+    0x01
+};
+
 typedef struct xqc_test_ack_golden_s {
     const unsigned char        *wire;
     size_t                      len;        /* with the PING */
@@ -93,6 +115,8 @@ static const xqc_test_ack_golden_t xqc_test_ack_golden[] = {
     { xqc_test_golden_ack_ecn,    sizeof(xqc_test_golden_ack_ecn) },
     { xqc_test_golden_ack_mp,     sizeof(xqc_test_golden_ack_mp) },
     { xqc_test_golden_ack_mp_ecn, sizeof(xqc_test_golden_ack_mp_ecn) },
+    { xqc_test_golden_ack_ext,    sizeof(xqc_test_golden_ack_ext) },
+    { xqc_test_golden_ack_ext_ecn, sizeof(xqc_test_golden_ack_ext_ecn) },
 };
 
 _Static_assert(sizeof(xqc_test_ack_golden) / sizeof(xqc_test_ack_golden[0])
@@ -209,11 +233,18 @@ static xqc_int_t
 xqc_test_ack_parse(xqc_connection_t *conn, const xqc_test_ack_kind_t *kind,
     xqc_packet_in_t *pi, uint64_t *path_id, xqc_ack_info_t *ack_info)
 {
+    xqc_ack_timestamp_info_t ts;
+
     memset(ack_info, 0, sizeof(*ack_info));
     *path_id = 0;
 
     if (kind->mp) {
         return xqc_parse_ack_mp_frame(pi, conn, path_id, ack_info);
+    }
+
+    if (kind->ext) {
+        ts.report_num = 0;
+        return xqc_parse_ack_ext_frame(pi, conn, ack_info, &ts);
     }
 
     return xqc_parse_ack_frame(pi, conn, ack_info);
@@ -227,7 +258,10 @@ xqc_test_ack_bit(const xqc_test_ack_kind_t *kind)
 }
 
 
-/* the type, the Path Identifier of ACK_MP, body, then the ECN Counts */
+/*
+ * The type, the Path Identifier of ACK_MP, body, the Extended Ack
+ * Features of ACK_EXTENDED, then the ECN Counts.
+ */
 static size_t
 xqc_test_ack_build(unsigned char *buf, const xqc_test_ack_kind_t *kind,
     unsigned char path_id, const unsigned char *body, size_t body_len,
@@ -244,6 +278,10 @@ xqc_test_ack_build(unsigned char *buf, const xqc_test_ack_kind_t *kind,
 
     memcpy(p, body, body_len);
     p += body_len;
+
+    if (kind->ext) {
+        *p++ = kind->ecn && ecn_counts ? 0x01 : 0x00;   /* bit 0: ECN */
+    }
 
     if (kind->ecn && ecn_counts) {
         memcpy(p, xqc_test_ecn_counts, sizeof(xqc_test_ecn_counts));
@@ -557,6 +595,80 @@ xqc_test_ack_frame_range_count(void)
 }
 
 
+/*
+ * draft-smith-quic-receive-ts-01 Section 5: Extended Ack Features 2, the
+ * Receive Timestamps, and 3, the ECN Counts and then the Receive
+ * Timestamps.  Both frames give the same timestamps and end at the PING.
+ */
+void
+xqc_test_ack_frame_ext_timestamps(void)
+{
+    /*
+     * The ACK of the golden frames, then Timestamp Range Count 1, Gap 0
+     * (packet 10), Timestamp Delta Count 2 and the deltas 100 and 5.
+     */
+    static const unsigned char ext_ts[] = {
+        0x40, 0xb1, 0x0a, 0x05, 0x01, 0x02, 0x01, 0x02, 0x02,
+        0x01, 0x00, 0x02, 0x40, 0x64, 0x05,
+        0x01
+    };
+    static const unsigned char ext_ecn_ts[] = {
+        0x40, 0xb1, 0x0a, 0x05, 0x01, 0x02, 0x01, 0x02, 0x03,
+        0x40, 0x40, 0x02, 0x01,
+        0x01, 0x00, 0x02, 0x40, 0x64, 0x05,
+        0x01
+    };
+    static const xqc_test_ack_golden_t frames[] = {
+        { ext_ts,     sizeof(ext_ts) },
+        { ext_ecn_ts, sizeof(ext_ecn_ts) },
+    };
+    xqc_connection_t *conn;
+    xqc_packet_in_t pi;
+    xqc_ack_info_t ack_info;
+    xqc_ack_timestamp_info_t ts;
+    unsigned char buf[XQC_TEST_ACK_BUF_LEN];
+    uint64_t basis;
+    size_t i, len;
+    xqc_int_t ret;
+
+    for (i = 0; i < sizeof(frames) / sizeof(frames[0]); i++) {
+        len = frames[i].len;
+        memcpy(buf, frames[i].wire, len);
+
+        conn = xqc_test_ack_conn();
+        conn->local_settings.max_receive_timestamps_per_ack = 30;
+        conn->local_settings.receive_timestamps_exponent = 0;
+        basis = conn->conn_create_time / 1000;
+
+        xqc_test_ack_packet_in(&pi, buf, len);
+        memset(&ack_info, 0, sizeof(ack_info));
+        ts.report_num = 0;
+
+        ret = xqc_parse_ack_ext_frame(&pi, conn, &ack_info, &ts);
+
+        CU_ASSERT_EQUAL(ret, XQC_OK);
+        CU_ASSERT_PTR_EQUAL(pi.pos, buf + len - 1);
+        CU_ASSERT_EQUAL(ack_info.n_ranges, 2);
+        CU_ASSERT_EQUAL(ts.report_num, 2);
+        CU_ASSERT_EQUAL(ts.pkt_nums[0], 10);
+        CU_ASSERT_EQUAL(ts.pkt_nums[1], 9);
+        CU_ASSERT_EQUAL(ts.recv_ts[0], basis + 100);
+        CU_ASSERT_EQUAL(ts.recv_ts[1], basis + 95);
+
+        xqc_test_ack_packet_in(&pi, buf, len);
+        ret = xqc_process_frames(conn, &pi);
+
+        CU_ASSERT_EQUAL(ret, XQC_OK);
+        CU_ASSERT_PTR_EQUAL(pi.pos, pi.last);
+        CU_ASSERT_EQUAL(pi.pi_frame_types,
+                        XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_PING);
+        CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
 /* xorshift64*: deterministic, so a failing round can be replayed */
 static uint64_t
 xqc_test_rand(uint64_t *state)
@@ -795,6 +907,10 @@ xqc_test_ack_model_encode(uint64_t *state, const xqc_test_ack_model_t *m,
         if (!e->valid && e->bad_range == i + 1) {
             *detect = p - buf;
         }
+    }
+
+    if (m->kind->ext) {
+        p = xqc_test_put_vint(state, p, m->kind->ecn ? 0x01 : 0x00);
     }
 
     if (m->kind->ecn) {

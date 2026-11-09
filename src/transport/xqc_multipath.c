@@ -116,6 +116,24 @@ xqc_path_id_has_unused_cid(xqc_cid_set_t *cid_set, uint64_t path_id)
     return inner_set != NULL && inner_set->unused_cnt > 0;
 }
 
+/* the paths that count toward XQC_MAX_OPEN_PATHS */
+static uint32_t
+xqc_conn_open_path_count(xqc_connection_t *conn)
+{
+    xqc_list_head_t *pos;
+    xqc_path_ctx_t *path;
+    uint32_t count = 0;
+
+    xqc_list_for_each(pos, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        if (path->path_state < XQC_PATH_STATE_CLOSING) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
 /*
  * The checks that need no allocation: a path that cannot be created costs
  * nothing. NULL scid or dcid means an unused connection ID of the path ID
@@ -149,7 +167,7 @@ xqc_conn_check_new_path(xqc_connection_t *conn, xqc_cid_t *scid,
         return XQC_PATH_CREATE_NO_PEER_CID;
     }
 
-    if (conn->create_path_count >= XQC_MAX_PATHS_COUNT) {
+    if (xqc_conn_open_path_count(conn) >= XQC_MAX_OPEN_PATHS) {
         return XQC_PATH_CREATE_LIMIT_REACHED;
     }
 
@@ -881,6 +899,7 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
     xqc_path_ctx_t *path = NULL;
     xqc_app_path_status_t ps_inner = XQC_APP_PATH_STATUS_AVAILABLE;
     xqc_path_create_result_t result;
+    xqc_log_level_t level;
     uint64_t path_id = 0;
 
     conn = xqc_engine_conns_hash_find(engine, scid, 's');
@@ -916,8 +935,11 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
     path = xqc_conn_try_create_path(conn, NULL, NULL, ps_inner, path_id,
                                     &result);
     if (path == NULL) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_create error|%ui|"
-                "reason:%s|", path_id, xqc_path_create_result_str(result));
+        /* XQC_MAX_OPEN_PATHS open paths are a limit, not a failure */
+        level = result == XQC_PATH_CREATE_NO_RESOURCE ? XQC_LOG_ERROR
+                                                      : XQC_LOG_WARN;
+        xqc_log(conn->log, level, "|xqc_path_create error|%ui|reason:%s|",
+                path_id, xqc_path_create_result_str(result));
         return -XQC_EMP_CREATE_PATH;
     }
 

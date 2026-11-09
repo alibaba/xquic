@@ -23,6 +23,8 @@ void xqc_test_mp_server_ignores_abandoned_path_id(void);
 
 void xqc_test_mp_server_path_limit_keeps_connection(void);
 
+void xqc_test_mp_server_paths_beyond_count_after_close(void);
+
 void xqc_test_mp_server_path_alloc_failure_delays(void);
 
 void xqc_test_mp_path_create_result(void);

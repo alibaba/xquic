@@ -206,6 +206,62 @@ else
 fi
 }
 
+# 1350: the client replaces its second path each time it is validated,
+# until the path of path ID 8 is: the ninth path of the connection, with
+# path IDs 0 to 8 allowed and never more than two paths open.
+case_transport_multipath_MP_ninth_path_after_closed_ones()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    rm -f test_session tp_localhost xqc_token
+    clear_log
+    echo -e "MP ninth path once the others are closed ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 3 -M -i lo -i lo -E \
+        -x 1350 > stdlog
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    last=`grep "\[mp-path-churn\]|validated|path_id:8|" stdlog`
+    svr_valid=`grep -a "|path validated|path_id:8|" slog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$last" ] \
+        && [ -n "$svr_valid" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MP_ninth_path_after_closed_ones" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MP_ninth_path_after_closed_ones" "fail"
+    fi
+}
+
+# 1351: with a path validated on each of eight interfaces, XQC_MAX_PATHS_COUNT
+# paths are open: the client cannot open another one, and the connection
+# goes on.
+case_transport_multipath_MP_open_path_limit()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    rm -f test_session tp_localhost xqc_token
+    clear_log
+    echo -e "MP no path beyond the open path limit ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 3 -M -E -x 1351 \
+        -i lo -i lo -i lo -i lo -i lo -i lo -i lo -i lo > stdlog
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    refused=`grep "\[mp-open-path-limit\]|open_paths:8|ret:-652|" stdlog`
+    reason=`grep -a "|xqc_path_create error|8|reason:too many paths|" clog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$refused" ] \
+        && [ -n "$reason" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MP_open_path_limit" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MP_open_path_limit" "fail"
+    fi
+}
+
 case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path()
 {
 
@@ -898,6 +954,8 @@ case_test_case "MP_path_set_up_after_client_cids" --id 1321 --mode self-reportin
 case_test_case "MP_path_without_client_cids_not_set_up" --id 1322 --mode self-reporting --run case_transport_multipath_MP_path_without_client_cids_not_set_up
 case_test_case "MPNS_multipath_30_percent_loss" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss --timeout 120
 case_test_case "MPNS_multipath_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_initial_path
+case_test_case "MP_ninth_path_after_closed_ones" --id 1350 --mode self-reporting --run case_transport_multipath_MP_ninth_path_after_closed_ones
+case_test_case "MP_open_path_limit" --id 1351 --mode self-reporting --run case_transport_multipath_MP_open_path_limit
 case_test_case "MPNS_multipath_30_percent_loss_close_initial_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_initial_path --timeout 240
 case_test_case "MPNS_multipath_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_close_new_path
 case_test_case "MPNS_multipath_30_percent_loss_close_new_path" --id native --mode self-reporting --run case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path --timeout 120

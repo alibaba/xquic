@@ -59,6 +59,12 @@ static const uint8_t xqc_crypto_initial_salt[][XQC_INITIAL_SALT_LEN] = {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     },
+
+    /* QUIC v2 (RFC 9369, Section 3.3.1) */
+    [XQC_VERSION_V2] = {
+        0x0d, 0xed, 0xe3, 0xde, 0xf7, 0x00, 0xa6, 0xdb, 0x81, 0x93,
+        0x81, 0xbe, 0x6e, 0x26, 0x9d, 0xcb, 0xf9, 0xbd, 0x2e, 0xd9
+    },
 };
 
 static const char * const (xqc_crypto_retry_key)[] = {
@@ -77,6 +83,10 @@ static const char * const (xqc_crypto_retry_key)[] = {
     /* version negotiation */
     [XQC_IDRAFT_VER_NEGOTIATION] = 
         "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+
+    /* QUIC v2 (RFC 9369, Section 3.3.3) */
+    [XQC_VERSION_V2] =
+        "\x8f\xb4\xb0\x1b\x56\xac\x48\xe2\x60\xfb\xcb\xce\xad\x7c\xcc\x92",
 };
 
 static const char * const (xqc_crypto_retry_nonce)[] = {
@@ -95,6 +105,10 @@ static const char * const (xqc_crypto_retry_nonce)[] = {
     /* version negotiation */
     [XQC_IDRAFT_VER_NEGOTIATION] = 
         "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+
+    /* QUIC v2 (RFC 9369, Section 3.3.3) */
+    [XQC_VERSION_V2] =
+        "\xd8\x69\x69\xbc\x2d\x7c\x6d\x99\x90\xef\xb0\x4a",
 };
 
 

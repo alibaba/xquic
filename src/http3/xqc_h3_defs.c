@@ -11,6 +11,7 @@ const char *const xqc_h3_alpn[] = {
     [XQC_VERSION_V1]             = XQC_ALPN_H3,     /* QUIC v1 */
     [XQC_IDRAFT_VER_29]          = XQC_ALPN_H3_29,  /* draft-29 */
     [XQC_IDRAFT_VER_NEGOTIATION] = "",
+    [XQC_VERSION_V2]             = XQC_ALPN_H3,     /* QUIC v2 */
 };
 
 const char *const xqc_h3_ext_alpn[] = {
@@ -18,4 +19,5 @@ const char *const xqc_h3_ext_alpn[] = {
     [XQC_VERSION_V1]             = XQC_ALPN_H3_EXT,  /* QUIC v1 */
     [XQC_IDRAFT_VER_29]          = "",               /* draft-29 */
     [XQC_IDRAFT_VER_NEGOTIATION] = "",
+    [XQC_VERSION_V2]             = XQC_ALPN_H3_EXT,  /* QUIC v2 */
 };

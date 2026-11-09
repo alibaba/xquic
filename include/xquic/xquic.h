@@ -59,8 +59,11 @@ typedef enum xqc_proto_version_s {
     /** Special version for version negotiation. */
     XQC_IDRAFT_VER_NEGOTIATION  = 3,
 
+    /** QUIC version 2, RFC 9369 */
+    XQC_VERSION_V2              = 4,
+
     /** max value of proto value. */
-    XQC_VERSION_MAX             = 4
+    XQC_VERSION_MAX             = 5
 } xqc_proto_version_t;
 
 #define XQC_SUPPORT_VERSION_MAX         64

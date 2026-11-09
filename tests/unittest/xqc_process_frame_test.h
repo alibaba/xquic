@@ -7,6 +7,8 @@
 
 void xqc_test_process_frame();
 
+void xqc_test_unknown_frame_type(void);
+
 void xqc_test_multipath_frames_require_negotiation(void);
 
 void xqc_test_multipath_version_requires_negotiation(void);

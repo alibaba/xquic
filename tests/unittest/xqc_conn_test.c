@@ -320,6 +320,106 @@ xqc_test_conn_idle_timeout()
 }
 
 
+/* an idle deadline long past, which a restart replaces */
+#define XQC_TEST_IDLE_STALE     1
+
+/* a multipath connection, its second path, and their stale idle timers */
+static xqc_connection_t *
+xqc_test_idle_connect(xqc_path_ctx_t **path1, xqc_timer_t **timer0,
+    xqc_timer_t **timer1)
+{
+    xqc_connection_t *conn = test_engine_connect();
+
+    *path1 = NULL;
+    *timer0 = NULL;
+    *timer1 = NULL;
+    if (conn == NULL) {
+        return NULL;
+    }
+    test_enable_multipath(conn);
+    *path1 = test_add_path(conn, 1);
+    if (*path1 == NULL) {
+        return NULL;
+    }
+
+    *timer0 = &conn->conn_initial_path->path_send_ctl->path_timer_manager
+                  .timer[XQC_TIMER_PATH_IDLE];
+    *timer1 = &(*path1)->path_send_ctl->path_timer_manager
+                  .timer[XQC_TIMER_PATH_IDLE];
+    (*timer0)->expire_time = XQC_TEST_IDLE_STALE;
+    (*timer1)->expire_time = XQC_TEST_IDLE_STALE;
+    return conn;
+}
+
+/*
+ * A new acknowledgment of packets of path 1 restarts its idle timer, also
+ * when the PATH_ACK came on path 0 (RFC 10069 Section 5.5): a path whose
+ * acknowledgments come on another path is not idle while it is used.
+ */
+void
+xqc_test_path_idle_restarts_on_ack(void)
+{
+    xqc_path_ctx_t *path1;
+    xqc_timer_t *timer0, *timer1;
+    xqc_connection_t *conn = xqc_test_idle_connect(&path1, &timer0, &timer1);
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t idle;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    idle = xqc_path_get_idle_timeout(path1) * 1000;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(test_send_packet(conn, path1, 0,
+        XQC_FRAME_BIT_MAX_DATA, now - 30000));
+
+    /* what the engine does with a datagram of path 0 carrying PATH_ACK(1) */
+    CU_ASSERT_EQUAL(test_ack_packets(conn, path1, 0, 0, now, XQC_FALSE),
+                    XQC_OK);
+    xqc_conn_process_packet_recved_path(conn,
+                                        &conn->conn_initial_path->path_scid,
+                                        XQC_PACKET_INITIAL_MIN_LENGTH, now);
+
+    CU_ASSERT_EQUAL(timer0->expire_time, now + idle);
+    CU_ASSERT_EQUAL(timer1->expire_time, now + idle);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * An ACK that acknowledges nothing new of path 1 leaves its idle timer, and
+ * so does an ACK while path 1 is validated (RFC 9000 Section 8.2.4).
+ */
+void
+xqc_test_path_idle_kept_without_new_ack(void)
+{
+    xqc_path_ctx_t *path1;
+    xqc_timer_t *timer0, *timer1;
+    xqc_connection_t *conn = xqc_test_idle_connect(&path1, &timer0, &timer1);
+    xqc_usec_t now = xqc_monotonic_timestamp();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(test_send_packet(conn, path1, 0,
+        XQC_FRAME_BIT_MAX_DATA, now - 30000));
+    CU_ASSERT_EQUAL(test_ack_packets(conn, path1, 0, 0, now, XQC_FALSE),
+                    XQC_OK);
+
+    /* the same ACK again */
+    timer1->expire_time = XQC_TEST_IDLE_STALE;
+    CU_ASSERT_EQUAL(test_ack_packets(conn, path1, 0, 0, now + 1000,
+                                     XQC_FALSE), XQC_OK);
+    CU_ASSERT_EQUAL(timer1->expire_time, XQC_TEST_IDLE_STALE);
+
+    /* path 1 validated again: the ACK keeps the validation deadline */
+    xqc_set_path_state(path1, XQC_PATH_STATE_VALIDATING);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(test_send_packet(conn, path1, 1,
+        XQC_FRAME_BIT_MAX_DATA, now));
+    CU_ASSERT_EQUAL(test_ack_packets(conn, path1, 1, 1, now + 2000,
+                                     XQC_FALSE), XQC_OK);
+    CU_ASSERT_EQUAL(timer1->expire_time, XQC_TEST_IDLE_STALE);
+    CU_ASSERT_EQUAL(timer0->expire_time, XQC_TEST_IDLE_STALE);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 static void
 xqc_pmtud_case_set(xqc_connection_t *conn, xqc_conn_type_t role,
     uint64_t local_flags, uint64_t remote_flags)

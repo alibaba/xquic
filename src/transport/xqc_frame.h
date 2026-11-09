@@ -14,6 +14,9 @@
  */
 #define XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT 1
 #define XQC_ACK_EXT_FEATURE_BIT_RECV_TS   2
+
+/* RFC 9000 Section 19.3.2: the ACK frame type with ECN Counts */
+#define XQC_FRAME_TYPE_ACK_ECN            0x03
 #define XQC_FRAME_TYPE_RESET_STREAM       0x04
 
 /* draft-ietf-quic-reliable-stream-reset-09, Section 4. */

@@ -113,6 +113,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_bbr_test.c
         ${UNIT_TEST_DIR}/xqc_bbr2_test.c
         ${UNIT_TEST_DIR}/xqc_stream_frame_test.c
+        ${UNIT_TEST_DIR}/xqc_ack_frame_test.c
         ${UNIT_TEST_DIR}/xqc_process_frame_test.c
         ${UNIT_TEST_DIR}/xqc_tp_test.c
         ${UNIT_TEST_DIR}/xqc_tls_test.c

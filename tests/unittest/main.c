@@ -337,6 +337,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_removed_scid_safety_net", xqc_test_removed_scid_safety_net)
         || !CU_add_test(pSuite, "xqc_test_conns_hash_remove_owned_entry", xqc_test_conns_hash_remove_owned_entry)
         || !CU_add_test(pSuite, "xqc_test_conns_hash_reject_non_owner", xqc_test_conns_hash_reject_non_owner)
+        || !CU_add_test(pSuite, "xqc_test_mp_frames_for_abandoned_path_ignored",
+                        xqc_test_mp_frames_for_abandoned_path_ignored)
+        || !CU_add_test(pSuite, "xqc_test_mp_frames_path_id_above_limit",
+                        xqc_test_mp_frames_path_id_above_limit)
         || !CU_add_test(pSuite, "xqc_test_mp_new_cid_above_curr_max_path_id",
                         xqc_test_mp_new_cid_above_curr_max_path_id)
         || !CU_add_test(pSuite, "xqc_test_mp_new_cid_rejected_without_cid_set",

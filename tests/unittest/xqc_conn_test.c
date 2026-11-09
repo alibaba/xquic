@@ -375,6 +375,150 @@ xqc_test_conn_next_wakeup_path_timers(void)
     xqc_engine_destroy(conn->engine);
 }
 
+
+/* a multipath connection and its second path */
+static xqc_connection_t *
+xqc_test_pto_connect(xqc_path_ctx_t **path1)
+{
+    xqc_connection_t *conn = test_engine_connect();
+
+    if (conn == NULL) {
+        return NULL;
+    }
+    test_enable_multipath(conn);
+    *path1 = test_add_path(conn, 1);
+    return *path1 != NULL ? conn : NULL;
+}
+
+/* how many probes are queued, and whether each is on the path and either a
+ * copy of origin or, when origin is NULL, a PING */
+static int
+xqc_test_pto_probes(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_out_t *origin)
+{
+    xqc_list_head_t *pos;
+    xqc_packet_out_t *po;
+    int n = 0;
+
+    xqc_list_for_each(pos, &conn->conn_send_queue->sndq_pto_probe_packets) {
+        po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        CU_ASSERT_EQUAL(po->po_path_id, path->path_id);
+        CU_ASSERT((po->po_path_flag & XQC_PATH_SPECIFIED_BY_PTO) != 0);
+        if (origin != NULL) {
+            CU_ASSERT_PTR_EQUAL(po->po_origin, origin);
+
+        } else {
+            CU_ASSERT_PTR_NULL(po->po_origin);
+            CU_ASSERT((po->po_frame_types & XQC_FRAME_BIT_PING) != 0);
+        }
+        n++;
+    }
+    return n;
+}
+
+static void
+xqc_test_pto_assert_untouched(xqc_packet_out_t *po)
+{
+    CU_ASSERT((po->po_flag & XQC_POF_IN_FLIGHT) != 0);
+    CU_ASSERT((po->po_flag & (XQC_POF_RETRANSED | XQC_POF_TLP)) == 0);
+}
+
+/*
+ * RFC 10069 Section 5.7: the PTO of path 1 probes path 1 with its own
+ * packet, twice (RFC 9002 Section 6.2.4); the older packets of path 0 stay
+ * in flight there, in path 0's bytes in flight.
+ */
+void
+xqc_test_pto_probes_own_path_packets(void)
+{
+    xqc_path_ctx_t *path0, *path1;
+    xqc_connection_t *conn = xqc_test_pto_connect(&path1);
+    xqc_packet_out_t *a, *b, *x;
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    uint32_t inflight0;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    path0 = conn->conn_initial_path;
+
+    a = test_send_packet(conn, path0, 10, XQC_FRAME_BIT_MAX_DATA, now);
+    b = test_send_packet(conn, path0, 11, XQC_FRAME_BIT_MAX_DATA, now);
+    x = test_send_packet(conn, path1, 0, XQC_FRAME_BIT_MAX_DATA, now);
+    CU_ASSERT_FATAL(a != NULL && b != NULL && x != NULL);
+    inflight0 = path0->path_send_ctl->ctl_bytes_in_flight;
+
+    xqc_path_send_one_or_two_ack_elicit_pkts(path1, XQC_PNS_APP_DATA);
+
+    CU_ASSERT_EQUAL(path0->path_send_ctl->ctl_bytes_in_flight, inflight0);
+    xqc_test_pto_assert_untouched(a);
+    xqc_test_pto_assert_untouched(b);
+    CU_ASSERT((x->po_flag & XQC_POF_RETRANSED) != 0);
+    CU_ASSERT_EQUAL(xqc_test_pto_probes(conn, path1, x),
+                    XQC_CONN_PTO_PKT_CNT_MAX);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* a path with no packet of its own in flight probes with PING frames */
+void
+xqc_test_pto_pings_without_own_packets(void)
+{
+    xqc_path_ctx_t *path0, *path1;
+    xqc_connection_t *conn = xqc_test_pto_connect(&path1);
+    xqc_packet_out_t *a;
+    uint32_t inflight0;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    path0 = conn->conn_initial_path;
+
+    a = test_send_packet(conn, path0, 10, XQC_FRAME_BIT_MAX_DATA,
+                         xqc_monotonic_timestamp());
+    CU_ASSERT_PTR_NOT_NULL_FATAL(a);
+    inflight0 = path0->path_send_ctl->ctl_bytes_in_flight;
+
+    xqc_path_send_one_or_two_ack_elicit_pkts(path1, XQC_PNS_APP_DATA);
+
+    CU_ASSERT_EQUAL(path0->path_send_ctl->ctl_bytes_in_flight, inflight0);
+    xqc_test_pto_assert_untouched(a);
+    CU_ASSERT_EQUAL(xqc_test_pto_probes(conn, path1, NULL),
+                    XQC_CONN_PTO_PKT_CNT_MAX);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A server probes first with the HANDSHAKE_DONE frame not acknowledged yet;
+ * when path 0 carries it, the PTO of path 1 leaves it to path 0 and probes
+ * path 1 with its own packet.
+ */
+void
+xqc_test_pto_handshake_done_on_other_path(void)
+{
+    xqc_path_ctx_t *path0, *path1;
+    xqc_connection_t *conn = xqc_test_pto_connect(&path1);
+    xqc_packet_out_t *hsd, *x;
+    xqc_usec_t now = xqc_monotonic_timestamp();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    path0 = conn->conn_initial_path;
+
+    hsd = test_send_packet(conn, path0, 10, XQC_FRAME_BIT_HANDSHAKE_DONE,
+                           now);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(hsd);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_DONE_SENT) != 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_DONE_ACKED) == 0);
+    x = test_send_packet(conn, path1, 0, XQC_FRAME_BIT_MAX_DATA, now);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(x);
+
+    xqc_path_send_one_or_two_ack_elicit_pkts(path1, XQC_PNS_APP_DATA);
+
+    xqc_test_pto_assert_untouched(hsd);
+    CU_ASSERT_EQUAL(xqc_test_pto_probes(conn, path1, x),
+                    XQC_CONN_PTO_PKT_CNT_MAX);
+
+    xqc_engine_destroy(conn->engine);
+}
+
 void
 xqc_test_conn_pmtud_deferred_until_handshake()
 {

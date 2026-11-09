@@ -45,6 +45,10 @@ typedef struct xqc_ack_info_s {
     xqc_pktno_range_t       ranges[XQC_MAX_ACK_RANGE_CNT];
     xqc_usec_t              ack_delay;
     xqc_packet_number_t     largest_acked;
+
+    /* the ECN Counts of an ACK, ACK_MP or ACK_EXTENDED frame */
+    xqc_bool_t              ecn_present;
+    xqc_ecn_counts_t        ecn;
 } xqc_ack_info_t;
 
 typedef struct xqc_ack_sent_entry_s {

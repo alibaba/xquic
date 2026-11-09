@@ -18,6 +18,11 @@
 #include <string.h>
 #include <event2/event.h>
 #include "common.h"
+
+#if defined(__linux__)
+/* ECN codepoints of datagrams, with IP_TOS and IPV6_TCLASS messages */
+#define XQC_DEMO_CLI_ECN 1
+#endif
 #include "xqc_hq.h"
 #ifdef XQC_ENABLE_WEBTRANSPORT
 #include "xqc_wt_echo_client.h"
@@ -190,6 +195,9 @@ typedef struct xqc_demo_cli_quic_config_s {
     uint64_t keyupdate_pkt_threshold;   /* packet limit of a single 1-rtt key, 0 for unlimited */
 
     uint8_t mp_ack_on_any_path;
+
+    /* ECN: mark datagrams and report the codepoints received */
+    uint8_t ecn;
 
     char mp_sched[32];
     uint8_t mp_backup;
@@ -897,6 +905,177 @@ xqc_demo_cli_write_socket(const unsigned char *buf, size_t size, const struct so
     return xqc_demo_cli_write_socket_ex(0, buf, size, peer_addr, peer_addrlen, conn_user_data);
 }
 
+#ifdef XQC_DEMO_CLI_ECN
+/* report the ECN codepoints of the datagrams received on the socket */
+static int
+xqc_demo_cli_ecn_recv_on(int fd, int family)
+{
+    int on = 1;
+
+    if (family == AF_INET6) {
+        return setsockopt(fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on));
+    }
+
+    return setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on));
+}
+
+/* recvfrom, and the ECN codepoint of the datagram */
+static ssize_t
+xqc_demo_cli_recv_ecn(int fd, unsigned char *buf, size_t len,
+    struct sockaddr *addr, socklen_t *addrlen, xqc_ecn_codepoint_t *ecn)
+{
+    struct iovec iov = {buf, len};
+    union {
+        char            buf[2 * CMSG_SPACE(sizeof(int))];
+        struct cmsghdr  align;
+    } ctrl;
+    struct msghdr msg;
+    struct cmsghdr *cm;
+    ssize_t n;
+    int tclass;
+
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_name = addr;
+    msg.msg_namelen = *addrlen;
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = ctrl.buf;
+    msg.msg_controllen = sizeof(ctrl.buf);
+
+    *ecn = XQC_ECN_NOT_ECT;
+    n = recvmsg(fd, &msg, 0);
+    if (n < 0) {
+        return n;
+    }
+
+    *addrlen = msg.msg_namelen;
+    for (cm = CMSG_FIRSTHDR(&msg); cm != NULL; cm = CMSG_NXTHDR(&msg, cm)) {
+        if (cm->cmsg_level == IPPROTO_IP && cm->cmsg_type == IP_TOS
+            && cm->cmsg_len >= CMSG_LEN(1))
+        {
+            *ecn = *(unsigned char *)CMSG_DATA(cm) & 0x03;
+
+        } else if (cm->cmsg_level == IPPROTO_IPV6
+                   && cm->cmsg_type == IPV6_TCLASS
+                   && cm->cmsg_len >= CMSG_LEN(sizeof(int)))
+        {
+            memcpy(&tclass, CMSG_DATA(cm), sizeof(int));
+            *ecn = tclass & 0x03;
+        }
+    }
+
+    return n;
+}
+
+/* the datagrams of the socket, each with its ECN codepoint */
+static xqc_int_t
+xqc_demo_cli_socket_read_ecn(xqc_demo_cli_user_conn_t *user_conn,
+    xqc_demo_cli_user_path_t *user_path, int fd)
+{
+    unsigned char packet_buf[XQC_PACKET_TMP_BUF_LEN];
+    struct sockaddr_in6 addr;
+    socklen_t addr_len;
+    xqc_ecn_codepoint_t ecn;
+    ssize_t recv_size;
+    uint64_t recv_time;
+
+    for (;;) {
+        addr_len = sizeof(addr);
+        recv_size = xqc_demo_cli_recv_ecn(fd, packet_buf, sizeof(packet_buf),
+                                          (struct sockaddr *)&addr, &addr_len,
+                                          &ecn);
+        if (recv_size <= 0) {
+            return XQC_OK;
+        }
+
+        user_path->local_addrlen = sizeof(struct sockaddr_in6);
+        if (getsockname(fd, (struct sockaddr *)&user_path->local_addr,
+                        &user_path->local_addrlen) != 0)
+        {
+            printf("getsockname error, errno: %d\n", get_sys_errno());
+        }
+
+        recv_time = xqc_now();
+        user_path->last_sock_op_time = recv_time;
+        if (xqc_engine_packet_process_ecn(user_conn->ctx->engine, packet_buf,
+                recv_size, (struct sockaddr *)&user_path->local_addr,
+                user_path->local_addrlen, (struct sockaddr *)&addr, addr_len,
+                (xqc_usec_t)recv_time, ecn, user_conn) != XQC_OK)
+        {
+            return XQC_ERROR;
+        }
+    }
+}
+#endif
+
+ssize_t
+xqc_demo_cli_write_socket_ecn(uint64_t path_id, const unsigned char *buf,
+    size_t size, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    xqc_ecn_codepoint_t ecn, void *conn_user_data)
+{
+#ifdef XQC_DEMO_CLI_ECN
+    xqc_demo_cli_user_conn_t *user_conn = conn_user_data;
+    xqc_demo_cli_user_path_t *user_path = NULL;
+    struct iovec iov = {(void *)buf, size};
+    union {
+        char            buf[CMSG_SPACE(sizeof(int))];
+        struct cmsghdr  align;
+    } ctrl;
+    struct msghdr msg;
+    struct cmsghdr *cm;
+    int tos = ecn;
+    ssize_t res;
+    int i;
+
+    for (i = 0; i < user_conn->total_path_cnt; i++) {
+        if (user_conn->paths[i].is_active
+            && user_conn->paths[i].path_id == path_id)
+        {
+            user_path = &user_conn->paths[i];
+        }
+    }
+
+    if (user_path == NULL) {
+        return XQC_SOCKET_ERROR;
+    }
+
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_name = (void *)peer_addr;
+    msg.msg_namelen = peer_addrlen;
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    if (ecn != XQC_ECN_NOT_ECT) {
+        memset(&ctrl, 0, sizeof(ctrl));
+        msg.msg_control = ctrl.buf;
+        msg.msg_controllen = sizeof(ctrl.buf);
+        cm = CMSG_FIRSTHDR(&msg);
+        cm->cmsg_level = peer_addr->sa_family == AF_INET6
+                         ? IPPROTO_IPV6 : IPPROTO_IP;
+        cm->cmsg_type = peer_addr->sa_family == AF_INET6 ? IPV6_TCLASS : IP_TOS;
+        cm->cmsg_len = CMSG_LEN(sizeof(int));
+        memcpy(CMSG_DATA(cm), &tos, sizeof(int));
+    }
+
+    do {
+        set_sys_errno(0);
+        res = sendmsg(user_path->fd, &msg, 0);
+        if (res < 0) {
+            printf("xqc_demo_cli_write_socket_ecn err %zd %s, fd: %d\n",
+                   res, strerror(get_sys_errno()), user_path->fd);
+            if (get_sys_errno() == EAGAIN) {
+                res = XQC_SOCKET_EAGAIN;
+            }
+        }
+        user_path->last_sock_op_time = xqc_now();
+    } while ((res < 0) && (get_sys_errno() == EINTR));
+
+    return res;
+#else
+    return xqc_demo_cli_write_socket_ex(path_id, buf, size, peer_addr,
+                                        peer_addrlen, conn_user_data);
+#endif
+}
+
 #if defined(XQC_SUPPORT_SENDMMSG) && !defined(XQC_SYS_WINDOWS)
 ssize_t
 xqc_demo_cli_write_mmsg(void *conn_user_data, struct iovec *msg_iov, unsigned int vlen, 
@@ -1465,6 +1644,14 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn, int fd)
     }
 
 
+#ifdef XQC_DEMO_CLI_ECN
+    if (user_conn->ctx->args->quic_cfg.ecn) {
+        if (xqc_demo_cli_socket_read_ecn(user_conn, user_path, fd) != XQC_OK) {
+            return;
+        }
+        goto finish_recv;
+    }
+#endif
     do {
         recv_size = recvfrom(fd, packet_buf, sizeof(packet_buf), 0,
                             (struct sockaddr *)&addr, &addr_len);
@@ -1829,6 +2016,7 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->is_interop_mode = args->quic_cfg.is_interop_mode;
     settings->max_pkt_out_size = args->quic_cfg.max_pkt_sz;
     settings->max_udp_payload_size = args->quic_cfg.max_pkt_sz;
+    settings->enable_ecn = args->quic_cfg.ecn;
     settings->adaptive_ack_frequency = 1;
     settings->init_max_path_id = args->quic_cfg.init_max_path_id;
     if (args->req_cfg.throttled_req != -1) {
@@ -2063,6 +2251,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -Y    cid retirement after x ms\n"
         "   -f    max path id\n"
         "   -5    use X25519 group as the first choice\n"
+        "   -3    ECN: mark datagrams ECT(0) and report the codepoints\n"
         , prog);
 }
 
@@ -2072,6 +2261,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
 {
     int ch = 0;
     while ((ch = getopt(argc, argv,
+                        "3"
                         "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:"
                         "R:V:B:I:n:e:E:F:G:r:x:y:Y:f:z:q65O"
 #ifdef XQC_ENABLE_WEBTRANSPORT
@@ -2272,6 +2462,11 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
         case 'M':
             printf("option multipath on\n");
             args->net_cfg.multipath = 1;
+            break;
+
+        case '3':
+            printf("option ECN on\n");
+            args->quic_cfg.ecn = 1;
             break;
 
          case 'o':
@@ -2849,6 +3044,7 @@ xqc_demo_cli_init_callback(xqc_engine_callback_t *cb, xqc_transport_callbacks_t 
         .conn_update_cid_notify = xqc_demo_cli_conn_update_cid_notify,
         .ready_to_create_path_notify = xqc_demo_cli_conn_create_path,
         .path_removed_notify = xqc_demo_cli_path_removed,
+        .write_socket_ecn = xqc_demo_cli_write_socket_ecn,
     };
 
     *cb = callback;
@@ -3302,6 +3498,18 @@ xqc_demo_cli_init_user_path(xqc_demo_cli_user_conn_t *user_conn, int path_seq, u
             return -1;
         }
     }
+
+#ifdef XQC_DEMO_CLI_ECN
+    if (ctx->args->quic_cfg.ecn) {
+        int family = ((struct sockaddr *)&ctx->args->net_cfg.addr)->sa_family;
+        if (xqc_demo_cli_ecn_recv_on(user_path->fd, family) != 0
+            || (user_path->rebind_fd != -1
+                && xqc_demo_cli_ecn_recv_on(user_path->rebind_fd, family) != 0))
+        {
+            printf("ECN socket option failed, errno: %d\n", get_sys_errno());
+        }
+    }
+#endif
 
     /* socket event */
     user_path->ev_socket = event_new(ctx->eb, user_path->fd, EV_READ | EV_PERSIST,

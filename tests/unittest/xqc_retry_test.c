@@ -8,6 +8,10 @@
 
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_cid.h"
+#include "src/transport/xqc_frame.h"
+#include "src/transport/xqc_multipath.h"
+#include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_defs.h"
 #include "src/transport/xqc_packet_parser.h"
 
@@ -267,5 +271,186 @@ xqc_test_token_address_mismatch()
     xqc_test_token_set_peer(conn, AF_INET6, "2001:db8::2");
     CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_ERROR);
 
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* the packets queued for sending that carry a NEW_TOKEN frame */
+static int
+xqc_test_token_new_token_frames(xqc_connection_t *conn)
+{
+    int                 cnt = 0;
+    size_t              i;
+    xqc_list_head_t    *pos;
+    xqc_packet_out_t   *packet_out;
+    xqc_list_head_t    *queues[] = {
+        &conn->conn_send_queue->sndq_send_packets,
+        &conn->conn_send_queue->sndq_send_packets_high_pri,
+    };
+
+    for (i = 0; i < sizeof(queues) / sizeof(queues[0]); i++) {
+        xqc_list_for_each(pos, queues[i]) {
+            packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+            if (packet_out->po_frame_types & XQC_FRAME_BIT_NEW_TOKEN) {
+                cnt++;
+            }
+        }
+    }
+
+    return cnt;
+}
+
+
+/* a multipath server connection with a client at ip, also on path 0 */
+static xqc_connection_t *
+xqc_test_token_server_conn(int family, const char *ip)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->enable_multipath = XQC_CONN_MP_ENABLED;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    xqc_test_token_set_peer(conn, family, ip);
+    memcpy(conn->conn_initial_path->peer_addr, conn->peer_addr,
+           conn->peer_addrlen);
+    conn->conn_initial_path->peer_addrlen = conn->peer_addrlen;
+    return conn;
+}
+
+
+/* path_id, opened by the client from ip and validated by its PATH_RESPONSE */
+static xqc_path_ctx_t *
+xqc_test_token_validate_path(xqc_connection_t *conn, uint64_t path_id,
+    int family, const char *ip)
+{
+    xqc_cid_t           cid;
+    xqc_path_ctx_t     *path;
+    char                conn_addr[sizeof(conn->peer_addr)];
+    socklen_t           conn_addrlen = conn->peer_addrlen;
+
+    if (path_id > conn->curr_max_path_id) {
+        CU_ASSERT_FATAL(xqc_conn_add_path_cid_sets(conn,
+                            conn->curr_max_path_id + 1, path_id) == XQC_OK);
+        conn->curr_max_path_id = path_id;
+    }
+    /* ours, then the peer's, which comes with a zero stateless reset token */
+    xqc_cid_init_zero(&cid);
+    CU_ASSERT_FATAL(xqc_generate_cid(conn->engine, NULL, &cid, 0) == XQC_OK);
+    CU_ASSERT_FATAL(xqc_cid_set_insert_cid(&conn->scid_set, &cid,
+                        XQC_CID_UNUSED, XQC_CONN_ACTIVE_CID_LIMIT, path_id)
+                    == XQC_OK);
+    xqc_cid_init_zero(&cid);
+    CU_ASSERT_FATAL(xqc_generate_cid(conn->engine, NULL, &cid, 0) == XQC_OK);
+    CU_ASSERT_FATAL(xqc_cid_set_insert_cid(&conn->dcid_set, &cid,
+                        XQC_CID_UNUSED, XQC_CONN_ACTIVE_CID_LIMIT, path_id)
+                    == XQC_OK);
+
+    path = xqc_conn_create_path_inner(conn, NULL, NULL,
+                                      XQC_APP_PATH_STATUS_AVAILABLE, path_id);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    CU_ASSERT(path->path_state == XQC_PATH_STATE_VALIDATING);
+
+    /* the address of the path, set through the connection's */
+    memcpy(conn_addr, conn->peer_addr, sizeof(conn_addr));
+    xqc_test_token_set_peer(conn, family, ip);
+    memcpy(path->peer_addr, conn->peer_addr, conn->peer_addrlen);
+    path->peer_addrlen = conn->peer_addrlen;
+    memcpy(conn->peer_addr, conn_addr, sizeof(conn_addr));
+    conn->peer_addrlen = conn_addrlen;
+
+    xqc_path_validate(path);
+    CU_ASSERT(path->path_state == XQC_PATH_STATE_ACTIVE);
+    return path;
+}
+
+
+/*
+ * RFC 10069 Section 3.1.3: a server SHOULD issue tokens that validate any
+ * of the client addresses validated before. Once path 1 validates another
+ * client IP address, the server sends a token, and a token then covers the
+ * address of the connection and those of the validated paths, closed ones
+ * included. Its lifetime is checked as before.
+ */
+void
+xqc_test_token_all_validated_addresses()
+{
+    xqc_test_token_t    token;
+    xqc_path_ctx_t     *path;
+    xqc_connection_t   *conn;
+    uint32_t            now = xqc_monotonic_timestamp() / 1000000;
+
+    conn = xqc_test_token_server_conn(AF_INET, "192.0.2.1");
+    path = xqc_test_token_validate_path(conn, 1, AF_INET, "198.51.100.7");
+    CU_ASSERT(path->path_flag & XQC_PATH_FLAG_VALIDATED);
+    CU_ASSERT(xqc_test_token_new_token_frames(conn) == 1);
+
+    xqc_set_path_state(path, XQC_PATH_STATE_CLOSED);
+    (void) xqc_test_token_validate_path(conn, 2, AF_INET6, "2001:db8::7");
+    CU_ASSERT(xqc_test_token_new_token_frames(conn) == 2);
+
+    xqc_test_token_make(conn, now + XQC_TOKEN_EXPIRE_DELTA, &token);
+    CU_ASSERT(token.buf[XQC_TOKEN_IV_LEN] & 0x40);
+
+    xqc_test_token_set_peer(conn, AF_INET, "192.0.2.1");
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_OK);
+    xqc_test_token_set_peer(conn, AF_INET, "198.51.100.7");
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_OK);
+    xqc_test_token_set_peer(conn, AF_INET6, "2001:db8::7");
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_OK);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_UPDATE_NEW_TOKEN));
+
+    xqc_test_token_set_peer(conn, AF_INET, "203.0.113.9");
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_ERROR);
+    xqc_test_token_set_peer(conn, AF_INET6, "2001:db8::1");
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_ERROR);
+
+    xqc_test_token_set_peer(conn, AF_INET, "192.0.2.1");
+    xqc_test_token_make(conn, now + 5, &token);
+    xqc_test_token_set_peer(conn, AF_INET, "198.51.100.7");
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_OK);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_UPDATE_NEW_TOKEN);
+    if (now > 0) {
+        xqc_test_token_set_peer(conn, AF_INET, "192.0.2.1");
+        xqc_test_token_make(conn, now - 1, &token);
+        xqc_test_token_set_peer(conn, AF_INET, "198.51.100.7");
+        CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_ERROR);
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A path from the IP address of the connection validates no new address:
+ * no token is sent, and tokens keep their single-address format. A client
+ * sends no token. An altered address list token is refused.
+ */
+void
+xqc_test_token_no_new_address()
+{
+    xqc_test_token_t    token;
+    xqc_connection_t   *conn;
+    uint32_t            now = xqc_monotonic_timestamp() / 1000000;
+
+    conn = xqc_test_token_server_conn(AF_INET, "192.0.2.1");
+    (void) xqc_test_token_validate_path(conn, 1, AF_INET, "192.0.2.1");
+    CU_ASSERT(xqc_test_token_new_token_frames(conn) == 0);
+    xqc_test_token_make(conn, now + XQC_TOKEN_EXPIRE_DELTA, &token);
+    CU_ASSERT(!(token.buf[XQC_TOKEN_IV_LEN] & 0x40));
+    CU_ASSERT(token.len == XQC_TOKEN_IV_LEN + 9 + XQC_TOKEN_TAG_LEN);
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_OK);
+
+    (void) xqc_test_token_validate_path(conn, 2, AF_INET, "198.51.100.7");
+    CU_ASSERT(xqc_test_token_new_token_frames(conn) == 1);
+    xqc_test_token_make(conn, now + XQC_TOKEN_EXPIRE_DELTA, &token);
+    token.buf[XQC_TOKEN_IV_LEN + 2] ^= 0x01;
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_ERROR);
+    xqc_engine_destroy(conn->engine);
+
+    conn = xqc_test_token_server_conn(AF_INET, "192.0.2.1");
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    (void) xqc_test_token_validate_path(conn, 1, AF_INET, "198.51.100.7");
+    CU_ASSERT(xqc_test_token_new_token_frames(conn) == 0);
     xqc_engine_destroy(conn->engine);
 }

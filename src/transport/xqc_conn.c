@@ -3962,6 +3962,126 @@ error:
     return XQC_ERROR;
 }
 
+/*
+ * A token that validates several client IP addresses (RFC 10069 Section
+ * 3.1.3) sets XQC_TOKEN_FLAG_ADDR_LIST in its first byte; see the format
+ * before xqc_conn_generate_and_encrypt_token().
+ */
+#define XQC_TOKEN_FLAG_ADDR_LIST    0x40
+#define XQC_TOKEN_MAX_ADDRS         XQC_MAX_PATHS_COUNT
+
+typedef enum {
+    XQC_TOKEN_ADDR_IPV4 = 4,
+    XQC_TOKEN_ADDR_IPV6 = 6,
+} xqc_token_addr_type_t;
+
+/* flag, count, each address with its type, expire time */
+#define XQC_TOKEN_ADDR_LIST_MAX_LEN (2 + sizeof(uint32_t) \
+    + XQC_TOKEN_MAX_ADDRS * (1 + sizeof(struct in6_addr)))
+_Static_assert(XQC_TOKEN_ADDR_LIST_MAX_LEN
+               <= XQC_MAX_TOKEN_LEN - XQC_TOKEN_IV_LEN - XQC_TOKEN_TAG_LEN,
+               "an address list fits in a token");
+_Static_assert(XQC_TOKEN_MAX_ADDRS <= UINT8_MAX,
+               "the address count of a token is one byte");
+
+/* the type in a token of the IP address of sa, and where that address is */
+static xqc_token_addr_type_t
+xqc_token_addr_of(const struct sockaddr *sa, const void **ip, size_t *ip_len)
+{
+    if (sa->sa_family == AF_INET6) {
+        *ip = &((const struct sockaddr_in6 *) sa)->sin6_addr;
+        *ip_len = sizeof(struct in6_addr);
+        return XQC_TOKEN_ADDR_IPV6;
+    }
+
+    *ip = &((const struct sockaddr_in *) sa)->sin_addr;
+    *ip_len = sizeof(struct in_addr);
+    return XQC_TOKEN_ADDR_IPV4;
+}
+
+/* whether two client addresses have the same IP address in a token */
+static xqc_bool_t
+xqc_token_same_addr(const struct sockaddr *sa1, const struct sockaddr *sa2)
+{
+    const void *ip1, *ip2;
+    size_t      len1, len2;
+
+    return xqc_token_addr_of(sa1, &ip1, &len1)
+               == xqc_token_addr_of(sa2, &ip2, &len2)
+           && memcmp(ip1, ip2, len1) == 0;
+}
+
+/* the length of an IP address of a type in a token, 0 for an unknown type */
+static size_t
+xqc_token_addr_len(uint8_t type)
+{
+    switch (type) {
+    case XQC_TOKEN_ADDR_IPV4:
+        return sizeof(struct in_addr);
+    case XQC_TOKEN_ADDR_IPV6:
+        return sizeof(struct in6_addr);
+    default:
+        return 0;
+    }
+}
+
+/*
+ * Look for the client IP address of conn in an address list token of
+ * token_len bytes. Returns where its expire time starts, or NULL when the
+ * list lacks the address or is malformed.
+ */
+static const unsigned char *
+xqc_conn_token_match_addr_list(xqc_connection_t *conn,
+    const unsigned char *token, unsigned int token_len)
+{
+    const unsigned char    *pos, *end;
+    const void             *peer_ip;
+    size_t                  peer_ip_len, addr_len, cnt, i;
+    xqc_token_addr_type_t   peer_type;
+    xqc_bool_t              matched = XQC_FALSE;
+
+    if (token_len < 2 + sizeof(uint32_t)) {
+        return NULL;
+    }
+    pos = token + 1;
+    end = token + token_len - sizeof(uint32_t);
+
+    cnt = *pos++;
+    if (cnt == 0 || cnt > XQC_TOKEN_MAX_ADDRS) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|token address count error|%uz|",
+                cnt);
+        return NULL;
+    }
+
+    peer_type = xqc_token_addr_of((const struct sockaddr *) conn->peer_addr,
+                                  &peer_ip, &peer_ip_len);
+    for (i = 0; i < cnt; i++) {
+        addr_len = pos < end ? xqc_token_addr_len(*pos) : 0;
+        if (addr_len == 0 || (size_t) (end - pos) < 1 + addr_len) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|token address list error|");
+            return NULL;
+        }
+
+        if (*pos == peer_type && memcmp(pos + 1, peer_ip, addr_len) == 0) {
+            matched = XQC_TRUE;
+        }
+        pos += 1 + addr_len;
+    }
+
+    if (pos != end) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|token_len error|token_len:%ud|",
+                token_len);
+        return NULL;
+    }
+
+    if (!matched) {
+        xqc_log(conn->log, XQC_LOG_INFO, "|address not in token|");
+        return NULL;
+    }
+
+    return pos;
+}
+
 xqc_int_t
 xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *enc_data, unsigned e_len)
 {
@@ -3983,7 +4103,13 @@ xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *enc_data, unsi
 
     struct sockaddr *sa = (struct sockaddr *)conn->peer_addr;
     const unsigned char *pos = token;
-    if (*pos++ & 0x80) {
+    if (*pos & XQC_TOKEN_FLAG_ADDR_LIST) {
+        pos = xqc_conn_token_match_addr_list(conn, token, token_len);
+        if (pos == NULL) {
+            return XQC_ERROR;
+        }
+
+    } else if (*pos++ & 0x80) {
         struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)sa;
         if (token_len != 21) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|token_len error|token_len:%ui|", token_len);
@@ -4055,6 +4181,101 @@ xqc_conn_generate_plain_token(xqc_connection_t *conn, uint8_t ts_index, unsigned
     memcpy(token, &expire, sizeof(expire));
 }
 
+/*
+ * The client IP addresses that conn validated: its own, which is the one of
+ * path 0, then those of its other paths, closed ones included, without
+ * repeats. Returns their number.
+ */
+static size_t
+xqc_conn_token_addrs(xqc_connection_t *conn,
+    const struct sockaddr *addrs[XQC_TOKEN_MAX_ADDRS])
+{
+    size_t                  cnt = 0, i;
+    xqc_list_head_t        *pos;
+    xqc_path_ctx_t         *path;
+    const struct sockaddr  *sa;
+
+    addrs[cnt++] = (const struct sockaddr *) conn->peer_addr;
+
+    xqc_list_for_each(pos, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        if (path->path_id == XQC_INITIAL_PATH_ID
+            || !(path->path_flag & XQC_PATH_FLAG_VALIDATED)
+            || path->peer_addrlen == 0)
+        {
+            continue;
+        }
+
+        sa = (const struct sockaddr *) path->peer_addr;
+        for (i = 0; i < cnt; i++) {
+            if (xqc_token_same_addr(addrs[i], sa)) {
+                break;
+            }
+        }
+        if (i == cnt && cnt < XQC_TOKEN_MAX_ADDRS) {
+            addrs[cnt++] = sa;
+        }
+    }
+
+    return cnt;
+}
+
+/*
+ * RFC 10069 Section 3.1.3: "the server is expected to send a new address
+ * validation token to a client following the successful validation of a new
+ * client address". A path validated from a client IP address that no other
+ * validated path has gets a token, which covers the addresses validated
+ * before too.
+ */
+void
+xqc_conn_token_on_path_validated(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    xqc_list_head_t *pos;
+    xqc_path_ctx_t  *other;
+
+    if (conn->conn_type != XQC_CONN_TYPE_SERVER || path->peer_addrlen == 0) {
+        return;
+    }
+
+    xqc_list_for_each(pos, &conn->conn_paths_list) {
+        other = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        if (other != path && (other->path_flag & XQC_PATH_FLAG_VALIDATED)
+            && xqc_token_same_addr((const struct sockaddr *) other->peer_addr,
+                                   (const struct sockaddr *) path->peer_addr))
+        {
+            return;
+        }
+    }
+
+    if (xqc_write_new_token_to_packet(conn) != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|path:%ui|xqc_write_new_token_to_packet error|",
+                path->path_id);
+    }
+}
+
+static void
+xqc_conn_generate_plain_addr_list_token(uint8_t ts_index,
+    const struct sockaddr *const *addrs, size_t cnt, unsigned char *token,
+    unsigned *token_len, uint32_t expire)
+{
+    unsigned char  *p = token;
+    const void     *ip;
+    size_t          ip_len, i;
+
+    *p++ = XQC_TOKEN_FLAG_ADDR_LIST | ts_index;
+    *p++ = (unsigned char) cnt;
+    for (i = 0; i < cnt; i++) {
+        *p++ = xqc_token_addr_of(addrs[i], &ip, &ip_len);
+        memcpy(p, ip, ip_len);
+        p += ip_len;
+    }
+
+    memcpy(p, &expire, sizeof(expire));
+    p += sizeof(expire);
+    *token_len = (unsigned) (p - token);
+}
+
 
 
 
@@ -4072,6 +4293,12 @@ xqc_conn_generate_plain_token(xqc_connection_t *conn, uint8_t ts_index, unsigned
  * |                   Expire Time(32)                             |
  * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * v: 0 For IPv4, 1 For IPv6, rotating version for token key update
+ *
+ * Once the connection validated several client IP addresses, the token
+ * covers each of them (RFC 10069 Section 3.1.3): the first byte is
+ * |0|1|0|0|0|0|2bit rotating version|, then come the number of addresses
+ * (8 bits), each address as its type (8 bits: 4 or 6) and the address
+ * (32/128 bits), and the expire time (32 bits).
  */
 
 xqc_int_t
@@ -4081,7 +4308,17 @@ xqc_conn_generate_and_encrypt_token(xqc_connection_t *conn, unsigned char *token
     unsigned char   plain_text[XQC_MAX_TOKEN_LEN - XQC_TOKEN_IV_LEN - XQC_TOKEN_TAG_LEN];
     unsigned int    len = sizeof(plain_text);
     uint8_t         cur_ts_index = conn->engine->cur_ts_index;
-    xqc_conn_generate_plain_token(conn, cur_ts_index, plain_text, &len, expire);
+    const struct sockaddr *addrs[XQC_TOKEN_MAX_ADDRS];
+    size_t          addr_cnt = xqc_conn_token_addrs(conn, addrs);
+
+    if (addr_cnt > 1) {
+        xqc_conn_generate_plain_addr_list_token(cur_ts_index, addrs, addr_cnt,
+                                                plain_text, &len, expire);
+
+    } else {
+        xqc_conn_generate_plain_token(conn, cur_ts_index, plain_text, &len,
+                                      expire);
+    }
     if (len + XQC_TOKEN_IV_LEN + XQC_TOKEN_TAG_LEN > *token_len) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|generate token length invalid|");
         return XQC_ERROR;

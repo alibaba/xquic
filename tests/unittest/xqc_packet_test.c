@@ -11,9 +11,11 @@
 #include "src/common/xqc_log.h"
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_cid.h"
+#include "src/transport/xqc_send_ctl.h"
 #include "xquic/xquic_typedef.h"
 #include "xquic/xquic.h"
 #include "src/common/xqc_str.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
 
@@ -164,7 +166,80 @@ typedef struct test_ctx {
     xqc_cid_t            cid;
     char                 buf[2048];
     size_t               buf_len;
+
+    /* datagrams written that start with an Initial packet */
+    unsigned             initial_cnt;
+    /* those whose Initial packet has a nonzero Token Length */
+    unsigned             token_initial_cnt;
+    uint64_t             last_token_len;
 } test_ctx;
+
+
+static xqc_bool_t xqc_test_initial_token_len(const unsigned char *buf,
+    size_t size, uint64_t *token_len);
+static void xqc_test_track_initial(test_ctx *tctx, const unsigned char *buf,
+    size_t size);
+static int xqc_test_retry_always(xqc_engine_t *engine,
+    xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data);
+static void xqc_test_token_addr(struct sockaddr_in *addr, uint16_t port);
+static void xqc_test_token_deliver(test_ctx *from, test_ctx *to,
+    const struct sockaddr_in *local, const struct sockaddr_in *peer);
+static xqc_int_t xqc_test_token_connect(test_ctx *cli, test_ctx *svr,
+    const struct sockaddr_in *svr_addr, const unsigned char *token,
+    unsigned token_len);
+static size_t xqc_test_build_initial_from(xqc_connection_t *conn,
+    const xqc_cid_t *dcid, const unsigned char *token, uint32_t token_len,
+    xqc_packet_number_t packet_number, xqc_bool_t connection_close,
+    size_t packet_size, unsigned char *buf, size_t buf_cap);
+
+
+/*
+ * Read the Token Length of the QUIC version 1 Initial packet that starts
+ * a datagram (RFC 9000 Section 17.2.2). Header protection leaves the
+ * packet type and the Token Length readable.
+ */
+static xqc_bool_t
+xqc_test_initial_token_len(const unsigned char *buf, size_t size,
+    uint64_t *token_len)
+{
+    size_t offset = 5;
+
+    if (size < 7 || (buf[0] & 0xc0) != 0xc0 || (buf[0] & 0x30) != 0
+        || buf[1] != 0 || buf[2] != 0 || buf[3] != 0 || buf[4] != 1)
+    {
+        return XQC_FALSE;
+    }
+
+    offset += 1 + buf[offset];                  /* DCID */
+    if (offset >= size) {
+        return XQC_FALSE;
+    }
+
+    offset += 1 + buf[offset];                  /* SCID */
+    if (offset >= size) {
+        return XQC_FALSE;
+    }
+
+    return xqc_vint_read(buf + offset, buf + size, token_len) > 0;
+}
+
+
+static void
+xqc_test_track_initial(test_ctx *tctx, const unsigned char *buf,
+    size_t size)
+{
+    uint64_t token_len;
+
+    if (!xqc_test_initial_token_len(buf, size, &token_len)) {
+        return;
+    }
+
+    tctx->initial_cnt++;
+    if (token_len != 0) {
+        tctx->token_initial_cnt++;
+    }
+    tctx->last_token_len = token_len;
+}
 
 
 ssize_t
@@ -175,6 +250,7 @@ xqc_test_server_write(const unsigned char *buf, size_t size,
     test_ctx *tctx = (test_ctx *)conn_user_data;
     memcpy(tctx->buf, buf, size);
     tctx->buf_len = size;
+    xqc_test_track_initial(tctx, buf, size);
 
     return size;
 }
@@ -211,6 +287,7 @@ xqc_test_client_write(const unsigned char *buf, size_t size,
     test_ctx *tctx = (test_ctx *)conn_user_data;
     memcpy(tctx->buf, buf, size);
     tctx->buf_len = size;
+    xqc_test_track_initial(tctx, buf, size);
 
     return size;
 }
@@ -564,8 +641,10 @@ xqc_test_coalesced_teardown(test_ctx *cli, test_ctx *svr)
 }
 
 
+/* build an Initial packet of conn, protected with its Initial keys */
 static size_t
-xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
+xqc_test_build_initial_from(xqc_connection_t *conn, const xqc_cid_t *dcid,
+    const unsigned char *token, uint32_t token_len,
     xqc_packet_number_t packet_number, xqc_bool_t connection_close,
     size_t packet_size, unsigned char *buf, size_t buf_cap)
 {
@@ -584,16 +663,16 @@ xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
     packet_out->po_pkt.pkt_pns = XQC_PNS_INIT;
     packet_out->po_pkt.pkt_num = packet_number;
     xqc_cid_set(&packet_out->po_pkt.pkt_scid,
-                cli->c->scid_set.user_scid.cid_buf,
-                cli->c->scid_set.user_scid.cid_len);
+                conn->scid_set.user_scid.cid_buf,
+                conn->scid_set.user_scid.cid_len);
     xqc_cid_set(&packet_out->po_pkt.pkt_dcid, dcid->cid_buf, dcid->cid_len);
 
     written = xqc_gen_long_packet_header(
         packet_out, packet_out->po_pkt.pkt_dcid.cid_buf,
         packet_out->po_pkt.pkt_dcid.cid_len,
         packet_out->po_pkt.pkt_scid.cid_buf,
-        packet_out->po_pkt.pkt_scid.cid_len, NULL, 0, XQC_VERSION_V1,
-        XQC_PKTNO_BITS);
+        packet_out->po_pkt.pkt_scid.cid_len, token, token_len,
+        XQC_VERSION_V1, XQC_PKTNO_BITS);
     if (written <= 0) {
         goto end;
     }
@@ -621,7 +700,7 @@ xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
     memset(packet_out->po_buf + packet_out->po_used_size, 0, padding_size);
     packet_out->po_used_size += padding_size;
 
-    ret = xqc_packet_encrypt_buf(cli->c, packet_out, buf, buf_cap,
+    ret = xqc_packet_encrypt_buf(conn, packet_out, buf, buf_cap,
                                  &encrypted_size);
     if (ret != XQC_OK) {
         encrypted_size = 0;
@@ -630,6 +709,17 @@ xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
 end:
     xqc_packet_out_destroy(packet_out);
     return encrypted_size;
+}
+
+
+static size_t
+xqc_test_build_initial(test_ctx *cli, const xqc_cid_t *dcid,
+    xqc_packet_number_t packet_number, xqc_bool_t connection_close,
+    size_t packet_size, unsigned char *buf, size_t buf_cap)
+{
+    return xqc_test_build_initial_from(cli->c, dcid, NULL, 0, packet_number,
+                                       connection_close, packet_size, buf,
+                                       buf_cap);
 }
 
 
@@ -884,4 +974,338 @@ xqc_test_parse_uint32_high_bytes(void)
     CU_ASSERT_EQUAL(xqc_parse_uint32(all), 0xffffffffU);
     CU_ASSERT_EQUAL(xqc_parse_uint32(high), 0x80000001U);
     CU_ASSERT_EQUAL(xqc_parse_uint32(v1), 0x00000001U);
+}
+
+
+/*
+ * RFC 9000 Section 17.2.2: Initial packets sent by the server MUST set the
+ * Token Length field to 0, whatever token the client's Initial carried: a
+ * Retry token (Section 8.1.2), a NEW_TOKEN token (Section 8.1.3) or an
+ * invalid one. Strict clients discard any other server Initial. These
+ * tests run a client and a server engine in-process and inspect the
+ * Initial packet of every datagram each engine writes.
+ */
+static int
+xqc_test_retry_always(xqc_engine_t *engine, xqc_connection_t *conn,
+    const xqc_cid_t *cid, void *user_data)
+{
+    return XQC_TRUE;
+}
+
+
+static void
+xqc_test_token_addr(struct sockaddr_in *addr, uint16_t port)
+{
+    memset(addr, 0, sizeof(*addr));
+    addr->sin_family = AF_INET;
+    addr->sin_port = htons(port);
+    addr->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+}
+
+
+/* deliver the last datagram written by from to the engine of to */
+static void
+xqc_test_token_deliver(test_ctx *from, test_ctx *to,
+    const struct sockaddr_in *local, const struct sockaddr_in *peer)
+{
+    xqc_engine_packet_process(to->engine, (unsigned char *)from->buf,
+                              from->buf_len, (const struct sockaddr *)local,
+                              sizeof(*local), (const struct sockaddr *)peer,
+                              sizeof(*peer), xqc_now(), to);
+    xqc_engine_finish_recv(to->engine);
+}
+
+
+static xqc_int_t
+xqc_test_token_connect(test_ctx *cli, test_ctx *svr,
+    const struct sockaddr_in *svr_addr, const unsigned char *token,
+    unsigned token_len)
+{
+    xqc_conn_settings_t conn_settings;
+    xqc_conn_ssl_config_t conn_ssl_config;
+    const xqc_cid_t *cid;
+
+    svr->engine = test_create_engine_buf_server(svr);
+    cli->engine = test_create_engine_buf_client(cli);
+    if (svr->engine == NULL || cli->engine == NULL) {
+        return XQC_ERROR;
+    }
+
+    memset(&conn_settings, 0, sizeof(conn_settings));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+
+    cid = xqc_connect(cli->engine, &conn_settings, token, token_len, "", 0,
+                      &conn_ssl_config, (const struct sockaddr *)svr_addr,
+                      sizeof(*svr_addr), "transport", cli);
+    if (cid == NULL || cli->c == NULL) {
+        return XQC_ERROR;
+    }
+
+    return XQC_OK;
+}
+
+
+void
+xqc_test_server_initial_omits_retry_token(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    struct sockaddr_in cli_addr;
+    struct sockaddr_in svr_addr;
+    xqc_int_t ret;
+
+    xqc_test_token_addr(&cli_addr, 50000);
+    xqc_test_token_addr(&svr_addr, 443);
+
+    ret = xqc_test_token_connect(&cli, &svr, &svr_addr, NULL, 0);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    svr.engine->transport_cbs.conn_retry_packet_condition_check =
+        xqc_test_retry_always;
+    svr.engine->transport_cbs.conn_send_packet_before_accept =
+        xqc_test_server_write;
+
+    /* the first client Initial has no token: the server sends a Retry */
+    CU_ASSERT_EQUAL(cli.initial_cnt, 1);
+    CU_ASSERT_EQUAL(cli.token_initial_cnt, 0);
+    xqc_test_token_deliver(&cli, &svr, &svr_addr, &cli_addr);
+    CU_ASSERT_EQUAL(svr.initial_cnt, 0);
+    CU_ASSERT(svr.buf_len > 0 && (svr.buf[0] & 0xf0) == 0xf0);
+
+    /* the client sends its Initial again, with the Retry token */
+    xqc_test_token_deliver(&svr, &cli, &cli_addr, &svr_addr);
+    CU_ASSERT_EQUAL(cli.initial_cnt, 2);
+    CU_ASSERT_EQUAL(cli.token_initial_cnt, 1);
+    CU_ASSERT(cli.last_token_len > 0);
+
+    /* the server accepts the token, and its Initials carry none */
+    xqc_test_token_deliver(&cli, &svr, &svr_addr, &cli_addr);
+    CU_ASSERT(svr.initial_cnt > 0);
+    CU_ASSERT_EQUAL(svr.token_initial_cnt, 0);
+    CU_ASSERT_PTR_NOT_NULL(svr.c);
+    if (svr.c != NULL) {
+        /* conn_flag is 64 bits wide: compare instead of truncating */
+        CU_ASSERT((svr.c->conn_flag & XQC_CONN_FLAG_RETRY_SENT) != 0);
+        CU_ASSERT((svr.c->conn_flag & XQC_CONN_FLAG_TOKEN_OK) != 0);
+        CU_ASSERT_EQUAL(svr.c->conn_err, 0);
+    }
+
+end:
+    xqc_test_coalesced_teardown(&cli, &svr);
+}
+
+
+void
+xqc_test_server_initial_omits_invalid_token(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    struct sockaddr_in cli_addr;
+    struct sockaddr_in svr_addr;
+    unsigned char token[16];
+    xqc_int_t ret;
+
+    xqc_test_token_addr(&cli_addr, 50000);
+    xqc_test_token_addr(&svr_addr, 443);
+    memset(token, 0x5a, sizeof(token));
+
+    ret = xqc_test_token_connect(&cli, &svr, &svr_addr, token,
+                                 sizeof(token));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    /* the client Initial carries the token it was given */
+    CU_ASSERT_EQUAL(cli.initial_cnt, 1);
+    CU_ASSERT_EQUAL(cli.token_initial_cnt, 1);
+    CU_ASSERT_EQUAL(cli.last_token_len, sizeof(token));
+
+    /*
+     * The token fails validation. Without a Retry condition the server
+     * accepts the connection; it keeps the token but must not send it.
+     */
+    xqc_test_token_deliver(&cli, &svr, &svr_addr, &cli_addr);
+    CU_ASSERT(svr.initial_cnt > 0);
+    CU_ASSERT_EQUAL(svr.token_initial_cnt, 0);
+    CU_ASSERT_PTR_NOT_NULL(svr.c);
+    if (svr.c != NULL) {
+        CU_ASSERT((svr.c->conn_flag & XQC_CONN_FLAG_TOKEN_OK) == 0);
+        CU_ASSERT_EQUAL(svr.c->conn_token_len, sizeof(token));
+        CU_ASSERT_EQUAL(svr.c->conn_err, 0);
+    }
+
+end:
+    xqc_test_coalesced_teardown(&cli, &svr);
+}
+
+
+/*
+ * RFC 9000 Section 17.2.2: a client discards an Initial packet with a
+ * nonzero Token Length. A Token Length of 0 is valid in each variable-length
+ * integer encoding (Section 16). The client keeps its own token, which it
+ * sends in its Initial packets.
+ */
+void
+xqc_test_client_initial_token_len(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    const unsigned char own_token[4] = {0x7b, 0x7b, 0x7b, 0x7b};
+    xqc_packet_in_t packet_in;
+    unsigned char buf[16];
+    uint64_t token_len;
+    unsigned bits;
+    size_t len;
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_EQUAL(conn->conn_type, XQC_CONN_TYPE_CLIENT);
+    memcpy(conn->conn_token, own_token, sizeof(own_token));
+    conn->conn_token_len = sizeof(own_token);
+
+    for (bits = 0; bits < 4; bits++) {
+        for (token_len = 0; token_len < 2; token_len++) {
+            len = xqc_vint_len(bits);
+            xqc_vint_write(buf, token_len, bits, len);
+            if (token_len != 0) {
+                buf[len++] = 0xa5;              /* Token */
+            }
+            buf[len++] = 1;                     /* Length */
+            buf[len++] = 0;                     /* Packet Number */
+
+            memset(&packet_in, 0, sizeof(packet_in));
+            xqc_packet_in_init(&packet_in, buf, len, NULL, 0, 0);
+            ret = xqc_packet_parse_initial(conn, &packet_in);
+
+            CU_ASSERT_EQUAL(ret, token_len == 0 ? XQC_OK : -XQC_EIGNORE_PKT);
+            CU_ASSERT_EQUAL(conn->conn_err, 0);
+            CU_ASSERT_EQUAL(conn->conn_token_len, sizeof(own_token));
+            CU_ASSERT_EQUAL(memcmp(conn->conn_token, own_token,
+                                   sizeof(own_token)), 0);
+        }
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A protected server Initial that carries a CONNECTION_CLOSE frame closes
+ * the client when its Token Length is 0. With a nonzero Token Length, the
+ * client must discard the same packet and keep the connection.
+ */
+void
+xqc_test_client_discards_server_initial_token(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    const unsigned char token[1] = {0xab};
+    unsigned char packet[2048];
+    uint64_t token_len = 0;
+    size_t size;
+    xqc_int_t ret;
+
+    ret = xqc_test_coalesced_setup(&cli, &svr);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    size = xqc_test_build_initial_from(svr.c, &svr.c->dcid_set.current_dcid,
+                                       token, sizeof(token), 100, XQC_TRUE,
+                                       XQC_TEST_COALESCED_PACKET_SIZE,
+                                       packet, sizeof(packet));
+    CU_ASSERT_NOT_EQUAL(size, 0);
+    CU_ASSERT(xqc_test_initial_token_len(packet, size, &token_len));
+    CU_ASSERT_EQUAL(token_len, sizeof(token));
+    if (size == 0) {
+        goto end;
+    }
+
+    ret = xqc_conn_process_packet(cli.c, packet, size, xqc_now());
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(cli.c->conn_close_recv_time, 0);
+    CU_ASSERT_EQUAL(cli.c->conn_err, 0);
+    CU_ASSERT(cli.c->conn_state < XQC_CONN_STATE_CLOSING);
+
+    /* the same packet with a Token Length of 0 is processed */
+    size = xqc_test_build_initial_from(svr.c, &svr.c->dcid_set.current_dcid,
+                                       NULL, 0, 101, XQC_TRUE,
+                                       XQC_TEST_COALESCED_PACKET_SIZE,
+                                       packet, sizeof(packet));
+    CU_ASSERT_NOT_EQUAL(size, 0);
+    if (size == 0) {
+        goto end;
+    }
+
+    ret = xqc_conn_process_packet(cli.c, packet, size, xqc_now());
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_NOT_EQUAL(cli.c->conn_close_recv_time, 0);
+    CU_ASSERT(cli.c->conn_state >= XQC_CONN_STATE_DRAINING);
+
+end:
+    xqc_test_coalesced_teardown(&cli, &svr);
+}
+
+
+/*
+ * RFC 9000 Section 12.2: the packets coalesced after a discarded server
+ * Initial are processed as if they came in their own datagram. The first
+ * packet carries a token and a CONNECTION_CLOSE frame, the second neither.
+ */
+void
+xqc_test_client_discard_keeps_coalesced_packets(void)
+{
+    test_ctx cli = {0};
+    test_ctx svr = {0};
+    const unsigned char token[1] = {0xab};
+    unsigned char first[2048];
+    unsigned char second[2048];
+    unsigned char datagram[4096];
+    size_t first_size;
+    size_t second_size;
+    xqc_pn_ctl_t *pn_ctl;
+    xqc_int_t ret;
+
+    ret = xqc_test_coalesced_setup(&cli, &svr);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    if (ret != XQC_OK) {
+        goto end;
+    }
+
+    first_size = xqc_test_build_initial_from(
+        svr.c, &svr.c->dcid_set.current_dcid, token, sizeof(token), 100,
+        XQC_TRUE, XQC_TEST_COALESCED_PACKET_SIZE, first, sizeof(first));
+    second_size = xqc_test_build_initial_from(
+        svr.c, &svr.c->dcid_set.current_dcid, NULL, 0, 101, XQC_FALSE,
+        XQC_TEST_COALESCED_PACKET_SIZE, second, sizeof(second));
+    CU_ASSERT_NOT_EQUAL(first_size, 0);
+    CU_ASSERT_NOT_EQUAL(second_size, 0);
+    if (first_size == 0 || second_size == 0) {
+        goto end;
+    }
+
+    memcpy(datagram, first, first_size);
+    memcpy(datagram + first_size, second, second_size);
+    ret = xqc_conn_process_packet(cli.c, datagram, first_size + second_size,
+                                  xqc_now());
+
+    /* the first packet is discarded, the second one is received */
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(cli.c->conn_close_recv_time, 0);
+    CU_ASSERT(cli.c->conn_state < XQC_CONN_STATE_CLOSING);
+    pn_ctl = xqc_get_pn_ctl(cli.c, cli.c->conn_initial_path);
+    CU_ASSERT_PTR_NOT_NULL(pn_ctl);
+    if (pn_ctl != NULL) {
+        CU_ASSERT_EQUAL(
+            xqc_recv_record_largest(&pn_ctl->ctl_recv_record[XQC_PNS_INIT]),
+            101);
+    }
+
+end:
+    xqc_test_coalesced_teardown(&cli, &svr);
 }

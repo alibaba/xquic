@@ -96,6 +96,113 @@ fi
 
 }
 
+# RFC 9000 Section 17.2.2: the Initial packets of a server carry a Token
+# Length of 0, whatever token the client's Initial carried. test_client
+# reports the Token Length of every Initial it sends and receives.
+case_transport_packet_server_initial_omits_token()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "server Initials omit Retry and NEW_TOKEN tokens ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 729 > svr_stdlog
+sleep 1
+# The first connection takes a Retry; the second one sends the NEW_TOKEN
+# token that the first one saved, which the server accepts without Retry.
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 729 > stdlog1 2>&1
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 729 > stdlog2 2>&1
+cat stdlog1 stdlog2 > stdlog
+retries=`grep -c "\[retry-token-test\]|retry_enabled|case:729|" svr_stdlog`
+tag="\[initial-token-test\]"
+ok=1
+for log in stdlog1 stdlog2; do
+    client_token=`grep -c "$tag|client_initial|token_len:[1-9]" $log`
+    server_initial=`grep -c "$tag|server_initial|" $log`
+    server_token=`grep -c "$tag|server_initial|token_len:[1-9]" $log`
+    result=`grep ">>>>>>>> pass:1" $log`
+    echo "$log: client_token=$client_token server_initial=$server_initial" \
+         "server_token=$server_token"
+    if [ "$client_token" -eq 0 ] || [ "$server_initial" -eq 0 ] \
+        || [ "$server_token" -ne 0 ] || [ -z "$result" ]; then
+        ok=0
+    fi
+done
+if [ "$ok" -eq 1 ] && [ "$retries" -eq 1 ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_initial_omits_token" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_initial_omits_token" "fail"
+    echo "retries=$retries"
+fi
+rm -rf tp_localhost test_session xqc_token stdlog1 stdlog2
+}
+
+case_transport_packet_server_initial_omits_invalid_token()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "server Initials omit an invalid client token ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 730 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 730 > stdlog 2>&1
+tag="\[initial-token-test\]"
+rejected=`grep "$tag|token_rejected|case:730|" svr_stdlog`
+retry=`grep "\[retry-token-test\]|retry_enabled" svr_stdlog`
+client_token=`grep -c "$tag|client_initial|token_len:16|" stdlog`
+server_initial=`grep -c "$tag|server_initial|" stdlog`
+server_token=`grep -c "$tag|server_initial|token_len:[1-9]" stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+if [ -n "$rejected" ] && [ -z "$retry" ] && [ "$client_token" -gt 0 ] \
+    && [ "$server_initial" -gt 0 ] && [ "$server_token" -eq 0 ] \
+    && [ -n "$result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_initial_omits_invalid_token" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_initial_omits_invalid_token" "fail"
+    echo "rejected=$rejected retry=$retry client_token=$client_token"
+    echo "server_initial=$server_initial server_token=$server_token"
+    echo "$result"
+fi
+rm -rf tp_localhost test_session xqc_token
+}
+
+# RFC 9000 Section 17.2.2: a client discards an Initial packet with a
+# nonzero Token Length. test_server sends one with a CONNECTION_CLOSE frame,
+# which would end the connection if the client processed it.
+case_transport_packet_client_discards_initial_token()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "client discards a server Initial with a token ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 731 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 731 > stdlog 2>&1
+tag="\[initial-token-test\]"
+injected=`grep "$tag|inject_initial_token|case:731|" svr_stdlog`
+server_token=`grep -c "$tag|server_initial|token_len:[1-9]" stdlog`
+discarded=`grep -a "discard server Initial with nonzero token length" clog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+if [ -n "$injected" ] && [ "$server_token" -gt 0 ] && [ -n "$discarded" ] \
+    && [ -n "$result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "client_discards_initial_token" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "client_discards_initial_token" "fail"
+    echo "injected=$injected server_token=$server_token"
+    echo "discarded=$discarded"
+    echo "$result"
+fi
+rm -rf tp_localhost test_session xqc_token
+}
+
 case_transport_packet_large_ack_range_with_30_percent_loss()
 {
 case_test_stop_server
@@ -468,6 +575,14 @@ case_test_case "illegal_packet" --id native --mode self-reporting --run case_tra
 case_test_case "duplicate_packet" --id native --mode self-reporting --run case_transport_packet_duplicate_packet
 case_test_case "packet_with_wrong_cid" --id native --mode self-reporting --run case_transport_packet_packet_with_wrong_cid
 case_test_case "retry_packet_send" --id native --mode self-reporting --run case_transport_packet_retry_packet_send
+case_test_case "server_initial_omits_token" --id 729 --mode self-reporting \
+    --run case_transport_packet_server_initial_omits_token
+case_test_case "server_initial_omits_invalid_token" --id 730 \
+    --mode self-reporting \
+    --run case_transport_packet_server_initial_omits_invalid_token
+case_test_case "client_discards_initial_token" --id 731 \
+    --mode self-reporting \
+    --run case_transport_packet_client_discards_initial_token
 case_test_case "large_ack_range_with_30_percent_loss" --id native --mode self-reporting --run case_transport_packet_large_ack_range_with_30_percent_loss --timeout 120
 case_test_case "client_initial_dcid_corruption" --id native --mode self-reporting --run case_transport_packet_client_initial_dcid_corruption
 case_test_case "client_initial_scid_corruption" --id native --mode self-reporting --run case_transport_packet_client_initial_scid_corruption

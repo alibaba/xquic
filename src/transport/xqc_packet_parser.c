@@ -479,13 +479,13 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     }
     pos += size;
 
-    if (token_len > XQC_MAX_TOKEN_LEN) {
-        xqc_log(c->log, XQC_LOG_ERROR, "|token length exceed XQC_MAX_TOKEN_LEN|%ui|", token_len);
-        return -XQC_EILLPKT;
-    }
-
     /* server save token and check token when decode crypto frame */
     if (c->conn_type == XQC_CONN_TYPE_SERVER) {
+        if (token_len > XQC_MAX_TOKEN_LEN) {
+            xqc_log(c->log, XQC_LOG_ERROR,
+                    "|token length exceed XQC_MAX_TOKEN_LEN|%ui|", token_len);
+            return -XQC_EILLPKT;
+        }
         memcpy(c->conn_token, pos, token_len);
         c->conn_token_len = token_len;
     }
@@ -507,6 +507,25 @@ xqc_packet_parse_initial(xqc_connection_t *c, xqc_packet_in_t *packet_in)
     if (packet_in->last > end) {
         xqc_log(c->log, XQC_LOG_ERROR, "|illegal pkt with wrong length");
         return -XQC_EILLPKT;
+    }
+
+    /*
+     * RFC 9000 Section 17.2.2: a server sets the Token Length of its
+     * Initial packets to 0, and a client discards an Initial packet with
+     * a nonzero Token Length or closes the connection. Discarding it,
+     * before it can change any state, keeps a forged Initial from closing
+     * the connection, and Section 12.2 still requires processing the
+     * packets coalesced after it.
+     */
+    if (c->conn_type == XQC_CONN_TYPE_CLIENT && token_len != 0) {
+        xqc_log(c->log, XQC_LOG_INFO,
+                "|discard server Initial with nonzero token length|%ui|",
+                token_len);
+        xqc_log_event(c->log, TRA_PACKET_DROPPED,
+                      "server Initial with nonzero token length",
+                      -XQC_EIGNORE_PKT, xqc_pkt_type_2_str(XQC_PTYPE_INIT), 0);
+        packet_in->pi_flag |= XQC_PIF_DISCARD;
+        return -XQC_EIGNORE_PKT;
     }
 
     xqc_log(c->log, XQC_LOG_DEBUG, "|success|Length:%ui|", length);

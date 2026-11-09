@@ -135,7 +135,8 @@ xqc_vsprintf(unsigned char *buf, unsigned char *last, const char *fmt, va_list a
                     while (*p && buf < last) {
                         *buf++ = *p++;
                     }
-                } else {
+                } else if (slen > 0) {
+                    /* an empty "%*s" string may come with a NULL pointer */
                     len = xqc_min(((size_t) (last - buf)), slen);
                     buf = xqc_cpymem(buf, p, len);
                 }

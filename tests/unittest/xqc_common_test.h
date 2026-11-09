@@ -15,6 +15,7 @@ void xqc_test_common();
 void xqc_test_memory_pool_large_alignment(void);
 void xqc_test_murmur_hash2(void);
 void xqc_test_murmur_hash2_high_bytes(void);
+void xqc_test_sprintf_counted_string(void);
 void xqc_test_metrics_updated_log_bbr(void);
 void xqc_test_metrics_updated_log_no_bbr(void);
 void xqc_test_connection_closed_log_no_error(void);

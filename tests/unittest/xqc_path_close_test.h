@@ -13,4 +13,7 @@ void xqc_test_path_abandon_code_application(void);
 void xqc_test_path_abandon_code_reply(void);
 void xqc_test_path_abandon_code_broken_path(void);
 
+/* a path abandoned on a timer is kept for the draining period */
+void xqc_test_path_abandon_timer_keeps_draining(void);
+
 #endif /* XQC_PATH_CLOSE_TEST_H */

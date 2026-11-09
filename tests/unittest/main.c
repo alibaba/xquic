@@ -846,6 +846,8 @@ main(int argc, char *argv[])
                         xqc_test_path_abandon_code_reply)
         || !CU_add_test(pSuite, "xqc_test_path_abandon_code_broken_path",
                         xqc_test_path_abandon_code_broken_path)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_timer_keeps_draining",
+                        xqc_test_path_abandon_timer_keeps_draining)
         || !CU_add_test(pSuite,
                         "xqc_test_path_validation_timeout_"
                         "current_pto_dominates",

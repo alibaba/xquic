@@ -137,6 +137,39 @@ xqc_test_path_close_recv_abandon(xqc_connection_t *conn, uint64_t path_id)
 }
 
 
+static int xqc_test_path_removed_count;
+
+static void
+xqc_test_path_close_removed_notify(const xqc_cid_t *scid, uint64_t path_id,
+    void *conn_user_data)
+{
+    xqc_test_path_removed_count++;
+}
+
+
+/* expire the PATH_IDLE timer of the path now */
+static void
+xqc_test_path_close_idle_expires(xqc_path_ctx_t *path)
+{
+    xqc_timer_manager_t *timers = &path->path_send_ctl->path_timer_manager;
+    xqc_usec_t           now = xqc_monotonic_timestamp();
+
+    xqc_timer_set(timers, XQC_TIMER_PATH_IDLE, now, 0);
+    xqc_timer_expire(timers, now);
+}
+
+
+static void
+xqc_test_path_close_draining_expires(xqc_path_ctx_t *path)
+{
+    xqc_timer_manager_t *timers = &path->path_send_ctl->path_timer_manager;
+
+    CU_ASSERT_FATAL(xqc_timer_is_set(timers, XQC_TIMER_PATH_DRAINING));
+    xqc_timer_expire(timers,
+                     timers->timer[XQC_TIMER_PATH_DRAINING].expire_time);
+}
+
+
 static xqc_bool_t
 xqc_test_path_close_sets_abandoned(xqc_connection_t *conn, uint64_t path_id)
 {
@@ -343,6 +376,86 @@ xqc_test_path_abandon_code_broken_path(void)
               == XQC_TRUE);
     CU_ASSERT(conn->conn_initial_path->path_state == XQC_PATH_STATE_ACTIVE);
     CU_ASSERT(xqc_test_path_close_queued_abandons(conn).count == 2);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 10069 Sections 3.4 and 3.4.3: a path abandoned on a timer is kept
+ * until its draining timer, 3 PTOs later, as a path abandoned otherwise is,
+ * so that the packets still in flight on it are acknowledged. A PATH_IDLE
+ * that a packet received on a closing path re-armed does not end that
+ * earlier. The last active path is not abandoned on its idle timeout, and a
+ * closing path whose draining timer is gone is closed at once.
+ */
+void
+xqc_test_path_abandon_timer_keeps_draining(void)
+{
+    xqc_connection_t     *conn = xqc_test_path_close_conn();
+    xqc_path_ctx_t       *validating, *idle, *abandoned, *undrained;
+    xqc_timer_manager_t  *timers;
+    xqc_usec_t            now;
+
+    xqc_test_path_removed_count = 0;
+    conn->transport_cbs.path_removed_notify =
+        xqc_test_path_close_removed_notify;
+
+    /* the validation deadline passes */
+    xqc_test_path_close_add_cids(conn, 1, NULL);
+    validating = xqc_conn_create_path_inner(conn, NULL, NULL,
+                                            XQC_APP_PATH_STATUS_AVAILABLE, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(validating);
+    xqc_test_path_close_idle_expires(validating);
+    CU_ASSERT(validating->path_state == XQC_PATH_STATE_CLOSING);
+    CU_ASSERT(xqc_test_path_close_queued_abandons(conn).count == 1);
+    CU_ASSERT(xqc_test_path_removed_count == 0);
+    xqc_test_path_close_draining_expires(validating);
+    CU_ASSERT(validating->path_state == XQC_PATH_STATE_CLOSED);
+    CU_ASSERT(xqc_test_path_removed_count == 1);
+
+    /* nothing is received on an active path for the idle timeout */
+    idle = xqc_test_path_close_active_path(conn, 2);
+    xqc_test_path_close_idle_expires(idle);
+    CU_ASSERT(idle->path_state == XQC_PATH_STATE_CLOSING);
+    CU_ASSERT(xqc_test_path_close_queued_abandons(conn).count == 2);
+
+    timers = &idle->path_send_ctl->path_timer_manager;
+    now = xqc_monotonic_timestamp();
+    xqc_timer_set(timers, XQC_TIMER_PATH_IDLE, now, 1);
+    CU_ASSERT_FATAL(timers->timer[XQC_TIMER_PATH_IDLE].expire_time
+                    < timers->timer[XQC_TIMER_PATH_DRAINING].expire_time);
+    xqc_timer_expire(timers, now + 1);
+    CU_ASSERT(idle->path_state == XQC_PATH_STATE_CLOSING);
+    CU_ASSERT(xqc_test_path_removed_count == 1);
+    xqc_test_path_close_draining_expires(idle);
+    CU_ASSERT(idle->path_state == XQC_PATH_STATE_CLOSED);
+    CU_ASSERT(xqc_test_path_removed_count == 2);
+
+    /* the peer abandons a path */
+    abandoned = xqc_test_path_close_active_path(conn, 3);
+    CU_ASSERT(xqc_test_path_close_recv_abandon(conn, 3) == XQC_OK);
+    CU_ASSERT(abandoned->path_state == XQC_PATH_STATE_CLOSING);
+    xqc_test_path_close_idle_expires(abandoned);
+    CU_ASSERT(abandoned->path_state == XQC_PATH_STATE_CLOSING);
+    CU_ASSERT(xqc_test_path_removed_count == 2);
+    xqc_test_path_close_draining_expires(abandoned);
+    CU_ASSERT(abandoned->path_state == XQC_PATH_STATE_CLOSED);
+    CU_ASSERT(xqc_test_path_removed_count == 3);
+
+    undrained = xqc_test_path_close_active_path(conn, 4);
+    CU_ASSERT(xqc_test_path_close_recv_abandon(conn, 4) == XQC_OK);
+    xqc_timer_unset(&undrained->path_send_ctl->path_timer_manager,
+                    XQC_TIMER_PATH_DRAINING);
+    xqc_test_path_close_idle_expires(undrained);
+    CU_ASSERT(undrained->path_state == XQC_PATH_STATE_CLOSED);
+    CU_ASSERT(xqc_test_path_removed_count == 4);
+
+    xqc_test_path_close_idle_expires(conn->conn_initial_path);
+    CU_ASSERT(conn->conn_initial_path->path_state == XQC_PATH_STATE_ACTIVE);
+    CU_ASSERT((xqc_test_path_close_queued_abandons(conn).path_ids
+               & (1ULL << XQC_INITIAL_PATH_ID)) == 0);
+    CU_ASSERT(xqc_test_path_removed_count == 4);
 
     xqc_engine_destroy(conn->engine);
 }

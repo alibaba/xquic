@@ -177,6 +177,102 @@ xqc_test_hp_sample_boundary()
 }
 
 
+static void
+xqc_test_hp_mask_log_write(xqc_log_level_t level, const void *buf,
+    size_t size, void *user_data)
+{
+    char *line = user_data;
+
+    size = xqc_min(size, XQC_MAX_LOG_LEN - 1);
+    memcpy(line, buf, size);
+    line[size] = '\0';
+}
+
+/*
+ * Fill the stack below the caller with non-zero bytes, so that a variable
+ * that the next call leaves unset holds them, not a zero left by chance.
+ */
+static void xqc_test_hp_dirty_stack(void) __attribute__((noinline));
+
+static void
+xqc_test_hp_dirty_stack(void)
+{
+    volatile unsigned char  stack[4096];
+    size_t                  i;
+
+    for (i = 0; i < sizeof(stack); i++) {
+        stack[i] = 0xa5;
+    }
+}
+
+/*
+ * When the header protection mask cannot be computed, here for want of its
+ * cipher context, encrypt_header and decrypt_header fail and log the
+ * length of the mask, which the failed computation did not set: the log
+ * must show 0. With keys and contexts, both succeed.
+ */
+static void
+xqc_test_hp_mask_error_log_one(xqc_bool_t is_encrypt)
+{
+    static char             line[XQC_MAX_LOG_LEN];
+    xqc_log_callbacks_t     cbs = {
+        .xqc_log_write_err = xqc_test_hp_mask_log_write,
+    };
+    xqc_log_t               log = {
+        .log_level = XQC_LOG_ERROR,
+        .log_callbacks = &cbs,
+        .user_data = line,
+    };
+    uint8_t                 buf[64];
+    xqc_int_t               ret;
+    void                  **hp_ctx;
+
+    xqc_crypto_t *crypto = xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256,
+                                             &log);
+    CU_ASSERT_FATAL(crypto != NULL);
+    CU_ASSERT_FATAL(xqc_crypto_derive_keys(crypto, XQC_TEST_CLIENT_SECRET,
+        sizeof(XQC_TEST_CLIENT_SECRET) - 1, XQC_KEY_TYPE_RX_READ) == XQC_OK);
+    CU_ASSERT_FATAL(xqc_crypto_derive_keys(crypto, XQC_TEST_CLIENT_SECRET,
+        sizeof(XQC_TEST_CLIENT_SECRET) - 1, XQC_KEY_TYPE_TX_WRITE) == XQC_OK);
+
+    memset(buf, 0, sizeof(buf));
+    buf[0] = 0x40;
+    line[0] = '\0';
+    ret = is_encrypt
+        ? xqc_crypto_encrypt_header(crypto, XQC_PTYPE_SHORT_HEADER, buf,
+                                    buf + 1, buf + sizeof(buf))
+        : xqc_crypto_decrypt_header(crypto, XQC_PTYPE_SHORT_HEADER, buf,
+                                    buf + 1, buf + sizeof(buf));
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(line[0] == '\0');
+
+    hp_ctx = is_encrypt ? &crypto->keys.tx_hp_ctx : &crypto->keys.rx_hp_ctx;
+    xqc_hp_ctx_free(*hp_ctx);
+    *hp_ctx = NULL;
+
+    xqc_test_hp_dirty_stack();
+    ret = is_encrypt
+        ? xqc_crypto_encrypt_header(crypto, XQC_PTYPE_SHORT_HEADER, buf,
+                                    buf + 1, buf + sizeof(buf))
+        : xqc_crypto_decrypt_header(crypto, XQC_PTYPE_SHORT_HEADER, buf,
+                                    buf + 1, buf + sizeof(buf));
+    CU_ASSERT(ret == (is_encrypt ? -XQC_EENCRYPT
+                                 : -XQC_TLS_DECRYPT_DATA_ERROR));
+    CU_ASSERT(strstr(line, "|calculate header protection mask error|")
+              != NULL);
+    CU_ASSERT(strstr(line, "|nwrite:0|") != NULL);
+
+    xqc_crypto_destroy(crypto);
+}
+
+void
+xqc_test_hp_mask_error_log()
+{
+    xqc_test_hp_mask_error_log_one(XQC_TRUE);
+    xqc_test_hp_mask_error_log_one(XQC_FALSE);
+}
+
+
 /* RFC 9001 §5.4.4 and Appendix A.5 ChaCha20 HP test vector. */
 #ifdef OPENSSL_IS_BORINGSSL
 static const uint8_t rfc9001_chacha20_hp_key[32] = {

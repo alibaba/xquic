@@ -90,6 +90,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_CANCEL_PUSH_UNSET 1010
 #define XQC_TEST_CASE_H3_FIELD_SECTION_VALID 1011
 #define XQC_TEST_CASE_H3_FIELD_SECTION_OVER_LIMIT 1012
+#define XQC_TEST_CASE_MP_MAX_PATH_ID_GRANT 1327
 #define XQC_TEST_CASE_H3_LOWERCASE_RESPONSE 1013
 #define XQC_TEST_CASE_H3_UPPERCASE_RESPONSE 1014
 #define XQC_TEST_CASE_H3_H2_RESERVED_REQUEST_FRAME 1015
@@ -5419,6 +5420,20 @@ xqc_client_epoch_callback(int fd, short what, void *arg)
         xqc_conn_close_path(ctx.engine, &user_conn->cid, 1);
     }
 
+    /*
+     * RFC 10069 Section 3.2.1: close path 1, then, once it is removed, open
+     * a path from its interface again, with the path ID of MAX_PATH_ID
+     */
+    if (g_test_case == XQC_TEST_CASE_MP_MAX_PATH_ID_GRANT) {
+        if (g_cur_epoch == 4) {
+            ret = xqc_conn_close_path(ctx.engine, &user_conn->cid, 1);
+            printf("[mp-max-path-id]|close_path:1|ret:%d|\n", ret);
+
+        } else if (g_cur_epoch > 5) {
+            xqc_client_ready_to_create_path(&user_conn->cid, user_conn);
+        }
+    }
+
     /* close all path */
     if (g_test_case == 102 && g_cur_epoch > 3) {
         xqc_conn_close_path(ctx.engine, &user_conn->cid, 1);
@@ -6524,6 +6539,11 @@ int main(int argc, char *argv[]) {
     conn_settings.proto_version = XQC_VERSION_V1;
     conn_settings.max_datagram_frame_size = g_max_dgram_size;
     conn_settings.enable_multipath = g_enable_multipath;
+
+    /* RFC 10069 Section 3.2.1: path IDs 0 and 1, then MAX_PATH_ID */
+    if (g_test_case == XQC_TEST_CASE_MP_MAX_PATH_ID_GRANT) {
+        conn_settings.init_max_path_id = 1;
+    }
 
     if (g_test_case == 208) {
         conn_settings.datagram_redundancy = 1;

@@ -345,6 +345,10 @@ main(int argc, char *argv[])
                         xqc_test_mp_abandon_above_curr_max_path_id)
         || !CU_add_test(pSuite, "xqc_test_mp_abandon_rejected_without_cid_set",
                         xqc_test_mp_abandon_rejected_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_max_path_id_grant",
+                        xqc_test_mp_max_path_id_grant)
+        || !CU_add_test(pSuite, "xqc_test_mp_max_path_id_grant_bounds",
+                        xqc_test_mp_max_path_id_grant_bounds)
         || !CU_add_test(pSuite, "xqc_test_mp_retire_cid_without_cid_set",
                         xqc_test_mp_retire_cid_without_cid_set)
         || !CU_add_test(pSuite, "xqc_test_cid_set_lookup_error",

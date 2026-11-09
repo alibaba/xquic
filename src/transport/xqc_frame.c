@@ -2616,7 +2616,7 @@ xqc_int_t
 xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_ERROR;
-    uint64_t max_path_id, new_max_path_id;
+    uint64_t max_path_id;
 
     ret = xqc_parse_max_path_id_frame(packet_in, &max_path_id);
     if (ret != XQC_OK) {
@@ -2647,14 +2647,7 @@ xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
 
     if (conn->remote_max_path_id < max_path_id) {
         conn->remote_max_path_id = max_path_id;
-        new_max_path_id = xqc_min(conn->local_max_path_id, conn->remote_max_path_id);
-        if (new_max_path_id > conn->curr_max_path_id) {
-            if (xqc_conn_add_path_cid_sets(conn, conn->curr_max_path_id + 1, new_max_path_id) != XQC_OK) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|add_path_cid_sets_error|");
-                return -XQC_EMALLOC;
-            }
-            conn->curr_max_path_id = new_max_path_id;
-        }
+        ret = xqc_conn_update_curr_max_path_id(conn);
     }
 
     return ret;

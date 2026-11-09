@@ -598,7 +598,7 @@ xqc_path_move_unack_packets_from_conn(xqc_path_ctx_t *path, xqc_connection_t *co
                     }
                 }
                 
-                if (XQC_NEED_REPAIR(po->po_frame_types) 
+                if (XQC_NEED_REPAIR(xqc_packet_out_frames_to_repair(conn, po))
                     || (po->po_flag & XQC_POF_NOTIFY)
                     || repair_dgram == XQC_DGRAM_RETX_ASKED_BY_APP) 
                 {

@@ -47,6 +47,7 @@
 #include "xqc_qpack_test.h"
 #include "xqc_prefixed_str_test.h"
 #include "xqc_cid_test.h"
+#include "xqc_path_status_test.h"
 #include "xqc_alloc_fail_test.h"
 #include "xqc_id_hash_test.h"
 #include "xqc_retry_test.h"
@@ -570,6 +571,12 @@ main(int argc, char *argv[])
                         xqc_test_multipath_frames_require_negotiation)
         || !CU_add_test(pSuite, "xqc_test_multipath_version_requires_negotiation",
                         xqc_test_multipath_version_requires_negotiation)
+        || !CU_add_test(pSuite, "xqc_test_path_status_first_seq_zero",
+                        xqc_test_path_status_first_seq_zero)
+        || !CU_add_test(pSuite, "xqc_test_path_status_local_and_peer_apart",
+                        xqc_test_path_status_local_and_peer_apart)
+        || !CU_add_test(pSuite, "xqc_test_path_status_before_validation",
+                        xqc_test_path_status_before_validation)
         || !CU_add_test(pSuite, "xqc_test_negotiated_multipath_frozen_frame",
                         xqc_test_negotiated_multipath_frozen_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)

@@ -489,6 +489,140 @@ hq_qpack_error_codes(void)
     return rc;
 }
 
+/*
+ * RFC 9204 Section 2.1.2: a decoder that encounters more blocked streams
+ * than its SETTINGS_QPACK_BLOCKED_STREAMS allows treats this as a
+ * connection error of type QPACK_DECOMPRESSION_FAILED. The server
+ * advertises HQ_LIMIT_BLOCKED. On one request stream after another, the
+ * client writes the raw bytes of a HEADERS frame that refers to a dynamic
+ * table entry it never inserts: the server blocks the first
+ * HQ_LIMIT_BLOCKED streams, the last of them with its FIN, and closes the
+ * connection on the next one, also sent with its FIN. Once both
+ * connections are closed, every request that the server created must have
+ * been closed. The h3 connection destroys a blocked stream that waits with
+ * its FIN read from its list of blocked streams; a stream refused over the
+ * limit is not in that list, and must be destroyed with its transport
+ * stream.
+ */
+#define HQ_LIMIT_BLOCKED    2
+
+static int hq_limit_created;
+static int hq_limit_closed;
+
+static int
+hq_limit_req_create(xqc_h3_request_t *request, void *data)
+{
+    hq_limit_created++;
+    return hq_req_create(request, data);
+}
+
+static int
+hq_limit_req_close(xqc_h3_request_t *request, void *data)
+{
+    hq_limit_closed++;
+    return XQC_OK;
+}
+
+static int
+hq_blocked_limit(void)
+{
+    /* HEADERS: Required Insert Count 1, Base 1, dynamic index 0 */
+    static const unsigned char blocked[] = { 0x01, 0x03, 0x02, 0x00, 0x80 };
+    hq_endpoint_t client, server;
+    xqc_complex_case_engine_t *engines[] = {&client.base, &server.base};
+    xqc_conn_ssl_config_t ssl = {0};
+    xqc_h3_request_t *request;
+    unsigned char buf[sizeof(blocked)];
+    xqc_usec_t dl;
+    uint8_t fin;
+    int rc = 1, app, i;
+
+    memset(&client, 0, sizeof(client));
+    memset(&server, 0, sizeof(server));
+    client.base.socket.fd = server.base.socket.fd = -1;
+    hq_limit_created = 0;
+    hq_limit_closed = 0;
+    HQ_CHECK(hq_engine_init(&server, XQC_ENGINE_SERVER) == 0);
+    HQ_CHECK(hq_engine_init(&client, XQC_ENGINE_CLIENT) == 0);
+    xqc_h3_engine_set_qpack_blocked_streams(server.base.engine,
+                                            HQ_LIMIT_BLOCKED);
+
+    const xqc_cid_t *cid = xqc_h3_connect(client.base.engine,
+        &client.base.engine->default_conn_settings, NULL, 0, "localhost", 0,
+        &ssl, (struct sockaddr *)&server.base.local, server.base.locallen,
+        &client);
+    HQ_CHECK(cid != NULL);
+
+    /* the client received the limit in the server's SETTINGS */
+    dl = HQ_WAIT_DEADLINE;
+    while ((client.h3 == NULL || server.h3 == NULL
+            || client.h3->peer_h3_conn_settings.qpack_blocked_streams
+               != HQ_LIMIT_BLOCKED)
+           && xqc_complex_case_now_us() < dl)
+    {
+        xqc_complex_case_pump(engines, 2, 10);
+    }
+    HQ_CHECK(client.h3 != NULL && server.h3 != NULL);
+    HQ_CHECK(client.h3->peer_h3_conn_settings.qpack_blocked_streams
+             == HQ_LIMIT_BLOCKED);
+
+    /* count the requests that the server creates, and those it closes */
+    server.h3->h3_request_callbacks.h3_request_create_notify =
+        hq_limit_req_create;
+    server.h3->h3_request_callbacks.h3_request_close_notify =
+        hq_limit_req_close;
+
+    for (i = 0; i <= HQ_LIMIT_BLOCKED; i++) {
+        fin = i >= HQ_LIMIT_BLOCKED - 1;
+        request = xqc_h3_request_create(client.base.engine, cid, NULL,
+                                        &client);
+        HQ_CHECK(request != NULL);
+        memcpy(buf, blocked, sizeof(blocked));
+        HQ_CHECK(xqc_stream_send(request->h3_stream->stream, buf,
+                                 sizeof(buf), fin) == (ssize_t) sizeof(buf));
+
+        /* the server blocks the stream, or closes the connection */
+        dl = HQ_WAIT_DEADLINE;
+        while (server.h3 != NULL && hq_conn_err(&server) == 0
+               && server.h3->block_stream_count < (uint64_t) i + 1
+               && xqc_complex_case_now_us() < dl)
+        {
+            xqc_complex_case_pump(engines, 2, 10);
+        }
+        HQ_CHECK(hq_limit_created == i + 1);
+        if (i < HQ_LIMIT_BLOCKED) {
+            HQ_CHECK(hq_conn_err(&server) == 0);
+            HQ_CHECK(server.h3->block_stream_count == (uint64_t) i + 1);
+        }
+    }
+
+    /* the server's connection is closing, or already closed */
+    app = hq_conn_err_app(&server);
+    dl = HQ_WAIT_DEADLINE;
+    while ((!client.conn_closed || !server.conn_closed)
+           && xqc_complex_case_now_us() < dl)
+    {
+        xqc_complex_case_pump(engines, 2, 10);
+    }
+    printf("h3 qpack blocked limit: server 0x%llx (%s), client 0x%llx, "
+           "server requests created %d, closed %d\n",
+           (unsigned long long) hq_conn_err(&server),
+           app ? "application" : "transport or none",
+           (unsigned long long) hq_conn_err(&client), hq_limit_created,
+           hq_limit_closed);
+    HQ_CHECK(hq_conn_err(&server) == QPACK_DECOMPRESSION_FAILED && app);
+    HQ_CHECK(hq_conn_err(&client) == QPACK_DECOMPRESSION_FAILED);
+    HQ_CHECK(client.conn_closed && server.conn_closed);
+    HQ_CHECK(hq_limit_created == HQ_LIMIT_BLOCKED + 1);
+    HQ_CHECK(hq_limit_closed == hq_limit_created);
+    rc = 0;
+
+fail:
+    xqc_complex_case_engine_release(&client.base);
+    xqc_complex_case_engine_release(&server.base);
+    return rc;
+}
+
 static int
 hq_blocked_reject_after_close(void)
 {
@@ -687,6 +821,9 @@ main(int argc, char **argv)
     setbuf(stdout, NULL);
     if (argc == 2 && !strcmp(argv[1], "error-codes")) {
         rc = hq_qpack_error_codes();
+
+    } else if (argc == 2 && !strcmp(argv[1], "blocked-limit")) {
+        rc = hq_blocked_limit();
 
     } else if (argc == 2 && !strcmp(argv[1], "blocked-reject-after-close")) {
         rc = hq_blocked_reject_after_close();

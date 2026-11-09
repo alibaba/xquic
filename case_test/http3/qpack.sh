@@ -17,6 +17,15 @@ case_qpack_error_codes()
 case_test_case "qpack_error_codes" --id native \
     --run case_qpack_error_codes
 
+case_qpack_blocked_limit()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_h3_qpack"
+    "${binary}" blocked-limit
+}
+
+case_test_case "qpack_blocked_limit" --id native \
+    --run case_qpack_blocked_limit
+
 case_qpack_blocked_reject_after_close()
 {
     local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_h3_qpack"

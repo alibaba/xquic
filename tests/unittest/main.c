@@ -858,6 +858,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_send_ctl_granularity_defers_before_boundary",
                         xqc_test_send_ctl_granularity_defers_before_boundary)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_cross_path_rtt_cubic",
+                        xqc_test_send_ctl_cross_path_rtt_cubic)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_cross_path_rtt_bbr",
+                        xqc_test_send_ctl_cross_path_rtt_bbr)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_same_path_rtt_preferred",
+                        xqc_test_send_ctl_same_path_rtt_preferred)
         /* issue #739: persistent-congestion RTT reset (RFC 9002 §5.2) */
         || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_resets_rtt",
                         xqc_test_send_ctl_persistent_congestion_resets_rtt)

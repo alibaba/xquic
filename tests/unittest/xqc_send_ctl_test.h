@@ -45,6 +45,9 @@ void xqc_test_send_ctl_update_rtt_rejects_below_min_rtt(void);
  */
 void xqc_test_send_ctl_granularity_marks_at_boundary(void);
 void xqc_test_send_ctl_granularity_defers_before_boundary(void);
+void xqc_test_send_ctl_cross_path_rtt_cubic(void);
+void xqc_test_send_ctl_cross_path_rtt_bbr(void);
+void xqc_test_send_ctl_same_path_rtt_preferred(void);
 
 /*
  * Regression tests for issue #739 (RFC 9002 5.2):

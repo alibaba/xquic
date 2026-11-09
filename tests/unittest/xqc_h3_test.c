@@ -1976,6 +1976,64 @@ xqc_test_h3_settings_validation_log_errors(void)
 
 
 /*
+ * The write notification of an h3 stream fails when its transport stream
+ * is gone, and the error line prints the negative int it returns as such.
+ */
+void
+xqc_test_h3_stream_send_buf_error_log(void)
+{
+    int                             ret;
+    xqc_log_t                      *h3s_log;
+    xqc_stream_t                   *stream;
+    xqc_engine_t                   *engine;
+    const xqc_cid_t                *cid;
+    xqc_h3_request_t               *h3r;
+    xqc_h3_stream_t                *h3s;
+    xqc_conn_settings_t             settings;
+    xqc_conn_ssl_config_t           conn_ssl;
+    xqc_h3_test_validation_log_t    capture;
+    xqc_log_callbacks_t             callbacks = {
+        .xqc_log_write_err = xqc_h3_test_validation_log,
+    };
+    xqc_log_t                       log = {
+        .log_level = XQC_LOG_ERROR,
+        .log_callbacks = &callbacks,
+        .user_data = &capture,
+    };
+
+    engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl, 0, sizeof(conn_ssl));
+    cid = xqc_h3_connect(engine, &settings, NULL, 0, "", 0, &conn_ssl,
+                         NULL, 0, NULL);
+    CU_ASSERT_FATAL(cid != NULL);
+    h3r = xqc_h3_request_create(engine, cid, NULL, NULL);
+    CU_ASSERT_FATAL(h3r != NULL);
+    h3s = h3r->h3_stream;
+
+    memset(&capture, 0, sizeof(capture));
+    h3s_log = h3s->log;
+    h3s->log = &log;
+    stream = h3s->stream;
+    h3s->stream = NULL;
+
+    ret = h3_stream_callbacks.stream_write_notify(stream, h3s);
+
+    h3s->stream = stream;
+    h3s->log = h3s_log;
+    CU_ASSERT(ret == -XQC_ESTATE);
+#ifndef XQC_DISABLE_LOG
+    CU_ASSERT(capture.calls == 2);
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.message, "|send buf error|-612|"));
+#endif
+
+    xqc_engine_destroy(engine);
+}
+
+
+/*
  * Fill the stack below the caller with non-zero bytes, so that a formatter
  * called next finds them, not a zero left there by chance, if it reads its
  * buffer past what it wrote.

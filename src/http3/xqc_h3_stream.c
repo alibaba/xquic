@@ -1219,6 +1219,27 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
         }
     }
 
+    /*
+     * RFC 9114 Section 9: frames of unknown types are ignored, and peers
+     * send reserved types (Section 7.2.8) to exercise that. When such a
+     * frame is the last one before the FIN, no HEADERS or DATA frame carried
+     * the FIN, so deliver it here once the stream ends between two frames:
+     * with the body still to be read, or else as an empty FIN.
+     */
+    if (fin_flag && !h3s->h3r->fin_flag
+        && pctx->state == XQC_H3_FRM_STATE_TYPE && pctx->pctx.left == 0)
+    {
+        if (!xqc_list_empty(&h3s->h3r->body_buf)) {
+            h3s->h3r->fin_flag = 1;
+
+        } else {
+            ret = xqc_h3_request_on_recv_empty_fin(h3s->h3r);
+            if (ret != XQC_OK) {
+                return ret;
+            }
+        }
+    }
+
     return processed;
 }
 

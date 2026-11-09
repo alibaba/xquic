@@ -3457,6 +3457,148 @@ xqc_test_h3_server_reserved_request_frame_accepted()
 }
 
 
+typedef struct {
+    size_t          header_calls;
+    size_t          body_calls;
+    size_t          empty_fin_calls;
+    uint8_t         header_fin;
+    uint8_t         body_fin;
+    ssize_t         nread;
+    unsigned char   body[4];
+} xqc_h3_reserved_fin_test_ctx_t;
+
+
+/* read as an application does, in the notification itself */
+static int
+xqc_h3_reserved_fin_read_notify(xqc_h3_request_t *h3r,
+    xqc_request_notify_flag_t flag, void *user_data)
+{
+    xqc_h3_reserved_fin_test_ctx_t *ctx = user_data;
+
+    if (flag & XQC_REQ_NOTIFY_READ_HEADER) {
+        ctx->header_calls++;
+        CU_ASSERT_PTR_NOT_NULL(xqc_h3_request_recv_headers(h3r,
+                                                           &ctx->header_fin));
+    }
+
+    if (flag & XQC_REQ_NOTIFY_READ_BODY) {
+        ctx->body_calls++;
+        ctx->nread = xqc_h3_request_recv_body(h3r, ctx->body,
+                                              sizeof(ctx->body),
+                                              &ctx->body_fin);
+    }
+
+    if (flag & XQC_REQ_NOTIFY_READ_EMPTY_FIN) {
+        ctx->empty_fin_calls++;
+    }
+
+    return XQC_OK;
+}
+
+
+static xqc_h3_stream_t *
+xqc_h3_reserved_fin_setup(xqc_connection_t **conn, xqc_h3_conn_t **h3c,
+    xqc_h3_reserved_fin_test_ctx_t *ctx)
+{
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(conn, h3c);
+    if (h3s == NULL) {
+        return NULL;
+    }
+
+    xqc_memset(ctx, 0, sizeof(*ctx));
+    h3s->h3r->user_data = ctx;
+    (*h3c)->h3_request_callbacks.h3_request_read_notify =
+        xqc_h3_reserved_fin_read_notify;
+    return h3s;
+}
+
+
+/*
+ * RFC 9114 Sections 7.2.8 and 9: a reserved frame type is ignored, so a
+ * request whose last frame before the FIN is one still ends at the FIN.
+ */
+void
+xqc_test_h3_reserved_frame_before_fin()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_reserved_fin_test_ctx_t ctx;
+    const size_t hlen = sizeof(xqc_h3_msgerr_valid_headers);
+    const unsigned char reserved[] = {
+        0x21, 0x06, 'g', 'r', 'e', 'a', 's', 'e'
+    };
+    const unsigned char data[] = {XQC_H3_FRM_DATA, 0x01, 0x2a};
+    const unsigned char empty_reserved[] = {0x21, 0x00};
+    unsigned char buf[sizeof(xqc_h3_msgerr_valid_headers) + 16];
+    size_t len;
+
+    /* HEADERS, a reserved frame with a payload and the FIN in one read */
+    xqc_h3_stream_t *h3s = xqc_h3_reserved_fin_setup(&conn, &h3c, &ctx);
+    CU_ASSERT_FATAL(h3s != NULL);
+    xqc_memcpy(buf, xqc_h3_msgerr_valid_headers, hlen);
+    xqc_memcpy(buf + hlen, reserved, sizeof(reserved));
+    len = hlen + sizeof(reserved);
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, buf, len, XQC_TRUE),
+                    len);
+    CU_ASSERT_EQUAL(ctx.header_calls, 1);
+    CU_ASSERT_EQUAL(ctx.header_fin, XQC_FALSE);
+    CU_ASSERT_EQUAL(ctx.empty_fin_calls, 1);
+    CU_ASSERT_EQUAL(h3s->h3r->fin_flag, XQC_TRUE);
+    CU_ASSERT(h3s->h3r->h3r_end_time > 0);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+
+    /* the reserved frame and the FIN in a later read than the HEADERS */
+    h3s = xqc_h3_reserved_fin_setup(&conn, &h3c, &ctx);
+    CU_ASSERT_FATAL(h3s != NULL);
+    xqc_memcpy(buf, xqc_h3_msgerr_valid_headers, hlen);
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, buf, hlen, XQC_FALSE),
+                    hlen);
+    CU_ASSERT_EQUAL(ctx.header_calls, 1);
+    CU_ASSERT_EQUAL(ctx.empty_fin_calls, 0);
+    xqc_memcpy(buf, reserved, sizeof(reserved));
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, buf,
+                    sizeof(reserved), XQC_TRUE), sizeof(reserved));
+    CU_ASSERT_EQUAL(ctx.header_calls, 1);
+    CU_ASSERT_EQUAL(ctx.empty_fin_calls, 1);
+    CU_ASSERT_EQUAL(h3s->h3r->fin_flag, XQC_TRUE);
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+
+    /* a body still to be read carries the FIN, not an empty FIN */
+    h3s = xqc_h3_reserved_fin_setup(&conn, &h3c, &ctx);
+    CU_ASSERT_FATAL(h3s != NULL);
+    xqc_memcpy(buf, xqc_h3_msgerr_valid_headers, hlen);
+    xqc_memcpy(buf + hlen, data, sizeof(data));
+    xqc_memcpy(buf + hlen + sizeof(data), empty_reserved,
+               sizeof(empty_reserved));
+    len = hlen + sizeof(data) + sizeof(empty_reserved);
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, buf, len, XQC_TRUE),
+                    len);
+    CU_ASSERT_EQUAL(ctx.empty_fin_calls, 0);
+    CU_ASSERT_EQUAL(h3s->h3r->fin_flag, XQC_TRUE);
+    CU_ASSERT_EQUAL(xqc_h3_request_on_recv_body(h3s->h3r), XQC_OK);
+    CU_ASSERT_EQUAL(ctx.body_calls, 1);
+    CU_ASSERT_EQUAL(ctx.nread, 1);
+    CU_ASSERT_EQUAL(ctx.body[0], 0x2a);
+    CU_ASSERT_EQUAL(ctx.body_fin, XQC_TRUE);
+    CU_ASSERT_EQUAL(ctx.empty_fin_calls, 0);
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+
+    /* a FIN inside the reserved frame does not end the request */
+    h3s = xqc_h3_reserved_fin_setup(&conn, &h3c, &ctx);
+    CU_ASSERT_FATAL(h3s != NULL);
+    xqc_memcpy(buf, xqc_h3_msgerr_valid_headers, hlen);
+    xqc_memcpy(buf + hlen, reserved, 5);
+    len = hlen + 5;
+    CU_ASSERT_EQUAL(xqc_h3_stream_process_request(h3s, buf, len, XQC_TRUE),
+                    len);
+    CU_ASSERT_EQUAL(ctx.header_calls, 1);
+    CU_ASSERT_EQUAL(ctx.empty_fin_calls, 0);
+    CU_ASSERT_EQUAL(h3s->h3r->fin_flag, XQC_FALSE);
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
 void
 xqc_test_h3_server_push_promise_rejected()
 {

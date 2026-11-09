@@ -863,6 +863,34 @@ fi
 
 }
 
+case_http3_core_h3_reserved_frame_before_fin()
+{
+case_test_stop_server
+
+
+## RFC 9114 Sections 7.2.8 and 9: the FIN after an ignored frame ends a request
+
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+sleep 1
+echo -e "HTTP/3 request ending with a reserved frame gets its response ...\c"
+${CLIENT_BIN} -l d -t 2 -G -E -x 1036 > stdlog
+sent=`grep "\\[h3-request-frame-test\\]|type:0x21|len:6|fin:1|ret:0|" stdlog`
+ignored=`grep -a "|ignore unknown frame|frame type:21|" slog`
+server_fin=`grep -a "|recv_fin|" slog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$sent" ] && [ -n "$ignored" ] && [ -n "$server_fin" ] \
+    && [ -n "$result" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "h3_reserved_frame_before_fin" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "h3_reserved_frame_before_fin" "fail"
+fi
+}
+
 case_http3_core_h3_h2_reserved_request_frame_rejected()
 {
 case_test_stop_server
@@ -1504,6 +1532,8 @@ case_test_case "h3_engine_set_settings_api_h3_ext_more" --id native --mode self-
 case_test_case "h3_reserved_uni_stream_survives" --id native --mode self-reporting --run case_http3_core_h3_reserved_uni_stream_survives
 case_test_case "h3_client_push_stream_creation_error" --id native --mode self-reporting --run case_http3_core_h3_client_push_stream_creation_error
 case_test_case "h3_reserved_request_frame_accepted" --id native --mode self-reporting --run case_http3_core_h3_reserved_request_frame_accepted
+case_test_case "h3_reserved_frame_before_fin" --id 1036 \
+    --mode self-reporting --run case_http3_core_h3_reserved_frame_before_fin
 case_test_case "h3_h2_reserved_request_frame_rejected" --id 1015 --mode self-reporting --run case_http3_core_h3_h2_reserved_request_frame_rejected
 case_test_case "h3_data_before_headers_rejected" --id 1021 \
     --mode self-reporting --run case_http3_core_h3_data_before_headers_rejected

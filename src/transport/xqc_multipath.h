@@ -236,6 +236,9 @@ xqc_bool_t xqc_is_same_addr_as_any_path(xqc_connection_t *conn, const struct soc
 
 xqc_int_t xqc_generate_path_challenge_data(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
+/* the paths that can still be opened while the open ones stay open */
+uint32_t xqc_conn_openable_path_count(xqc_connection_t *conn);
+
 xqc_int_t xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn);
 
 /* check mp support */

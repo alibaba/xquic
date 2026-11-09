@@ -1019,6 +1019,114 @@ xqc_test_mp_path_create_result(void)
     xqc_engine_destroy(conn->engine);
 }
 
+/* number of queued packets with a PATH_CHALLENGE on path_id */
+static int
+xqc_test_mp_queued_challenges(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_list_head_t *queues[] = {
+        &conn->conn_send_queue->sndq_send_packets_high_pri,
+        &conn->conn_send_queue->sndq_send_packets,
+    };
+    xqc_list_head_t *pos;
+    xqc_packet_out_t *po;
+    int n = 0;
+
+    for (size_t i = 0; i < sizeof(queues) / sizeof(queues[0]); i++) {
+        xqc_list_for_each(pos, queues[i]) {
+            po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+            if ((po->po_frame_types & XQC_FRAME_BIT_PATH_CHALLENGE)
+                && po->po_path_id == path_id)
+            {
+                n++;
+            }
+        }
+    }
+
+    return n;
+}
+
+/*
+ * RFC 10069 Section 3.1: "The server might receive packets for a yet unused
+ * path ID that do not contain a PATH_CHALLENGE frame. Such packets are valid
+ * if they can be properly decrypted given a valid connection ID." The first
+ * such packet sets the path up, as a PATH_CHALLENGE would: the server
+ * acknowledges it and challenges the client on the path.
+ */
+void
+xqc_test_mp_server_path_without_challenge(void)
+{
+    unsigned char ping[] = {0x01};
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_cid_t scid;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_test_mp_add_scid(conn, 1, &scid);
+    xqc_test_mp_add_dcid(conn, 1);
+
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, ping, sizeof(ping), &scid),
+                    XQC_OK);
+    path = xqc_conn_find_path_by_path_id(conn, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_VALIDATING);
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_challenges(conn, 1), 1);
+    CU_ASSERT_NOT_EQUAL(conn->conn_flag & XQC_CONN_FLAG_RECV_NEW_PATH, 0);
+    CU_ASSERT_EQUAL(conn->validating_path_id, 1);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A packet without PATH_CHALLENGE sets no path up when it needs no
+ * acknowledgment, when the client's connection IDs for its path ID have not
+ * arrived, or when the path ID was abandoned (RFC 10069 Section 3.4); the
+ * connection stays open.
+ */
+void
+xqc_test_mp_server_path_without_challenge_refused(void)
+{
+    unsigned char padding[] = {0x00, 0x00, 0x00};
+    unsigned char ping[] = {0x01};
+    unsigned char abandon[] = {XQC_TEST_FT_MP_ABANDON, 0x03, 0x00, 0x00};
+    xqc_connection_t *conn;
+    xqc_cid_t scid;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    /* not ack-eliciting */
+    xqc_test_mp_add_scid(conn, 1, &scid);
+    xqc_test_mp_add_dcid(conn, 1);
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, padding, sizeof(padding), &scid),
+                    XQC_OK);
+    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn, 1));
+
+    /* no connection ID of the client for path ID 2 */
+    xqc_test_mp_add_scid(conn, 2, &scid);
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, ping, sizeof(ping), &scid),
+                    XQC_OK);
+    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn, 2));
+
+    /* path ID 3 abandoned by the client before any of its packets came */
+    xqc_test_mp_add_scid(conn, 3, &scid);
+    xqc_test_mp_add_dcid(conn, 3);
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, abandon, sizeof(abandon),
+                                     &conn->scid_set.user_scid), XQC_OK);
+    CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, ping, sizeof(ping), &scid),
+                    XQC_OK);
+    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn, 3));
+
+    CU_ASSERT_EQUAL(conn->create_path_count, 1);
+    CU_ASSERT_EQUAL(xqc_test_mp_queued_challenges(conn, 1)
+                    + xqc_test_mp_queued_challenges(conn, 2)
+                    + xqc_test_mp_queued_challenges(conn, 3), 0);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
 void
 xqc_test_large_ack_frame()
 {

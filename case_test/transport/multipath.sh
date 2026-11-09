@@ -332,6 +332,65 @@ else
 fi
 }
 
+# 1354: the client uses path 1 without a PATH_CHALLENGE. The server sets the
+# path up from the packets that come on it, acknowledges them and validates
+# the path with its own PATH_CHALLENGE.
+case_transport_multipath_MP_path_without_challenge_set_up()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    rm -f test_session tp_localhost xqc_token
+    clear_log
+    echo -e "MP path used without PATH_CHALLENGE set up ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 2 -M -i lo -i lo -E \
+        -x 1354 > stdlog
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    skipped=`grep "\[mp-no-challenge\]|path_id:1|removed:1|" stdlog`
+    unknown=`grep -a "|ignore unknown path|" slog`
+    svr_valid=`grep -a "|path validated|path_id:1|" slog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$skipped" ] \
+        && [ -z "$unknown" ] && [ -n "$svr_valid" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MP_path_without_challenge_set_up" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MP_path_without_challenge_set_up" "fail"
+    fi
+}
+
+# 1355: the client abandons path 1, used without a PATH_CHALLENGE, before
+# the server has seen any of its packets, then the first of them arrives:
+# the server does not set up a path for the abandoned path ID.
+case_transport_multipath_MP_late_packet_abandoned_path_ignored()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    rm -f test_session tp_localhost xqc_token
+    clear_log
+    echo -e "MP late packet of an abandoned path ID ignored ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 1024000 -l d -t 2 -M -i lo -i lo -E \
+        -x 1355 > stdlog
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    sent=`grep "\[mp-late-datagram\]|sent|" stdlog`
+    abandoned=`grep -a "|no context for abandoned path|path_id:1|" slog`
+    refused=`grep -a "|new path not set up|path:1|reason:path ID abandon" slog`
+    svr_path=`grep -a "|xqc_path_create|path:1|" slog`
+    errlog=`grep_err_log`
+    if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$sent" ] \
+        && [ -n "$abandoned" ] && [ -n "$refused" ] && [ -z "$svr_path" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MP_late_packet_abandoned_path_ignored" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MP_late_packet_abandoned_path_ignored" "fail"
+    fi
+}
+
 case_transport_multipath_MPNS_multipath_30_percent_loss_close_new_path()
 {
 grep_err_log
@@ -904,6 +963,8 @@ case_test_case "MPNS_multipath_30_percent_loss_close_new_path" --id native --mod
 case_test_case "MPNS_send_data_with_multipath_10" --id native --mode self-reporting --run case_transport_multipath_MPNS_send_data_with_multipath_10
 case_test_case "MPNS_reinject_unack_packets_by_capacity" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_capacity
 case_test_case "MPNS_reinject_unack_packets_by_deadline" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_deadline
+case_test_case "MP_path_without_challenge_set_up" --id 1354 --mode self-reporting --run case_transport_multipath_MP_path_without_challenge_set_up
+case_test_case "MP_late_packet_abandoned_path_ignored" --id 1355 --mode self-reporting --run case_transport_multipath_MP_late_packet_abandoned_path_ignored
 case_test_case "NAT_rebinding_path_0" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_0 --timeout 60
 case_test_case "NAT_rebinding_path_1" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_1
 case_test_case "Multipath_Compensate_and_Accelerate" --id native --mode self-reporting --run case_transport_multipath_Multipath_Compensate_and_Accelerate

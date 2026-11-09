@@ -27,6 +27,10 @@ void xqc_test_mp_server_path_alloc_failure_delays(void);
 
 void xqc_test_mp_path_create_result(void);
 
+void xqc_test_mp_server_path_without_challenge(void);
+
+void xqc_test_mp_server_path_without_challenge_refused(void);
+
 void xqc_test_parse_padding_frame();
 
 #ifdef XQC_PING_ATTACK_PROTECT

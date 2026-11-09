@@ -21,6 +21,7 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame_parser.h"
@@ -1409,6 +1410,154 @@ xqc_client_get_path_index_by_id(uint64_t path_id)
 }
 
 
+/*
+ * Cases 1354 and 1355: the client uses path 1 without a PATH_CHALLENGE, as
+ * RFC 10069 Section 3.1 allows on a 4-tuple validated before: it drops the
+ * PATH_CHALLENGE that opening the path queued, and takes the path as
+ * validated.
+ *   1354: the server sets up the path from the packets that come on it,
+ *         acknowledges them and validates the path with its own challenge;
+ *   1355: the client holds back its first datagram on path 1, abandons the
+ *         path, and sends that datagram 300 ms later: a path ID that was
+ *         abandoned is not set up.
+ */
+#define XQC_TEST_CASE_MP_PATH_WITHOUT_CHALLENGE         1354
+#define XQC_TEST_CASE_MP_LATE_PACKET_ABANDONED_PATH     1355
+
+#define XQC_TEST_MP_LATE_PATH_ID        1
+#define XQC_TEST_MP_LATE_ABANDON_US     10000
+#define XQC_TEST_MP_LATE_SEND_US        300000
+
+typedef struct {
+    user_conn_t            *user_conn;
+    struct event           *ev;
+    int                     fd;
+    struct sockaddr_in6     peer_addr;
+    socklen_t               peer_addrlen;
+    size_t                  len;
+    unsigned char           buf[XQC_PACKET_TMP_BUF_LEN];
+    xqc_bool_t              held;
+    xqc_bool_t              abandoned;
+} xqc_test_mp_late_datagram_t;
+
+static xqc_test_mp_late_datagram_t xqc_test_mp_late_datagram;
+
+static xqc_bool_t
+xqc_client_mp_no_challenge_case(void)
+{
+    return g_test_case == XQC_TEST_CASE_MP_PATH_WITHOUT_CHALLENGE
+           || g_test_case == XQC_TEST_CASE_MP_LATE_PACKET_ABANDONED_PATH;
+}
+
+static void
+xqc_client_mp_late_datagram_callback(int fd, short what, void *arg)
+{
+    xqc_test_mp_late_datagram_t *t = (xqc_test_mp_late_datagram_t *)arg;
+    struct timeval tv = {
+        .tv_sec = XQC_TEST_MP_LATE_SEND_US / 1000000,
+        .tv_usec = XQC_TEST_MP_LATE_SEND_US % 1000000,
+    };
+    xqc_int_t ret;
+    ssize_t sent;
+
+    if (!t->abandoned) {
+        ret = xqc_conn_close_path(ctx.engine, &t->user_conn->cid,
+                                  XQC_TEST_MP_LATE_PATH_ID);
+        printf("[mp-late-datagram]|abandoned|ret:%d|\n", ret);
+        t->abandoned = XQC_TRUE;
+        event_add(t->ev, &tv);
+        return;
+    }
+
+    sent = sendto(t->fd, t->buf, t->len, 0, (struct sockaddr *)&t->peer_addr,
+                  t->peer_addrlen);
+    printf("[mp-late-datagram]|sent|size:%zd|\n", sent);
+}
+
+static void
+xqc_client_mp_skip_path_challenge(user_conn_t *user_conn, uint64_t path_id)
+{
+    xqc_connection_t *conn;
+    xqc_send_queue_t *send_queue;
+    xqc_path_ctx_t *path;
+    xqc_packet_out_t *po;
+    xqc_list_head_t *pos, *next;
+    int removed = 0;
+
+    conn = xqc_engine_conns_hash_find(ctx.engine, &user_conn->cid, 's');
+    path = conn ? xqc_conn_find_path_by_path_id(conn, path_id) : NULL;
+    if (path == NULL) {
+        return;
+    }
+
+    send_queue = conn->conn_send_queue;
+    xqc_list_for_each_safe(pos, next,
+                           &send_queue->sndq_send_packets_high_pri)
+    {
+        po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if ((po->po_frame_types & XQC_FRAME_BIT_PATH_CHALLENGE)
+            && po->po_path_id == path_id)
+        {
+            xqc_send_queue_remove_send(&po->po_list);
+            xqc_send_queue_insert_free(po, &send_queue->sndq_free_packets,
+                                       send_queue);
+            removed++;
+        }
+    }
+
+    xqc_path_validate(path);
+    printf("[mp-no-challenge]|path_id:%"PRIu64"|removed:%d|state:%d|\n",
+           path_id, removed, (int) path->path_state);
+
+    if (g_test_case == XQC_TEST_CASE_MP_LATE_PACKET_ABANDONED_PATH) {
+        xqc_test_mp_late_datagram.user_conn = user_conn;
+        xqc_test_mp_late_datagram.ev = event_new(eb, -1, 0,
+            xqc_client_mp_late_datagram_callback, &xqc_test_mp_late_datagram);
+    }
+}
+
+/*
+ * case 1355: keep the first datagram of path 1 for later; the server gets
+ * none of the others
+ */
+static xqc_bool_t
+xqc_client_mp_hold_datagram(uint64_t path_id, const unsigned char *buf,
+    size_t size, int fd, const struct sockaddr *peer_addr,
+    socklen_t peer_addrlen)
+{
+    xqc_test_mp_late_datagram_t *t = &xqc_test_mp_late_datagram;
+    struct timeval tv = {
+        .tv_sec = 0,
+        .tv_usec = XQC_TEST_MP_LATE_ABANDON_US,
+    };
+
+    if (g_test_case != XQC_TEST_CASE_MP_LATE_PACKET_ABANDONED_PATH
+        || path_id != XQC_TEST_MP_LATE_PATH_ID || t->ev == NULL)
+    {
+        return XQC_FALSE;
+    }
+
+    if (t->held || size > sizeof(t->buf)
+        || peer_addrlen > sizeof(t->peer_addr))
+    {
+        return XQC_TRUE;
+    }
+
+    memcpy(t->buf, buf, size);
+    t->len = size;
+    t->fd = fd;
+    memcpy(&t->peer_addr, peer_addr, peer_addrlen);
+    t->peer_addrlen = peer_addrlen;
+    t->held = XQC_TRUE;
+    printf("[mp-late-datagram]|held|path_id:%"PRIu64"|size:%zu|\n",
+           path_id, size);
+
+    /* abandon the path out of this callback */
+    event_add(t->ev, &tv);
+    return XQC_TRUE;
+}
+
+
 int
 xqc_client_get_path_fd_by_id(user_conn_t *user_conn, uint64_t path_id)
 {
@@ -1512,6 +1661,13 @@ xqc_client_write_socket_ex(uint64_t path_id,
     /* get path fd */
     fd = xqc_client_get_path_fd_by_id(user_conn, path_id);
     path_idx = xqc_client_get_path_index_by_id(path_id);
+
+    /* case 1355 */
+    if (xqc_client_mp_hold_datagram(path_id, buf, size, fd, peer_addr,
+                                    peer_addrlen))
+    {
+        return size;
+    }
 
     /* COPY to run corruption test cases */
     unsigned char send_buf[XQC_PACKET_TMP_BUF_LEN];
@@ -5726,6 +5882,10 @@ xqc_client_ready_to_create_path(const xqc_cid_t *cid,
             g_client_path[i].path_id = path_id;
             g_client_path[i].is_in_used = 1;
 
+            if (xqc_client_mp_no_challenge_case()) {
+                xqc_client_mp_skip_path_challenge(user_conn, path_id);
+            }
+
             if (g_test_case == 104) {
                 ret = xqc_conn_mark_path_standby(ctx.engine, &(user_conn->cid), 0);
                 if (ret < 0) {
@@ -7345,6 +7505,10 @@ skip_data:
 
     if (ctx.ev_delay) {
         event_free(ctx.ev_delay);
+    }
+
+    if (xqc_test_mp_late_datagram.ev) {
+        event_free(xqc_test_mp_late_datagram.ev);
     }
 
     if (xqc_test_mp_held_cids.ev) {

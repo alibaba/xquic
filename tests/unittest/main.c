@@ -590,6 +590,11 @@ main(int argc, char *argv[])
                         xqc_test_mp_server_path_alloc_failure_delays)
         || !CU_add_test(pSuite, "xqc_test_mp_path_create_result",
                         xqc_test_mp_path_create_result)
+        || !CU_add_test(pSuite, "xqc_test_mp_server_path_without_challenge",
+                        xqc_test_mp_server_path_without_challenge)
+        || !CU_add_test(pSuite,
+                        "xqc_test_mp_server_path_without_challenge_refused",
+                        xqc_test_mp_server_path_without_challenge_refused)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT
         || !CU_add_test(pSuite,

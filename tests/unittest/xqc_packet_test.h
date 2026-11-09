@@ -17,6 +17,8 @@ void xqc_test_coalesced_matching_dcid_processed(void);
 void xqc_test_coalesced_mismatching_dcid_ignored(void);
 void xqc_test_coalesced_initial_datagram_minimum(void);
 void xqc_test_coalesced_initial_datagram_too_small(void);
+void xqc_test_aal_server_cid_initial_keeps_limit(void);
+void xqc_test_aal_hsk_packet_lifts_limit(void);
 void xqc_test_parse_uint32_high_bytes(void);
 
 

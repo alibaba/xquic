@@ -586,6 +586,9 @@ main(int argc, char *argv[])
                         "xqc_test_mp_server_path_limit_keeps_connection",
                         xqc_test_mp_server_path_limit_keeps_connection)
         || !CU_add_test(pSuite,
+                        "xqc_test_mp_server_paths_beyond_count_after_close",
+                        xqc_test_mp_server_paths_beyond_count_after_close)
+        || !CU_add_test(pSuite,
                         "xqc_test_mp_server_path_alloc_failure_delays",
                         xqc_test_mp_server_path_alloc_failure_delays)
         || !CU_add_test(pSuite, "xqc_test_mp_path_create_result",

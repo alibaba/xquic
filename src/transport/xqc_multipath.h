@@ -37,6 +37,18 @@ typedef enum {
     XQC_PATH_CLOSE_PROACTIVE  = 1,
 } xqc_path_close_mode_t;
 
+/*
+ * The paths of a connection that are open at the same time, the initial path
+ * included: a path counts until it is abandoned (CLOSING) or closed. Path IDs
+ * are never reused (RFC 10069 Section 3.4), so the paths a connection creates
+ * over its life are bounded by the maximum path ID instead, which "limits the
+ * number of paths an endpoint is willing to maintain" (Section 7.1).
+ */
+#define XQC_MAX_OPEN_PATHS ((uint32_t) XQC_MAX_PATHS_COUNT)
+
+_Static_assert(XQC_MAX_PATHS_COUNT >= 2,
+               "a connection can open a path besides the initial one");
+
 /* why no path can be created on a path ID (xqc_conn_check_new_path) */
 typedef enum {
     XQC_PATH_CREATE_OK = 0,
@@ -48,7 +60,7 @@ typedef enum {
     XQC_PATH_CREATE_NO_LOCAL_CID,
     /* no unused connection ID of the peer for the path ID yet */
     XQC_PATH_CREATE_NO_PEER_CID,
-    /* the connection created XQC_MAX_PATHS_COUNT paths */
+    /* XQC_MAX_OPEN_PATHS paths of the connection are open */
     XQC_PATH_CREATE_LIMIT_REACHED,
     /* an allocation or the initialization of the path failed */
     XQC_PATH_CREATE_NO_RESOURCE,

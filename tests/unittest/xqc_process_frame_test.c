@@ -536,10 +536,11 @@ xqc_test_peer_key_update_error_not_0rtt(void)
 
 /*
  * A multipath server facing a client that opens new paths. Path IDs 1 to
- * XQC_TEST_MP_SERVER_MAX_PATH_ID are allowed on both sides; the server has
- * issued one connection ID per path ID, the client none yet.
+ * XQC_TEST_MP_SERVER_MAX_PATH_ID are allowed on both sides, more than
+ * XQC_MAX_PATHS_COUNT; the server has issued one connection ID per path ID,
+ * the client none yet.
  */
-#define XQC_TEST_MP_SERVER_MAX_PATH_ID  4
+#define XQC_TEST_MP_SERVER_MAX_PATH_ID  10
 #define XQC_TEST_MP_CID_LEN         8
 #define XQC_TEST_MP_SCID_BYTE       0x50
 #define XQC_TEST_MP_DCID_BYTE       0x60
@@ -561,6 +562,8 @@ static xqc_int_t xqc_test_mp_feed(xqc_connection_t *conn,
     unsigned char *frames, size_t len, const xqc_cid_t *pkt_dcid);
 static int xqc_test_mp_queued_response(xqc_connection_t *conn,
     const unsigned char *data);
+static void xqc_test_mp_open_paths(xqc_connection_t *conn, uint64_t first,
+    uint64_t last);
 
 
 static xqc_connection_t *
@@ -603,6 +606,7 @@ xqc_test_mp_add_scid(xqc_connection_t *conn, uint64_t path_id,
     xqc_cid_t *scid)
 {
     xqc_test_mp_cid(scid, XQC_TEST_MP_SCID_BYTE, path_id);
+    CU_ASSERT_EQUAL(xqc_cid_set_add_path(&conn->scid_set, path_id), XQC_OK);
     CU_ASSERT_EQUAL(xqc_cid_set_insert_cid(&conn->scid_set, scid,
                                            XQC_CID_UNUSED,
                                            XQC_CONN_ACTIVE_CID_LIMIT,
@@ -616,6 +620,7 @@ xqc_test_mp_add_dcid(xqc_connection_t *conn, uint64_t path_id)
     xqc_cid_t dcid;
 
     xqc_test_mp_cid(&dcid, XQC_TEST_MP_DCID_BYTE, path_id);
+    CU_ASSERT_EQUAL(xqc_cid_set_add_path(&conn->dcid_set, path_id), XQC_OK);
     CU_ASSERT_EQUAL(xqc_cid_set_insert_cid(&conn->dcid_set, &dcid,
                                            XQC_CID_UNUSED,
                                            XQC_CONN_ACTIVE_CID_LIMIT,
@@ -675,6 +680,22 @@ xqc_test_mp_queued_response(xqc_connection_t *conn, const unsigned char *data)
     }
 
     return n;
+}
+
+/* paths first to last, with the connection IDs of both sides */
+static void
+xqc_test_mp_open_paths(xqc_connection_t *conn, uint64_t first, uint64_t last)
+{
+    xqc_cid_t scid;
+
+    for (uint64_t path_id = first; path_id <= last; path_id++) {
+        xqc_test_mp_add_scid(conn, path_id, &scid);
+        xqc_test_mp_add_dcid(conn, path_id);
+        CU_ASSERT_PTR_NOT_NULL(
+            xqc_conn_create_path_inner(conn, &scid, NULL,
+                                       XQC_APP_PATH_STATUS_AVAILABLE,
+                                       path_id));
+    }
 }
 
 /*
@@ -848,8 +869,8 @@ xqc_test_mp_server_ignores_abandoned_path_id(void)
 
 /*
  * RFC 10069 Sections 3.1 and 4.2.1: a path the server lacks the resources
- * for is not set up, and the connection stays open. Here the connection has
- * created XQC_MAX_PATHS_COUNT paths.
+ * for is not set up, and the connection stays open. Here XQC_MAX_PATHS_COUNT
+ * paths are open: path 0 and paths 1 to 7.
  */
 void
 xqc_test_mp_server_path_limit_keeps_connection(void)
@@ -860,14 +881,64 @@ xqc_test_mp_server_path_limit_keeps_connection(void)
 
     conn = xqc_test_mp_server_conn();
     CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
-    xqc_test_mp_add_scid(conn, 4, &scid);
-    xqc_test_mp_add_dcid(conn, 4);
-    conn->create_path_count = XQC_MAX_PATHS_COUNT;
+    xqc_test_mp_open_paths(conn, 1, XQC_MAX_PATHS_COUNT - 1);
+    xqc_test_mp_add_scid(conn, XQC_MAX_PATHS_COUNT, &scid);
+    xqc_test_mp_add_dcid(conn, XQC_MAX_PATHS_COUNT);
 
     CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames), &scid),
                     XQC_OK);
-    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn, 4));
+    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn,
+                                                     XQC_MAX_PATHS_COUNT));
     CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, frames + 1), 0);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * The limit is on the paths open at the same time: a path that is abandoned
+ * leaves room for the next one, so path IDs up to the maximum path ID are
+ * all used even though they are more than XQC_MAX_PATHS_COUNT (RFC 10069
+ * Sections 2.1 and 7.1). Paths 1 to 7 come and go, then paths 8, 9 and 10
+ * are set up: 11 paths over the connection.
+ */
+void
+xqc_test_mp_server_paths_beyond_count_after_close(void)
+{
+    unsigned char frames[] = {XQC_TEST_PATH_CHALLENGE(6, 6, 6, 6, 6, 6, 6, 6)};
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+    xqc_cid_t scid;
+
+    conn = xqc_test_mp_server_conn();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_test_mp_open_paths(conn, 1, XQC_MAX_PATHS_COUNT - 1);
+    for (uint64_t path_id = 1; path_id < XQC_MAX_PATHS_COUNT; path_id++) {
+        path = xqc_conn_find_path_by_path_id(conn, path_id);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+        CU_ASSERT_EQUAL(xqc_path_immediate_close(path), XQC_OK);
+        if (path_id % 2) {
+            CU_ASSERT_EQUAL(xqc_path_closed(path), XQC_OK);
+        }
+    }
+
+    for (uint64_t path_id = XQC_MAX_PATHS_COUNT;
+         path_id <= XQC_TEST_MP_SERVER_MAX_PATH_ID; path_id++)
+    {
+        xqc_test_mp_add_scid(conn, path_id, &scid);
+        xqc_test_mp_add_dcid(conn, path_id);
+        frames[1] = (unsigned char) path_id;
+        CU_ASSERT_EQUAL(xqc_test_mp_feed(conn, frames, sizeof(frames),
+                                         &scid), XQC_OK);
+        path = xqc_conn_find_path_by_path_id(conn, path_id);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+        CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_VALIDATING);
+        CU_ASSERT_EQUAL(xqc_test_mp_queued_response(conn, frames + 1), 1);
+    }
+
+    CU_ASSERT_EQUAL(conn->create_path_count,
+                    XQC_TEST_MP_SERVER_MAX_PATH_ID + 1);
+    CU_ASSERT(conn->create_path_count > XQC_MAX_PATHS_COUNT);
     CU_ASSERT_EQUAL(conn->conn_err, 0);
 
     xqc_engine_destroy(conn->engine);
@@ -988,10 +1059,13 @@ xqc_test_mp_path_create_result(void)
     xqc_test_mp_add_dcid(conn, 2);
     xqc_test_mp_path_refused(conn, NULL, 2, XQC_PATH_CREATE_NO_LOCAL_CID);
 
-    /* too many paths */
-    conn->create_path_count = XQC_MAX_PATHS_COUNT;
+    /* too many paths open: path 0 and paths 4 to 10 */
+    xqc_test_mp_open_paths(conn, 4, 4 + XQC_MAX_PATHS_COUNT - 2);
     xqc_test_mp_path_refused(conn, &scid, 1, XQC_PATH_CREATE_LIMIT_REACHED);
-    conn->create_path_count = 1;
+
+    /* path 4 is abandoned: it no longer counts */
+    CU_ASSERT_EQUAL(xqc_path_immediate_close(
+                        xqc_conn_find_path_by_path_id(conn, 4)), XQC_OK);
 
     /* created: the path ID is in use from now on */
     CU_ASSERT_EQUAL(xqc_conn_check_new_path(conn, &scid, NULL, 1),

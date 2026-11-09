@@ -5,6 +5,40 @@ source "${ROOT_DIR}/case_test/lib/common.sh"
 
 case_test_group "demo.hq"
 
+# 1706: demo_client downloads over IPv6. Datagrams arrive in bursts, and
+# each one must reach the engine as sent: none may be dropped as unparsable,
+# and the file must arrive whole.
+demo_client_ipv6_download()
+{
+    local build_dir
+    local port="${CASE_TEST_PORT:-8443}"
+    local status=0
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    rm -f test_session tp_localhost xqc_token session_ticket
+    rm -rf ipv6-downloads
+    mkdir -p ipv6-downloads
+    clear_log
+    head -c 4194304 /dev/urandom > ipv6-resource
+
+    case_test_start_server \
+        "${CASE_TEST_SERVER_BIN:-${build_dir}/demo/demo_server}" \
+        -p "${port}" -D "${CASE_TEST_WORK_DIR}" -l d -L slog \
+        > /dev/null 2>&1
+
+    "${build_dir}/demo/demo_client" \
+        -a ::1 -p "${port}" -U "https://localhost:${port}/ipv6-resource" \
+        -D ipv6-downloads -l d -L clog -K 10 -o > stdlog 2>&1 || status=1
+    case_test_stop_server
+    case_test_snapshot_case_logs demo_client_ipv6_download
+
+    grep -q 'addr: ::1:' stdlog || status=1
+    cmp -s ipv6-resource ipv6-downloads/ipv6-resource || status=1
+    ! grep -a -q 'fail to parse cid' clog || status=1
+    rm -rf ipv6-resource ipv6-downloads
+    [[ "${status}" -eq 0 ]]
+}
+
 hq_request_transfer()
 {
     local id="$1"
@@ -63,6 +97,8 @@ hq_request_delayed_fin()
 }
 
 case_test_case "hq_request_fin" --id 1702 --run hq_request_fin --timeout 12
+case_test_case "demo_client_ipv6_download" --id 1706 \
+    --run demo_client_ipv6_download --timeout 20
 case_test_case "hq_request_delayed_fin" --id 1703 \
     --run hq_request_delayed_fin --timeout 12
 

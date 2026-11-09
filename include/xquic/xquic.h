@@ -261,7 +261,8 @@ typedef void (*xqc_save_string_pt)(const char *data, size_t data_len, void *conn
  *
  * session ticket is essential for 0-RTT connections. with the same storage requirements and
  * strategy as token. when initiating a new connection, session ticket is part of
- * xqc_conn_ssl_config_t parameter
+ * xqc_conn_ssl_config_t parameter. a ticket that does not allow early data
+ * is delivered too: it resumes the session, without 0-RTT.
  */
 typedef xqc_save_string_pt xqc_save_session_pt;
 

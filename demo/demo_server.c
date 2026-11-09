@@ -1024,6 +1024,14 @@ xqc_demo_svr_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
             user_stream->recv_body_len, fin);
     }
 
+    /*
+     * the request ends with a FIN that came alone, after the headers and
+     * body were read: answer it then
+     */
+    if ((flag & XQC_REQ_NOTIFY_READ_EMPTY_FIN) && user_stream->header_recvd) {
+        fin = 1;
+    }
+
     if (fin) {
         xqc_demo_svr_handle_h3_request(user_stream, headers);
     }

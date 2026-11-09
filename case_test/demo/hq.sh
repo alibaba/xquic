@@ -4,6 +4,38 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "${ROOT_DIR}/case_test/lib/common.sh"
 
 case_test_group "demo.hq"
+case_test_case "h3_request_delayed_fin" --id native \
+    --run h3_request_delayed_fin --timeout 12
+
+h3_request_delayed_fin()
+{
+    local build_dir
+    local status=0
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    rm -f test_session tp_localhost xqc_token
+    clear_log
+
+    head -c 1000 /dev/zero | tr '\0' x > h3-resource
+    case_test_start_server \
+        "${CASE_TEST_SERVER_BIN:-${build_dir}/demo/demo_server}" \
+        -p "${CASE_TEST_PORT:-8443}" -D "${CASE_TEST_WORK_DIR}" \
+        -l d -L slog > /dev/null 2>&1
+
+    # Case 37 sends the request HEADERS, then the FIN alone a second later.
+    ${CLIENT_BIN} -G -n 1 -t 3 -l d -x 37 \
+        -u https://test.xquic.com/h3-resource > stdlog 2>&1 || status=1
+
+    kill -0 "${CASE_TEST_SERVER_PID}" 2> /dev/null || status=1
+    case_test_stop_server
+    case_test_snapshot_case_logs h3_request_delayed_fin
+
+    [[ "${status}" -eq 0 ]] || return 1
+    grep -q 'alpn:h3' stdlog || return 1
+    grep -q 'conn_err:0,' stdlog || return 1
+    grep -q 'recv_body_size:1000,.*recv_fin:1,' stdlog || return 1
+    grep -q 'recv_fin|' slog || return 1
+}
 
 hq_request_transfer()
 {

@@ -500,6 +500,11 @@ typedef struct xqc_demo_cli_user_conn_s {
     xqc_msec_t              idle_timeout;
 
     int                     recreate_path_seq;
+
+    /* a request was refused, at the peer's stream limit */
+    int                     req_blocked;
+    /* xqc_demo_cli_send_requests() is running */
+    int                     req_sending;
 } xqc_demo_cli_user_conn_t;
 
 static void
@@ -1438,6 +1443,8 @@ void
 xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn, int fd)
 {
     DEBUG;
+    xqc_demo_cli_ctx_t *ctx = user_conn->ctx;
+    int task_idx = user_conn->task->task_idx;
     ssize_t recv_size = 0;
     ssize_t recv_sum = 0;
     struct sockaddr addr;
@@ -1497,7 +1504,20 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn, int fd)
     } while (recv_size > 0);
 
 finish_recv:
-    xqc_engine_finish_recv(user_conn->ctx->engine);
+    xqc_engine_finish_recv(ctx->engine);
+
+    /*
+     * A MAX_STREAMS frame raises the peer's stream limit, but xquic does not
+     * notify it, and a close comes 3 PTOs after its stream ends, if at all:
+     * retry the refused requests when packets arrive. The task stops running
+     * before its connection's user_conn is freed.
+     */
+    if (ctx->task_ctx.schedule.schedule_info[task_idx].status
+        == TASK_STATUS_RUNNING
+        && user_conn->req_blocked)
+    {
+        xqc_demo_cli_continue_send_reqs(user_conn);
+    }
 }
 
 
@@ -2651,14 +2671,22 @@ xqc_demo_cli_send_requests(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_cli
     xqc_demo_cli_request_t *reqs, int req_cnt)
 {
     DEBUG;
+    /*
+     * sending a request outside the engine runs the connection, whose
+     * callbacks may ask for more requests; this loop already sends them
+     */
+    if (user_conn->req_sending) {
+        return;
+    }
+
+    user_conn->req_sending = 1;
+    user_conn->req_blocked = 0;
     for (int i = 0; i < req_cnt; i++) {
         /* user handle of stream */
         xqc_demo_cli_user_stream_t *user_stream = calloc(1, sizeof(xqc_demo_cli_user_stream_t));
         user_stream->user_conn = user_conn;
         // printf("   .. user_stream: %p\n", user_stream);
 
-        /* open save file */
-        xqc_demo_cli_open_file(user_stream, args->env_cfg.out_file_dir, reqs[i].path);
         strncpy(user_stream->file_name, reqs[i].path, RESOURCE_LEN - 1);
 
         /* send request */
@@ -2667,7 +2695,8 @@ xqc_demo_cli_send_requests(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_cli
                 printf("send hq req blocked, will try later, total sent_cnt: %d\n", 
                     user_conn->ctx->task_ctx.schedule.schedule_info[user_conn->task->task_idx].req_create_cnt);
                 free(user_stream);
-                return;
+                user_conn->req_blocked = 1;
+                break;
             }
 
         } else if (args->quic_cfg.alpn_type == ALPN_H3) {
@@ -2675,12 +2704,22 @@ xqc_demo_cli_send_requests(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_cli
                 printf("send h3 req blocked, will try later, total sent_cnt: %d\n", 
                     user_conn->ctx->task_ctx.schedule.schedule_info[user_conn->task->task_idx].req_create_cnt);
                 free(user_stream);
-                return;
+                user_conn->req_blocked = 1;
+                break;
             }
         }
 
+        /*
+         * open the save file once the request exists: a refused request is
+         * sent again later, and must not leave an open file behind
+         */
+        xqc_demo_cli_open_file(user_stream, args->env_cfg.out_file_dir,
+                               reqs[i].path);
+
         xqc_demo_cli_on_task_req_sent(user_conn->ctx, user_conn->task->task_idx);
     }
+
+    user_conn->req_sending = 0;
 }
 
 void

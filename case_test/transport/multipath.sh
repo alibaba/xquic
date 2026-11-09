@@ -235,8 +235,8 @@ case_transport_multipath_MP_ninth_path_after_closed_ones()
 }
 
 # 1351: with a path validated on each of eight interfaces, XQC_MAX_PATHS_COUNT
-# paths are open: the client cannot open another one, and the connection
-# goes on.
+# paths are open: the server issues no connection ID for a ninth path ID, the
+# client cannot open another path, and the connection goes on.
 case_transport_multipath_MP_open_path_limit()
 {
     case_test_stop_server
@@ -249,11 +249,11 @@ case_transport_multipath_MP_open_path_limit()
     case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 3 -M -E -x 1351 \
         -i lo -i lo -i lo -i lo -i lo -i lo -i lo -i lo > stdlog
     result=`grep ">>>>>>>> pass:1" stdlog`
-    refused=`grep "\[mp-open-path-limit\]|open_paths:8|ret:-652|" stdlog`
-    reason=`grep -a "|xqc_path_create error|8|reason:too many paths|" clog`
+    refused=`grep "\[mp-open-path-limit\]|open_paths:8|ret:-651|" stdlog`
+    cid8=`grep -a "|xqc_write_mp_new_conn_id_frame_to_packet|path_id:8|" slog`
     errlog=`grep_err_log`
     if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$refused" ] \
-        && [ -n "$reason" ]; then
+        && [ -z "$cid8" ]; then
         echo ">>>>>>>> pass:1"
         case_print_result "MP_open_path_limit" "pass"
     else
@@ -592,6 +592,60 @@ else
     echo ">>>>>>>> pass:0"
     case_print_result "Multipath_Compensate_and_Accelerate" "fail"
 fi
+}
+
+# RFC 10069 Section 3.2.1: the server issues connection IDs for every unused
+# path ID, so the one for path ID 2 goes out before the client opens path 1.
+case_transport_multipath_MPNS_cids_for_every_unused_path_id()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    clear_log
+    echo -e "connection IDs for every unused path ID ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 2 -M -i lo -i lo -i lo -E > stdlog
+    issued=`grep -a -n "|xqc_write_mp_new_conn_id_frame_to_packet|path_id:2|" slog \
+        | head -1 | cut -d: -f1`
+    opened=`grep -a -n "|====>|.*|path:1|.*PATH_CHALLENGE" slog | head -1 | cut -d: -f1`
+    path2=`grep "create a new path. index: 2, path_id: 2" stdlog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$issued" ] && [ -n "$opened" ] && [ "$issued" -lt "$opened" ] \
+        && [ -n "$path2" ] && [ -n "$result" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MPNS_cids_for_every_unused_path_id" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MPNS_cids_for_every_unused_path_id" "fail"
+    fi
+}
+
+# Connection IDs go only to path IDs that can get a path while the open ones
+# stay open: once the client has opened paths 1 to 7, XQC_MAX_PATHS_COUNT
+# paths with path 0, neither endpoint issues one for path ID 8.
+case_transport_multipath_MPNS_no_cids_beyond_open_path_limit()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    clear_log
+    echo -e "no connection IDs beyond the open path limit ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 3 -M -i lo -i lo -i lo -i lo \
+        -i lo -i lo -i lo -i lo -E > stdlog
+    path7=`grep "create a new path. index: 7, path_id: 7" stdlog`
+    path8=`grep -a "|xqc_write_mp_new_conn_id_frame_to_packet|path_id:8|" clog slog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$path7" ] && [ -z "$path8" ] && [ -n "$result" ] \
+        && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MPNS_no_cids_beyond_open_path_limit" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MPNS_no_cids_beyond_open_path_limit" "fail"
+    fi
 }
 
 case_transport_multipath_No_reinjection_for_normal_datagrams()
@@ -965,6 +1019,8 @@ case_test_case "MPNS_reinject_unack_packets_by_deadline" --id native --mode self
 case_test_case "NAT_rebinding_path_0" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_0 --timeout 60
 case_test_case "NAT_rebinding_path_1" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_1
 case_test_case "Multipath_Compensate_and_Accelerate" --id native --mode self-reporting --run case_transport_multipath_Multipath_Compensate_and_Accelerate
+case_test_case "MPNS_cids_for_every_unused_path_id" --id native --mode self-reporting --run case_transport_multipath_MPNS_cids_for_every_unused_path_id
+case_test_case "MPNS_no_cids_beyond_open_path_limit" --id native --mode self-reporting --run case_transport_multipath_MPNS_no_cids_beyond_open_path_limit
 case_test_case "No_reinjection_for_normal_datagrams" --id native --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_datagrams
 case_test_case "No_reinjection_for_normal_h3_ext_datagrams" --id native --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_h3_ext_datagrams
 case_test_case "MP_reinject_datagrams" --id native --mode self-reporting --run case_transport_multipath_MP_reinject_datagrams

@@ -134,6 +134,14 @@ xqc_conn_open_path_count(xqc_connection_t *conn)
     return count;
 }
 
+uint32_t
+xqc_conn_openable_path_count(xqc_connection_t *conn)
+{
+    uint32_t open = xqc_conn_open_path_count(conn);
+
+    return open < XQC_MAX_OPEN_PATHS ? XQC_MAX_OPEN_PATHS - open : 0;
+}
+
 /*
  * The checks that need no allocation: a path that cannot be created costs
  * nothing. NULL scid or dcid means an unused connection ID of the path ID
@@ -167,7 +175,7 @@ xqc_conn_check_new_path(xqc_connection_t *conn, xqc_cid_t *scid,
         return XQC_PATH_CREATE_NO_PEER_CID;
     }
 
-    if (xqc_conn_open_path_count(conn) >= XQC_MAX_OPEN_PATHS) {
+    if (xqc_conn_openable_path_count(conn) == 0) {
         return XQC_PATH_CREATE_LIMIT_REACHED;
     }
 

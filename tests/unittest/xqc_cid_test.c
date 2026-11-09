@@ -1454,6 +1454,133 @@ xqc_test_mp_abandon_above_curr_max_path_id()
 
 
 /*
+ * A confirmed multipath connection with both limits at max_path_id, which
+ * issues connection IDs as the engine's main loop does.
+ */
+static xqc_connection_t *
+xqc_test_mp_confirmed_conn(uint64_t max_path_id)
+{
+    xqc_connection_t *conn;
+
+    conn = xqc_test_mp_cid_conn(max_path_id, max_path_id);
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    conn->remote_settings.active_connection_id_limit =
+        XQC_CONN_ACTIVE_CID_LIMIT;
+    return conn;
+}
+
+
+/*
+ * RFC 10069 Section 3.2.1: each unused path ID within both limits gets a
+ * connection ID of ours, so that the peer can open several paths at once.
+ * Path 0, in use, and the next unused path ID get two; the further ones get
+ * one each. Another pass issues nothing more.
+ */
+void
+xqc_test_mp_new_cid_every_unused_path_id()
+{
+    uint64_t            path_id;
+    xqc_connection_t   *conn;
+
+    conn = xqc_test_mp_confirmed_conn(4);
+    CU_ASSERT(xqc_conn_try_add_new_conn_id(conn, 0) == XQC_OK);
+
+    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->scid_set, 0) == 2);
+    CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->scid_set, 1) == 2);
+    for (path_id = 2; path_id <= 4; path_id++) {
+        CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->scid_set, path_id) == 1);
+    }
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 5) == NULL);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_MP_NEW_CONNECTION_ID) == 7);
+
+    CU_ASSERT(xqc_conn_try_add_new_conn_id(conn, 0) == XQC_OK);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_MP_NEW_CONNECTION_ID) == 7);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Open a path on path_id, with an acknowledged connection ID of ours and one
+ * of the peer.
+ */
+static xqc_path_ctx_t *
+xqc_test_mp_cid_open_path(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_cid_set_inner_t *scid_set;
+
+    CU_ASSERT_FATAL(xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, path_id)
+                    == XQC_OK);
+    scid_set = xqc_get_path_cid_set(&conn->scid_set, path_id);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(scid_set);
+    xqc_cid_set_on_cid_acked(&conn->scid_set, path_id,
+                             scid_set->largest_scid_seq_num);
+    CU_ASSERT_FATAL(xqc_test_cid_recv_mp_new_cid(conn, path_id, 0, 0)
+                    == XQC_OK);
+    return xqc_conn_create_path_inner(conn, NULL, NULL,
+                                      XQC_APP_PATH_STATUS_AVAILABLE, path_id);
+}
+
+
+/*
+ * Connection IDs go to no more unused path IDs than the paths that can
+ * still be opened while the open ones stay open, lowest first. With path 0
+ * and paths 1 to 5 open, two more can open: path IDs 6 and 7 get some and
+ * path ID 8 none, and the paths in use keep their spares. With paths 1 to 7
+ * open, no unused path ID gets any. Once paths 1 to 5 are abandoned, they
+ * no longer count, and path IDs 6 to 8 get some.
+ */
+void
+xqc_test_mp_new_cid_openable_paths()
+{
+    static const struct {
+        uint64_t    open;           /* paths 1 to this one are opened */
+        uint64_t    abandoned;      /* then paths 1 to this one abandoned */
+        uint32_t    openable;       /* paths that can still be opened */
+        int64_t     unused[3];      /* expected for path IDs 6 to 8 */
+    } cases[] = {
+        {5, 0, 2, {2, 1, 0}},
+        {7, 0, 0, {2, 2, 0}},
+        {5, 5, 7, {2, 1, 1}},
+    };
+    size_t              i;
+    uint64_t            path_id;
+    xqc_path_ctx_t     *path;
+    xqc_connection_t   *conn;
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        conn = xqc_test_mp_confirmed_conn(8);
+        xqc_set_path_state(conn->conn_initial_path, XQC_PATH_STATE_ACTIVE);
+        for (path_id = 1; path_id <= cases[i].open; path_id++) {
+            path = xqc_test_mp_cid_open_path(conn, path_id);
+            CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+            if (path_id <= cases[i].abandoned) {
+                CU_ASSERT(xqc_path_immediate_close(path) == XQC_OK);
+            }
+        }
+        CU_ASSERT(xqc_conn_openable_path_count(conn) == cases[i].openable);
+
+        CU_ASSERT(xqc_conn_try_add_new_conn_id(conn, 0) == XQC_OK);
+        CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->scid_set, 0) == 2);
+        for (path_id = cases[i].abandoned + 1; path_id <= cases[i].open;
+             path_id++)
+        {
+            CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->scid_set, path_id)
+                      == 2);
+        }
+        for (path_id = 6; path_id <= 8; path_id++) {
+            CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->scid_set, path_id)
+                      == cases[i].unused[path_id - 6]);
+        }
+
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+/*
  * A PATH_ABANDON frame for a path ID above our limit is a connection error
  * (draft-ietf-quic-multipath-10 Section 7), and neither it nor a truncated
  * frame adds connection ID sets.

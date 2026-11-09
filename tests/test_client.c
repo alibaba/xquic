@@ -3048,7 +3048,8 @@ xqc_client_mp_hold_cids(user_conn_t *user_conn, xqc_connection_t *conn)
  * default init_max_path_id of 8, path IDs 0 to 8 are used, nine paths over
  * the connection, never more than two open at a time.
  * Case 1351: the client opens a path on each of eight interfaces, then
- * tries one more while the eight are open: XQC_MAX_PATHS_COUNT paths are.
+ * tries one more while the eight are open: XQC_MAX_PATHS_COUNT paths are, and
+ * the server issues no connection ID for a path ID beyond them.
  */
 #define XQC_TEST_CASE_MP_PATH_CHURN         1350
 #define XQC_TEST_CASE_MP_OPEN_PATH_LIMIT    1351
@@ -3126,10 +3127,8 @@ xqc_client_mp_open_path_limit(xqc_connection_t *conn, user_conn_t *user_conn)
         }
     }
 
-    /* every interface has its validated path, and a path ID is left */
-    if (open < g_multi_interface_cnt
-        || xqc_conn_get_available_path_id(conn, NULL) != XQC_OK)
-    {
+    /* every interface has its validated path */
+    if (open < g_multi_interface_cnt) {
         return XQC_FALSE;
     }
 

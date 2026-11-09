@@ -2099,8 +2099,9 @@ xqc_int_t xqc_stream_set_reliable_size(xqc_stream_t *stream,
 
 /**
  * Reset only the send direction, preserving its configured reliable prefix.
- * If the prefix exceeds bytes already accepted by XQUIC, returns
- * -XQC_EAGAIN without recording a reset or blocking later writes.
+ * If the prefix exceeds bytes already accepted by XQUIC, or the stream
+ * waits for the peer's stream limit, returns -XQC_EAGAIN without recording
+ * a reset or blocking later writes.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_stream_reset(xqc_stream_t *stream, uint64_t error_code);

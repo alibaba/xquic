@@ -112,6 +112,10 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_RESET_FINAL_SIZE_TOO_SMALL 723
 #define XQC_TEST_CASE_CLOSE_SEND_ONLY_STREAM 724
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
+#define XQC_TEST_CASE_STREAM_LIMIT_EARLY_STREAMS 733
+#define XQC_TEST_CASE_STREAM_LIMIT_CANCEL_HELD 734
+#define XQC_TEST_CASE_STREAM_LIMIT_CANCEL_EARLY 737
+#define XQC_TEST_CASE_STREAM_LIMIT_0RTT_REJECTED 738
 #define XQC_TEST_CASE_RELIABLE_RESET_PREFIX 739
 #define XQC_TEST_CASE_RELIABLE_RESET_INVALID_SIZE 740
 #define XQC_TEST_CASE_RELIABLE_RESET_CLOSE 741
@@ -384,6 +388,7 @@ uint64_t g_last_sock_op_time;
  * 715/716 for Retry invalid token and old Initial validation
  * 717 for RESET_STREAM on a peer-initiated unidirectional stream
  * 718/719 for MAX_STREAM_DATA stream direction validation
+ * 733/734/737/738 for requests created beyond the server's stream limit
  * 722/723 for RESET_STREAM final-size validation
  * 724-726 for stream close state and direction validation
  * 902/903 for AEAD confidentiality-limit validation
@@ -440,6 +445,9 @@ int g_debug_path = 0;
 char test_long_value[XQC_TEST_LONG_HEADER_LEN] = {'\0'};
 
 int hsk_completed = 0;
+
+/* case 734: the last request created before the handshake, to cancel */
+static xqc_h3_request_t *g_stream_limit_cancel_req;
 
 
 int g_periodically_request = 0;
@@ -3002,6 +3010,17 @@ xqc_client_write_test_datagram_frame(xqc_connection_t *conn,
     return ret;
 }
 
+/* cases 734/737: cancel a request that waits for the server's limit */
+static void
+xqc_client_stream_limit_cancel(xqc_h3_request_t *req)
+{
+    uint64_t stream_id = xqc_h3_stream_id(req);
+    xqc_int_t ret = xqc_h3_request_close(req);
+
+    printf("[stream-limit-test]|cancel|stream_id:%"PRIu64"|ret:%d|\n",
+           stream_id, ret);
+}
+
 void
 xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
 {
@@ -3047,6 +3066,29 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     printf("====>SCID:%s\n", xqc_scid_str(p_ctx->engine, &user_conn->cid));
 
     hsk_completed = 1;
+
+    /*
+     * 733, 734, 737 and 738: the requests were created before the
+     * handshake, against the client's own stream limit; 734 cancels the
+     * last one, which waits beyond the server's limit of one bidirectional
+     * stream.
+     */
+    if (g_test_case == XQC_TEST_CASE_STREAM_LIMIT_EARLY_STREAMS
+        || g_test_case == XQC_TEST_CASE_STREAM_LIMIT_CANCEL_HELD
+        || g_test_case == XQC_TEST_CASE_STREAM_LIMIT_CANCEL_EARLY
+        || g_test_case == XQC_TEST_CASE_STREAM_LIMIT_0RTT_REJECTED)
+    {
+        printf("[stream-limit-test]|early_requests:%d|\n", g_req_cnt);
+    }
+
+    if (g_test_case == XQC_TEST_CASE_STREAM_LIMIT_CANCEL_HELD
+        && g_stream_limit_cancel_req != NULL)
+    {
+        xqc_h3_request_t *req = g_stream_limit_cancel_req;
+
+        g_stream_limit_cancel_req = NULL;
+        xqc_client_stream_limit_cancel(req);
+    }
 
     if (g_test_case == XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT
         || g_test_case == XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT)
@@ -7137,7 +7179,17 @@ int main(int argc, char *argv[]) {
                         continue;
                     }
 
+                    if (g_test_case == XQC_TEST_CASE_STREAM_LIMIT_CANCEL_HELD) {
+                        g_stream_limit_cancel_req = user_stream->h3_request;
+                    }
+
                     xqc_client_request_send(user_stream->h3_request, user_stream);
+
+                    if (g_test_case == XQC_TEST_CASE_STREAM_LIMIT_CANCEL_EARLY
+                        && i == g_req_paral - 1)
+                    {
+                        xqc_client_stream_limit_cancel(user_stream->h3_request);
+                    }
 
                 } else {
                     user_stream->stream = xqc_stream_create(ctx.engine, cid, NULL, user_stream);

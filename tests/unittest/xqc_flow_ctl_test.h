@@ -11,5 +11,10 @@ void xqc_test_conn_flow_ctl_clamp(void);
 void xqc_test_flow_ctl_normal_no_clamp(void);
 void xqc_test_uni_stream_credit_exhausted(void);
 void xqc_test_uni_stream_credit_not_exhausted(void);
+void xqc_test_stream_limit_holds_early_streams(void);
+void xqc_test_stream_limit_boundaries(void);
+void xqc_test_stream_limit_defers_close(void);
+void xqc_test_stream_limit_holds_early_reset(void);
+void xqc_test_stream_limit_0rtt_replay(void);
 
 #endif /* _XQC_TEST_FLOW_CTL_H_INCLUDED_ */

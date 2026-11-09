@@ -174,13 +174,16 @@ xqc_conn_set_default_sched_params(xqc_conn_settings_t *src_settings, xqc_conn_se
 
 
 /*
- * The initial_max_path_id to advertise: 0 selects the default, and a value
- * above 2^32-1 is reduced to it (draft-ietf-quic-multipath-10 Section 2).
+ * The initial_max_path_id to advertise: 0 selects the default unless asked
+ * for, and a value above 2^32-1 is reduced to it (draft-ietf-quic-multipath-10
+ * Section 2).
  */
 static uint64_t
 xqc_conn_settings_init_max_path_id(const xqc_conn_settings_t *settings)
 {
-    if (settings->init_max_path_id == 0) {
+    if (settings->init_max_path_id == 0
+        && !settings->init_max_path_id_explicit)
+    {
         return XQC_DEFAULT_INIT_MAX_PATH_ID;
     }
 
@@ -285,6 +288,8 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
         engine->default_conn_settings.multipath_version = XQC_MULTIPATH_10;
     }
 
+    engine->default_conn_settings.init_max_path_id_explicit =
+        settings->init_max_path_id_explicit;
     engine->default_conn_settings.init_max_path_id =
         xqc_conn_settings_init_max_path_id(settings);
 

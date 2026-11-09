@@ -1396,8 +1396,9 @@ typedef struct xqc_conn_settings_s {
     uint64_t                    enable_multipath;
     xqc_multipath_version_t     multipath_version;
     /**
-     * initial_max_path_id transport parameter, 0 for the default (8). A
-     * value above 2^32-1 is reduced to 2^32-1.
+     * initial_max_path_id transport parameter, 0 for the default (8) unless
+     * init_max_path_id_explicit is set. A value above 2^32-1 is reduced to
+     * 2^32-1.
      */
     uint64_t                    init_max_path_id;
     uint64_t                    least_available_cid_count;
@@ -1595,6 +1596,13 @@ typedef struct xqc_conn_settings_s {
 
     /* draft-ietf-quic-reliable-stream-reset-09 Section 3; default off. */
     xqc_bool_t                  enable_reset_stream_at;
+
+    /**
+     * Advertise init_max_path_id as it is, 0 included: an initial_max_path_id
+     * of 0 enables multipath without allowing any path but the initial one
+     * yet (draft-ietf-quic-multipath-10 Section 2). Default off.
+     */
+    xqc_bool_t                  init_max_path_id_explicit;
 } xqc_conn_settings_t;
 
 

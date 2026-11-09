@@ -566,6 +566,8 @@ main(int argc, char *argv[])
                         xqc_test_mp_max_path_id_invalid)
         || !CU_add_test(pSuite, "xqc_test_mp_max_path_id_valid",
                         xqc_test_mp_max_path_id_valid)
+        || !CU_add_test(pSuite, "xqc_test_init_max_path_id_zero",
+                        xqc_test_init_max_path_id_zero)
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
                 || !CU_add_test(pSuite, "xqc_test_stream_frame_buffered_limit", xqc_test_stream_frame_buffered_limit)

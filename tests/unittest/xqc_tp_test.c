@@ -1114,3 +1114,86 @@ xqc_test_mp_max_path_id_valid(void)
     CU_ASSERT(conn->conn_err == 0);
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * draft-ietf-quic-multipath-10 Section 2: an initial_max_path_id of 0
+ * enables multipath without allowing any path but the initial one yet.
+ * init_max_path_id_explicit advertises the configured value as it is, 0
+ * included, while an init_max_path_id of 0 alone still selects the default.
+ */
+void
+xqc_test_init_max_path_id_zero(void)
+{
+    static const struct {
+        xqc_bool_t          explicit_value;
+        uint64_t            configured;
+        uint64_t            advertised;
+    } cases[] = {
+        { XQC_FALSE, 0,             XQC_DEFAULT_INIT_MAX_PATH_ID },
+        { XQC_TRUE,  0,             0 },
+        { XQC_TRUE,  3,             3 },
+        { XQC_TRUE,  UINT64_MAX,    XQC_PATH_ID_MAX_VALUE },
+    };
+    uint8_t                 tp[XQC_MAX_TRANSPORT_PARAM_BUF_LEN];
+    size_t                  i, len;
+    xqc_conn_settings_t     settings;
+    xqc_conn_ssl_config_t   ssl_config;
+    xqc_transport_params_t  params;
+    xqc_engine_t           *engine;
+    xqc_connection_t       *conn;
+    const xqc_cid_t        *cid;
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        memset(&settings, 0, sizeof(settings));
+        settings.proto_version = XQC_VERSION_V1;
+        settings.enable_multipath = 1;
+        settings.init_max_path_id = cases[i].configured;
+        settings.init_max_path_id_explicit = cases[i].explicit_value;
+        CU_ASSERT_EQUAL(xqc_test_conn_init_max_path_id(&settings),
+                        cases[i].advertised);
+
+        engine = test_create_engine_server();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+        xqc_server_set_conn_settings(engine, &settings);
+        CU_ASSERT_EQUAL(engine->default_conn_settings.init_max_path_id,
+                        cases[i].advertised);
+        xqc_engine_destroy(engine);
+    }
+
+    /* the peer receives 0, and so does the connection's own limit */
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    settings.enable_multipath = 1;
+    settings.init_max_path_id_explicit = XQC_TRUE;
+    engine = test_create_engine();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    memset(&ssl_config, 0, sizeof(ssl_config));
+    cid = xqc_connect(engine, &settings, NULL, 0, "", 0, &ssl_config, NULL, 0,
+                      "transport", NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cid);
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&params, 0, sizeof(params));
+    CU_ASSERT_EQUAL(xqc_conn_get_local_transport_params(conn, &params),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(xqc_encode_transport_params(&params,
+                                                XQC_TP_TYPE_CLIENT_HELLO,
+                                                tp, sizeof(tp), &len),
+                    XQC_OK);
+    memset(&params, 0, sizeof(params));
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                                                XQC_TP_TYPE_CLIENT_HELLO,
+                                                tp, len),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(params.enable_multipath, 1);
+    CU_ASSERT_EQUAL(params.init_max_path_id, 0);
+
+    conn->remote_settings.enable_multipath = 1;
+    conn->remote_settings.init_max_path_id = XQC_DEFAULT_INIT_MAX_PATH_ID;
+    CU_ASSERT_EQUAL(xqc_conn_enable_multipath(conn), XQC_CONN_MP_ENABLED);
+    CU_ASSERT_EQUAL(conn->local_max_path_id, 0);
+    CU_ASSERT_EQUAL(conn->curr_max_path_id, 0);
+    xqc_engine_destroy(engine);
+}

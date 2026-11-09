@@ -204,7 +204,9 @@ xqc_cid_encryption_four_pass(uint8_t *in, size_t in_len, uint8_t *out, size_t ou
     xqc_log_t *log = engine->log;
     xqc_int_t ret;
     if (in_len > XQC_MAX_CID_LEN - XQC_FIRST_OCTET) {
-        xqc_log(log, XQC_LOG_ERROR, "|lb-cid encryption error|lb-cid four-pass encryption parameter in_lengtn illegal(expect > 0 && <= 19)|");
+        xqc_log(log, XQC_LOG_ERROR, "|lb-cid encryption error|lb-cid "
+                "four-pass encryption parameter in_len illegal"
+                "(expect > 0 && <= 19)|");
         return -XQC_EPARAM;
     }
 

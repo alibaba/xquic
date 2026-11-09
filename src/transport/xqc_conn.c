@@ -5530,7 +5530,8 @@ xqc_conn_ptmud_probing(xqc_connection_t *conn)
         }
         ret = xqc_write_pmtud_ping_to_packet(path, probing_size, pkt_type);
         if (ret < 0) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|genrate PMTUD ping packet error|ret:%d|", ret);
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|generate PMTUD ping packet error|ret:%d|", ret);
         }
     }
 

@@ -2134,7 +2134,7 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
         path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
         if (path == NULL) {
             xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|ingnore path response|pkt_dcid:%s|path_id:%ui|",
+                    "|ignore path response|pkt_dcid:%s|path_id:%ui|",
                     xqc_scid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid),
                     packet_in->pi_path_id);
             return XQC_OK;

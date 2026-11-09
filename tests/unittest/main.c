@@ -363,6 +363,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_rebinding_response_state_transition", xqc_test_rebinding_response_state_transition)
         || !CU_add_test(pSuite, "xqc_test_rebinding_clear", xqc_test_rebinding_clear)
         || !CU_add_test(pSuite, "xqc_test_rebinding_ignores_unauthenticated_packet", xqc_test_rebinding_ignores_unauthenticated_packet)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_moved_to_other_path_addr",
+                        xqc_test_rebinding_moved_to_other_path_addr)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_not_moved",
+                        xqc_test_rebinding_not_moved)
         || !CU_add_test(pSuite, "xqc_test_rebinding_path_challenge_requires_confirmed", xqc_test_rebinding_path_challenge_requires_confirmed)
         || !CU_add_test(pSuite, "xqc_test_rebinding_timeout_retry_limit", xqc_test_rebinding_timeout_retry_limit)
         || !CU_add_test(pSuite, "xqc_test_rebinding_response_mismatch_preserves_state", xqc_test_rebinding_response_mismatch_preserves_state)

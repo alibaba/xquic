@@ -361,6 +361,57 @@ xqc_path_rebinding_find_by_challenge(xqc_connection_t *conn,
 }
 
 
+/*
+ * RFC 10069 Section 3.1.2: a packet with a connection ID of an active path
+ * whose 4-tuple does not match the path's is a migration of that path (RFC
+ * 9000 Section 9.3), also when its address is that of another path, as
+ * when paths end up on the same 4-tuple (RFC 10069 Section 5.2). The peer
+ * address of the datagram is compared with the peer address of the path
+ * that the connection ID belongs to, which is the address that the
+ * rebinding validates and switches.
+ */
+xqc_bool_t
+xqc_path_rebinding_find_moved(xqc_connection_t *conn, xqc_cid_t *scid,
+    const struct sockaddr *peer_addr, xqc_path_ctx_t **path_out)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_path_ctx_t *path;
+
+    if (!conn->enable_multipath) {
+        /* every connection ID is the initial path's */
+        path = conn->conn_initial_path;
+
+    } else {
+        /*
+         * The common case, for each datagram: it comes from the address of
+         * the path whose connection ID it carries. This walk over the paths
+         * spares the search of the connection ID among those of all paths.
+         */
+        xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+            path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+            if (xqc_is_same_addr(peer_addr, (struct sockaddr *)path->peer_addr)
+                && (xqc_cid_is_equal(scid, &path->path_scid) == XQC_OK
+                    || xqc_cid_in_cid_set(&conn->scid_set, scid,
+                                          path->path_id) != NULL))
+            {
+                return XQC_FALSE;
+            }
+        }
+
+        path = xqc_conn_find_path_by_scid(conn, scid);
+    }
+
+    if (path == NULL || path->path_state != XQC_PATH_STATE_ACTIVE
+        || xqc_is_same_addr(peer_addr, (struct sockaddr *)path->peer_addr))
+    {
+        return XQC_FALSE;
+    }
+
+    *path_out = path;
+    return XQC_TRUE;
+}
+
+
 xqc_int_t
 xqc_path_rebinding_on_authenticated_datagram(xqc_connection_t *conn,
     xqc_path_ctx_t *path, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
@@ -1290,25 +1341,6 @@ xqc_is_same_addr(const struct sockaddr *sa1, const struct sockaddr *sa2)
 
     return XQC_TRUE;
 }
-
-xqc_bool_t
-xqc_is_same_addr_as_any_path(xqc_connection_t *conn, const struct sockaddr *peer_addr)
-{
-    xqc_list_head_t *pos, *next;
-    xqc_path_ctx_t  *path = NULL;
-
-    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
-
-        /* check if ip address is same with path created */
-        if (xqc_is_same_addr(peer_addr, (struct sockaddr *)path->peer_addr)) {
-            return XQC_TRUE;
-        }
-    }
-
-    return XQC_FALSE;
-}
-
 
 xqc_int_t
 xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,

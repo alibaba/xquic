@@ -18,6 +18,8 @@ void xqc_test_rebinding_min_padding_flag();
 void xqc_test_rebinding_response_state_transition();
 void xqc_test_rebinding_clear();
 void xqc_test_rebinding_ignores_unauthenticated_packet();
+void xqc_test_rebinding_moved_to_other_path_addr();
+void xqc_test_rebinding_not_moved();
 void xqc_test_rebinding_path_challenge_requires_confirmed();
 void xqc_test_rebinding_timeout_retry_limit();
 void xqc_test_rebinding_response_mismatch_preserves_state();

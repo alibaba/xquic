@@ -930,6 +930,12 @@ main(int argc, char *argv[])
                         xqc_test_0rtt_persistent_congestion_default_max_ack_delay)
         || !CU_add_test(pSuite, "xqc_test_pto_space_no_max_ack_delay_before_confirm",
                         xqc_test_pto_space_no_max_ack_delay_before_confirm)
+        || !CU_add_test(pSuite,
+                        "xqc_test_pto_anti_deadlock_with_0rtt_in_flight",
+                        xqc_test_pto_anti_deadlock_with_0rtt_in_flight)
+        || !CU_add_test(pSuite,
+                        "xqc_test_pto_no_anti_deadlock_after_validation",
+                        xqc_test_pto_no_anti_deadlock_after_validation)
         || !CU_add_test(pSuite, "xqc_test_0rtt_ack_delay_exponent_default_in_parse",
                         xqc_test_0rtt_ack_delay_exponent_default_in_parse)
         || !CU_add_test(pSuite, "xqc_test_0rtt_remote_mad_timeline",

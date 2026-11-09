@@ -270,6 +270,7 @@ xqc_write_packet_header(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
     }
 
     ssize_t ret = XQC_OK;
+    uint32_t token_len;
 
     xqc_pkt_type_t pkt_type = packet_out->po_pkt.pkt_type;
 
@@ -280,10 +281,19 @@ xqc_write_packet_header(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
                                           conn->key_update_ctx.cur_out_key_phase);
 
     } else if (pkt_type != XQC_PTYPE_SHORT_HEADER && packet_out->po_used_size == 0) {
+        /*
+         * RFC 9000 Section 17.2.2: Initial packets sent by the server MUST
+         * set the Token Length field to 0. On a server, conn_token holds
+         * the token of the client's Initial, kept for address validation
+         * (Section 8.1), and is never sent back.
+         */
+        token_len = conn->conn_type == XQC_CONN_TYPE_SERVER
+                    ? 0 : conn->conn_token_len;
+
         ret = xqc_gen_long_packet_header(packet_out,
                                          conn->dcid_set.current_dcid.cid_buf, conn->dcid_set.current_dcid.cid_len,
                                          conn->scid_set.user_scid.cid_buf, conn->scid_set.user_scid.cid_len,
-                                         conn->conn_token, conn->conn_token_len,
+                                         conn->conn_token, token_len,
                                          conn->version, XQC_PKTNO_BITS);
     }
 

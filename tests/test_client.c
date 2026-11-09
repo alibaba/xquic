@@ -108,6 +108,9 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_DATAGRAM_INITIAL_REJECTED 1202
 #define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
 #define XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID 716
+#define XQC_TEST_CASE_SERVER_INITIAL_TOKEN_RETRY 729
+#define XQC_TEST_CASE_SERVER_INITIAL_TOKEN_INVALID 730
+#define XQC_TEST_CASE_SERVER_INITIAL_TOKEN_DISCARD 731
 #define XQC_TEST_CASE_RESET_FINAL_SIZE_VALID 722
 #define XQC_TEST_CASE_RESET_FINAL_SIZE_TOO_SMALL 723
 #define XQC_TEST_CASE_CLOSE_SEND_ONLY_STREAM 724
@@ -166,6 +169,8 @@ static void xqc_client_send_reset_final_size_frames(xqc_connection_t *conn);
 static void xqc_client_test_reliable_reset(xqc_connection_t *conn);
 static void xqc_client_close_send_only_stream(xqc_connection_t *conn);
 static void xqc_client_close_after_data_recvd(int fd, short what, void *arg);
+static void xqc_client_report_initial_token(const char *dir,
+    const unsigned char *buf, size_t size);
 static void xqc_client_key_update_add_timer(struct event *ev,
     xqc_usec_t deadline);
 static void xqc_client_key_update_copy_packet(user_conn_t *user_conn,
@@ -386,6 +391,7 @@ uint64_t g_last_sock_op_time;
  * 718/719 for MAX_STREAM_DATA stream direction validation
  * 722/723 for RESET_STREAM final-size validation
  * 724-726 for stream close state and direction validation
+ * 729-731 for the Token Length of server Initial packets
  * 902/903 for AEAD confidentiality-limit validation
  * 1000-1021 for HTTP/3 protocol validation
  */
@@ -1165,6 +1171,34 @@ xqc_client_handle_retry_token_tests(unsigned char *send_buf, size_t send_buf_siz
     }
 }
 
+
+/*
+ * cases 729-731: report the Token Length of every Initial packet the client
+ * sends or receives. RFC 9000 Section 17.2.2 requires the Initial packets
+ * of a server to carry a Token Length of 0.
+ */
+static void
+xqc_client_report_initial_token(const char *dir, const unsigned char *buf,
+    size_t size)
+{
+    size_t token_offset = 0;
+    size_t token_len = 0;
+
+    if (g_test_case != XQC_TEST_CASE_SERVER_INITIAL_TOKEN_RETRY
+        && g_test_case != XQC_TEST_CASE_SERVER_INITIAL_TOKEN_INVALID
+        && g_test_case != XQC_TEST_CASE_SERVER_INITIAL_TOKEN_DISCARD)
+    {
+        return;
+    }
+
+    if (xqc_test_parse_initial_token_range(buf, size, &token_offset,
+                                           &token_len))
+    {
+        printf("[initial-token-test]|%s_initial|token_len:%zu|\n", dir,
+               token_len);
+    }
+}
+
 /* cases 804-805: a path that drops every datagram above
  * XQC_TEST_CASE_PATH_MTU bytes, 100 more than the default packet size,
  * which only PMTUD probes exceed. 805 also drops one ordinary full-size
@@ -1294,6 +1328,8 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
             xqc_client_handle_retry_token_tests(send_buf, send_buf_size, fd,
                                                 peer_addr, peer_addrlen);
         }
+
+        xqc_client_report_initial_token("client", send_buf, send_buf_size);
 
         /* client Initial dcid corruption */
         if (g_test_case == 22) {
@@ -1592,6 +1628,8 @@ xqc_client_write_socket_ex(uint64_t path_id,
             xqc_client_handle_retry_token_tests(send_buf, send_buf_size, fd,
                                                 peer_addr, peer_addrlen);
         }
+
+        xqc_client_report_initial_token("client", send_buf, send_buf_size);
 
         /* client Initial dcid corruption */
         if (g_test_case == 22) {
@@ -4977,6 +5015,8 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
                                               recv_size);
         }
 
+        xqc_client_report_initial_token("server", packet_buf, recv_size);
+
         if (g_test_case == 6) { /* socket recv fail */
             g_test_case = -1;
             break;
@@ -6340,6 +6380,12 @@ int main(int argc, char *argv[]) {
     xqc_client_open_log_file(&ctx);
 
     g_token_len = xqc_client_read_token(g_token, XQC_MAX_TOKEN_LEN);
+
+    /* case 730: a token this server never issued, so it fails validation */
+    if (g_test_case == XQC_TEST_CASE_SERVER_INITIAL_TOKEN_INVALID) {
+        memset(g_token, 0x5a, 16);
+        g_token_len = 16;
+    }
  
     xqc_platform_init_env();
 

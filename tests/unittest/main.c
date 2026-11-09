@@ -534,6 +534,20 @@ main(int argc, char *argv[])
                         "xqc_test_coalesced_initial_datagram_too_small",
                         xqc_test_coalesced_initial_datagram_too_small)
         || !CU_add_test(pSuite, "xqc_test_parse_uint32_high_bytes", xqc_test_parse_uint32_high_bytes)
+        || !CU_add_test(pSuite,
+                        "xqc_test_server_initial_omits_retry_token",
+                        xqc_test_server_initial_omits_retry_token)
+        || !CU_add_test(pSuite,
+                        "xqc_test_server_initial_omits_invalid_token",
+                        xqc_test_server_initial_omits_invalid_token)
+        || !CU_add_test(pSuite, "xqc_test_client_initial_token_len",
+                        xqc_test_client_initial_token_len)
+        || !CU_add_test(pSuite,
+                        "xqc_test_client_discards_server_initial_token",
+                        xqc_test_client_discards_server_initial_token)
+        || !CU_add_test(pSuite,
+                        "xqc_test_client_discard_keeps_coalesced_packets",
+                        xqc_test_client_discard_keeps_coalesced_packets)
         || !CU_add_test(pSuite, "xqc_test_transport_params", xqc_test_transport_params)
         || !CU_add_test(pSuite, "xqc_test_retry_scid_decode_role",
                         xqc_test_retry_scid_decode_role)

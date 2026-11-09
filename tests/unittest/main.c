@@ -581,6 +581,8 @@ main(int argc, char *argv[])
                         xqc_test_multipath_version_requires_negotiation)
         || !CU_add_test(pSuite, "xqc_test_path_status_first_seq_zero",
                         xqc_test_path_status_first_seq_zero)
+        || !CU_add_test(pSuite, "xqc_test_path_status_lost_superseded",
+                        xqc_test_path_status_lost_superseded)
         || !CU_add_test(pSuite, "xqc_test_path_status_local_and_peer_apart",
                         xqc_test_path_status_local_and_peer_apart)
         || !CU_add_test(pSuite, "xqc_test_path_status_before_validation",

@@ -144,6 +144,52 @@ xqc_packet_out_remove_ack_frame(xqc_packet_out_t *po)
     }
 }
 
+/*
+ * RFC 10069 Section 4.3: a lost status frame is sent again only if it has
+ * the last status sent for its path, and draft-10 Section 7.2 forbids it
+ * for a path being abandoned. The frame is read back from the packet.
+ */
+static xqc_bool_t
+xqc_packet_out_path_status_superseded(xqc_connection_t *conn,
+    const xqc_packet_out_t *po)
+{
+    xqc_packet_in_t  pi;
+    xqc_path_ctx_t  *path;
+    uint64_t         path_id, seq, status;
+
+    xqc_memzero(&pi, sizeof(pi));
+    pi.pos = po->po_buf + po->po_path_status_offset;
+    pi.last = po->po_buf + po->po_used_size;
+    if (xqc_parse_path_status_frame(&pi, &path_id, &seq, &status) != XQC_OK) {
+        /* not the frame recorded: send the packet again as before */
+        return XQC_FALSE;
+    }
+
+    path = xqc_conn_find_path_by_path_id(conn, path_id);
+    if (path != NULL && path->path_state < XQC_PATH_STATE_CLOSING
+        && seq == path->local_status.send_seq)
+    {
+        return XQC_FALSE;
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|path status superseded|path:%ui|seq:%ui|", path_id, seq);
+    return XQC_TRUE;
+}
+
+xqc_frame_type_bit_t
+xqc_packet_out_frames_to_repair(xqc_connection_t *conn,
+    const xqc_packet_out_t *po)
+{
+    if ((po->po_frame_types & XQC_FRAME_BITS_PATH_STATUS)
+        && xqc_packet_out_path_status_superseded(conn, po))
+    {
+        return po->po_frame_types & ~XQC_FRAME_BITS_PATH_STATUS;
+    }
+
+    return po->po_frame_types;
+}
+
 void
 xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
 {
@@ -1609,6 +1655,7 @@ xqc_write_local_path_status(xqc_connection_t *conn,
     xqc_packet_out_t *packet_out, xqc_path_ctx_t *path)
 {
     xqc_path_local_status_t *local = &path->local_status;
+    unsigned int             offset = packet_out->po_used_size;
     ssize_t                  ret;
 
     ret = xqc_gen_path_status_frame(conn, packet_out, path->path_id,
@@ -1617,6 +1664,7 @@ xqc_write_local_path_status(xqc_connection_t *conn,
         return ret;
     }
 
+    packet_out->po_path_status_offset = offset;
     packet_out->po_used_size += ret;
     local->send_seq++;
     local->advertised = local->wanted;

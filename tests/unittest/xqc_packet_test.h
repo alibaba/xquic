@@ -12,6 +12,8 @@ void xqc_test_server_buffers_received_zero_rtt(void);
 void xqc_test_packet_out_remained_size(void);
 void xqc_test_packet_encrypt_hp_sample_boundary();
 void xqc_test_empty_pkt();
+void xqc_test_ack_server_hello_carries_ack(void);
+void xqc_test_ack_full_crypto_packet_unchanged(void);
 void xqc_test_stateless_reset_parse_boundary(void);
 void xqc_test_coalesced_matching_dcid_processed(void);
 void xqc_test_coalesced_mismatching_dcid_ignored(void);

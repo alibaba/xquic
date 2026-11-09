@@ -37,6 +37,24 @@ typedef enum {
     XQC_PATH_CLOSE_PROACTIVE  = 1,
 } xqc_path_close_mode_t;
 
+/* why no path can be created on a path ID (xqc_conn_check_new_path) */
+typedef enum {
+    XQC_PATH_CREATE_OK = 0,
+    /* the path ID has a path already */
+    XQC_PATH_CREATE_PATH_ID_IN_USE,
+    /* RFC 10069 Section 3.4: an abandoned path ID is never used again */
+    XQC_PATH_CREATE_PATH_ID_ABANDONED,
+    /* no unused connection ID of the endpoint for the path ID */
+    XQC_PATH_CREATE_NO_LOCAL_CID,
+    /* no unused connection ID of the peer for the path ID yet */
+    XQC_PATH_CREATE_NO_PEER_CID,
+    /* the connection created XQC_MAX_PATHS_COUNT paths */
+    XQC_PATH_CREATE_LIMIT_REACHED,
+    /* an allocation or the initialization of the path failed */
+    XQC_PATH_CREATE_NO_RESOURCE,
+    XQC_PATH_CREATE_RESULT_N,
+} xqc_path_create_result_t;
+
 typedef enum {
     XQC_SEND_TYPE_NORMAL,
     XQC_SEND_TYPE_NORMAL_HIGH_PRI,
@@ -226,6 +244,22 @@ void xqc_path_schedule_buf_pre_destroy(xqc_send_queue_t *send_queue, xqc_path_ct
 /* create path inner */
 xqc_path_ctx_t *xqc_conn_create_path_inner(xqc_connection_t *conn, 
     xqc_cid_t *scid, xqc_cid_t *dcid, xqc_app_path_status_t path_status, uint64_t path_id);
+
+/*
+ * why no path can be created on path_id now, XQC_PATH_CREATE_OK if one can;
+ * NULL scid or dcid stands for an unused connection ID of the path ID
+ */
+xqc_path_create_result_t xqc_conn_check_new_path(xqc_connection_t *conn,
+    xqc_cid_t *scid, xqc_cid_t *dcid, uint64_t path_id);
+
+const char *xqc_path_create_result_str(xqc_path_create_result_t result);
+
+/*
+ * server: set up the path of the new path ID packet_in arrived on; on
+ * failure, *result tells why
+ */
+xqc_path_ctx_t *xqc_conn_server_open_path(xqc_connection_t *conn,
+    xqc_packet_in_t *packet_in, xqc_path_create_result_t *result);
 
 /* server update client addr when recv path_challenge frame */
 xqc_int_t xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,

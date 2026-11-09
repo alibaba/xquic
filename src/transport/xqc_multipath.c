@@ -246,6 +246,7 @@ xqc_path_rebinding_clear(xqc_path_ctx_t *path)
     rebinding->state = XQC_REBINDING_IDLE;
     rebinding->initial_challenge_padded = XQC_FALSE;
     xqc_memzero(rebinding->challenge_data, sizeof(rebinding->challenge_data));
+    rebinding->challenge_sent_time = 0;
 }
 
 
@@ -268,6 +269,7 @@ xqc_path_rebinding_start(xqc_path_ctx_t *path, const struct sockaddr *peer_addr,
     rebinding->mtu_probe_retries = 0;
     rebinding->state = XQC_REBINDING_ADDRESS_VALIDATING;
     rebinding->initial_challenge_padded = XQC_FALSE;
+    rebinding->challenge_sent_time = 0;
     return XQC_OK;
 }
 
@@ -297,6 +299,7 @@ xqc_path_rebinding_send_address_probe(xqc_connection_t *conn, xqc_path_ctx_t *pa
     if (ret == XQC_OK) {
         xqc_path_rebinding_add_sent(rebinding, sent_bytes);
         rebinding->initial_challenge_padded = min_padding;
+        rebinding->challenge_sent_time = xqc_monotonic_timestamp();
     }
 
     return ret;
@@ -409,9 +412,19 @@ xqc_path_rebinding_on_authenticated_datagram(xqc_connection_t *conn,
 
 
 static void
-xqc_path_rebinding_commit_addr(xqc_connection_t *conn, xqc_path_ctx_t *path)
+xqc_path_rebinding_commit_addr(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_usec_t now)
 {
     xqc_path_rebinding_t *rebinding = &path->rebinding;
+
+    /*
+     * RFC 9000 Section 9.4, RFC 10069 Section 5.1: the congestion controller
+     * and the RTT estimator restart from their initial values unless only
+     * the port of the peer changed.
+     */
+    xqc_bool_t new_ip = path->peer_addrlen > 0
+        && !xqc_is_same_ip((struct sockaddr *)path->peer_addr,
+                           (struct sockaddr *)rebinding->addr);
 
     xqc_memcpy(path->peer_addr, rebinding->addr, rebinding->addrlen);
     path->peer_addrlen = rebinding->addrlen;
@@ -419,6 +432,16 @@ xqc_path_rebinding_commit_addr(xqc_connection_t *conn, xqc_path_ctx_t *path)
     xqc_log(conn->log, XQC_LOG_INFO,
             "|path:%ui|REBINDING|validate NAT rebinding addr|path:%s|",
             path->path_id, xqc_path_addr_str(path));
+
+    if (new_ip) {
+        xqc_send_ctl_reset_for_new_path(path->path_send_ctl);
+        if (rebinding->challenge_sent_time != 0
+            && now > rebinding->challenge_sent_time)
+        {
+            xqc_send_ctl_set_initial_rtt(path->path_send_ctl,
+                                         now - rebinding->challenge_sent_time);
+        }
+    }
 
     if (conn->enable_multipath && path->path_id != XQC_INITIAL_PATH_ID) {
         if (conn->transport_cbs.path_peer_addr_changed_notify) {
@@ -457,7 +480,7 @@ xqc_path_rebinding_on_response(xqc_connection_t *conn, xqc_path_ctx_t *path,
 
     xqc_path_validate(path);
     if (rebinding->state == XQC_REBINDING_ADDRESS_VALIDATING) {
-        xqc_path_rebinding_commit_addr(conn, path);
+        xqc_path_rebinding_commit_addr(conn, path, now);
         rebinding->valid++;
         if (rebinding->initial_challenge_padded) {
             xqc_path_rebinding_clear(path);
@@ -1247,48 +1270,37 @@ xqc_path_send_buffer_clear(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_lis
 
 
 xqc_bool_t
-xqc_is_same_addr(const struct sockaddr *sa1, const struct sockaddr *sa2)
+xqc_is_same_ip(const struct sockaddr *sa1, const struct sockaddr *sa2)
 {
-    struct sockaddr_in   *sin1, *sin2;
-    struct sockaddr_in6  *sin61, *sin62;
-
     if (sa1->sa_family != sa2->sa_family) {
         return XQC_FALSE;
     }
 
-    switch (sa1->sa_family) {
-
-        case AF_INET6:
-            sin61 = (struct sockaddr_in6 *) sa1;
-            sin62 = (struct sockaddr_in6 *) sa2;
-
-            if (memcmp(&sin61->sin6_addr, &sin62->sin6_addr, 16) != 0) {
-                return XQC_FALSE;
-            }
-
-            if (sin61->sin6_port != sin62->sin6_port) {
-                return XQC_FALSE;
-            }
-
-            break;
-
-        default: /* AF_INET */
-
-            sin1 = (struct sockaddr_in *) sa1;
-            sin2 = (struct sockaddr_in *) sa2;
-
-            if (sin1->sin_addr.s_addr != sin2->sin_addr.s_addr) {
-                return XQC_FALSE;
-            }
-
-            if (sin1->sin_port != sin2->sin_port) {
-                return XQC_FALSE;
-            }
-
-            break;
+    if (sa1->sa_family == AF_INET6) {
+        return memcmp(&((const struct sockaddr_in6 *) sa1)->sin6_addr,
+                      &((const struct sockaddr_in6 *) sa2)->sin6_addr,
+                      sizeof(struct in6_addr)) == 0;
     }
 
-    return XQC_TRUE;
+    /* AF_INET */
+    return ((const struct sockaddr_in *) sa1)->sin_addr.s_addr
+           == ((const struct sockaddr_in *) sa2)->sin_addr.s_addr;
+}
+
+xqc_bool_t
+xqc_is_same_addr(const struct sockaddr *sa1, const struct sockaddr *sa2)
+{
+    if (!xqc_is_same_ip(sa1, sa2)) {
+        return XQC_FALSE;
+    }
+
+    if (sa1->sa_family == AF_INET6) {
+        return ((const struct sockaddr_in6 *) sa1)->sin6_port
+               == ((const struct sockaddr_in6 *) sa2)->sin6_port;
+    }
+
+    return ((const struct sockaddr_in *) sa1)->sin_port
+           == ((const struct sockaddr_in *) sa2)->sin_port;
 }
 
 xqc_bool_t

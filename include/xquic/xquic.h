@@ -1591,6 +1591,17 @@ typedef struct xqc_conn_settings_s {
 
     /* draft-ietf-quic-reliable-stream-reset-09 Section 3; default off. */
     xqc_bool_t                  enable_reset_stream_at;
+
+    /**
+     * Client only: once the handshake is confirmed, validate the server's
+     * preferred address of the address family in use and move the
+     * connection to it (RFC 9000 Section 9.6), unless multipath is used.
+     * The application must then accept the server's packets from that
+     * address, and send to the address that write_socket or
+     * write_socket_ex is given, as conn_peer_addr_changed_notify tells.
+     * Default: off.
+     */
+    xqc_bool_t                  enable_preferred_address_migration;
 } xqc_conn_settings_t;
 
 

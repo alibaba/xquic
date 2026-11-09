@@ -1792,6 +1792,7 @@ xqc_send_ctl_on_packet_acked(xqc_send_ctl_t *send_ctl,
         
         if (packet_out->po_frame_types & (XQC_FRAME_BIT_NEW_CONNECTION_ID | XQC_FRAME_BIT_MP_NEW_CONNECTION_ID)) {
             xqc_cid_set_on_cid_acked(&conn->scid_set, packet_out->po_new_cid_path, packet_out->po_new_cid_seq);
+            xqc_conn_preferred_addr_on_cid_acked(conn, now);
         }
         
 

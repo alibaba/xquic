@@ -149,6 +149,13 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     xqc_cid_set_update_state(&conn->dcid_set, path_id, XQC_CID_SET_USED);
     xqc_cid_set_update_state(&conn->scid_set, path_id, XQC_CID_SET_USED);
 
+    /* what the peer indicated for the path ID before (RFC 10069 4.3) */
+    xqc_cid_set_inner_t *path_id_set = xqc_get_path_cid_set(&conn->dcid_set,
+                                                            path_id);
+    if (path_id_set != NULL) {
+        path->peer_status = path_id_set->peer_status;
+    }
+
     path->path_create_time = xqc_monotonic_timestamp();
     path->curr_pkt_out_size = conn->pkt_out_size;
     path->path_max_pkt_out_size = conn->max_pkt_out_size;
@@ -1649,17 +1656,29 @@ void
 xqc_conn_on_peer_path_status(xqc_connection_t *conn, uint64_t path_id,
     xqc_path_status_seq_t seq, xqc_app_path_status_t status)
 {
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, path_id);
+    xqc_path_ctx_t      *path = xqc_conn_find_path_by_path_id(conn, path_id);
+    xqc_cid_set_inner_t *path_id_set;
 
-    if (path == NULL) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|invalid path|path_id:%ui|",
-                path_id);
+    if (path != NULL) {
+        if (xqc_path_peer_status_update(&path->peer_status, seq, status)) {
+            xqc_path_update_app_status(path);
+        }
         return;
     }
 
-    if (xqc_path_peer_status_update(&path->peer_status, seq, status)) {
-        xqc_path_update_app_status(path);
+    /*
+     * RFC 10069 Section 4.3: the peer may indicate a status for a path ID
+     * that no path uses yet. The connection ID set of the path ID keeps it
+     * until a path is created for it.
+     */
+    if (xqc_cid_set_add_path(&conn->dcid_set, path_id) != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_cid_set_add_path error|path:%ui|", path_id);
+        return;
     }
+
+    path_id_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
+    xqc_path_peer_status_update(&path_id_set->peer_status, seq, status);
 }
 
 

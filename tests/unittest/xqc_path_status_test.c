@@ -358,3 +358,57 @@ xqc_test_path_status_before_validation(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * RFC 10069 Section 4.3: the peer may indicate a status for any path ID
+ * below the limit, even one that no path uses yet; it applies to the path
+ * created for the path ID later, and the Path Status Sequence Numbers go on
+ * from it.
+ */
+void
+xqc_test_path_status_before_path(void)
+{
+    xqc_connection_t     *conn = xqc_test_path_status_conn();
+    xqc_path_ctx_t       *path;
+    xqc_cid_set_inner_t  *path_id_set;
+
+    CU_ASSERT(xqc_test_path_status_recv(conn, 3, 1,
+                                        XQC_APP_PATH_STATUS_STANDBY)
+              == XQC_OK);
+    CU_ASSERT(xqc_conn_find_path_by_path_id(conn, 3) == NULL);
+    path = xqc_test_path_status_new_path(conn, 3);
+    xqc_path_validate(path);
+    CU_ASSERT(path->app_path_status == XQC_APP_PATH_STATUS_STANDBY);
+    CU_ASSERT(path->peer_status.largest_seq == 1);
+
+    CU_ASSERT(xqc_test_path_status_recv(conn, 3, 1,
+                                        XQC_APP_PATH_STATUS_AVAILABLE)
+              == XQC_OK);
+    CU_ASSERT(path->app_path_status == XQC_APP_PATH_STATUS_STANDBY);
+    CU_ASSERT(xqc_test_path_status_recv(conn, 3, 2,
+                                        XQC_APP_PATH_STATUS_AVAILABLE)
+              == XQC_OK);
+    CU_ASSERT(path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE);
+
+    /* a path ID above the peer's limit has no connection ID set yet */
+    conn->local_max_path_id = XQC_TEST_MAX_PATH_ID + 2;
+    CU_ASSERT(xqc_get_path_cid_set(&conn->dcid_set, XQC_TEST_MAX_PATH_ID + 1)
+              == NULL);
+    CU_ASSERT(xqc_test_path_status_recv(conn, XQC_TEST_MAX_PATH_ID + 1, 0,
+                                        XQC_APP_PATH_STATUS_STANDBY)
+              == XQC_OK);
+    path_id_set = xqc_get_path_cid_set(&conn->dcid_set,
+                                       XQC_TEST_MAX_PATH_ID + 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path_id_set);
+    CU_ASSERT(path_id_set->peer_status.status == XQC_APP_PATH_STATUS_STANDBY);
+
+    /* an older one for it is ignored */
+    CU_ASSERT(xqc_test_path_status_recv(conn, XQC_TEST_MAX_PATH_ID + 1, 0,
+                                        XQC_APP_PATH_STATUS_AVAILABLE)
+              == XQC_OK);
+    CU_ASSERT(path_id_set->peer_status.status == XQC_APP_PATH_STATUS_STANDBY);
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_engine_destroy(conn->engine);
+}

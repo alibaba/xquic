@@ -577,6 +577,8 @@ main(int argc, char *argv[])
                         xqc_test_path_status_local_and_peer_apart)
         || !CU_add_test(pSuite, "xqc_test_path_status_before_validation",
                         xqc_test_path_status_before_validation)
+        || !CU_add_test(pSuite, "xqc_test_path_status_before_path",
+                        xqc_test_path_status_before_path)
         || !CU_add_test(pSuite, "xqc_test_negotiated_multipath_frozen_frame",
                         xqc_test_negotiated_multipath_frozen_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)

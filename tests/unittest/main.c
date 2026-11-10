@@ -58,6 +58,7 @@
 #include "xqc_ack_with_timestamp_test.h"
 #include "xqc_crypto_frame_test.h"
 #include "xqc_send_ctl_test.h"
+#include "xqc_path_close_test.h"
 #include "xqc_vn_test.h"
 #include "xqc_frame_type_bit_test.h"
 #include "xqc_flow_ctl_test.h"
@@ -837,6 +838,8 @@ main(int argc, char *argv[])
                         xqc_test_pto_remote_default_when_unset)
         || !CU_add_test(pSuite, "xqc_test_pn_ctl_create_alloc_failures",
                         xqc_test_pn_ctl_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_reply_without_path",
+                        xqc_test_path_abandon_reply_without_path)
         || !CU_add_test(pSuite,
                         "xqc_test_path_validation_timeout_"
                         "current_pto_dominates",

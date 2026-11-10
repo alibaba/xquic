@@ -2363,9 +2363,9 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
             return -XQC_EMALLOC;
         }
 
-        xqc_cid_set_update_state(&conn->dcid_set, path_id, XQC_CID_SET_ABANDONED);
-        xqc_cid_set_update_state(&conn->scid_set, path_id, XQC_CID_SET_ABANDONED);
-        return XQC_OK; /* ignore */
+        /* RFC 10069 Section 3.4: the corresponding PATH_ABANDON */
+        xqc_conn_abandon_path_id(conn, path_id);
+        return XQC_OK;
     }
 
     /* 

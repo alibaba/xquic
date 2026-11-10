@@ -1397,8 +1397,9 @@ xqc_test_mp_frames_for_abandoned_path_ignored()
 
         CU_ASSERT(xqc_get_path_cid_set(&conn->dcid_set, 1)->set_state
                   == XQC_CID_SET_ABANDONED);
+        /* ours, or the one that answers the peer's (RFC 10069 3.4) */
         CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
-                      XQC_FRAME_BIT_PATH_ABANDON) == local);
+                      XQC_FRAME_BIT_PATH_ABANDON) == 1);
 
         /* a new connection ID for the abandoned path ID is not stored */
         ret = xqc_test_cid_recv_mp_new_cid(conn, 1, dcid_seq, 0);
@@ -1420,7 +1421,7 @@ xqc_test_mp_frames_for_abandoned_path_ignored()
         ret = xqc_test_cid_recv_path_abandon(conn, 1);
         CU_ASSERT(ret == XQC_OK);
         CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
-                      XQC_FRAME_BIT_PATH_ABANDON) == local);
+                      XQC_FRAME_BIT_PATH_ABANDON) == 1);
 
         /* our connection ID for it can still be retired */
         ret = xqc_test_cid_recv_mp_retire_cid(conn, 1, 0);

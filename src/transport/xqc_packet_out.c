@@ -1735,7 +1735,7 @@ error:
 
 
 xqc_int_t
-xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path)
+xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, uint64_t path_id)
 {
     xqc_int_t ret = XQC_ERROR;
 
@@ -1744,8 +1744,6 @@ xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *p
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
         return -XQC_EWRITE_PKT;
     }
-
-    uint64_t path_id = path->path_id;
 
     ret = xqc_gen_path_abandon_frame(conn, packet_out, path_id, 0);
     if (ret < 0) {
@@ -1757,8 +1755,7 @@ xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *p
 
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|path_id:%ui|",
-            path->path_id, path_id);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path_id:%ui|", path_id);
 
     return XQC_OK;
 

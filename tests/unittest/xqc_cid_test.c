@@ -1317,6 +1317,176 @@ xqc_test_cid_packets_with_frame(xqc_connection_t *conn,
 }
 
 
+static xqc_int_t
+xqc_test_cid_recv_path_standby(xqc_connection_t *conn, uint64_t path_id,
+    uint64_t seq_num)
+{
+    unsigned char  frame[16];
+    unsigned char *p = frame;
+
+    p = xqc_put_varint(p, XQC_TRANS_FRAME_TYPE_MP_STANDBY);
+    p = xqc_put_varint(p, path_id);
+    p = xqc_put_varint(p, seq_num);
+
+    return xqc_test_cid_recv_frame(conn, frame, p);
+}
+
+
+/* an MP_ACK frame acknowledging packet number 0 of path_id */
+static xqc_int_t
+xqc_test_cid_recv_mp_ack(xqc_connection_t *conn, uint64_t path_id)
+{
+    unsigned char  frame[16];
+    unsigned char *p = frame;
+
+    p = xqc_put_varint(p, XQC_TRANS_FRAME_TYPE_MP_ACK0);
+    p = xqc_put_varint(p, path_id);
+    p = xqc_put_varint(p, 0);  /* largest acknowledged */
+    p = xqc_put_varint(p, 0);  /* ack delay */
+    p = xqc_put_varint(p, 0);  /* ack range count */
+    p = xqc_put_varint(p, 0);  /* first ack range */
+
+    return xqc_test_cid_recv_frame(conn, frame, p);
+}
+
+
+/*
+ * draft-ietf-quic-multipath-10 Section 7: a frame with a path identifier that
+ * cannot be processed anymore, "because the path might have been abandoned",
+ * is silently ignored. Path ID 1 is abandoned either by the peer before any
+ * path used it, or locally on an active path. A PATH_STANDBY frame no longer
+ * changes the path's status, a new connection ID for it is not stored, and a
+ * repeated PATH_ABANDON is not answered. The retirement of one of our
+ * connection IDs still applies (Section 7.6), and so do the frames for path
+ * ID 2, which is not abandoned.
+ */
+void
+xqc_test_mp_frames_for_abandoned_path_ignored()
+{
+    int                 local;
+    uint64_t            dcid_seq;
+    xqc_int_t           ret;
+    xqc_path_ctx_t     *path;
+    xqc_cid_inner_t    *inner_cid;
+    xqc_connection_t   *conn;
+
+    for (local = 0; local <= 1; local++) {
+        conn = xqc_test_mp_cid_conn(8, 8);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn->conn_initial_path);
+        xqc_set_path_state(conn->conn_initial_path, XQC_PATH_STATE_ACTIVE);
+        ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, 1);
+        CU_ASSERT(ret == XQC_OK);
+        dcid_seq = 0;
+        path = NULL;
+
+        if (local) {
+            ret = xqc_test_cid_recv_mp_new_cid(conn, 1, dcid_seq++, 0);
+            CU_ASSERT(ret == XQC_OK);
+            path = xqc_conn_create_path_inner(conn, NULL, NULL,
+                                              XQC_APP_PATH_STATUS_AVAILABLE, 1);
+            CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+            xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);
+            ret = xqc_path_immediate_close(path);
+            CU_ASSERT(ret == XQC_OK);
+            CU_ASSERT(path->path_state == XQC_PATH_STATE_CLOSING);
+
+        } else {
+            ret = xqc_test_cid_recv_path_abandon(conn, 1);
+            CU_ASSERT(ret == XQC_OK);
+        }
+
+        CU_ASSERT(xqc_get_path_cid_set(&conn->dcid_set, 1)->set_state
+                  == XQC_CID_SET_ABANDONED);
+        /* ours, or the one that answers the peer's (RFC 10069 3.4) */
+        CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                      XQC_FRAME_BIT_PATH_ABANDON) == 1);
+
+        /* a new connection ID for the abandoned path ID is not stored */
+        ret = xqc_test_cid_recv_mp_new_cid(conn, 1, dcid_seq, 0);
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(conn->conn_err == 0);
+        CU_ASSERT(xqc_get_inner_cid_by_seq(&conn->dcid_set, dcid_seq, 1)
+                  == NULL);
+        CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->dcid_set, 1) == 0);
+
+        /* its status is not changed */
+        ret = xqc_test_cid_recv_path_standby(conn, 1, 1);
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(conn->conn_err == 0);
+        if (path != NULL) {
+            CU_ASSERT(path->app_path_status == XQC_APP_PATH_STATUS_AVAILABLE);
+        }
+
+        /* a repeated PATH_ABANDON is not answered */
+        ret = xqc_test_cid_recv_path_abandon(conn, 1);
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                      XQC_FRAME_BIT_PATH_ABANDON) == 1);
+
+        /* our connection ID for it can still be retired */
+        ret = xqc_test_cid_recv_mp_retire_cid(conn, 1, 0);
+        CU_ASSERT(ret == XQC_OK);
+        inner_cid = xqc_get_inner_cid_by_seq(&conn->scid_set, 0, 1);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(inner_cid);
+        CU_ASSERT(inner_cid->state == XQC_CID_RETIRED);
+
+        /* path ID 2 is not abandoned */
+        ret = xqc_test_cid_recv_mp_new_cid(conn, 2, 0, 0);
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->dcid_set, 2) == 1);
+
+        CU_ASSERT(conn->conn_err == 0);
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+/*
+ * draft-ietf-quic-multipath-10 Section 7: each multipath frame with a path ID
+ * above the maximum we announced is a connection error of type
+ * MP_PROTOCOL_VIOLATION, and the maximum itself is valid.
+ */
+void
+xqc_test_mp_frames_path_id_above_limit()
+{
+    int                 i;
+    xqc_int_t           ret;
+    xqc_connection_t   *conn;
+
+    for (i = 0; i < 5; i++) {
+        conn = xqc_test_mp_cid_conn(2, 8);
+        switch (i) {
+        case 0:
+            ret = xqc_test_cid_recv_mp_ack(conn, 3);
+            break;
+        case 1:
+            ret = xqc_test_cid_recv_path_abandon(conn, 3);
+            break;
+        case 2:
+            ret = xqc_test_cid_recv_path_standby(conn, 3, 1);
+            break;
+        case 3:
+            ret = xqc_test_cid_recv_mp_new_cid(conn, 3, 0, 0);
+            break;
+        default:
+            ret = xqc_test_cid_recv_mp_retire_cid(conn, 3, 0);
+            break;
+        }
+        CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+        CU_ASSERT(conn->conn_err == TRA_MP_PROTOCOL_VIOLATION);
+        xqc_engine_destroy(conn->engine);
+    }
+
+    conn = xqc_test_mp_cid_conn(2, 8);
+    ret = xqc_test_cid_recv_path_standby(conn, 2, 1);
+    CU_ASSERT(ret == XQC_OK);
+    ret = xqc_test_cid_recv_mp_new_cid(conn, 2, 0, 0);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    xqc_engine_destroy(conn->engine);
+}
+
+
 /*
  * draft-ietf-quic-multipath-10 Section 3.5: the peer may issue connection IDs
  * for any path ID up to our limit, and they can arrive before the MAX_PATH_ID

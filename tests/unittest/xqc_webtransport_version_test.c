@@ -1363,6 +1363,12 @@ version_error_log(xqc_log_level_t level, const void *buf,
 void
 xqc_test_wt_handshake_request_result(void)
 {
+#ifndef XQC_DISABLE_LOG
+    const unsigned log_enabled = 1;
+#else
+    const unsigned log_enabled = 0;
+#endif
+
     /* Draft-16 Section 3.2: defer CONNECT until TLS handshake completion. */
     for (unsigned scenario = 0; scenario < 6; scenario++) {
         unsigned fail = scenario % 2;
@@ -1407,15 +1413,17 @@ xqc_test_wt_handshake_request_result(void)
         CU_ASSERT(session->request_sent == !fail);
         CU_ASSERT(session->closed == fail);
         CU_ASSERT(version_closes == fail);
-        CU_ASSERT(version_send_errors == fail);
-        CU_ASSERT(version_handshake_errors == (fail && trigger == 0));
+        CU_ASSERT(version_send_errors == (fail && log_enabled));
+        CU_ASSERT(version_handshake_errors
+                  == (fail && trigger == 0 && log_enabled));
         CU_ASSERT_PTR_EQUAL(session->request, request);
         CU_ASSERT(conn->session_count == 1 && transport->conn_err == 0);
         if (fail) {
             CU_ASSERT(session->close_error == H3_INTERNAL_ERROR);
             /* No second notification or premature destruction on retry. */
             h3c->h3_conn_callbacks.h3_conn_handshake_finished(h3c, NULL);
-            CU_ASSERT(version_closes == 1 && version_send_errors == 1);
+            CU_ASSERT(version_closes == 1);
+            CU_ASSERT(version_send_errors == log_enabled);
         }
         h3c->log = saved_log;
         xqc_engine_destroy(transport->engine);

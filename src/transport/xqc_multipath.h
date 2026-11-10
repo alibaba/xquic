@@ -52,6 +52,7 @@ typedef enum {
     XQC_PATH_FLAG_SHOULD_ACK_INIT_SHIFT,
     XQC_PATH_FLAG_SHOULD_ACK_HSK_SHIFT,
     XQC_PATH_FLAG_SHOULD_ACK_01RTT_SHIFT,
+    XQC_PATH_FLAG_VALIDATED_SHIFT,
 } xqc_path_flag_shift_t;
 
 typedef enum {
@@ -61,6 +62,8 @@ typedef enum {
     XQC_PATH_FLAG_SHOULD_ACK_INIT   = 1 << XQC_PATH_FLAG_SHOULD_ACK_INIT_SHIFT,
     XQC_PATH_FLAG_SHOULD_ACK_HSK    = 1 << XQC_PATH_FLAG_SHOULD_ACK_HSK_SHIFT,
     XQC_PATH_FLAG_SHOULD_ACK_01RTT  = 1 << XQC_PATH_FLAG_SHOULD_ACK_01RTT_SHIFT,
+    /* the peer address of the path was validated, even if it closed since */
+    XQC_PATH_FLAG_VALIDATED         = 1 << XQC_PATH_FLAG_VALIDATED_SHIFT,
 } xqc_path_flag_t;
 
 typedef enum {

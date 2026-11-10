@@ -1988,6 +1988,7 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
 {
     xqc_list_head_t *pos, *next;
     xqc_list_buf_t  *list_buf = NULL;
+    xqc_int_t        ret = XQC_OK;
 
     xqc_log(h3s->log, XQC_LOG_DEBUG,
             "|decode blocked header success|stream_id:%ui|", h3s->stream_id);
@@ -2041,8 +2042,8 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
                 xqc_h3_stream_destroy(h3s);
                 return XQC_OK;
             }
-            h3s->ref_cnt--;
-            return processed;
+            ret = processed;
+            goto end;
         }
         buf->consumed_len += processed;
 
@@ -2054,8 +2055,7 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
             xqc_list_buf_free(list_buf);
 
         } else {
-            h3s->ref_cnt--;
-            return XQC_OK;
+            goto end;
         }
     }
 
@@ -2064,19 +2064,20 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
         && !xqc_list_empty(&h3s->h3r->body_buf))
     {
         /* notify DATA whenever there is data */
-        xqc_int_t ret = xqc_h3_request_on_recv_body(h3s->h3r);
+        ret = xqc_h3_request_on_recv_body(h3s->h3r);
         if (ret != XQC_OK) {
             xqc_log(h3s->log, XQC_LOG_ERROR, "|recv body error|%d|", ret);
-            h3s->ref_cnt--;
-            return ret;
         }
     }
 
+end:
     h3s->ref_cnt--;
 
     /*
      * Blocked h3 stream will be delayed to destroy when stream was closed while all bytes are read.
      * Hence, if the h3 stream is unblocked, h3 stream shall be destroyed after processing.
+     * The walk of blocked streams unblocked it before this processing, so
+     * this also holds after an error: nothing else would destroy it.
      * 
      * NOTICE: if there is a trailer section, h3 stream might be blocked again. If it will be
      * unblocked again, it will be destroyed after all bytes processed; If the connection is closed,
@@ -2089,10 +2090,9 @@ xqc_h3_stream_process_blocked_stream(xqc_h3_stream_t *h3s)
         xqc_log(h3s->log, XQC_LOG_INFO, "|h3 stream unblocked and destroyed while transport stream"
                 " was closed|stream_id:%ui", h3s->stream_id);
         xqc_h3_stream_destroy(h3s);
-        return XQC_OK;
     }
 
-    return XQC_OK;
+    return ret;
 }
 
 

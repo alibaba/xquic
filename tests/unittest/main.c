@@ -942,6 +942,13 @@ main(int argc, char *argv[])
                         xqc_test_0rtt_ack_delay_exponent_default_in_parse)
         || !CU_add_test(pSuite, "xqc_test_0rtt_remote_mad_timeline",
                         xqc_test_0rtt_remote_mad_timeline)
+        || !CU_add_test(pSuite, "xqc_test_pto_reinjected_probe_then_next",
+                        xqc_test_pto_reinjected_probe_then_next)
+        || !CU_add_test(pSuite, "xqc_test_pto_reinjected_probe_duplicated",
+                        xqc_test_pto_reinjected_probe_duplicated)
+        || !CU_add_test(pSuite,
+                        "xqc_test_pto_reinjected_handshake_done_then_earlier",
+                        xqc_test_pto_reinjected_handshake_done_then_earlier)
         /* issue #704: AEAD integrity limit per RFC 9001 §6.6 */
         || !CU_add_test(pSuite, "xqc_test_aead_integrity_limit",
                         xqc_test_aead_integrity_limit)

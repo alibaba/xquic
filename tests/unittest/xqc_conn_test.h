@@ -48,6 +48,9 @@ void xqc_test_0rtt_persistent_congestion_default_max_ack_delay(void);
 void xqc_test_pto_space_no_max_ack_delay_before_confirm(void);
 void xqc_test_0rtt_ack_delay_exponent_default_in_parse(void);
 void xqc_test_0rtt_remote_mad_timeline(void);
+void xqc_test_pto_reinjected_probe_then_next(void);
+void xqc_test_pto_reinjected_probe_duplicated(void);
+void xqc_test_pto_reinjected_handshake_done_then_earlier(void);
 
 /* ALPN negotiation tests (issue #709) */
 void xqc_test_alpn_error_code_value(void);

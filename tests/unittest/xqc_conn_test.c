@@ -1505,6 +1505,158 @@ xqc_test_0rtt_remote_mad_timeline(void)
 }
 
 
+/*
+ * A multipath connection that reinjects the packets which its PTO probes
+ * (XQC_REINJ_UNACK_BEFORE_SCHED with the deadline controller) on its second
+ * path.
+ */
+static xqc_connection_t *
+xqc_test_reinj_pto_connect(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_conn_settings_t conn_settings;
+    xqc_conn_ssl_config_t conn_ssl_config;
+    xqc_connection_t *conn;
+    const xqc_cid_t *cid;
+
+    if (engine == NULL) {
+        return NULL;
+    }
+
+    memset(&conn_settings, 0, sizeof(conn_settings));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    conn_settings.mp_enable_reinjection = XQC_REINJ_UNACK_BEFORE_SCHED;
+    conn_settings.reinj_ctl_callback = xqc_deadline_reinj_ctl_cb;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+    cid = xqc_connect(engine, &conn_settings, NULL, 0, "", 0,
+                      &conn_ssl_config, NULL, 0, "transport", NULL);
+    conn = cid != NULL ? xqc_engine_conns_hash_find(engine, cid, 's') : NULL;
+    if (conn == NULL) {
+        xqc_engine_destroy(engine);
+        return NULL;
+    }
+
+    test_enable_multipath(conn);
+    if (test_add_path(conn, 1) == NULL) {
+        xqc_engine_destroy(engine);
+        return NULL;
+    }
+    return conn;
+}
+
+/* older than the reinjection deadline, at most reinj_hard_deadline (500 ms) */
+#define XQC_TEST_REINJ_PTO_PKT_AGE  1000000
+
+/* a packet of the initial path, in flight beyond the reinjection deadline */
+static xqc_packet_out_t *
+xqc_test_reinj_pto_send(xqc_connection_t *conn, xqc_packet_number_t pn,
+    xqc_frame_type_bit_t frame_types)
+{
+    xqc_usec_t sent_time = xqc_monotonic_timestamp()
+                           - XQC_TEST_REINJ_PTO_PKT_AGE;
+    xqc_packet_out_t *po = test_send_packet(conn, conn->conn_initial_path,
+                                            pn, frame_types, sent_time);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+    return po;
+}
+
+/* how many of the probes queued by the PTO are copies of origin */
+static int
+xqc_test_reinj_pto_copies(xqc_connection_t *conn, xqc_packet_out_t *origin)
+{
+    xqc_list_head_t *pos;
+    xqc_packet_out_t *po;
+    int n = 0;
+
+    xqc_list_for_each(pos, &conn->conn_send_queue->sndq_pto_probe_packets) {
+        po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (po->po_origin == origin) {
+            n++;
+        }
+    }
+    return n;
+}
+
+static void
+xqc_test_reinj_pto_assert_reinjected(xqc_packet_out_t *po)
+{
+    CU_ASSERT((po->po_flag & XQC_POF_REINJECTED_ORIGIN) != 0);
+}
+
+/*
+ * The PTO probes with two packets (RFC 9002 Section 6.2.4) when it
+ * reinjects the first one on another path.
+ */
+void
+xqc_test_pto_reinjected_probe_then_next(void)
+{
+    xqc_connection_t *conn = xqc_test_reinj_pto_connect();
+    xqc_packet_out_t *a, *b;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    a = xqc_test_reinj_pto_send(conn, 10, XQC_FRAME_BIT_MAX_DATA);
+    b = xqc_test_reinj_pto_send(conn, 11, XQC_FRAME_BIT_MAX_DATA);
+
+    xqc_path_send_one_or_two_ack_elicit_pkts(conn->conn_initial_path,
+                                             XQC_PNS_APP_DATA);
+
+    xqc_test_reinj_pto_assert_reinjected(a);
+    CU_ASSERT_EQUAL(xqc_test_reinj_pto_copies(conn, a), 1);
+    CU_ASSERT_EQUAL(xqc_test_reinj_pto_copies(conn, b), 1);
+    CU_ASSERT((b->po_flag & XQC_POF_TLP) != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* the only packet in flight is probed twice although it was reinjected */
+void
+xqc_test_pto_reinjected_probe_duplicated(void)
+{
+    xqc_connection_t *conn = xqc_test_reinj_pto_connect();
+    xqc_packet_out_t *a;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    a = xqc_test_reinj_pto_send(conn, 10, XQC_FRAME_BIT_MAX_DATA);
+
+    xqc_path_send_one_or_two_ack_elicit_pkts(conn->conn_initial_path,
+                                             XQC_PNS_APP_DATA);
+
+    xqc_test_reinj_pto_assert_reinjected(a);
+    CU_ASSERT_EQUAL(xqc_test_reinj_pto_copies(conn, a),
+                    XQC_CONN_PTO_PKT_CNT_MAX);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A server probes first with its unacknowledged HANDSHAKE_DONE frame, then
+ * with the packet sent before it, also when the first probe was reinjected.
+ */
+void
+xqc_test_pto_reinjected_handshake_done_then_earlier(void)
+{
+    xqc_connection_t *conn = xqc_test_reinj_pto_connect();
+    xqc_packet_out_t *x, *hsd;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    x = xqc_test_reinj_pto_send(conn, 10, XQC_FRAME_BIT_MAX_DATA);
+    hsd = xqc_test_reinj_pto_send(conn, 11, XQC_FRAME_BIT_HANDSHAKE_DONE
+                                            | XQC_FRAME_BIT_MAX_DATA);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_HANDSHAKE_DONE_SENT) != 0);
+
+    xqc_path_send_one_or_two_ack_elicit_pkts(conn->conn_initial_path,
+                                             XQC_PNS_APP_DATA);
+
+    xqc_test_reinj_pto_assert_reinjected(hsd);
+    CU_ASSERT_EQUAL(xqc_test_reinj_pto_copies(conn, hsd), 1);
+    CU_ASSERT_EQUAL(xqc_test_reinj_pto_copies(conn, x), 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_conn_tls_error_cb_max_alert()
 {

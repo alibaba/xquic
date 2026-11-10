@@ -225,7 +225,8 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                 processed += ret;
 
                 xqc_log(moq_stream->session->log, XQC_LOG_DEBUG,
-                        "|decode message type|ret:%d|msg_type:0x%xi|wait_more_data:%d|processed:%d|",
+                        "|decode message type|ret:%d|msg_type:0x%xd"
+                        "|wait_more_data:%d|processed:%d|",
                         ret, msg_type, wait_more_data, processed);
 
                 if (wait_more_data == 1) {
@@ -242,7 +243,8 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                 ret = xqc_moq_stream_process_msg(moq_stream, fin, &msg_finish, &wait_more_data);
                 if (ret < 0 || (ret == 0 && wait_more_data == 0)) {
                     xqc_log(moq_stream->session->log, XQC_LOG_ERROR,
-                            "|decode message error|ret:%d|msg_type:0x%xi|cur_field_idx:%d|",
+                            "|decode message error|ret:%d|msg_type:0x%xd"
+                            "|cur_field_idx:%d|",
                             ret, moq_stream->decode_msg_ctx.cur_msg_type, moq_stream->decode_msg_ctx.cur_field_idx);
                     xqc_moq_stream_clean_decode_msg_ctx(moq_stream);
                     return -XQC_EILLEGAL_FRAME;
@@ -250,7 +252,8 @@ xqc_moq_stream_process(xqc_moq_stream_t *moq_stream, uint8_t *buf, size_t buf_le
                 processed += ret;
 
                 xqc_log(moq_stream->session->log, XQC_LOG_DEBUG,
-                        "|decode message|ret:%d|msg_type:0x%xi|msg_finish:%d|wait_more_data:%d|processed:%d|",
+                        "|decode message|ret:%d|msg_type:0x%xd|msg_finish:%d"
+                        "|wait_more_data:%d|processed:%d|",
                         ret, moq_stream->decode_msg_ctx.cur_msg_type, msg_finish, wait_more_data, processed);
 
                 if (wait_more_data == 1) {
@@ -316,7 +319,8 @@ xqc_moq_stream_process_msg(xqc_moq_stream_t *moq_stream, uint8_t stream_fin, xqc
 
     xqc_moq_msg_base_t *msg_base = xqc_moq_stream_get_or_alloc_cur_decode_msg(moq_stream);
     if (msg_base == NULL) {
-        xqc_log(moq_stream->session->log, XQC_LOG_ERROR, "|unkonwn message type|msg_type:0x%xi|",
+        xqc_log(moq_stream->session->log, XQC_LOG_ERROR,
+                "|unknown message type|msg_type:0x%xd|",
                 moq_stream->decode_msg_ctx.cur_msg_type);
         return ret;
     }

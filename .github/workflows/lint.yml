@@ -1,0 +1,180 @@
+name: Lint
+
+# Checks the shell scripts with ShellCheck; on pull requests, the title
+# shape of harness/spec/pull-requests.md, the lines that the pull request
+# adds for the whitespace rules of CONTRIBUTING.md (no tab, no trailing
+# space) and for common misspellings, and the C lines that it changes for
+# the format of .clang-format. The line checks look at the pull request's
+# own lines only, so the existing code does not have to be rewritten first.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  lint:
+
+    name: Lint
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        # the merge commit of a pull request and its two parents
+        fetch-depth: 2
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            codespell \
+            shellcheck
+
+    - name: Check shell scripts
+      run: |
+        shellcheck --version | sed -n 2p
+        # xqc_build.sh, scripts/xquic_test.sh and the MoQ case script keep
+        # their shebang below a comment line, so ShellCheck cannot tell
+        # their shell; they join once the shebang is their first line.
+        git ls-files -z '*.sh' \
+          | grep -z -v -x -e xqc_build.sh \
+            -e scripts/xquic_test.sh \
+            -e scripts/moq_scripts/moq_case_test.sh \
+          | xargs -0 shellcheck --severity=error --format=gcc
+        # The validation and harness entry points also pass the warnings.
+        shellcheck --severity=warning --format=gcc \
+          scripts/validate.sh \
+          harness/scripts/xqc_harness_check.sh \
+          case_test/lib/runner.sh
+
+    - name: Check the pull request title
+      if: github.event_name == 'pull_request'
+      env:
+        XQC_PR_TITLE: ${{ github.event.pull_request.title }}
+        XQC_PR_BODY: ${{ github.event.pull_request.body }}
+      run: |
+        # harness/spec/pull-requests.md: "[<change-id>]: <summary>", or
+        # "[<change-id>] Fix #<issue>: <summary>" with the line
+        # "Fixes: #<issue>" in the body.
+        title_re='^\[[-+=~]\](: | Fix #([0-9]+): )[^[:space:]]'
+        if [[ ! "$XQC_PR_TITLE" =~ $title_re ]]; then
+          echo "::error::the title does not follow harness/spec/pull-requests.md"
+          exit 1
+        fi
+        issue="${BASH_REMATCH[2]}"
+        if [ -n "$issue" ] \
+          && ! printf '%s\n' "$XQC_PR_BODY" | tr -d '\r' | grep -qx "Fixes: #$issue"; then
+          echo "::error::the body needs the line 'Fixes: #$issue'"
+          exit 1
+        fi
+
+    - name: Check the added lines
+      if: github.event_name == 'pull_request'
+      run: |
+        status=0
+        # HEAD is the merge commit of the pull request, HEAD^1 its base.
+        git -c core.whitespace=trailing-space,space-before-tab,tab-in-indent,blank-at-eof \
+          diff --check HEAD^1 HEAD -- \
+          '*.c' '*.h' '*.sh' '*.rb' '*.py' '*.yml' '*.yaml' '*.cmake' \
+          '*CMakeLists.txt' || status=1
+
+        # file:line of every added line; CONTRIBUTING.md allows no tab
+        # anywhere in the C sources.
+        git diff -U0 --no-color HEAD^1 HEAD -- . \
+          ':(exclude)docs/translation' ':(exclude)docs/docs-zh' \
+          | awk -v tabs="$RUNNER_TEMP/tabs" '
+            /^\+\+\+ / { file = substr($0, 7); next }
+            /^@@ / { split($3, range, ","); line = substr(range[1], 2) + 0; next }
+            /^\+/ {
+              print file ":" line
+              if (file ~ /\.[ch]$/ && index($0, "\t")) {
+                print file ":" line ": tab character" > tabs
+              }
+              line++
+            }
+          ' > "$RUNNER_TEMP/added_lines"
+        if [ -s "$RUNNER_TEMP/tabs" ]; then
+          cat "$RUNNER_TEMP/tabs"
+          status=1
+        fi
+
+        # TE is an HTTP header and ECT an ECN codepoint.
+        if [ -s "$RUNNER_TEMP/added_lines" ]; then
+          cut -d: -f1 "$RUNNER_TEMP/added_lines" | sort -u \
+            | xargs -d '\n' codespell --quiet-level=3 \
+              --ignore-words-list=te,ect \
+            > "$RUNNER_TEMP/spelling" || true
+          while IFS= read -r hit; do
+            if grep -qxF "$(cut -d: -f1,2 <<< "$hit")" "$RUNNER_TEMP/added_lines"; then
+              echo "$hit"
+              status=1
+            fi
+          done < "$RUNNER_TEMP/spelling"
+        fi
+        exit "$status"
+
+  clang-format:
+
+    name: clang-format
+
+    if: github.event_name == 'pull_request'
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        # the merge commit of a pull request and its two parents
+        fetch-depth: 2
+        persist-credentials: false
+
+    - name: Install clang-format
+      run: |
+        # .clang-format is written for this release: another one may format
+        # the same lines differently.
+        python3 -m venv "$RUNNER_TEMP/clang-format"
+        "$RUNNER_TEMP/clang-format/bin/pip" install --quiet --only-binary :all: \
+          --require-hashes -r /dev/stdin <<'EOF'
+        clang-format==21.1.8 \
+          --hash=sha256:d12b864b596b80810cdd7f97556c485dc09cfe2952503958535f01359e025fbb
+        EOF
+        echo "$RUNNER_TEMP/clang-format/bin" >> "$GITHUB_PATH"
+
+    - name: Check the format of the changed lines
+      run: |
+        clang-format --version
+        # HEAD is the merge commit of the pull request, HEAD^1 its base. Only
+        # the changed lines are formatted, as `git clang-format` does locally.
+        if ! git clang-format --binary "$RUNNER_TEMP/clang-format/bin/clang-format" \
+          --extensions c,h --diff HEAD^1 HEAD > "$RUNNER_TEMP/format.diff"; then
+          cat "$RUNNER_TEMP/format.diff"
+          echo "::error::the changed lines above do not follow .clang-format:" \
+            "run git clang-format <base> with clang-format 21.1.8"
+          exit 1
+        fi

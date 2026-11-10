@@ -840,6 +840,12 @@ main(int argc, char *argv[])
                         xqc_test_pn_ctl_create_alloc_failures)
         || !CU_add_test(pSuite, "xqc_test_path_abandon_reply_without_path",
                         xqc_test_path_abandon_reply_without_path)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_code_application",
+                        xqc_test_path_abandon_code_application)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_code_reply",
+                        xqc_test_path_abandon_code_reply)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_code_broken_path",
+                        xqc_test_path_abandon_code_broken_path)
         || !CU_add_test(pSuite,
                         "xqc_test_path_validation_timeout_"
                         "current_pto_dominates",

@@ -657,7 +657,8 @@ xqc_conn_path_id_abandoned(xqc_connection_t *conn, uint64_t path_id)
 }
 
 void
-xqc_conn_abandon_path_id(xqc_connection_t *conn, uint64_t path_id)
+xqc_conn_abandon_path_id(xqc_connection_t *conn, uint64_t path_id,
+    xqc_path_abandon_reason_t reason)
 {
     xqc_int_t ret;
 
@@ -668,7 +669,7 @@ xqc_conn_abandon_path_id(xqc_connection_t *conn, uint64_t path_id)
     if (path_id <= conn->remote_max_path_id
         && !xqc_conn_path_id_abandoned(conn, path_id))
     {
-        ret = xqc_write_path_abandon_frame_to_packet(conn, path_id);
+        ret = xqc_write_path_abandon_frame_to_packet(conn, path_id, reason);
         if (ret != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR,
                     "|xqc_write_path_abandon_frame_to_packet error|ret:%d|",
@@ -683,13 +684,19 @@ xqc_conn_abandon_path_id(xqc_connection_t *conn, uint64_t path_id)
 xqc_int_t
 xqc_path_immediate_close(xqc_path_ctx_t *path)
 {
+    return xqc_path_abandon(path, XQC_PATH_ABANDON_NO_ERROR);
+}
+
+xqc_int_t
+xqc_path_abandon(xqc_path_ctx_t *path, xqc_path_abandon_reason_t reason)
+{
     if (path->path_state >= XQC_PATH_STATE_CLOSING) {
         return XQC_OK;
     }
 
     xqc_connection_t *conn = path->parent_conn;
 
-    xqc_conn_abandon_path_id(conn, path->path_id);
+    xqc_conn_abandon_path_id(conn, path->path_id, reason);
 
     xqc_set_path_state(path, XQC_PATH_STATE_CLOSING);
 
@@ -896,9 +903,9 @@ xqc_conn_close_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t closed
         return -XQC_EMP_NO_ACTIVE_PATH;
     }
 
-    xqc_int_t ret = xqc_path_immediate_close(path);
+    xqc_int_t ret = xqc_path_abandon(path, XQC_PATH_ABANDON_APPLICATION);
     if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_immediate_close error|%d|", ret);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_abandon error|%d|", ret);
         return ret;
     }
 

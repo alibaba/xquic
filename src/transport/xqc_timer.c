@@ -145,7 +145,11 @@ xqc_timer_path_idle_timeout(xqc_timer_type_t type, xqc_usec_t now, void *user_da
 
     if (path->path_state < XQC_PATH_STATE_CLOSING) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|closing path:%ui|", path->path_id);
-        xqc_path_immediate_close(path);
+        /*
+         * A missed validation deadline, or nothing received for the idle
+         * timeout: both signal a broken path (RFC 10069 Section 3.4).
+         */
+        xqc_path_abandon(path, XQC_PATH_ABANDON_UNSTABLE_OR_POOR);
     }
 
     if (path->path_state < XQC_PATH_STATE_CLOSED) {

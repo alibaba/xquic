@@ -226,8 +226,9 @@ xqc_int_t xqc_write_path_response_frame_to_packet(xqc_connection_t *conn, xqc_pa
 int xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns);
 
+/* error_code: an xqc_path_abandon_reason_t (xqc_multipath.h) */
 xqc_int_t xqc_write_path_abandon_frame_to_packet(xqc_connection_t *conn,
-    uint64_t path_id);
+    uint64_t path_id, uint64_t error_code);
 
 xqc_int_t xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *path);
 

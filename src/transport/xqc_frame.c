@@ -2364,7 +2364,7 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
         }
 
         /* RFC 10069 Section 3.4: the corresponding PATH_ABANDON */
-        xqc_conn_abandon_path_id(conn, path_id);
+        xqc_conn_abandon_path_id(conn, path_id, XQC_PATH_ABANDON_NO_ERROR);
         return XQC_OK;
     }
 

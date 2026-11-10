@@ -3149,6 +3149,15 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
         }
     }
 
+    /* the unacknowledged HANDSHAKE_DONE was sent on another path, which
+       probes it: probe this path with its own first ack-eliciting pkt */
+    if (packet_out_later_send != NULL && probe_num > 0) {
+        has_reinjection |= xqc_conn_send_probe_pkt(c, path,
+                                                   packet_out_later_send);
+        packet_out_last_sent = packet_out_later_send;
+        probe_num--;
+    }
+
     if (probe_num > 0) {
         if (packet_out_last_sent) {
             /* at least one pkt was sent, and there is still budget for send

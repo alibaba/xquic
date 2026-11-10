@@ -58,6 +58,7 @@
 #include "xqc_ack_with_timestamp_test.h"
 #include "xqc_crypto_frame_test.h"
 #include "xqc_send_ctl_test.h"
+#include "xqc_path_close_test.h"
 #include "xqc_vn_test.h"
 #include "xqc_frame_type_bit_test.h"
 #include "xqc_flow_ctl_test.h"
@@ -337,6 +338,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_removed_scid_safety_net", xqc_test_removed_scid_safety_net)
         || !CU_add_test(pSuite, "xqc_test_conns_hash_remove_owned_entry", xqc_test_conns_hash_remove_owned_entry)
         || !CU_add_test(pSuite, "xqc_test_conns_hash_reject_non_owner", xqc_test_conns_hash_reject_non_owner)
+        || !CU_add_test(pSuite, "xqc_test_mp_frames_for_abandoned_path_ignored",
+                        xqc_test_mp_frames_for_abandoned_path_ignored)
+        || !CU_add_test(pSuite, "xqc_test_mp_frames_path_id_above_limit",
+                        xqc_test_mp_frames_path_id_above_limit)
         || !CU_add_test(pSuite, "xqc_test_mp_new_cid_above_curr_max_path_id",
                         xqc_test_mp_new_cid_above_curr_max_path_id)
         || !CU_add_test(pSuite, "xqc_test_mp_new_cid_rejected_without_cid_set",
@@ -841,6 +846,14 @@ main(int argc, char *argv[])
                         xqc_test_pto_remote_default_when_unset)
         || !CU_add_test(pSuite, "xqc_test_pn_ctl_create_alloc_failures",
                         xqc_test_pn_ctl_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_reply_without_path",
+                        xqc_test_path_abandon_reply_without_path)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_code_application",
+                        xqc_test_path_abandon_code_application)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_code_reply",
+                        xqc_test_path_abandon_code_reply)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_code_broken_path",
+                        xqc_test_path_abandon_code_broken_path)
         || !CU_add_test(pSuite,
                         "xqc_test_path_validation_timeout_"
                         "current_pto_dominates",

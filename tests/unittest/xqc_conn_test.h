@@ -16,6 +16,8 @@ void xqc_test_conn_pmtud_force_enable();
 void xqc_test_conn_pmtud_legacy_compatibility();
 void xqc_test_conn_early_data_reject();
 void xqc_test_conn_early_data_reject_flow_ctl();
+void xqc_test_high_pri_stream_data_limited_by_cwnd();
+void xqc_test_high_pri_stream_data_within_cwnd();
 void xqc_test_key_update_old_key_retention();
 void xqc_test_conn_closed_path_perf_class(void);
 void xqc_test_conn_open_path_perf_class(void);

@@ -910,6 +910,64 @@ xqc_test_conn_crypto_error_base_value()
 }
 
 
+/* a value of last_sent_time that the pacer never sets itself */
+#define XQC_TEST_BURST_PACING_MARK      1
+#define XQC_TEST_BURST_PACING_PKT_SIZE  100
+
+/* static in xqc_conn.c in all but name */
+void xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    ssize_t sent, xqc_usec_t now, xqc_send_type_t send_type);
+
+/* the sendmmsg sender has sent a packet with these frames, the first of the
+ * high priority buffer of the path */
+static void
+xqc_test_burst_pacing_sent(xqc_connection_t *conn,
+    xqc_frame_type_bit_t frame_types)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_list_head_t *buf =
+        &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL_HIGH_PRI];
+    xqc_packet_out_t *po = xqc_packet_out_get_and_insert_send(
+                               conn->conn_send_queue, XQC_PTYPE_INIT);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+    CU_ASSERT_FATAL(xqc_list_empty(buf));
+    po->po_pkt.pkt_pns = XQC_PNS_INIT;
+    po->po_frame_types = frame_types;
+    po->po_used_size = XQC_TEST_BURST_PACING_PKT_SIZE;
+    xqc_path_send_buffer_append(path, po, buf);
+    xqc_on_packets_send_burst(conn, path, 1, xqc_monotonic_timestamp(),
+                              XQC_SEND_TYPE_NORMAL_HIGH_PRI);
+    CU_ASSERT(xqc_list_empty(buf));
+}
+
+/*
+ * RFC 9002 Section 7.7: the pacer spreads the in-flight packets, and does
+ * not delay ACK-only ones, so these do not use its budget either. As the
+ * per-packet sender does, the sendmmsg sender charges the pacer only with
+ * the packets in flight.
+ */
+void
+xqc_test_burst_pacing_charges_in_flight_only(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_pacing_t *pacing;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    pacing = &conn->conn_initial_path->path_send_ctl->ctl_pacing;
+    pacing->pacing_on = 1;
+    pacing->last_sent_time = XQC_TEST_BURST_PACING_MARK;
+
+    xqc_test_burst_pacing_sent(conn, XQC_FRAME_BIT_ACK);
+    CU_ASSERT_EQUAL(pacing->last_sent_time, XQC_TEST_BURST_PACING_MARK);
+
+    xqc_test_burst_pacing_sent(conn, XQC_FRAME_BIT_PING);
+    CU_ASSERT_NOT_EQUAL(pacing->last_sent_time, XQC_TEST_BURST_PACING_MARK);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_transport_error_code_passthrough(void)
 {

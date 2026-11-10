@@ -404,6 +404,9 @@ main(int argc, char *argv[])
         /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_constructs_crypto_error", xqc_test_conn_tls_error_cb_constructs_crypto_error)
         || !CU_add_test(pSuite, "xqc_test_conn_crypto_error_base_value", xqc_test_conn_crypto_error_base_value)
+        || !CU_add_test(pSuite,
+                        "xqc_test_burst_pacing_charges_in_flight_only",
+                        xqc_test_burst_pacing_charges_in_flight_only)
         || !CU_add_test(pSuite, "xqc_test_transport_error_code_passthrough",
                         xqc_test_transport_error_code_passthrough)
         || !CU_add_test(pSuite, "xqc_test_0rtt_error_wire_codes",

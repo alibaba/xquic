@@ -108,6 +108,9 @@ typedef struct xqc_send_ctl_s {
     xqc_msec_t                  ctl_latest_rtt_sum;
     xqc_msec_t                  ctl_latest_rtt_square_sum;
 
+    /* when an acknowledgment of the path last came on it */
+    xqc_usec_t                  ctl_same_path_ack_time;
+
     xqc_timer_manager_t         path_timer_manager;
 
     unsigned                    ctl_pto_count;

@@ -2064,6 +2064,24 @@ xqc_check_acked_or_dropped_pkt(xqc_connection_t *conn,
 }
 
 
+/*
+ * RFC 9002 Section 7: only packets sent on a PTO expiration may exceed the
+ * congestion window, and the packets that are not in flight, with only ACK
+ * or CONNECTION_CLOSE frames, are not congestion controlled. The in-flight
+ * packets of the high priority queue, its control frames and the STREAM
+ * data of high priority streams, are limited on each path (RFC 10069
+ * Sections 5.3 and 5.5).
+ */
+static xqc_bool_t
+xqc_conn_packet_limited_by_cc(const xqc_packet_out_t *packet_out,
+    xqc_bool_t packets_are_limited_by_cc, xqc_send_type_t send_type)
+{
+    return packets_are_limited_by_cc
+           || (send_type == XQC_SEND_TYPE_NORMAL_HIGH_PRI
+               && XQC_CAN_IN_FLIGHT(packet_out->po_frame_types));
+}
+
+
 void
 xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head, 
     xqc_bool_t  packets_are_limited_by_cc, xqc_send_type_t send_type)
@@ -2071,7 +2089,8 @@ xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head,
     ssize_t ret;
     uint32_t send_repair_num, src_syb_num;
     uint64_t stream_id;
-    xqc_bool_t cc_blocked, reset_rpr_timer;
+    xqc_bool_t cc_blocked, reset_rpr_timer, limited_by_cc;
+    xqc_bool_t in_flight_blocked = XQC_FALSE;
     xqc_usec_t now, cq_fin_timeout;
     xqc_path_ctx_t *path;
     xqc_list_head_t *pos, *next;
@@ -2094,10 +2113,17 @@ xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head,
 
         /* 2. schedule packet multipath */
         } else {
+            limited_by_cc = xqc_conn_packet_limited_by_cc(packet_out,
+                                packets_are_limited_by_cc, send_type);
+            if (limited_by_cc && in_flight_blocked) {
+                /* the packets behind a blocked one wait, in order */
+                continue;
+            }
+
             path = conn->scheduler_callback->
                    xqc_scheduler_get_path(conn->scheduler, 
                                           conn, packet_out, 
-                                          packets_are_limited_by_cc, 
+                                          limited_by_cc,
                                           0, &cc_blocked);
             if (path == NULL) {
                 if (cc_blocked) {
@@ -2108,6 +2134,13 @@ xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head,
                 }
                 if (xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_QUEUE_FIN)) {
                     reset_rpr_timer = 1;
+                }
+
+                /* the ACK-only packets behind a high priority packet that
+                   the congestion window blocks are not held up by it */
+                if (cc_blocked && !packets_are_limited_by_cc) {
+                    in_flight_blocked = XQC_TRUE;
+                    continue;
                 }
                 break;
             }
@@ -2264,6 +2297,30 @@ xqc_convert_pkt_0rtt_2_1rtt(xqc_connection_t *conn, xqc_packet_out_t *packet_out
 }
 
 
+/*
+ * Whether the congestion window or the pacer holds the packet back (RFC 9002
+ * Sections 7 and 7.7). Once a packet is held back, the in-flight packets
+ * after it are too, in order; in the high priority list, the packets that
+ * are not in flight, such as ACK-only ones, are still sent.
+ */
+static xqc_bool_t
+xqc_path_cc_holds_back(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *packet_out,
+    uint32_t schedule_bytes, xqc_usec_t now, xqc_bool_t *in_flight_held)
+{
+    if (*in_flight_held && XQC_CAN_IN_FLIGHT(packet_out->po_frame_types)) {
+        return XQC_TRUE;
+    }
+
+    if (xqc_send_packet_check_cc(send_ctl, packet_out, schedule_bytes, now)) {
+        return XQC_FALSE;
+    }
+
+    send_ctl->ctl_conn->send_cc_blocked++;
+    *in_flight_held = XQC_TRUE;
+    return XQC_TRUE;
+}
+
+
 ssize_t
 xqc_path_send_burst_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
     int congest, xqc_send_type_t send_type)
@@ -2276,6 +2333,10 @@ xqc_path_send_burst_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_list_head_t  *pos, *next;
     xqc_send_ctl_t   *send_ctl = path->path_send_ctl;
     uint32_t          total_bytes_to_send = 0;
+    xqc_bool_t        in_flight_held = XQC_FALSE;
+    xqc_list_head_t   held;
+
+    xqc_init_list_head(&held);
 
     /* process packets */
     xqc_usec_t now = xqc_monotonic_timestamp();
@@ -2300,10 +2361,19 @@ xqc_path_send_burst_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
 
             /* check cc limit */
             if (congest
-                && !xqc_send_packet_check_cc(send_ctl, packet_out, total_bytes_to_send, now))
+                && xqc_path_cc_holds_back(send_ctl, packet_out,
+                                          total_bytes_to_send, now,
+                                          &in_flight_held))
             {
-                send_ctl->ctl_conn->send_cc_blocked++;
-                break;
+                if (send_type != XQC_SEND_TYPE_NORMAL_HIGH_PRI) {
+                    break;
+                }
+
+                /* out of the buffer until the burst is sent, since
+                   xqc_on_packets_send_burst() takes its first packets */
+                xqc_list_del_init(pos);
+                xqc_list_add_tail(pos, &held);
+                continue;
             }
 
             /* retransmit 0-RTT packets in 1-RTT if 1-RTT keys are ready. */
@@ -2317,7 +2387,7 @@ xqc_path_send_burst_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
             ret = xqc_conn_enc_packet(conn, path, packet_out, iov_array[burst_cnt].iov_base,
                                       XQC_CONN_MAX_UDP_PAYLOAD_SIZE, &iov_array[burst_cnt].iov_len, now);
             if (XQC_OK != ret) {
-                return ret;
+                goto end;
             }
 
             total_bytes_to_send += packet_out->po_used_size;
@@ -2337,19 +2407,24 @@ xqc_path_send_burst_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
 
     /* nothing to send, return */
     if (burst_cnt == 0) {
-        return burst_cnt;
+        ret = burst_cnt;
+        goto end;
     }
 
     /* burst send packets */
     ret = xqc_send_burst(conn, path, iov_array, burst_cnt);
     if (ret < 0) {
-        return ret;
+        goto end;
 
     } else if (ret != burst_cnt) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|error send msg|sent:%ui||cnt:%d|", ret, burst_cnt);
     }
 
     xqc_on_packets_send_burst(conn, path, ret, now, send_type);
+
+end:
+    /* the held back packets return to the head of the buffer, in order */
+    xqc_list_splice(&held, &path->path_schedule_buf[send_type]);
     return ret;
 }
 
@@ -2382,7 +2457,8 @@ xqc_conn_send_packets_batch(xqc_connection_t *conn)
     xqc_list_head_t *head;
     xqc_list_head_t *pos, *next;
 
-    congest = 0;
+    /* only the in-flight high priority packets are limited and paced */
+    congest = 1;
     head = &conn->conn_send_queue->sndq_send_packets_high_pri;
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
@@ -2410,6 +2486,7 @@ xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
 
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     xqc_send_queue_t *send_queue = conn->conn_send_queue;
+    xqc_bool_t in_flight_held = XQC_FALSE;
 
     xqc_usec_t now = xqc_monotonic_timestamp();
 
@@ -2431,9 +2508,12 @@ xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
 
         /* check cc limit */
         if (congest
-            && !xqc_send_packet_check_cc(send_ctl, packet_out, 0, now))
+            && xqc_path_cc_holds_back(send_ctl, packet_out, 0, now,
+                                      &in_flight_held))
         {
-            send_ctl->ctl_conn->send_cc_blocked++;
+            if (send_type == XQC_SEND_TYPE_NORMAL_HIGH_PRI) {
+                continue;
+            }
             break;
         }
 
@@ -2483,8 +2563,8 @@ xqc_conn_send_packets(xqc_connection_t *conn)
     xqc_list_head_t *head;
     xqc_list_head_t *pos, *next;
 
-     /* high priority packets are not limited by CC */
-    congest = 0;
+    /* only the in-flight high priority packets are limited and paced */
+    congest = 1;
     head = &conn->conn_send_queue->sndq_send_packets_high_pri;
     xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
         path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);

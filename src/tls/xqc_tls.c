@@ -12,11 +12,6 @@
 #include <openssl/hmac.h>
 
 
-/* Encoded TP offsets and length shared by context and ticket appdata. */
-#define XQC_EARLY_DATA_TP_RESET_STREAM_AT  0
-#define XQC_EARLY_DATA_TP_LEN              1
-
-
 typedef enum xqc_tls_flag_e {
     /* initial state */
     XQC_TLS_FLAG_NONE                   = 0,
@@ -275,7 +270,70 @@ end:
     return ret;
 }
 
+/* Encode the TPs that 0-RTT depends on, in the layout of xqc_tls_common.h. */
+static void
+xqc_tls_encode_early_data_tp(uint8_t *tp, const xqc_tls_config_t *cfg)
+{
+    tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT] = cfg->reset_stream_at != 0;
+
+    for (xqc_tls_early_data_limit_t limit = 0;
+         limit < XQC_EARLY_DATA_LIMIT_COUNT; limit++)
+    {
+        uint8_t *p = tp + XQC_EARLY_DATA_TP_LIMIT(limit);
+        uint64_t value = cfg->early_data_limits[limit];
+
+        for (size_t i = sizeof(value); i > 0; i--) {
+            p[i - 1] = (uint8_t)value;
+            value >>= 8;
+        }
+    }
+}
+
+
 #ifndef OPENSSL_IS_BORINGSSL
+static uint64_t
+xqc_tls_decode_early_data_limit(const uint8_t *tp,
+    xqc_tls_early_data_limit_t limit)
+{
+    const uint8_t *p = tp + XQC_EARLY_DATA_TP_LIMIT(limit);
+    uint64_t value = 0;
+
+    for (size_t i = 0; i < sizeof(value); i++) {
+        value = value << 8 | p[i];
+    }
+
+    return value;
+}
+
+
+/*
+ * Whether the TPs bound to a ticket still allow 0-RTT: reset_stream_at must
+ * match (reliable-stream-reset-09 Section 3), and RFC 9000 Section 7.4.1
+ * forbids accepting 0-RTT with any limit below the value in the ticket.
+ */
+static xqc_bool_t
+xqc_tls_early_data_tp_allowed(const uint8_t *ticket_tp, const uint8_t *tp)
+{
+    if (ticket_tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT]
+        != tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT])
+    {
+        return XQC_FALSE;
+    }
+
+    for (xqc_tls_early_data_limit_t limit = 0;
+         limit < XQC_EARLY_DATA_LIMIT_COUNT; limit++)
+    {
+        if (xqc_tls_decode_early_data_limit(tp, limit)
+            < xqc_tls_decode_early_data_limit(ticket_tp, limit))
+        {
+            return XQC_FALSE;
+        }
+    }
+
+    return XQC_TRUE;
+}
+
+
 int
 xqc_ssl_tp_ticket_generate_cb(SSL *ssl, void *arg)
 {
@@ -320,16 +378,8 @@ xqc_ssl_tp_allow_early_data_cb(SSL *ssl, void *arg)
         return 0;
     }
 
-    const uint8_t *tp = data;
-
-    /* reliable-stream-reset-09 Section 3; reject only early data. */
-    if (tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT]
-        != tls->early_data_tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT])
-    {
-        return 0;
-    }
-
-    return 1;
+    /* Reject only early data. */
+    return xqc_tls_early_data_tp_allowed(data, tls->early_data_tp);
 }
 #endif
 
@@ -348,12 +398,13 @@ xqc_tls_init_server_ssl(xqc_tls_t *tls, xqc_tls_config_t *cfg)
     SSL_set_accept_state(ssl);
 
     /*
-     * Encode the TPs checked for 0-RTT in the shared context/ticket layout.
-     * Only reset_stream_at is included for now. BoringSSL compares the native
-     * context; BabaSSL checks each TP in xqc_ssl_tp_allow_early_data_cb.
-     * An explicit zero also rejects legacy contexts without TP bindings.
+     * Encode the TPs checked for 0-RTT in the shared context/ticket layout:
+     * reset_stream_at and the limits of RFC 9000 Section 7.4.1. BoringSSL
+     * compares the native context, so any change rejects 0-RTT; BabaSSL
+     * checks each TP in xqc_ssl_tp_allow_early_data_cb, rejecting a smaller
+     * limit only. Legacy contexts without these TP bindings are rejected.
      */
-    tp[XQC_EARLY_DATA_TP_RESET_STREAM_AT] = cfg->reset_stream_at != 0;
+    xqc_tls_encode_early_data_tp(tp, cfg);
 #ifndef OPENSSL_IS_BORINGSSL
     /* BabaSSL copies the old native context when renewing a session ticket. */
     memcpy(tls->early_data_tp, tp, sizeof(tls->early_data_tp));

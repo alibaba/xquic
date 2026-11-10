@@ -124,6 +124,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_RESET_0RTT_UPGRADE 910
 #define XQC_TEST_CASE_RESET_0RTT_DISABLED 911
 #define XQC_TEST_CASE_RESET_0RTT_ENABLED 912
+#define XQC_TEST_CASE_0RTT_LIMITS_LOWERED 916
+#define XQC_TEST_CASE_0RTT_LIMITS_KEPT 917
 #define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
 #define XQC_TEST_CASE_HQ_REQUEST_FIN 1702
 #define XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN 1703
@@ -387,6 +389,7 @@ uint64_t g_last_sock_op_time;
  * 722/723 for RESET_STREAM final-size validation
  * 724-726 for stream close state and direction validation
  * 902/903 for AEAD confidentiality-limit validation
+ * 916/917 for the 0-RTT limits bound to session tickets
  * 1000-1021 for HTTP/3 protocol validation
  */
 int g_test_case;
@@ -3036,6 +3039,13 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     {
         printf("[reset-0rtt]|negotiated:%d|session_reused:%d|\n",
                h3_conn->conn->remote_settings.reset_stream_at,
+               SSL_session_reused(xqc_tls_get_ssl(h3_conn->conn->tls)));
+    }
+
+    if (g_test_case == XQC_TEST_CASE_0RTT_LIMITS_LOWERED
+        || g_test_case == XQC_TEST_CASE_0RTT_LIMITS_KEPT)
+    {
+        printf("[0rtt-limits]|session_reused:%d|\n",
                SSL_session_reused(xqc_tls_get_ssl(h3_conn->conn->tls)));
     }
 

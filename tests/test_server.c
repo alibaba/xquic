@@ -53,6 +53,8 @@
 #define XQC_TEST_CASE_RESET_0RTT_UPGRADE 910
 #define XQC_TEST_CASE_RESET_0RTT_DISABLED 911
 #define XQC_TEST_CASE_RESET_0RTT_ENABLED 912
+#define XQC_TEST_CASE_0RTT_LIMITS_LOWERED 916
+#define XQC_TEST_CASE_0RTT_LIMITS_KEPT 917
 int
 printf_null(const char *format, ...)
 {
@@ -1304,13 +1306,19 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
     }
 
     /*
-     * test 701: after the first connection closes, reduce max_streams_bidi
-     * to exercise client validation under RFC 9000 Section 7.4.1.
+     * RFC 9000 Section 7.4.1: lower or keep the stream limit for the
+     * connections that resume with the first connection's ticket.
      */
-    if (g_test_case == 701 && g_server_conn_cnt == 1) {
-        g_conn_settings.max_streams_bidi = 1;
+    if ((g_test_case == XQC_TEST_CASE_0RTT_LIMITS_LOWERED
+         || g_test_case == XQC_TEST_CASE_0RTT_LIMITS_KEPT)
+        && g_server_conn_cnt == 1)
+    {
+        if (g_test_case == XQC_TEST_CASE_0RTT_LIMITS_LOWERED) {
+            g_conn_settings.max_streams_bidi = 1;
+        }
         xqc_server_set_conn_settings(ctx.engine, &g_conn_settings);
-        printf("test_701: reduced max_streams_bidi to 1 for next conn\n");
+        printf("[0rtt-limits]|server_ready|\n");
+        fflush(stdout);
     }
 
     if (g_mpshell) {
@@ -1335,6 +1343,15 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
     {
         printf("[reset-0rtt]|server_advertised:%d|early_data:%d|\n",
                h3_conn->conn->local_settings.reset_stream_at,
+               stats.early_data_flag);
+        fflush(stdout);
+    }
+
+    if (g_test_case == XQC_TEST_CASE_0RTT_LIMITS_LOWERED
+        || g_test_case == XQC_TEST_CASE_0RTT_LIMITS_KEPT)
+    {
+        printf("[0rtt-limits]|max_streams_bidi:%"PRIu64"|early_data:%d|\n",
+               h3_conn->conn->local_settings.max_streams_bidi,
                stats.early_data_flag);
         fflush(stdout);
     }

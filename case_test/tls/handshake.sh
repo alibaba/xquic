@@ -564,24 +564,37 @@ reset_0rtt_saved_tp_matches()
     fi
 }
 
-reset_0rtt_check_connection()
+# The client sent its request in 0-RTT, and again in 1-RTT if the server
+# rejected 0-RTT (early_data_flag 2).
+tls_0rtt_check_packets()
 {
-    local phase="$1" cached="$2" current="$3" early="$4" reused="$5"
-    local ready=1 packets_ok=1
-    [[ "${phase}" = warmup ]] && ready=0
+    local phase="$1" early="$2"
 
-    if [[ "${ready}" = 1 ]] && ! grep -Eq \
+    if ! grep -Eq \
         'xqc_send_ctl_on_packet_sent.*pkt_type:0RTT\|frame:.*STREAM' clog; then
         echo "${phase}: no STREAM packet was sent in 0-RTT"
-        packets_ok=0
+        return 1
     fi
     if [[ "${early}" = 2 ]]; then
         if ! grep -Fq 'xqc_conn_early_data_reject|reject|' clog \
             || ! grep -Eq \
                 'xqc_send_ctl_on_packet_sent.*pkt_type:SHORT_HEADER\|frame:.*STREAM' clog; then
             echo "${phase}: missing 0-RTT rejection or 1-RTT stream replay"
-            packets_ok=0
+            return 1
         fi
+    fi
+    return 0
+}
+
+reset_0rtt_check_connection()
+{
+    local phase="$1" cached="$2" current="$3" early="$4" reused="$5"
+    local ready=1 packets_ok=1
+    [[ "${phase}" = warmup ]] && ready=0
+
+    if [[ "${ready}" = 1 ]] \
+        && ! tls_0rtt_check_packets "${phase}" "${early}"; then
+        packets_ok=0
     fi
 
     if [[ "${packets_ok}" = 1 ]] \
@@ -676,10 +689,91 @@ case_tls_reset_0rtt_enabled()
     case_tls_reset_0rtt_transition 912 1 1 1
 }
 
+tls_0rtt_limits_check_connection()
+{
+    local phase="$1" early="$2" reused="$3" streams="$4"
+
+    if [[ "${phase}" != warmup ]] \
+        && ! tls_0rtt_check_packets "${phase}" "${early}"; then
+        return 1
+    fi
+    if grep -Fxq '>>>>>>>> pass:1' "${phase}.log" \
+        && grep -Fq "early_data_flag:${early}, conn_err:0," "${phase}.log" \
+        && grep -Fxq "[0rtt-limits]|session_reused:${reused}|" \
+            "${phase}.log" \
+        && grep -Fxq "initial_max_streams_bidi=${streams}" tp_localhost; then
+        return 0
+    fi
+
+    echo "${phase}: expected early=${early} reused=${reused} streams=${streams}"
+    grep -E '0rtt-limits|early_data_flag:|>>>>>>>> pass:' "${phase}.log"
+    cat tp_localhost
+    return 1
+}
+
+case_tls_0rtt_limits_transition()
+{
+    local id="$1" streams="$2" early="$3"
+    local failed=0
+
+    # RFC 9000 Section 7.4.1; RFC 9001 Section 4.6.3.
+    # Keep one server/TLS context so rejection cannot come from lost keys.
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    case_test_start_server ${SERVER_BIN} -l d -e -x "${id}" > server.log
+
+    ${CLIENT_BIN} -s 4096 -l d -t 1 -E -x "${id}" > warmup.log || failed=1
+    tls_0rtt_limits_check_connection warmup 0 0 1024 || failed=1
+    cp clog warmup.clog
+    cp slog warmup.slog
+
+    if ! case_test_wait_for_log server.log '|server_ready|' 100 0.1; then
+        echo 'server did not finish the warmup connection'
+        cat server.log
+        case_test_stop_server
+        return 1
+    fi
+
+    # The server's stream limit is now ${streams}.
+    clear_log
+    ${CLIENT_BIN} -s 4096 -l d -t 1 -E -x "${id}" > resume.log || failed=1
+    tls_0rtt_limits_check_connection resume "${early}" 1 "${streams}" \
+        || failed=1
+    cp clog resume.clog
+    cp slog resume.slog
+
+    # The renewed ticket and saved parameters carry the current limit.
+    clear_log
+    ${CLIENT_BIN} -s 4096 -l d -t 1 -E -x "${id}" > refreshed.log || failed=1
+    tls_0rtt_limits_check_connection refreshed 1 1 "${streams}" || failed=1
+    cp clog refreshed.clog
+    cp slog refreshed.slog
+    case_test_stop_server
+
+    grep -Fxq "[0rtt-limits]|max_streams_bidi:${streams}|early_data:${early}|" \
+        server.log || failed=1
+    grep -Fxq "[0rtt-limits]|max_streams_bidi:${streams}|early_data:1|" \
+        server.log || failed=1
+    return "${failed}"
+}
+
+case_tls_0rtt_limits_lowered()
+{
+    case_tls_0rtt_limits_transition 916 1 2
+}
+
+case_tls_0rtt_limits_kept()
+{
+    case_tls_0rtt_limits_transition 917 1024 1
+}
+
 case_test_case "reset_0RTT_downgrade" --id 909 --run case_tls_reset_0rtt_downgrade
 case_test_case "reset_0RTT_upgrade" --id 910 --run case_tls_reset_0rtt_upgrade
 case_test_case "reset_0RTT_disabled" --id 911 --run case_tls_reset_0rtt_disabled
 case_test_case "reset_0RTT_enabled" --id 912 --run case_tls_reset_0rtt_enabled
+case_test_case "0RTT_limits_lowered" --id 916 --run case_tls_0rtt_limits_lowered
+case_test_case "0RTT_limits_kept" --id 917 --run case_tls_0rtt_limits_kept
 
 case_test_case "cert_verify" --id native --mode self-reporting --run case_tls_handshake_cert_verify
 case_test_case "1RTT" --id native --mode self-reporting --run case_tls_handshake__1RTT

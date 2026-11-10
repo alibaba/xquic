@@ -1200,6 +1200,42 @@ xqc_test_0rtt_params_all_increased(void)
 }
 
 
+/*
+ * RFC 9000 Section 7.4.1: a server binds its session tickets to each limit
+ * it advertises, in the slot of that limit.
+ */
+void
+xqc_test_conn_early_data_limits(void)
+{
+    xqc_trans_settings_t settings;
+    uint64_t limits[XQC_EARLY_DATA_LIMIT_COUNT];
+
+    memset(&settings, 0, sizeof(settings));
+    settings.active_connection_id_limit = 1;
+    settings.max_data = 2;
+    settings.max_stream_data_bidi_local = 3;
+    settings.max_stream_data_bidi_remote = 4;
+    settings.max_stream_data_uni = 5;
+    settings.max_streams_bidi = 6;
+    settings.max_streams_uni = 7;
+    settings.max_idle_timeout = 8;
+    settings.max_udp_payload_size = 9;
+    memset(limits, 0xff, sizeof(limits));
+
+    xqc_conn_get_early_data_limits(&settings, limits);
+
+    CU_ASSERT_EQUAL(limits[XQC_EARLY_DATA_LIMIT_ACTIVE_CONNECTION_ID], 1);
+    CU_ASSERT_EQUAL(limits[XQC_EARLY_DATA_LIMIT_MAX_DATA], 2);
+    CU_ASSERT_EQUAL(limits[XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_BIDI_LOCAL],
+                    3);
+    CU_ASSERT_EQUAL(limits[XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_BIDI_REMOTE],
+                    4);
+    CU_ASSERT_EQUAL(limits[XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_UNI], 5);
+    CU_ASSERT_EQUAL(limits[XQC_EARLY_DATA_LIMIT_MAX_STREAMS_BIDI], 6);
+    CU_ASSERT_EQUAL(limits[XQC_EARLY_DATA_LIMIT_MAX_STREAMS_UNI], 7);
+}
+
+
 void
 xqc_test_conn_tls_error_cb_alert_zero()
 {

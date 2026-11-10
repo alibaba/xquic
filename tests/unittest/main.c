@@ -436,6 +436,14 @@ main(int argc, char *argv[])
                         xqc_test_alpn_information_log_negotiated)
         || !CU_add_test(pSuite, "xqc_test_alpn_information_log_truncated",
                         xqc_test_alpn_information_log_truncated)
+        || !CU_add_test(pSuite, "xqc_test_packets_acked_log",
+                        xqc_test_packets_acked_log)
+        || !CU_add_test(pSuite, "xqc_test_stream_state_updated_log",
+                        xqc_test_stream_state_updated_log)
+        || !CU_add_test(pSuite, "xqc_test_parameters_set_log",
+                        xqc_test_parameters_set_log)
+        || !CU_add_test(pSuite, "xqc_test_packet_lost_log",
+                        xqc_test_packet_lost_log)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
         || !CU_add_test(pSuite, "xqc_test_memory_pool_large_alignment",
                         xqc_test_memory_pool_large_alignment)

@@ -3120,7 +3120,7 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
                 continue;
             }
 
-            has_reinjection = has_reinjection || xqc_conn_send_probe_pkt(c, path, packet_out);
+            has_reinjection |= xqc_conn_send_probe_pkt(c, path, packet_out);
             packet_out_last_sent = packet_out;
 
             if (--probe_num == 0) {
@@ -3137,7 +3137,8 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
                 /* try to send the first ack-eliciting pkt do not contain
                    HSK_DONE frame */
                 if (packet_out_later_send) {
-                    has_reinjection = has_reinjection || xqc_conn_send_probe_pkt(c, path, packet_out_later_send);
+                    has_reinjection |=
+                        xqc_conn_send_probe_pkt(c, path, packet_out_later_send);
                     packet_out_last_sent = packet_out_later_send;
                     packet_out_later_send = NULL;
 
@@ -3156,7 +3157,8 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
             while (probe_num > 0) {
                 xqc_log(c->log, XQC_LOG_DEBUG, "|dup pkt on PTO, pkt_num:%ui|",
                         packet_out_last_sent->po_pkt.pkt_num);
-                has_reinjection = has_reinjection || xqc_conn_send_probe_pkt(c, path, packet_out_last_sent);
+                has_reinjection |=
+                    xqc_conn_send_probe_pkt(c, path, packet_out_last_sent);
                 probe_num--;
             }
 

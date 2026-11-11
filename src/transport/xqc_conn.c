@@ -2835,9 +2835,54 @@ xqc_conn_schedule_end(xqc_connection_t *conn)
     }
 }
 
+static void
+xqc_conn_drop_obsolete_packets_in(xqc_connection_t *conn,
+    xqc_list_head_t *head)
+{
+    xqc_list_head_t  *pos, *next;
+    xqc_packet_out_t *packet_out;
+
+    xqc_list_for_each_safe(pos, next, head) {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (xqc_has_packet_number(&packet_out->po_pkt)) {
+            xqc_send_ctl_indirectly_ack_or_drop_po(conn, packet_out);
+        }
+    }
+}
+
+/*
+ * Drop the queued packets that an acknowledgment made useless, such as a
+ * copy made for retransmission of a packet that was acknowledged since, as
+ * the send loops would. Scheduled, they would count against the congestion
+ * window of their path and keep the data still to send from being
+ * scheduled, then be dropped unsent: a round could send nothing, with
+ * nothing in flight and no timer to start another one.
+ */
+static void
+xqc_conn_drop_obsolete_packets(xqc_connection_t *conn)
+{
+    xqc_send_queue_t *send_queue = conn->conn_send_queue;
+    xqc_list_head_t  *pos, *next;
+    xqc_path_ctx_t   *path;
+    int               send_type;
+
+    xqc_conn_drop_obsolete_packets_in(conn,
+                                      &send_queue->sndq_pto_probe_packets);
+    xqc_conn_drop_obsolete_packets_in(conn, &send_queue->sndq_lost_packets);
+
+    xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        for (send_type = 0; send_type < XQC_SEND_TYPE_N; send_type++) {
+            xqc_conn_drop_obsolete_packets_in(conn,
+                &path->path_schedule_buf[send_type]);
+        }
+    }
+}
+
 void
 xqc_conn_schedule_packets_to_paths(xqc_connection_t *conn)
 {
+    xqc_conn_drop_obsolete_packets(conn);
     xqc_conn_schedule_start(conn);
 
     /* do neither CC nor Pacing */

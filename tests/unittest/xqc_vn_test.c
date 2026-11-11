@@ -16,6 +16,9 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_client.h"
+#include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_send_queue.h"
+#include "src/common/xqc_list.h"
 #include "src/common/xqc_log.h"
 
 
@@ -549,6 +552,139 @@ xqc_test_vn_abort_on_multi_unsupported_versions(void)
     CU_ASSERT(ctx.c->conn_flag & XQC_CONN_FLAG_ERROR);
     CU_ASSERT(ctx.write_count == writes_before);
     CU_ASSERT(ctx.buf_len == buf_len_before);
+
+    vn_test_teardown(&ctx);
+}
+
+
+/* ----- VN packet generation ----- */
+
+static xqc_packet_out_t *
+vn_test_queued_vn_packet(xqc_connection_t *c)
+{
+    xqc_list_head_t   *pos, *next;
+    xqc_packet_out_t  *po;
+
+    xqc_list_for_each_safe(pos, next, &c->conn_send_queue->sndq_send_packets) {
+        po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (po->po_pkt.pkt_type == XQC_PTYPE_VERSION_NEGOTIATION) {
+            return po;
+        }
+    }
+
+    return NULL;
+}
+
+
+/*
+ * Check the VN packet that xqc_conn_send_version_negotiation queued:
+ * RFC 9000 Section 17.2.1 layout, both CIDs echoed, then the first
+ * version_count configured versions in network byte order.
+ */
+static void
+vn_test_check_sent_vn(xqc_connection_t *c, uint32_t version_count)
+{
+    const xqc_cid_t      *dcid = &c->dcid_set.current_dcid;
+    const xqc_cid_t      *odcid = &c->original_dcid;
+    const uint32_t       *list = c->engine->config->support_version_list;
+    xqc_packet_out_t     *po = vn_test_queued_vn_packet(c);
+    const unsigned char  *b;
+    size_t                off;
+
+    if (po == NULL) {
+        CU_FAIL("no Version Negotiation packet queued");
+        return;
+    }
+
+    b = po->po_buf;
+    CU_ASSERT(b[0] & 0x80);
+    CU_ASSERT(b[1] == 0 && b[2] == 0 && b[3] == 0 && b[4] == 0);
+    off = 5;
+
+    CU_ASSERT(b[off] == dcid->cid_len);
+    off++;
+    CU_ASSERT(memcmp(b + off, dcid->cid_buf, dcid->cid_len) == 0);
+    off += dcid->cid_len;
+
+    CU_ASSERT(b[off] == odcid->cid_len);
+    off++;
+    CU_ASSERT(memcmp(b + off, odcid->cid_buf, odcid->cid_len) == 0);
+    off += odcid->cid_len;
+
+    /* the 8-byte CIDs leave the version list unaligned */
+    CU_ASSERT(off % sizeof(uint32_t) != 0);
+
+    for (uint32_t i = 0; i < version_count; i++) {
+        CU_ASSERT(b[off] == (unsigned char)(list[i] >> 24));
+        CU_ASSERT(b[off + 1] == (unsigned char)(list[i] >> 16));
+        CU_ASSERT(b[off + 2] == (unsigned char)(list[i] >> 8));
+        CU_ASSERT(b[off + 3] == (unsigned char)list[i]);
+        off += 4;
+    }
+
+    CU_ASSERT(po->po_used_size == off);
+}
+
+
+/*
+ * T7: a VN packet carries every configured version in network byte
+ *     order after the echoed CIDs, whatever its alignment in the buffer.
+ */
+void
+xqc_test_vn_send_lists_versions(void)
+{
+    vn_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    if (!vn_test_start_client(&ctx)) {
+        CU_FAIL("client engine bootstrap failed");
+        vn_test_teardown(&ctx);
+        return;
+    }
+
+    xqc_config_t *config = ctx.engine->config;
+    config->support_version_list[0] = 0x00000001;
+    config->support_version_list[1] = 0xff00001d;
+    config->support_version_list[2] = 0x1a2a3a4a;
+    config->support_version_count = 3;
+
+    CU_ASSERT(xqc_conn_send_version_negotiation(ctx.c) == XQC_OK);
+    vn_test_check_sent_vn(ctx.c, 3);
+
+    vn_test_teardown(&ctx);
+}
+
+
+/*
+ * T8: versions that do not fit in the packet buffer are left out;
+ *     the ones written before them stay intact.
+ */
+void
+xqc_test_vn_send_truncates_versions(void)
+{
+    vn_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+
+    if (!vn_test_start_client(&ctx)) {
+        CU_FAIL("client engine bootstrap failed");
+        vn_test_teardown(&ctx);
+        return;
+    }
+
+    xqc_config_t *config = ctx.engine->config;
+    config->support_version_list[0] = 0x00000001;
+    config->support_version_list[1] = 0xff00001d;
+    config->support_version_count = 2;
+
+    /* room for the header and the first version only */
+    size_t header_len = 1 + 4 + 1 + ctx.c->dcid_set.current_dcid.cid_len
+                        + 1 + ctx.c->original_dcid.cid_len;
+    size_t pkt_out_size = ctx.c->pkt_out_size;
+    ctx.c->pkt_out_size = header_len + 4 + 3;
+
+    CU_ASSERT(xqc_conn_send_version_negotiation(ctx.c) == XQC_OK);
+    ctx.c->pkt_out_size = pkt_out_size;
+    vn_test_check_sent_vn(ctx.c, 1);
 
     vn_test_teardown(&ctx);
 }

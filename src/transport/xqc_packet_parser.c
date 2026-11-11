@@ -1283,7 +1283,7 @@ xqc_packet_parse_version_negotiation(xqc_connection_t *c, xqc_packet_in_t *packe
      */
     supported_version_count = 0;
     while (XQC_BUFF_LEFT_SIZE(pos, end) >= XQC_PACKET_VERSION_LENGTH) {
-        uint32_t version = ntohl(*(uint32_t*)pos);
+        uint32_t version = xqc_parse_uint32(pos);
         if (version) {
             if (xqc_uint32_list_find(supported_version_list, supported_version_count, version) == -1) {
                 if (supported_version_count < sizeof(supported_version_list) / sizeof(*supported_version_list)) {

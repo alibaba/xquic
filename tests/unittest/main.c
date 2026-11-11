@@ -821,6 +821,10 @@ main(int argc, char *argv[])
                         xqc_test_retry_invalid_token_close)
         || !CU_add_test(pSuite, "xqc_test_retry_invalid_token_ignore_original_dcid",
                         xqc_test_retry_invalid_token_ignore_original_dcid)
+        || !CU_add_test(pSuite, "xqc_test_token_lifetime",
+                        xqc_test_token_lifetime)
+        || !CU_add_test(pSuite, "xqc_test_token_address_mismatch",
+                        xqc_test_token_address_mismatch)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite,
                         "xqc_test_receive_dgram_at_valid_encryption_level",
@@ -889,6 +893,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_scid_mismatch", xqc_test_vn_reject_when_scid_mismatch)
         || !CU_add_test(pSuite, "xqc_test_vn_reject_when_state_not_initial_sent", xqc_test_vn_reject_when_state_not_initial_sent)
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_multi_unsupported_versions", xqc_test_vn_abort_on_multi_unsupported_versions)
+        || !CU_add_test(pSuite, "xqc_test_vn_send_lists_versions",
+                        xqc_test_vn_send_lists_versions)
+        || !CU_add_test(pSuite, "xqc_test_vn_send_truncates_versions",
+                        xqc_test_vn_send_truncates_versions)
         /* issue #534: xqc_frame_type_bit_t 64-bit overflow fix */
         || !CU_add_test(pSuite, "xqc_test_frame_type_enum_ordinals",
                         xqc_test_frame_type_enum_ordinals)

@@ -3,10 +3,12 @@
  */
 
 #include <CUnit/CUnit.h>
+#include <arpa/inet.h>
 #include "xqc_retry_test.h"
 
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_defs.h"
 #include "src/transport/xqc_packet_parser.h"
 
 
@@ -136,6 +138,134 @@ xqc_test_retry_invalid_token_ignore_original_dcid()
     CU_ASSERT(ret == -XQC_EIGNORE_PKT);
     CU_ASSERT(conn->conn_err == 0);
     CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_ERROR));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* defined in xqc_conn.c; lets the tests choose the expiry time */
+xqc_int_t xqc_conn_generate_and_encrypt_token(xqc_connection_t *conn,
+    unsigned char *token, unsigned *token_len, uint32_t expire);
+
+
+typedef struct xqc_test_token_s {
+    unsigned char   buf[XQC_MAX_TOKEN_LEN];
+    unsigned        len;
+} xqc_test_token_t;
+
+
+static void
+xqc_test_token_set_peer(xqc_connection_t *conn, int family, const char *ip)
+{
+    struct sockaddr_in   sa4;
+    struct sockaddr_in6  sa6;
+
+    if (family == AF_INET) {
+        memset(&sa4, 0, sizeof(sa4));
+        sa4.sin_family = AF_INET;
+        sa4.sin_port = htons(4433);
+        CU_ASSERT(inet_pton(AF_INET, ip, &sa4.sin_addr) == 1);
+        memcpy(conn->peer_addr, &sa4, sizeof(sa4));
+        conn->peer_addrlen = sizeof(sa4);
+
+    } else {
+        memset(&sa6, 0, sizeof(sa6));
+        sa6.sin6_family = AF_INET6;
+        sa6.sin6_port = htons(4433);
+        CU_ASSERT(inet_pton(AF_INET6, ip, &sa6.sin6_addr) == 1);
+        memcpy(conn->peer_addr, &sa6, sizeof(sa6));
+        conn->peer_addrlen = sizeof(sa6);
+    }
+}
+
+
+/* a token for the current peer address that expires at expire (s) */
+static void
+xqc_test_token_make(xqc_connection_t *conn, uint32_t expire,
+    xqc_test_token_t *token)
+{
+    token->len = sizeof(token->buf);
+    CU_ASSERT(xqc_conn_generate_and_encrypt_token(conn, token->buf,
+                                                  &token->len,
+                                                  htonl(expire)) == XQC_OK);
+}
+
+
+static xqc_int_t
+xqc_test_token_check(xqc_connection_t *conn, const xqc_test_token_t *token)
+{
+    conn->conn_flag &= ~XQC_CONN_FLAG_UPDATE_NEW_TOKEN;
+    return xqc_conn_check_token(conn, token->buf, token->len);
+}
+
+
+/*
+ * The expiry time follows the address, at token offset 5 (IPv4) or
+ * 17 (IPv6), so the checks must read it unaligned.
+ */
+void
+xqc_test_token_lifetime()
+{
+    xqc_test_token_t token;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    uint32_t now = xqc_monotonic_timestamp() / 1000000;
+    xqc_test_token_set_peer(conn, AF_INET, "192.0.2.1");
+
+    /* a fresh token passes without asking for a new one */
+    xqc_test_token_make(conn, now + XQC_TOKEN_EXPIRE_DELTA, &token);
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_OK);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_UPDATE_NEW_TOKEN));
+
+    /* a token about to expire passes, and a new one will be sent */
+    xqc_test_token_make(conn, now + 5, &token);
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_OK);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_UPDATE_NEW_TOKEN);
+
+    /* an expired token is refused */
+    if (now > 0) {
+        xqc_test_token_make(conn, now - 1, &token);
+        CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_ERROR);
+    }
+
+    /* the same for an IPv6 peer */
+    xqc_test_token_set_peer(conn, AF_INET6, "2001:db8::1");
+    xqc_test_token_make(conn, now + XQC_TOKEN_EXPIRE_DELTA, &token);
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_OK);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_UPDATE_NEW_TOKEN));
+
+    xqc_test_token_make(conn, now + 5, &token);
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_OK);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_UPDATE_NEW_TOKEN);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* a token is refused from an address other than the one it was made for */
+void
+xqc_test_token_address_mismatch()
+{
+    xqc_test_token_t token;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    /* the IPv4 mismatch is logged with the token's address */
+    conn->log->log_level = XQC_LOG_INFO;
+    uint32_t now = xqc_monotonic_timestamp() / 1000000;
+
+    xqc_test_token_set_peer(conn, AF_INET, "192.0.2.1");
+    xqc_test_token_make(conn, now + XQC_TOKEN_EXPIRE_DELTA, &token);
+    xqc_test_token_set_peer(conn, AF_INET, "192.0.2.2");
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_ERROR);
+
+    xqc_test_token_set_peer(conn, AF_INET6, "2001:db8::1");
+    xqc_test_token_make(conn, now + XQC_TOKEN_EXPIRE_DELTA, &token);
+    xqc_test_token_set_peer(conn, AF_INET6, "2001:db8::2");
+    CU_ASSERT(xqc_test_token_check(conn, &token) == XQC_ERROR);
 
     xqc_engine_destroy(conn->engine);
 }

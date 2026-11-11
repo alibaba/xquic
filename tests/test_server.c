@@ -96,6 +96,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_BOUNDARY 720
 #define XQC_TEST_CASE_CRYPTO_PREVIOUS_LEVEL_EXTENSION 721
+#define XQC_TEST_CASE_RANDOM_RESET_KEY 771
+#define XQC_TEST_CASE_RANDOM_TOKEN_KEY 772
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
 #define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
@@ -2497,6 +2499,32 @@ xqc_server_engine_callback(int fd, short what, void *arg)
     xqc_engine_main_logic(ctx->engine);
 }
 
+/*
+ * The stateless reset and token keys that a deployment sets on its servers,
+ * fixed here so that a restarted test_server still resets the connections of
+ * the previous one and accepts its tokens. Case 771 leaves the stateless
+ * reset key and case 772 the token keys to the engine, which makes up random
+ * ones.
+ */
+static void
+xqc_server_set_keys(xqc_config_t *config)
+{
+    static const char reset_key[] = "test_server stateless reset key";
+    static const char token_key[] = "test_server address validation token key";
+
+    if (g_test_case != XQC_TEST_CASE_RANDOM_RESET_KEY) {
+        memcpy(config->reset_token_key, reset_key, sizeof(reset_key) - 1);
+        config->reset_token_keylen = sizeof(reset_key) - 1;
+    }
+
+    if (g_test_case != XQC_TEST_CASE_RANDOM_TOKEN_KEY) {
+        for (int i = 0; i < XQC_TOKEN_MAX_KEY_VERSION; i++) {
+            memcpy(config->token_key_list[i], token_key, sizeof(token_key) - 1);
+            config->tk_len_list[i] = sizeof(token_key) - 1;
+        }
+    }
+}
+
 static ssize_t
 xqc_server_cid_generate(const xqc_cid_t *ori_cid, uint8_t *cid_buf, size_t cid_buflen, void *engine_user_data)
 {
@@ -3211,6 +3239,11 @@ int main(int argc, char *argv[]) {
         conn_settings.idle_time_out = 1000;
     }
 
+    /* the client gives up once the restarted server's resets are ignored */
+    if (g_test_case == XQC_TEST_CASE_RANDOM_RESET_KEY) {
+        conn_settings.idle_time_out = 5000;
+    }
+
     if (g_test_case == 201) {
         conn_settings.max_pkt_out_size = 1216;
     }
@@ -3276,6 +3309,7 @@ int main(int argc, char *argv[]) {
     }
 
     config.enable_h3_ext = g_enable_h3_ext;
+    xqc_server_set_keys(&config);
 
     switch(c_log_level) {
         case 'e': config.cfg_log_level = XQC_LOG_ERROR; break;

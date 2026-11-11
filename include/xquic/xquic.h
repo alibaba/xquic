@@ -1177,7 +1177,14 @@ typedef struct xqc_config_s {
      */
     uint8_t         cid_negotiate;
 
-    /** used to generate stateless reset token */
+    /**
+     * secret key of the stateless reset tokens (RFC 9000 Section 10.3.2).
+     * With reset_token_keylen 0, an engine keeps the key in use: a random
+     * one that it makes up when it is created, unless an earlier config set
+     * one. A peer ignores the stateless resets made with another key, so
+     * set the same key on every server that may receive the packets of a
+     * connection, including the same server after a restart.
+     */
     char            reset_token_key[XQC_RESET_TOKEN_MAX_KEY_LEN];
     size_t          reset_token_keylen;
 
@@ -1205,7 +1212,16 @@ typedef struct xqc_config_s {
     /** for warning when the number of elements in one bucket exceeds the value of hash_conflict_threshold*/
     uint32_t        hash_conflict_threshold;
 
-    /* used to encrypt token */
+    /**
+     * secret keys of the address validation tokens of NEW_TOKEN frames and
+     * Retry packets (RFC 9000 Section 8.1), one per value of the 2-bit
+     * version in the token. A version whose tk_len_list entry is 0 keeps
+     * its key: a random one that the engine makes up when it is created,
+     * unless an earlier config set one. A server only accepts the tokens
+     * made with its keys, so set the same keys on every server that should
+     * accept the tokens of the others, including the same server after a
+     * restart.
+     */
     unsigned char   token_key_list[XQC_TOKEN_MAX_KEY_VERSION][XQC_TOKEN_MAX_KEY_LEN];
     uint16_t        tk_len_list[XQC_TOKEN_MAX_KEY_VERSION];
     uint8_t         cur_tk_index; /* current used token key version */

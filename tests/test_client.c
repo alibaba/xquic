@@ -23,6 +23,7 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_frame_parser.h"
 #include "src/tls/xqc_crypto.h"
 #include "src/tls/xqc_tls.h"
@@ -127,6 +128,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
 #define XQC_TEST_CASE_HQ_REQUEST_FIN 1702
 #define XQC_TEST_CASE_HQ_REQUEST_DELAYED_FIN 1703
+#define XQC_TEST_CASE_CLOSE_WAIT_RTTVAR_DROP 1704
 
 static xqc_bool_t xqc_client_is_hq_case(void);
 
@@ -174,6 +176,9 @@ static void xqc_client_key_update_start(user_conn_t *user_conn);
 static void xqc_client_key_update_force(int fd, short what, void *arg);
 static void xqc_client_key_update_replay(int fd, short what, void *arg);
 static void xqc_client_key_update_conn_closed(void);
+static xqc_connection_t *xqc_client_find_conn(user_conn_t *user_conn);
+static void xqc_client_close_wait_rttvar_drop(user_conn_t *user_conn);
+static xqc_usec_t xqc_client_idle_start(user_conn_t *user_conn);
 
 
 #define XQC_TEST_DGRAM_BATCH_SZ 32
@@ -289,6 +294,9 @@ typedef struct {
 } xqc_key_update_stale_test_t;
 
 static xqc_key_update_stale_test_t xqc_key_update_stale_test;
+
+/* state of case 1704, see xqc_client_close_wait_rttvar_drop */
+static int g_close_wait_rttvar_dropped;
 
 #define XQC_DEMO_INTERFACE_MAX_LEN 64
 #define XQC_DEMO_MAX_PATH_COUNT    8
@@ -5023,6 +5031,10 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
             continue;
         }
 
+        if (g_test_case == XQC_TEST_CASE_CLOSE_WAIT_RTTVAR_DROP) {
+            xqc_client_close_wait_rttvar_drop(user_conn);
+        }
+
         ret = xqc_engine_packet_process(p_ctx->engine, packet_buf, recv_size,
                                       user_conn->local_addr, user_conn->local_addrlen,
                                       user_conn->peer_addr, user_conn->peer_addrlen,
@@ -5054,6 +5066,10 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 finish_recv:
     // mpshell: 批量测试，无需打印
     // printf("recvfrom size:%zu\n", recv_sum);
+    if (g_test_case == XQC_TEST_CASE_CLOSE_WAIT_RTTVAR_DROP) {
+        xqc_client_close_wait_rttvar_drop(user_conn);
+    }
+
     xqc_engine_finish_recv(p_ctx->engine);
 }
 
@@ -5177,6 +5193,104 @@ xqc_client_request_callback(int fd, short what, void *arg)
     int ret = event_add(user_conn->ev_request, &tv);
 }
 
+static xqc_connection_t *
+xqc_client_find_conn(user_conn_t *user_conn)
+{
+    client_ctx_t *p_ctx = g_test_qch_mode ? user_conn->ctx : &ctx;
+
+    return xqc_engine_conns_hash_find(p_ctx->engine, &user_conn->cid, 's');
+}
+
+/*
+ * Case 1704: xquic saves a stream's close deadline from the PTO of the moment
+ * both of its directions are done, and the RTT variance can decrease after
+ * that: xqc_send_ctl_on_ack_received() completes a stream before it takes the
+ * ACK's RTT sample, and later samples follow. Until the first request is
+ * scheduled to close, set the RTT variance to 400 ms before xquic processes
+ * each received packet and before its main logic runs after a batch of them,
+ * which puts the deadline 3.5 to 5 s ahead; then drop it to 1 ms, which brings
+ * 3 * PTO under 0.1 s. With -t 1, the next request starts only if the idle
+ * timer waits for the saved deadline. exercised:1 means that the deadline lies
+ * more than one idle period beyond the idle timeout plus 3 * PTO as now
+ * computed.
+ */
+static void
+xqc_client_close_wait_rttvar_drop(user_conn_t *user_conn)
+{
+    xqc_connection_t   *conn;
+    xqc_send_ctl_t     *send_ctl;
+    xqc_stream_t       *stream;
+    xqc_usec_t          wait, pto, idle;
+
+    if (g_close_wait_rttvar_dropped) {
+        return;
+    }
+
+    conn = xqc_client_find_conn(user_conn);
+    if (conn == NULL || conn->conn_initial_path == NULL) {
+        return;
+    }
+
+    send_ctl = conn->conn_initial_path->path_send_ctl;
+    if (xqc_list_empty(&conn->conn_closing_streams)) {
+        send_ctl->ctl_rttvar = 400000;
+        return;
+    }
+
+    g_close_wait_rttvar_dropped = 1;
+    send_ctl->ctl_rttvar = 1000;
+
+    stream = xqc_list_entry(conn->conn_closing_streams.next, xqc_stream_t,
+                            closing_stream_list);
+    wait = 0;
+    if (stream->stream_close_time > g_last_sock_op_time) {
+        wait = stream->stream_close_time - g_last_sock_op_time;
+    }
+
+    pto = xqc_conn_get_max_pto(conn);
+    idle = (xqc_usec_t)g_conn_timeout * 1000000;
+    printf("[close-wait-rttvar]|dropped|stream_id:%"PRIu64"|wait:%"PRIu64"|"
+           "pto:%"PRIu64"|exercised:%d|\n", stream->stream_id, wait, pto,
+           wait > 2 * idle + 3 * pto);
+}
+
+/*
+ * With -n, each further request starts from the close notification of the
+ * previous one. xquic delivers it at the stream_close_time that it saved when
+ * both directions of the stream were done, 3 * PTO later
+ * (xqc_stream_maybe_need_close()), and sends nothing meanwhile, so that wait
+ * is not idle time. While requests remain, count the idle time from the
+ * latest saved deadline: the PTO can decrease after a deadline is saved, so
+ * it cannot be recomputed here. A connection that stays silent is still
+ * closed one idle timeout after that deadline. In this client, both
+ * stream_close_time and g_last_sock_op_time come from xqc_now().
+ */
+static xqc_usec_t
+xqc_client_idle_start(user_conn_t *user_conn)
+{
+    xqc_connection_t   *conn;
+    xqc_stream_t       *stream;
+    xqc_list_head_t    *pos;
+    xqc_usec_t          start;
+
+    start = g_last_sock_op_time;
+    if (g_req_cnt >= g_req_max) {
+        return start;
+    }
+
+    conn = xqc_client_find_conn(user_conn);
+    if (conn == NULL) {
+        return start;
+    }
+
+    xqc_list_for_each(pos, &conn->conn_closing_streams) {
+        stream = xqc_list_entry(pos, xqc_stream_t, closing_stream_list);
+        start = xqc_max(start, stream->stream_close_time);
+    }
+
+    return start;
+}
+
 static void
 xqc_client_timeout_callback(int fd, short what, void *arg)
 {
@@ -5199,7 +5313,13 @@ xqc_client_timeout_callback(int fd, short what, void *arg)
 
     }*/
 
-    if (xqc_now() - g_last_sock_op_time < (uint64_t)g_conn_timeout * 1000000) {
+    if (g_test_case == XQC_TEST_CASE_CLOSE_WAIT_RTTVAR_DROP) {
+        xqc_client_close_wait_rttvar_drop(user_conn);
+    }
+
+    if (xqc_now() < xqc_client_idle_start(user_conn)
+                    + (uint64_t)g_conn_timeout * 1000000)
+    {
         struct timeval tv;
         tv.tv_sec = g_conn_timeout;
         tv.tv_usec = 0;

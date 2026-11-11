@@ -196,6 +196,155 @@ xqc_test_path_validation_destroy_path(xqc_path_ctx_t *path)
 }
 
 
+/*
+ * a packet of len bytes with frames on path, before the AEAD tag; what
+ * xqc_send_ctl_amplification_allows() decides for it after pending bytes
+ */
+static xqc_bool_t
+xqc_test_new_path_allows(xqc_path_ctx_t *path, xqc_packet_out_t *po,
+    uint64_t frames, size_t len, size_t pending)
+{
+    xqc_memzero(po, sizeof(*po));
+    po->po_frame_types = frames;
+    po->po_used_size = len;
+    return xqc_send_ctl_amplification_allows(path->path_send_ctl, po,
+                                             pending);
+}
+
+
+/*
+ * RFC 9000 Sections 8.1, 8.2.1 and 8.2.2: a server sends to the peer address
+ * of a new path, before validating it, at most three times the bytes it
+ * received from it, the datagram being sent included, and expands a
+ * PATH_CHALLENGE or PATH_RESPONSE datagram to 1200 bytes only within that.
+ */
+void
+xqc_test_new_path_anti_amplification(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_path_ctx_t *path;
+    xqc_send_ctl_t *send_ctl;
+    xqc_packet_out_t po;
+    size_t dgram = 30 + XQC_TLS_AEAD_OVERHEAD_MAX_LEN;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->enable_multipath = XQC_TRUE;
+    path = xqc_test_path_validation_create_path(conn);
+    CU_ASSERT_FATAL(path != NULL);
+    path->path_state = XQC_PATH_STATE_VALIDATING;
+    send_ctl = path->path_send_ctl;
+
+    /* no byte received: not even the first datagram */
+    CU_ASSERT_TRUE(xqc_send_ctl_check_anti_amplification(send_ctl, 0));
+    CU_ASSERT_FALSE(xqc_test_new_path_allows(path, &po,
+                        XQC_FRAME_BIT_PATH_RESPONSE, 30, 0));
+
+    /* 38 bytes received: two small datagrams, unexpanded */
+    send_ctl->ctl_bytes_recv = 38;
+    CU_ASSERT_TRUE(xqc_test_new_path_allows(path, &po,
+                       XQC_FRAME_BIT_PATH_RESPONSE, 30, 0));
+    CU_ASSERT(po.po_flag & XQC_POF_NO_PATH_PADDING);
+    CU_ASSERT_FALSE(path->path_challenge_unpadded);
+    CU_ASSERT_TRUE(xqc_test_new_path_allows(path, &po,
+                       XQC_FRAME_BIT_PATH_CHALLENGE, 30, dgram));
+    CU_ASSERT(po.po_flag & XQC_POF_NO_PATH_PADDING);
+    CU_ASSERT_TRUE(path->path_challenge_unpadded);
+    CU_ASSERT_FALSE(xqc_test_new_path_allows(path, &po,
+                        XQC_FRAME_BIT_PATH_CHALLENGE, 30, 2 * dgram));
+
+    /* room for 1200 bytes: expanded to 1200 bytes, not more */
+    send_ctl->ctl_bytes_recv = 400;
+    CU_ASSERT_TRUE(xqc_test_new_path_allows(path, &po,
+                       XQC_FRAME_BIT_PATH_RESPONSE, 30, 0));
+    CU_ASSERT(po.po_flag & XQC_POF_PATH_MIN_PADDING);
+    CU_ASSERT_FALSE(po.po_flag & XQC_POF_NO_PATH_PADDING);
+    CU_ASSERT_TRUE(xqc_test_new_path_allows(path, &po,
+                       XQC_FRAME_BIT_PATH_RESPONSE, 30, 1));
+    CU_ASSERT(po.po_flag & XQC_POF_NO_PATH_PADDING);
+
+    /* the bytes sent on the path count */
+    send_ctl->ctl_bytes_send = 1200;
+    CU_ASSERT_FALSE(xqc_test_new_path_allows(path, &po,
+                        XQC_FRAME_BIT_STREAM, 30, 0));
+
+    /* a validated path, and a client, are not limited */
+    path->path_state = XQC_PATH_STATE_ACTIVE;
+    CU_ASSERT_TRUE(xqc_test_new_path_allows(path, &po,
+                       XQC_FRAME_BIT_PATH_CHALLENGE, 1300, 0));
+    CU_ASSERT_FALSE(po.po_flag
+                    & (XQC_POF_NO_PATH_PADDING | XQC_POF_PATH_MIN_PADDING));
+    path->path_state = XQC_PATH_STATE_VALIDATING;
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    CU_ASSERT_TRUE(xqc_test_new_path_allows(path, &po,
+                       XQC_FRAME_BIT_PATH_CHALLENGE, 1300, 0));
+
+    xqc_test_path_validation_destroy_path(path);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* the number of queued packets that carry a PATH_CHALLENGE */
+static int
+xqc_test_queued_path_challenges(xqc_connection_t *conn)
+{
+    xqc_list_head_t *pos;
+    xqc_packet_out_t *po;
+    int n = 0;
+
+    xqc_list_for_each(pos, &conn->conn_send_queue->sndq_send_packets_high_pri)
+    {
+        po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (po->po_frame_types & XQC_FRAME_BIT_PATH_CHALLENGE) {
+            n++;
+        }
+    }
+
+    return n;
+}
+
+
+/*
+ * RFC 9000 Sections 8.2.1 and 8.2.3: a path validated by an unexpanded
+ * PATH_CHALLENGE is challenged again with a new payload, now expanded.
+ */
+void
+xqc_test_new_path_mtu_validation(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    unsigned char first[XQC_PATH_CHALLENGE_DATA_LEN];
+    xqc_path_ctx_t *path;
+    int queued;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->enable_multipath = XQC_TRUE;
+
+    for (int unpadded = 0; unpadded <= 1; unpadded++) {
+        path = xqc_test_path_validation_create_path(conn);
+        CU_ASSERT_FATAL(path != NULL);
+        CU_ASSERT_EQUAL(xqc_path_init(path, conn), XQC_OK);
+        CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_VALIDATING);
+
+        path->path_challenge_unpadded = unpadded;
+        xqc_memcpy(first, path->path_challenge_data, sizeof(first));
+        queued = xqc_test_queued_path_challenges(conn);
+
+        xqc_path_validate(path);
+        CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_ACTIVE);
+        CU_ASSERT_FALSE(path->path_challenge_unpadded);
+        CU_ASSERT_EQUAL(xqc_test_queued_path_challenges(conn),
+                        queued + unpadded);
+        CU_ASSERT_EQUAL(memcmp(first, path->path_challenge_data,
+                               sizeof(first)) != 0, unpadded);
+
+        xqc_test_path_validation_destroy_path(path);
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_path_validation_timeout_current_pto_dominates(void)
 {

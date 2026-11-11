@@ -849,6 +849,10 @@ main(int argc, char *argv[])
                         "xqc_test_path_validation_timeout_"
                         "new_path_pto_dominates",
                         xqc_test_path_validation_timeout_new_path_pto_dominates)
+        || !CU_add_test(pSuite, "xqc_test_new_path_anti_amplification",
+                        xqc_test_new_path_anti_amplification)
+        || !CU_add_test(pSuite, "xqc_test_new_path_mtu_validation",
+                        xqc_test_new_path_mtu_validation)
         || !CU_add_test(pSuite,
                         "xqc_test_path_validation_timer_not_extended_by_packet",
                         xqc_test_path_validation_timer_not_extended_by_packet)

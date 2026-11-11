@@ -54,4 +54,9 @@ void xqc_test_alpn_error_code_value(void);
 void xqc_test_alpn_server_cb_propagates_error(void);
 void xqc_test_alpn_client_handshake_no_alpn(void);
 
+/* RFC 9000 Section 10.3.1: the reset tokens of the connection IDs in use */
+void xqc_test_stateless_reset_token_of_unused_cid(void);
+void xqc_test_stateless_reset_token_of_used_cid(void);
+void xqc_test_stateless_reset_token_of_retired_cid(void);
+
 #endif

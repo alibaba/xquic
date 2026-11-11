@@ -20,6 +20,9 @@
 #include "xqc_common_test.h"
 
 xqc_int_t xqc_need_padding(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
+xqc_int_t xqc_cid_encryption_aes_128_ecb(unsigned char *plaintext,
+    size_t plaintext_len, uint8_t *ciphertext, size_t ciphertext_len,
+    uint8_t *key, size_t key_len, xqc_engine_t *engine);
 
 
 void
@@ -170,6 +173,197 @@ xqc_test_engine_min_unknown_0rtt_not_pre_dropped()
 
     CU_ASSERT_PTR_NOT_NULL(xqc_test_find_packet_conn(engine, packet,
                                                      sizeof(packet)));
+    xqc_engine_destroy(engine);
+}
+
+
+/*
+ * draft-ietf-quic-load-balancers-13: the example of Section 4.3.2 and the
+ * encrypted CIDs of Appendix B.2. Server IDs and nonces of 7, 15 and 18
+ * octets take the four-pass cipher, 16 octets a single pass.
+ */
+void
+xqc_test_engine_lb_cid_vectors()
+{
+    static const uint8_t key_example[XQC_LB_CID_KEY_LEN] = {
+        0xfd, 0xf7, 0x26, 0xa9, 0x89, 0x3e, 0xc0, 0x5c,
+        0x06, 0x32, 0xd3, 0x95, 0x66, 0x80, 0xba, 0xf0,
+    };
+    static const uint8_t key_appendix[XQC_LB_CID_KEY_LEN] = {
+        0x8f, 0x95, 0xf0, 0x92, 0x45, 0x76, 0x5f, 0x80,
+        0x25, 0x69, 0x34, 0xe5, 0x0c, 0x66, 0x20, 0x7f,
+    };
+    static const struct {
+        const uint8_t  *key;
+        size_t          len;    /* server ID and nonce octets */
+        uint8_t         plain[XQC_MAX_CID_LEN];  /* first octet, ID, nonce */
+        uint8_t         cid[XQC_MAX_CID_LEN];
+    } vectors[] = {
+        {key_example, 7, {
+            0x07, 0x31, 0x44, 0x1a, 0x9c, 0x69, 0xc2, 0x75,
+        }, {
+            0x07, 0xe2, 0x3c, 0xb4, 0x2b, 0xba, 0x1e, 0xe0,
+        }},
+        {key_appendix, 7, {
+            0x07, 0xed, 0x79, 0x3a, 0xee, 0x08, 0x0d, 0xbf,
+        }, {
+            0x07, 0xfb, 0xfe, 0x05, 0xf7, 0x31, 0xb4, 0x25,
+        }},
+        {key_appendix, 15, {
+            0x4f, 0xed, 0x79, 0x3a, 0x51, 0xd4, 0x9b, 0x8f,
+            0x5f, 0xab, 0x65, 0xee, 0x08, 0x0d, 0xbf, 0x48,
+        }, {
+            0x4f, 0x01, 0x09, 0x56, 0xfb, 0x5c, 0x1d, 0x4d,
+            0x86, 0xe0, 0x10, 0x18, 0x3e, 0x0b, 0x7d, 0x1e,
+        }},
+        {key_appendix, 16, {
+            0x90, 0xed, 0x79, 0x3a, 0x51, 0xd4, 0x9b, 0x8f,
+            0x5f, 0xee, 0x08, 0x0d, 0xbf, 0x48, 0xc0, 0xd1,
+            0xe5,
+        }, {
+            0x90, 0x4d, 0xd2, 0xd0, 0x5a, 0x7b, 0x0d, 0xe9,
+            0xb2, 0xb9, 0x90, 0x7a, 0xfb, 0x5e, 0xcf, 0x8c,
+            0xc3,
+        }},
+        {key_appendix, 18, {
+            0x12, 0xed, 0x79, 0x3a, 0x51, 0xd4, 0x9b, 0x8f,
+            0x5f, 0xab, 0xee, 0x08, 0x0d, 0xbf, 0x48, 0xc0,
+            0xd1, 0xe5, 0x5d,
+        }, {
+            0x12, 0x7a, 0x28, 0x5a, 0x09, 0xf8, 0x52, 0x80,
+            0xf4, 0xfd, 0x6a, 0xbb, 0x43, 0x4a, 0x71, 0x59,
+            0xe4, 0xd3, 0xeb,
+        }},
+    };
+    uint8_t         key[XQC_LB_CID_KEY_LEN];
+    uint8_t         plain[XQC_MAX_CID_LEN];
+    uint8_t         cid[XQC_MAX_CID_LEN];
+    xqc_engine_t   *engine = test_create_engine();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    for (size_t v = 0; v < sizeof(vectors) / sizeof(vectors[0]); v++) {
+        size_t len = vectors[v].len;
+
+        memcpy(key, vectors[v].key, sizeof(key));
+        memcpy(plain, vectors[v].plain, len + 1);
+        memcpy(cid, plain, len + 1);
+        CU_ASSERT(xqc_lb_cid_encryption(plain, len, cid, len + 1, key,
+                                        sizeof(key), engine) == XQC_OK);
+        CU_ASSERT(memcmp(cid, vectors[v].cid, len + 1) == 0);
+    }
+
+    xqc_engine_destroy(engine);
+}
+
+
+/* bit i of buf, counted from the most significant bit of buf[0] */
+static uint8_t
+xqc_test_lb_bit(const uint8_t *buf, size_t i)
+{
+    return (buf[i / 8] >> (7 - i % 8)) & 1;
+}
+
+/* copy bits [from, from + n) of src to bits [to, to + n) of dst */
+static void
+xqc_test_lb_copy_bits(uint8_t *dst, size_t to, const uint8_t *src,
+    size_t from, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        uint8_t mask = 0x80 >> ((to + i) % 8);
+
+        if (xqc_test_lb_bit(src, from + i)) {
+            dst[(to + i) / 8] |= mask;
+
+        } else {
+            dst[(to + i) / 8] &= (uint8_t) ~mask;
+        }
+    }
+}
+
+/*
+ * One step of the load balancer's decryption, draft-ietf-quic-load-balancers-13
+ * Section 4.4.2, bit by bit on halves of bits bits stored from the most
+ * significant bit: dst ^= truncate(AES_ECB(key, expand(src, pass))). Odd
+ * passes use expand_left() and truncate_right(), even ones expand_right()
+ * and truncate_left().
+ */
+static void
+xqc_test_lb_decrypt_pass(uint8_t *dst, const uint8_t *src, size_t bits,
+    uint8_t pass, uint8_t *key, xqc_engine_t *engine)
+{
+    uint8_t block[16] = {0}, cipher[16], pad[XQC_MAX_CID_LEN] = {0};
+    size_t  block_bits = sizeof(block) * 8;
+
+    if (pass % 2 == 1) {
+        xqc_test_lb_copy_bits(block, 0, src, 0, bits);
+        block[sizeof(block) - 1] = pass;
+
+    } else {
+        block[0] = pass;
+        xqc_test_lb_copy_bits(block, block_bits - bits, src, 0, bits);
+    }
+
+    CU_ASSERT(xqc_cid_encryption_aes_128_ecb(block, sizeof(block), cipher,
+                                             sizeof(cipher), key,
+                                             XQC_LB_CID_KEY_LEN, engine)
+              == XQC_OK);
+    xqc_test_lb_copy_bits(pad, 0, cipher,
+                          pass % 2 == 1 ? block_bits - bits : 0, bits);
+    for (size_t i = 0; i < (bits + 7) / 8; i++) {
+        dst[i] ^= pad[i];
+    }
+}
+
+/*
+ * A load balancer following draft-ietf-quic-load-balancers-13 Section 4.4.2
+ * recovers the server ID and nonce from the CID of every four-pass length,
+ * from 1 to 19 octets: odd lengths split their middle octet between the
+ * halves.
+ */
+void
+xqc_test_engine_lb_cid_decryption()
+{
+    uint8_t         key[XQC_LB_CID_KEY_LEN];
+    uint8_t         plain[XQC_MAX_CID_LEN], cid[XQC_MAX_CID_LEN];
+    uint8_t         left[XQC_MAX_CID_LEN], right[XQC_MAX_CID_LEN];
+    uint8_t         decrypted[XQC_MAX_CID_LEN];
+    xqc_engine_t   *engine = test_create_engine();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    for (size_t i = 0; i < sizeof(key); i++) {
+        key[i] = (uint8_t) (0x5a ^ (0x13 * i));
+    }
+
+    for (size_t len = 1; len < XQC_MAX_CID_LEN; len++) {
+        size_t bits = len * 4;
+
+        if (len == XQC_LB_CID_KEY_LEN) {
+            continue;   /* a single AES pass */
+        }
+
+        for (size_t i = 0; i <= len; i++) {
+            plain[i] = (uint8_t) (0x3d * (i + len) + 0x21);
+        }
+        memcpy(cid, plain, len + 1);
+        CU_ASSERT(xqc_lb_cid_encryption(plain, len, cid, len + 1, key,
+                                        sizeof(key), engine) == XQC_OK);
+
+        xqc_memzero(left, sizeof(left));
+        xqc_memzero(right, sizeof(right));
+        xqc_test_lb_copy_bits(left, 0, cid + 1, 0, bits);
+        xqc_test_lb_copy_bits(right, 0, cid + 1, bits, bits);
+        xqc_test_lb_decrypt_pass(left, right, bits, 4, key, engine);
+        xqc_test_lb_decrypt_pass(right, left, bits, 3, key, engine);
+        xqc_test_lb_decrypt_pass(left, right, bits, 2, key, engine);
+        xqc_test_lb_decrypt_pass(right, left, bits, 1, key, engine);
+
+        xqc_memzero(decrypted, sizeof(decrypted));
+        xqc_test_lb_copy_bits(decrypted, 0, left, 0, bits);
+        xqc_test_lb_copy_bits(decrypted, bits, right, 0, bits);
+        CU_ASSERT(memcmp(decrypted, plain + 1, len) == 0);
+        CU_ASSERT(cid[0] == plain[0]);
+    }
+
     xqc_engine_destroy(engine);
 }
 

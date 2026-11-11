@@ -11,6 +11,8 @@ void xqc_test_engine_drop_small_initial();
 void xqc_test_engine_drop_small_unknown_0rtt();
 void xqc_test_engine_min_initial_not_pre_dropped();
 void xqc_test_engine_min_unknown_0rtt_not_pre_dropped();
+void xqc_test_engine_lb_cid_vectors();
+void xqc_test_engine_lb_cid_decryption();
 void xqc_test_engine_lb_cid_encryption();
 void xqc_test_rebinding_candidate_budget_limit();
 void xqc_test_rebinding_no_padding_flag();

@@ -614,6 +614,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_transport_error_type_overlap",
                         xqc_test_conn_close_transport_error_type_overlap)
+        || !CU_add_test(pSuite, "xqc_test_new_token_frame_qlog",
+                        xqc_test_new_token_frame_qlog)
         || !CU_add_test(pSuite, "xqc_test_conn_close_reason_truncated",
                         xqc_test_conn_close_reason_truncated)
         || !CU_add_test(pSuite, "xqc_test_conn_close_valid_packet_types",

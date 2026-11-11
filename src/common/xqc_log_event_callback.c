@@ -376,8 +376,14 @@ xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...)
     case XQC_FRAME_NEW_TOKEN: {
         uint64_t length = va_arg(args, uint64_t);
         unsigned char *token = va_arg(args, unsigned char *);
+        /* a token is binary and has no NUL after it: print it in hex */
+        unsigned char token_str[XQC_MAX_TOKEN_LEN * 2 + 1];
+        size_t token_len = xqc_min(length, XQC_MAX_TOKEN_LEN);
+        xqc_hex_dump(token_str, token, token_len);
+        token_str[token_len * 2] = '\0';
         xqc_qlog_implement(log, TRA_FRAMES_PROCESSED, func,
-                          "|type:%d|token_length:%ui|token:%s|", frame_type, length, token);
+                          "|type:%d|token_length:%ui|token:%s|", frame_type, length,
+                          token_str);
         break;
     }
 

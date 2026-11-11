@@ -987,6 +987,248 @@ xqc_qpack_test_dirty_heap(void)
     }
 }
 
+#define XQC_QPACK_TEST_PEERS_CAP        4096
+#define XQC_QPACK_TEST_PEERS_ENTRIES    32
+
+/*
+ * An encoder whose dynamic table of 4096 bytes holds 32 entries, and a
+ * decoder that received their instructions. The first entry, of 42 bytes,
+ * is followed by 31 entries of 115 bytes, after which it is draining
+ * (xqc_dtable_is_entry_draining()). The field section that refers to them
+ * on stream 0 is not acknowledged: stream 0 is blocked already, and the
+ * field sections encoded on it next add no blocked stream.
+ */
+typedef struct xqc_qpack_test_peers_s {
+    xqc_qpack_t    *enc;
+    xqc_ins_buf_t   enc_bufs;
+    xqc_qpack_t    *dec;
+    xqc_ins_buf_t   dec_bufs;
+} xqc_qpack_test_peers_t;
+
+static xqc_http_header_t g_qpack_test_draining = {
+    .name   = {.iov_base = "nm_00", .iov_len = 5},
+    .value  = {.iov_base = "vlu_0", .iov_len = 5},
+};
+
+static void
+xqc_qpack_test_peers_create(xqc_engine_t *engine, xqc_qpack_test_peers_t *p)
+{
+    unsigned char       name[XQC_QPACK_TEST_PEERS_ENTRIES][3];
+    unsigned char       value[80];
+    xqc_http_header_t   hdr[XQC_QPACK_TEST_PEERS_ENTRIES];
+    xqc_http_headers_t  hdrs = {hdr, XQC_QPACK_TEST_PEERS_ENTRIES,
+                                XQC_QPACK_TEST_PEERS_ENTRIES};
+    xqc_var_buf_t      *efs = xqc_var_buf_create(16384);
+    xqc_var_buf_t      *ins;
+    size_t              i;
+
+    memset(hdr, 0, sizeof(hdr));
+    memset(value, 'v', sizeof(value));
+    hdr[0] = g_qpack_test_draining;
+    for (i = 1; i < XQC_QPACK_TEST_PEERS_ENTRIES; i++) {
+        name[i][0] = 'f';
+        name[i][1] = '0' + i / 10;
+        name[i][2] = '0' + i % 10;
+        hdr[i].name.iov_base = name[i];
+        hdr[i].name.iov_len = sizeof(name[i]);
+        hdr[i].value.iov_base = value;
+        hdr[i].value.iov_len = sizeof(value);
+    }
+
+    p->enc_bufs.enc_ins = xqc_var_buf_create(16384);
+    p->enc_bufs.dec_ins = xqc_var_buf_create(16384);
+    p->dec_bufs.enc_ins = xqc_var_buf_create(16384);
+    p->dec_bufs.dec_ins = xqc_var_buf_create(16384);
+    p->enc = xqc_qpack_create(XQC_QPACK_TEST_PEERS_CAP,
+                              XQC_QPACK_TEST_PEERS_CAP, engine->log,
+                              &ins_cb, &p->enc_bufs);
+    p->dec = xqc_qpack_create(XQC_QPACK_TEST_PEERS_CAP,
+                              XQC_QPACK_TEST_PEERS_CAP, engine->log,
+                              &ins_cb, &p->dec_bufs);
+    CU_ASSERT_FATAL(efs != NULL && p->enc != NULL && p->dec != NULL
+                    && p->enc_bufs.enc_ins != NULL
+                    && p->enc_bufs.dec_ins != NULL
+                    && p->dec_bufs.enc_ins != NULL
+                    && p->dec_bufs.dec_ins != NULL);
+
+    /* the decoder's SETTINGS, and the encoder's dynamic table capacity */
+    CU_ASSERT(xqc_qpack_set_enc_max_dtable_cap(p->enc,
+                                               XQC_QPACK_TEST_PEERS_CAP)
+              == XQC_OK);
+    CU_ASSERT(xqc_qpack_set_max_blocked_stream(p->enc, 16) == XQC_OK);
+    CU_ASSERT(xqc_qpack_set_dtable_cap(p->enc, XQC_QPACK_TEST_PEERS_CAP)
+              == XQC_OK);
+
+    CU_ASSERT(xqc_qpack_enc_headers(p->enc, 0, &hdrs, efs) == XQC_OK);
+    ins = p->enc_bufs.enc_ins;
+    CU_ASSERT(xqc_qpack_process_encoder(p->dec, ins->data, ins->data_len)
+              == ins->data_len);
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(p->dec)
+              == XQC_QPACK_TEST_PEERS_ENTRIES);
+    xqc_var_buf_clear(ins);
+    xqc_var_buf_free(efs);
+}
+
+static void
+xqc_qpack_test_peers_destroy(xqc_qpack_test_peers_t *p)
+{
+    xqc_qpack_destroy(p->enc);
+    xqc_qpack_destroy(p->dec);
+    xqc_var_buf_free(p->enc_bufs.enc_ins);
+    xqc_var_buf_free(p->enc_bufs.dec_ins);
+    xqc_var_buf_free(p->dec_bufs.enc_ins);
+    xqc_var_buf_free(p->dec_bufs.dec_ins);
+}
+
+/* the decoder decodes a field section of one field line, without waiting */
+static void
+xqc_qpack_test_peers_decode(xqc_qpack_test_peers_t *p, xqc_var_buf_t *efs,
+    xqc_http_header_t *hdr)
+{
+    xqc_http_headers_t  out;
+    xqc_http_header_t  *line;
+    xqc_bool_t          blocked = XQC_FALSE;
+    xqc_rep_ctx_t      *ctx = xqc_qpack_create_req_ctx(0);
+    ssize_t             read;
+
+    CU_ASSERT_FATAL(ctx != NULL);
+    memset(&out, 0, sizeof(out));
+    read = xqc_qpack_dec_headers(p->dec, ctx, efs->data, efs->data_len, &out,
+                                 XQC_H3_MAX_FIELD_SECTION_SIZE, XQC_TRUE,
+                                 &blocked);
+    CU_ASSERT(read == efs->data_len);
+    CU_ASSERT(blocked == XQC_FALSE);
+    CU_ASSERT(out.count == 1);
+
+    if (out.count == 1) {
+        line = &out.headers[0];
+        CU_ASSERT(line->name.iov_len == hdr->name.iov_len
+                  && memcmp(line->name.iov_base, hdr->name.iov_base,
+                            hdr->name.iov_len) == 0);
+        CU_ASSERT(line->value.iov_len == hdr->value.iov_len
+                  && memcmp(line->value.iov_base, hdr->value.iov_base,
+                            hdr->value.iov_len) == 0);
+    }
+
+    xqc_h3_headers_free(&out);
+    xqc_qpack_destroy_req_ctx(ctx);
+}
+
+/*
+ * An entry that the encoder inserts, or duplicates, is in the decoder's
+ * table once the decoder has every instruction the encoder wrote: field
+ * lines that refer to an entry the decoder never inserts, or to a newer
+ * one, would name another entry, or one the decoder waits for (RFC 9204
+ * 3.2.4). On stream 0, the encoder encodes the field line into an
+ * instruction buffer that every instruction outgrows: the Duplicate
+ * instruction of the draining entry, 31 entries back, takes 2 bytes. Each
+ * allocation of that encoding fails in turn, then the field line is
+ * encoded again. The decoder receives every instruction, and decodes each
+ * field section that was encoded.
+ */
+static void
+xqc_qpack_test_enc_ins_sweep(xqc_engine_t *engine, xqc_http_header_t *hdr,
+    xqc_bool_t compat)
+{
+    long                    n;
+    int                     failed;
+    xqc_int_t               ret;
+    xqc_var_buf_t          *ins;
+    xqc_var_buf_t          *efs;
+    xqc_var_buf_t          *efs_again;
+    xqc_http_headers_t      hdrs = {hdr, 1, 1};
+    xqc_qpack_test_peers_t  p;
+
+    for (n = 1; n < 100; n++) {
+        xqc_test_alloc_live = 0;
+        xqc_test_alloc_tracking = 1;
+        xqc_qpack_test_peers_create(engine, &p);
+#ifdef XQC_COMPAT_DUPLICATE
+        xqc_qpack_set_compat_dup(p.enc, compat);
+#endif
+        efs = xqc_var_buf_create(256);
+        efs_again = xqc_var_buf_create(256);
+        CU_ASSERT_FATAL(efs != NULL && efs_again != NULL);
+
+        xqc_var_buf_free(p.enc_bufs.enc_ins);
+        p.enc_bufs.enc_ins = xqc_var_buf_create(1);
+        CU_ASSERT_FATAL(p.enc_bufs.enc_ins != NULL);
+
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        ret = xqc_qpack_enc_headers(p.enc, 0, &hdrs, efs);
+        xqc_test_alloc_count = -1;
+        failed = xqc_test_alloc_failed;
+
+        CU_ASSERT(xqc_qpack_enc_headers(p.enc, 0, &hdrs, efs_again)
+                  == XQC_OK);
+
+        ins = p.enc_bufs.enc_ins;
+        CU_ASSERT(xqc_qpack_process_encoder(p.dec, ins->data,
+                                            ins->data_len)
+                  == ins->data_len);
+        if (ret == XQC_OK) {
+            xqc_qpack_test_peers_decode(&p, efs, hdr);
+        }
+        xqc_qpack_test_peers_decode(&p, efs_again, hdr);
+
+        xqc_var_buf_free(efs);
+        xqc_var_buf_free(efs_again);
+        xqc_qpack_test_peers_destroy(&p);
+        xqc_test_alloc_tracking = 0;
+        CU_ASSERT(xqc_test_alloc_live == 0);
+
+        if (!failed) {
+            /* nothing failed */
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+}
+
+void
+xqc_test_qpack_enc_ins_alloc_failures(void)
+{
+    xqc_http_header_t hdr[] = {
+        /* Insert with Literal Name */
+        {
+            .name   = {.iov_base = "x-literal", .iov_len = 9},
+            .value  = {.iov_base = "inserted", .iov_len = 8},
+        },
+        /* Insert with Name Reference, to the static table */
+        {
+            .name   = {.iov_base = "content-type", .iov_len = 12},
+            .value  = {.iov_base = "text/inserted", .iov_len = 13},
+        },
+        /* Insert with Name Reference, to the dynamic table */
+        {
+            .name   = {.iov_base = "f01", .iov_len = 3},
+            .value  = {.iov_base = "inserted", .iov_len = 8},
+        },
+        /* Insert with Literal Name, of the name only */
+        {
+            .name   = {.iov_base = "x-name-only", .iov_len = 11},
+            .value  = {.iov_base = "never indexed", .iov_len = 13},
+            .flags  = XQC_HTTP_HEADER_FLAG_NEVER_INDEX_VALUE,
+        },
+        /* Duplicate */
+        g_qpack_test_draining,
+    };
+    xqc_engine_t *engine = test_create_engine();
+    size_t i;
+
+    CU_ASSERT_FATAL(engine != NULL);
+    for (i = 0; i < sizeof(hdr) / sizeof(hdr[0]); i++) {
+        xqc_qpack_test_enc_ins_sweep(engine, &hdr[i], XQC_FALSE);
+    }
+#ifdef XQC_COMPAT_DUPLICATE
+    /* Duplicate, with the copy of xqc_dtable_duplicate_compat() */
+    xqc_qpack_test_enc_ins_sweep(engine, &g_qpack_test_draining, XQC_TRUE);
+#endif
+    xqc_engine_destroy(engine);
+}
+
 /*
  * A client engine with the h3 ALPN. The allocations that its connections
  * make to create their h3 connection, up to and including the QPACK
@@ -1177,6 +1419,12 @@ xqc_test_qpack_h3_conn_create_alloc_failures(void)
 }
 
 #else
+
+void
+xqc_test_qpack_enc_ins_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
 
 void
 xqc_test_qpack_create_alloc_failures(void)

@@ -11,4 +11,7 @@ void  xqc_test_stream_frame_buffered_limit();
 void  xqc_test_stop_sending_drops_queued_stream_packets();
 void  xqc_test_stop_sending_spares_other_streams();
 
+void xqc_test_stream_send_data_and_fin(void);
+void xqc_test_stream_send_nothing(void);
+
 #endif /* _XQC_STREAM_FRAME_TEST_H_INCLUDED_ */

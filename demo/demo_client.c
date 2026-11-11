@@ -3064,18 +3064,18 @@ xqc_demo_cli_is_0rtt_compliant(xqc_demo_cli_client_args_t *args)
         && args->quic_cfg.st_len > 0 && args->quic_cfg.tp_len > 0);
 }
 
-void
+int
 xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args_t *args,
     xqc_demo_cli_request_t *reqs, int req_cnt)
 {
     if (XQC_OK != xqc_demo_cli_init_xquic_connection(user_conn, args)) {
         printf("|xqc_demo_cli_start FAILED|\n");
-        return;
+        return -1;
     }
 
 #ifdef XQC_ENABLE_WEBTRANSPORT
     if (args->quic_cfg.webtransport) {
-        return;
+        return 0;
     }
 #endif
 
@@ -3154,6 +3154,8 @@ xqc_demo_cli_start(xqc_demo_cli_user_conn_t *user_conn, xqc_demo_cli_client_args
             event_add(user_conn->ev_idle_restart, &tv); 
         }    
     }
+
+    return 0;
 }
 
 void
@@ -3175,6 +3177,21 @@ xqc_demo_cli_all_tasks_finished(xqc_demo_cli_ctx_t *ctx)
         }
     }
     return 1;
+}
+
+
+/* whether a task failed, e.g. as its connection could not be created */
+int
+xqc_demo_cli_any_task_failed(xqc_demo_cli_ctx_t *ctx)
+{
+    for (size_t i = 0; i < ctx->task_ctx.task_cnt; i++) {
+        if (ctx->task_ctx.schedule.schedule_info[i].status
+            == TASK_STATUS_FAILED)
+        {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 
@@ -3345,13 +3362,26 @@ xqc_demo_cli_handle_task(xqc_demo_cli_ctx_t *ctx, xqc_demo_cli_task_t *task)
 
     /* init the first path */
     if (xqc_demo_cli_init_user_path(user_conn, 0, 0)) {
+        free(user_conn);
         return -1;
     }
 
-    /* start client */
-    xqc_demo_cli_start(user_conn, ctx->args, task->reqs, task->req_cnt);
-
+    /* the connection's close notification ends the task, also in creation */
     task->user_conn = user_conn;
+
+    /* start client */
+    if (xqc_demo_cli_start(user_conn, ctx->args, task->reqs, task->req_cnt)) {
+        /* without a connection to close, close the path here */
+        if (ctx->task_ctx.schedule.schedule_info[task->task_idx].status
+            != TASK_STATUS_FINISHED)
+        {
+            xqc_demo_cli_close_task(task);
+            free(user_conn);
+        }
+        task->user_conn = NULL;
+        return -1;
+    }
+
     return 0;
 }
 
@@ -3580,6 +3610,9 @@ main(int argc, char *argv[])
         }
     }
 #endif
+    if (result == 0 && xqc_demo_cli_any_task_failed(ctx)) {
+        result = 1;
+    }
     xqc_engine_destroy(ctx->engine);
     xqc_demo_cli_free_ctx(ctx);
     return result;

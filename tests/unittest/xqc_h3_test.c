@@ -3,6 +3,7 @@
  */
 
 #include <CUnit/CUnit.h>
+#include <arpa/inet.h>
 #include "xquic/xquic.h"
 #include "xquic/xqc_errno.h"
 #include "src/http3/frame/xqc_h3_frame.h"
@@ -14,10 +15,18 @@
 #include "src/common/xqc_time.h"
 #include "src/common/xqc_log_event_callback.h"
 #include "src/transport/xqc_stream.h"
+#include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_engine.h"
+#include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_transport_params.h"
 #include "src/http3/qpack/stable/xqc_stable.h"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+#include "src/webtransport/xqc_webtransport_conn.h"
+#endif
 
 #include "xqc_common_test.h"
 #include "xqc_h3_test.h"
+#include "xqc_alloc_wrap.h"
 
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
@@ -3651,6 +3660,707 @@ xqc_test_h3_settings_frame_size_limit()
     xqc_h3_frm_reset_pctx(&pctx);
 }
 
+
+/*
+ * An h3 client's first Initial, received by a server engine allowing
+ * uni_limit uni streams: its h3 connection is created when the ClientHello
+ * selects the ALPN. The h3 callbacks of both engines count the h3
+ * connections created and closed, and keep the last one created and its
+ * CID, the transport callbacks the connections refused by the server and
+ * the closing connections. As test_server.c does, the server accepts a
+ * connection with g_h3c_conn_ctx as its user data, and h3 connections are
+ * given g_h3c_h3_ctx with xqc_h3_conn_set_user_data(), which replaces the
+ * transport user data too; each callback keeps the user data it was last
+ * given. The first datagram the server sends back is kept. With wt, an
+ * engine registers WebTransport over its h3 callbacks.
+ *
+ * With g_h3c_fail_at set, the allocations that xqc_h3_conn_create_notify()
+ * makes once the h3 connection and its QPACK context exist (the WT
+ * connection, the uni streams and SETTINGS) are counted, and the one
+ * numbered g_h3c_fail_at fails (xqc_alloc_wrap.h): counting starts in
+ * h3_conn_create_notify and ends when the h3 ALPN's conn_create_notify
+ * returns.
+ */
+static unsigned char    g_h3c_initial[XQC_PACKET_OUT_BUF_CAP];
+static size_t           g_h3c_initial_len;
+static unsigned char    g_h3c_reply[XQC_PACKET_OUT_BUF_CAP];
+static size_t           g_h3c_reply_len;
+static int              g_h3c_created, g_h3c_closed, g_h3c_refused;
+static int              g_h3c_closing;
+static int              g_h3c_conn_ctx, g_h3c_h3_ctx;
+static void            *g_h3c_closed_ud, *g_h3c_refused_ud, *g_h3c_closing_ud;
+static xqc_cid_t        g_h3c_cid, g_h3c_client_cid;
+static xqc_h3_conn_t   *g_h3c_last;
+static long             g_h3c_fail_at;
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+#define XQC_TEST_H3C_WT 1
+#else
+#define XQC_TEST_H3C_WT 0
+#endif
+
+static ssize_t
+xqc_test_h3c_write(const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
+{
+    if (g_h3c_initial_len == 0 && size <= sizeof(g_h3c_initial)) {
+        memcpy(g_h3c_initial, buf, size);
+        g_h3c_initial_len = size;
+
+    } else if (g_h3c_reply_len == 0 && size <= sizeof(g_h3c_reply)) {
+        memcpy(g_h3c_reply, buf, size);
+        g_h3c_reply_len = size;
+    }
+    return size;
+}
+
+static void
+xqc_test_h3c_set_timer(xqc_msec_t wake_after, void *user_data)
+{
+}
+
+static int
+xqc_test_h3c_accept(xqc_engine_t *engine, xqc_connection_t *conn,
+    const xqc_cid_t *cid, void *user_data)
+{
+    xqc_conn_set_transport_user_data(conn, &g_h3c_conn_ctx);
+    return 0;
+}
+
+static void
+xqc_test_h3c_refuse(xqc_engine_t *engine, xqc_connection_t *conn,
+    const xqc_cid_t *cid, void *user_data)
+{
+    g_h3c_refused++;
+    g_h3c_refused_ud = user_data;
+}
+
+static xqc_int_t
+xqc_test_h3c_closing(xqc_connection_t *conn, const xqc_cid_t *cid,
+    xqc_int_t err_code, void *user_data)
+{
+    g_h3c_closing++;
+    g_h3c_closing_ud = user_data;
+    return XQC_OK;
+}
+
+static int
+xqc_test_h3c_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
+    void *h3c_user_data)
+{
+    g_h3c_created++;
+    g_h3c_last = h3_conn;
+    g_h3c_cid = *cid;
+    xqc_h3_conn_set_user_data(h3_conn, &g_h3c_h3_ctx);
+#ifdef XQC_TEST_ALLOC_WRAP
+    if (g_h3c_fail_at > 0) {
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = g_h3c_fail_at;
+        xqc_test_alloc_count = 0;
+    }
+#endif
+    return 0;
+}
+
+static int
+xqc_test_h3c_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
+    void *h3c_user_data)
+{
+    g_h3c_closed++;
+    g_h3c_closed_ud = h3c_user_data;
+    return 0;
+}
+
+/* the h3 ALPN's conn_create_notify, after which counting ends */
+static int
+xqc_test_h3c_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+    void *conn_user_data, void *conn_proto_data)
+{
+    int ret;
+
+    ret = h3_conn_callbacks.conn_create_notify(conn, cid, conn_user_data,
+                                               conn_proto_data);
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_count = -1;
+#endif
+    return ret;
+}
+
+static xqc_engine_t *
+xqc_test_h3c_engine(xqc_engine_type_t type, int wt)
+{
+    xqc_engine_t               *engine;
+    xqc_h3_callbacks_t          h3_cbs;
+    xqc_app_proto_callbacks_t   ap_cbs;
+    xqc_engine_ssl_config_t     ssl;
+    xqc_engine_callback_t       cb = {
+        .log_callbacks = xqc_null_log_cb,
+        .set_event_timer = xqc_test_h3c_set_timer,
+    };
+    xqc_transport_callbacks_t   tcbs = {
+        .write_socket = xqc_test_h3c_write,
+        .server_accept = xqc_test_h3c_accept,
+        .server_refuse = xqc_test_h3c_refuse,
+        .conn_closing = xqc_test_h3c_closing,
+    };
+
+    memset(&ssl, 0, sizeof(ssl));
+    ssl.private_key_file = "./server.key";
+    ssl.cert_file = "./server.crt";
+    ssl.ciphers = XQC_TLS_CIPHERS;
+    ssl.groups = XQC_TLS_GROUPS;
+
+    engine = xqc_engine_create(type, NULL, &ssl, &cb, &tcbs, NULL);
+    CU_ASSERT_FATAL(engine != NULL);
+
+    memset(&h3_cbs, 0, sizeof(h3_cbs));
+    h3_cbs.h3c_cbs.h3_conn_create_notify = xqc_test_h3c_create_notify;
+    h3_cbs.h3c_cbs.h3_conn_close_notify = xqc_test_h3c_close_notify;
+    CU_ASSERT_FATAL(xqc_h3_ctx_init(engine, &h3_cbs) == XQC_OK);
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (wt) {
+        CU_ASSERT_FATAL(xqc_wt_ctx_init(engine, NULL, NULL, NULL) == XQC_OK);
+    }
+#endif
+
+    /* the h3 ALPN, its conn_create_notify wrapped */
+    CU_ASSERT_FATAL(xqc_engine_get_alpn_callbacks(engine, XQC_ALPN_H3,
+        strlen(XQC_ALPN_H3), &ap_cbs) == XQC_OK);
+    ap_cbs.conn_cbs.conn_create_notify = xqc_test_h3c_conn_create_notify;
+    CU_ASSERT_FATAL(xqc_engine_register_alpn(engine, XQC_ALPN_H3,
+        strlen(XQC_ALPN_H3), &ap_cbs,
+        xqc_engine_get_alpn_ctx(engine, XQC_ALPN_H3, strlen(XQC_ALPN_H3)))
+        == XQC_OK);
+    return engine;
+}
+
+static xqc_connection_t *
+xqc_test_h3c_server_conn(uint64_t uni_limit, long fail_at, int wt,
+    xqc_engine_t **client, xqc_engine_t **server)
+{
+    const xqc_cid_t        *cid;
+    xqc_connection_t       *client_conn;
+    xqc_conn_settings_t     settings;
+    xqc_conn_ssl_config_t   conn_ssl;
+    struct sockaddr_in      local, peer;
+
+    memset(&local, 0, sizeof(local));
+    local.sin_family = AF_INET;
+    local.sin_port = htons(4433);
+    local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    peer = local;
+    peer.sin_port = htons(5555);
+
+    *client = xqc_test_h3c_engine(XQC_ENGINE_CLIENT, 0);
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl, 0, sizeof(conn_ssl));
+    g_h3c_initial_len = 0;
+    cid = xqc_h3_connect(*client, &settings, NULL, 0, "", 0, &conn_ssl,
+                         (struct sockaddr *)&local, sizeof(local), NULL);
+    CU_ASSERT_FATAL(cid != NULL);
+    CU_ASSERT_FATAL(g_h3c_initial_len > 0);
+    client_conn = xqc_engine_conns_hash_find(*client, cid, 's');
+    CU_ASSERT_FATAL(client_conn != NULL);
+    g_h3c_client_cid = *cid;
+
+    *server = xqc_test_h3c_engine(XQC_ENGINE_SERVER, wt);
+    settings.max_streams_uni = uni_limit;
+    xqc_server_set_conn_settings(*server, &settings);
+
+    g_h3c_created = 0;
+    g_h3c_closed = 0;
+    g_h3c_refused = 0;
+    g_h3c_closing = 0;
+    g_h3c_closed_ud = NULL;
+    g_h3c_refused_ud = NULL;
+    g_h3c_closing_ud = NULL;
+    g_h3c_last = NULL;
+    g_h3c_reply_len = 0;
+    g_h3c_fail_at = fail_at;
+    xqc_engine_packet_process(*server, g_h3c_initial, g_h3c_initial_len,
+                              (struct sockaddr *)&local, sizeof(local),
+                              (struct sockaddr *)&peer, sizeof(peer),
+                              xqc_monotonic_timestamp(), NULL);
+    g_h3c_fail_at = 0;
+    xqc_engine_main_logic(*server);
+
+    return xqc_engine_conns_hash_find(*server,
+                                      &client_conn->dcid_set.current_dcid,
+                                      's');
+}
+
+/*
+ * The client of xqc_test_h3c_server_conn() receives the first datagram the
+ * server sent back: the error of the client's connection.
+ */
+static xqc_int_t
+xqc_test_h3c_client_recv_reply(xqc_engine_t *client)
+{
+    xqc_connection_t   *conn;
+    struct sockaddr_in  local, peer;
+
+    memset(&local, 0, sizeof(local));
+    local.sin_family = AF_INET;
+    local.sin_port = htons(5555);
+    local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    peer = local;
+    peer.sin_port = htons(4433);
+
+    CU_ASSERT_FATAL(g_h3c_reply_len > 0);
+    xqc_engine_packet_process(client, g_h3c_reply, g_h3c_reply_len,
+                              (struct sockaddr *)&local, sizeof(local),
+                              (struct sockaddr *)&peer, sizeof(peer),
+                              xqc_monotonic_timestamp(), NULL);
+    conn = xqc_engine_conns_hash_find(client, &g_h3c_client_cid, 's');
+    CU_ASSERT_FATAL(conn != NULL);
+    return xqc_conn_get_errno(conn);
+}
+
+/*
+ * An h3 client connection, created with the transport parameters that a
+ * client keeps from a connection to resume the next one with 0-RTT (RFC
+ * 9000 Section 7.4.1); they allow uni_limit uni streams, and none are
+ * kept when uni_limit is negative. Its user data is g_h3c_conn_ctx. With
+ * wt, the client engine registers WebTransport, which creates the
+ * connection.
+ */
+static const xqc_cid_t *
+xqc_test_h3c_client_connect(xqc_engine_t *client, int64_t uni_limit, int wt)
+{
+    char                    tp_buf[512];
+    ssize_t                 tp_len;
+    xqc_transport_params_t  tp;
+    xqc_conn_settings_t     settings;
+    xqc_conn_ssl_config_t   conn_ssl;
+    struct sockaddr_in      peer;
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl, 0, sizeof(conn_ssl));
+    if (uni_limit >= 0) {
+        xqc_init_transport_params(&tp);
+        tp.initial_max_streams_bidi = 100;
+        tp.initial_max_streams_uni = uni_limit;
+        tp.initial_max_stream_data_bidi_local = 64 * 1024;
+        tp.initial_max_stream_data_bidi_remote = 64 * 1024;
+        tp.initial_max_stream_data_uni = 64 * 1024;
+        tp.initial_max_data = 1024 * 1024;
+        tp_len = xqc_write_transport_params(tp_buf, sizeof(tp_buf), &tp);
+        CU_ASSERT_FATAL(tp_len > 0 && tp_len < sizeof(tp_buf));
+        conn_ssl.transport_parameter_data = tp_buf;
+        conn_ssl.transport_parameter_data_len = tp_len;
+    }
+
+    memset(&peer, 0, sizeof(peer));
+    peer.sin_family = AF_INET;
+    peer.sin_port = htons(4433);
+    peer.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (wt) {
+        return xqc_webtransport_connect(client, &settings, NULL, 0, "", 0,
+                                        &conn_ssl, (struct sockaddr *)&peer,
+                                        sizeof(peer), &g_h3c_conn_ctx);
+    }
+#endif
+
+    return xqc_h3_connect(client, &settings, NULL, 0, "", 0, &conn_ssl,
+                          (struct sockaddr *)&peer, sizeof(peer),
+                          &g_h3c_conn_ctx);
+}
+
+/*
+ * Count what is allocated from now on (xqc_alloc_wrap.h). Without the
+ * linker's --wrap, nothing is counted, and leaks are left to a sanitizer.
+ */
+static void
+xqc_test_h3c_track(void)
+{
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+#endif
+}
+
+/* nothing allocated since xqc_test_h3c_track() is left */
+static void
+xqc_test_h3c_untrack(void)
+{
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(xqc_test_alloc_live == 0);
+#endif
+}
+
+/* a first run makes the allocations made once per process */
+static void
+xqc_test_h3c_warm_up(void)
+{
+    int                 wt;
+    xqc_engine_t       *client, *server;
+
+    for (wt = 0; wt <= XQC_TEST_H3C_WT; wt++) {
+        CU_ASSERT_FATAL(xqc_test_h3c_server_conn(3, 0, wt, &client, &server)
+                        != NULL);
+        xqc_engine_destroy(server);
+        xqc_engine_destroy(client);
+    }
+}
+
+/* the uni streams of conn that belong to an h3 connection */
+static int
+xqc_test_h3c_uni_streams(xqc_connection_t *conn)
+{
+    int                 n = 0;
+    xqc_stream_t       *stream;
+    xqc_list_head_t    *pos;
+
+    xqc_list_for_each(pos, &conn->conn_all_streams) {
+        stream = xqc_list_entry(pos, xqc_stream_t, all_stream_list);
+        if (stream->stream_flag & XQC_STREAM_FLAG_HAS_H3) {
+            n++;
+        }
+    }
+    return n;
+}
+
+/* the streams of conn */
+static int
+xqc_test_h3c_streams(xqc_connection_t *conn)
+{
+    int                 n = 0;
+    xqc_list_head_t    *pos;
+
+    xqc_list_for_each(pos, &conn->conn_all_streams) {
+        n++;
+    }
+    return n;
+}
+
+/*
+ * An h3 connection opens the control stream and the two QPACK streams
+ * (RFC 9114 Section 6.2). Allowed three uni streams, the server creates
+ * it, with and without WebTransport, and its close is notified once, with
+ * the connection's; once the engines are destroyed, nothing they allocated
+ * is left.
+ */
+void
+xqc_test_h3_conn_create_three_uni_streams(void)
+{
+    int                 wt;
+    xqc_engine_t       *client, *server;
+    xqc_connection_t   *conn;
+
+    xqc_test_h3c_warm_up();
+
+    for (wt = 0; wt <= XQC_TEST_H3C_WT; wt++) {
+        xqc_test_h3c_track();
+        conn = xqc_test_h3c_server_conn(3, 0, wt, &client, &server);
+        CU_ASSERT_FATAL(conn != NULL);
+        CU_ASSERT(conn->proto_data == g_h3c_last);
+        CU_ASSERT((conn->dgram_data != NULL) == wt);
+        CU_ASSERT(xqc_test_h3c_uni_streams(conn) == 3);
+        CU_ASSERT(g_h3c_created == 1);
+        CU_ASSERT(g_h3c_closed == 0);
+
+        xqc_engine_destroy(server);
+        CU_ASSERT(g_h3c_closed == 1);
+        CU_ASSERT(g_h3c_refused == 0);
+        xqc_engine_destroy(client);
+        xqc_test_h3c_untrack();
+    }
+}
+
+/*
+ * Allowed one or two, the server cannot open the QPACK encoder or decoder
+ * stream after the uni streams before it, and the creation of its h3
+ * connection fails. The creation was notified, and with WebTransport, the
+ * WT connection created for it refers to it and is the transport
+ * connection's datagram user data. The creation is rolled back: the close
+ * of the h3 connection is notified at once, and the transport connection
+ * is left without the h3 connection, the WT connection or the uni streams,
+ * with the user data it had before. The server closes the connection with
+ * INTERNAL_ERROR (RFC 9000 Section 20.1), which the client receives, and
+ * refuses it: these notifications get that user data, not the one the
+ * close released. Once the engines are destroyed, the close was notified
+ * once, and nothing they allocated is left.
+ */
+void
+xqc_test_h3_conn_create_fails_without_uni_streams(void)
+{
+    int                 wt;
+    uint64_t            limit;
+    xqc_engine_t       *client, *server;
+    xqc_connection_t   *conn;
+
+    xqc_test_h3c_warm_up();
+
+    for (wt = 0; wt <= XQC_TEST_H3C_WT; wt++) {
+        for (limit = 1; limit <= 2; limit++) {
+            xqc_test_h3c_track();
+            conn = xqc_test_h3c_server_conn(limit, 0, wt, &client, &server);
+            CU_ASSERT_FATAL(conn != NULL);
+            CU_ASSERT(g_h3c_created == 1);
+            CU_ASSERT(g_h3c_closed == 1);
+            CU_ASSERT(g_h3c_closed_ud == &g_h3c_h3_ctx);
+            CU_ASSERT(conn->user_data == &g_h3c_conn_ctx);
+            CU_ASSERT(conn->proto_data == NULL);
+            CU_ASSERT(conn->dgram_data == NULL);
+            CU_ASSERT(xqc_test_h3c_streams(conn) == 0);
+            CU_ASSERT(xqc_conn_get_errno(conn) == TRA_INTERNAL_ERROR);
+            CU_ASSERT(g_h3c_closing == 1);
+            CU_ASSERT(g_h3c_closing_ud == &g_h3c_conn_ctx);
+            CU_ASSERT(xqc_test_h3c_client_recv_reply(client)
+                      == TRA_INTERNAL_ERROR);
+
+            xqc_engine_destroy(server);
+            CU_ASSERT(g_h3c_closed == 1);
+            CU_ASSERT(g_h3c_refused == 1);
+            CU_ASSERT(g_h3c_refused_ud == &g_h3c_conn_ctx);
+            xqc_engine_destroy(client);
+            xqc_test_h3c_untrack();
+        }
+    }
+}
+
+/*
+ * A client keeps the transport parameters of a connection to resume the
+ * next one with 0-RTT, and applies them before it creates its h3
+ * connection. Allowed fewer than three uni streams, it cannot open its
+ * control stream or a QPACK stream, and the creation fails, with and
+ * without WebTransport: the close of the h3 connection is notified at
+ * once, and the connect returns NULL. The transport connection, left queued
+ * in the engine with the user data it was given and without the h3
+ * connection, is destroyed by the next run of the engine, which notifies
+ * nothing more. Allowed three, the h3 connection is created, and its close
+ * is notified with the connection's. Each time, the close is notified
+ * once, and once the engine is destroyed, nothing allocated since it was
+ * created is left.
+ */
+void
+xqc_test_h3_conn_create_remembered_uni_limit(void)
+{
+    int                 wt, failed;
+    int64_t             limit;
+    const xqc_cid_t    *cid;
+    xqc_engine_t       *client;
+    xqc_connection_t   *conn;
+
+    xqc_test_h3c_warm_up();
+
+    for (wt = 0; wt <= XQC_TEST_H3C_WT; wt++) {
+        for (limit = 0; limit <= 3; limit++) {
+            failed = limit < 3;
+            xqc_test_h3c_track();
+            client = xqc_test_h3c_engine(XQC_ENGINE_CLIENT, wt);
+            g_h3c_created = 0;
+            g_h3c_closed = 0;
+            g_h3c_closing = 0;
+            cid = xqc_test_h3c_client_connect(client, limit, wt);
+            CU_ASSERT((cid == NULL) == failed);
+            CU_ASSERT(g_h3c_created == 1);
+            CU_ASSERT(g_h3c_closed == failed);
+            conn = xqc_engine_conns_hash_find(client, &g_h3c_cid, 's');
+            CU_ASSERT_FATAL(conn != NULL);
+            CU_ASSERT(conn->user_data
+                      == (failed ? &g_h3c_conn_ctx : &g_h3c_h3_ctx));
+            CU_ASSERT((conn->proto_data == NULL) == failed);
+
+            xqc_engine_main_logic(client);
+            CU_ASSERT((xqc_engine_conns_hash_find(client, &g_h3c_cid, 's')
+                       == NULL) == failed);
+            CU_ASSERT(g_h3c_closed == failed);
+            CU_ASSERT(g_h3c_closing == 0);
+
+            xqc_engine_destroy(client);
+            CU_ASSERT(g_h3c_closed == 1);
+            xqc_test_h3c_untrack();
+        }
+    }
+}
+
+
+#ifdef XQC_TEST_ALLOC_WRAP
+
+/*
+ * Each allocation that the creation of an h3 connection makes once its
+ * QPACK context exists (with WebTransport, the WT connection; the uni
+ * streams and SETTINGS) fails in turn, at a server and at a client, with
+ * and without WebTransport. A failure fails the creation, whose close is
+ * notified at once: the server refuses the connection, left without the
+ * h3 connection or its streams and with the user data it had before, and
+ * the client's connect returns NULL.
+ * Each sweep ends with a run in which nothing fails: the h3 connection is
+ * created, and its close is notified with the connection's. In each run,
+ * the close is notified once, and once the engines are destroyed, nothing
+ * allocated since they were created is left.
+ */
+void
+xqc_test_h3_conn_create_alloc_failures(void)
+{
+    long                    n;
+    int                     wt, failed;
+    const xqc_cid_t        *cid;
+    xqc_engine_t           *client, *server;
+    xqc_connection_t       *conn;
+
+    xqc_test_h3c_warm_up();
+
+    for (wt = 0; wt <= XQC_TEST_H3C_WT; wt++) {
+        /* server: the h3 connection created for the client's first Initial */
+        for (n = 1; n < 1000; n++) {
+            xqc_test_h3c_track();
+            xqc_test_alloc_failed = 0;
+            conn = xqc_test_h3c_server_conn(3, n, wt, &client, &server);
+            CU_ASSERT_FATAL(conn != NULL);
+            failed = xqc_test_alloc_failed;
+            CU_ASSERT(g_h3c_created == 1);
+            CU_ASSERT(g_h3c_closed == failed);
+            CU_ASSERT(conn->user_data
+                      == (failed ? &g_h3c_conn_ctx : &g_h3c_h3_ctx));
+            CU_ASSERT(conn->proto_data == (failed ? NULL : g_h3c_last));
+            CU_ASSERT((conn->dgram_data != NULL) == (wt && !failed));
+            CU_ASSERT(xqc_test_h3c_uni_streams(conn)
+                      == xqc_test_h3c_streams(conn));
+            CU_ASSERT(xqc_test_h3c_streams(conn) == (failed ? 0 : 3));
+            CU_ASSERT(g_h3c_closing == failed);
+            CU_ASSERT(!failed || g_h3c_closing_ud == &g_h3c_conn_ctx);
+
+            xqc_engine_destroy(server);
+            CU_ASSERT(g_h3c_closed == 1);
+            CU_ASSERT(g_h3c_closed_ud == &g_h3c_h3_ctx);
+            CU_ASSERT(g_h3c_refused == failed);
+            CU_ASSERT(!failed || g_h3c_refused_ud == &g_h3c_conn_ctx);
+            xqc_engine_destroy(client);
+            xqc_test_h3c_untrack();
+
+            if (!failed) {
+                /* nothing failed: the h3 connection was created */
+                break;
+            }
+        }
+        CU_ASSERT(n > 1);
+
+        /* client: the h3 connection created when it connects */
+        for (n = 1; n < 1000; n++) {
+            xqc_test_h3c_track();
+            xqc_test_alloc_failed = 0;
+            client = xqc_test_h3c_engine(XQC_ENGINE_CLIENT, wt);
+            g_h3c_created = 0;
+            g_h3c_closed = 0;
+            g_h3c_fail_at = n;
+            cid = xqc_test_h3c_client_connect(client, -1, wt);
+            g_h3c_fail_at = 0;
+            failed = xqc_test_alloc_failed;
+            CU_ASSERT((cid == NULL) == failed);
+            CU_ASSERT(g_h3c_created == 1);
+            CU_ASSERT(g_h3c_closed == failed);
+            conn = xqc_engine_conns_hash_find(client, &g_h3c_cid, 's');
+            CU_ASSERT(!failed || conn == NULL
+                      || (conn->user_data == &g_h3c_conn_ctx
+                          && conn->proto_data == NULL));
+
+            xqc_engine_destroy(client);
+            CU_ASSERT(g_h3c_closed == 1);
+            CU_ASSERT(g_h3c_closed_ud == &g_h3c_h3_ctx);
+            xqc_test_h3c_untrack();
+
+            if (!failed) {
+                /* nothing failed: the h3 connection was created */
+                break;
+            }
+        }
+        CU_ASSERT(n > 1);
+    }
+}
+
+/*
+ * Each allocation of xqc_h3_stream_create() fails in turn for a request
+ * stream: no h3 stream is created, rather than one without the QPACK
+ * context that decodes its HEADERS. The sweep ends with a run in which
+ * nothing fails, and the h3 stream decodes a HEADERS frame.
+ */
+void
+xqc_test_h3_stream_create_alloc_failures(void)
+{
+    long                n;
+    xqc_int_t           ret;
+    xqc_stream_t       *stream;
+    xqc_h3_conn_t      *h3c;
+    xqc_h3_stream_t    *h3s;
+    xqc_connection_t   *conn;
+    unsigned char       buf[sizeof(xqc_h3_msgerr_valid_headers)];
+
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    CU_ASSERT_FATAL(conn->alpn != NULL);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+    conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 1024;
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+    h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    for (n = 1; n < 1000; n++) {
+        stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                             XQC_CLI_BID, NULL, NULL);
+        CU_ASSERT_FATAL(stream != NULL);
+
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        h3s = xqc_h3_stream_create(h3c, stream, XQC_H3_STREAM_TYPE_REQUEST,
+                                   NULL);
+        xqc_test_alloc_count = -1;
+        CU_ASSERT((h3s == NULL) == xqc_test_alloc_failed);
+        if (h3s == NULL) {
+            xqc_destroy_stream(stream);
+            continue;
+        }
+
+        h3s->h3r = xqc_h3_request_create_inner(h3c, h3s, NULL);
+        CU_ASSERT_FATAL(h3s->h3r != NULL);
+        xqc_memcpy(buf, xqc_h3_msgerr_valid_headers, sizeof(buf));
+        ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf), XQC_TRUE);
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(h3s->h3r->h3_header[0].count == 1);
+
+        /* the h3 stream frees its request; no close to redrive */
+        stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+        xqc_h3_stream_destroy(h3s);
+        xqc_destroy_stream(stream);
+        if (!xqc_test_alloc_failed) {
+            /* nothing failed: the h3 stream was created */
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+
+    xqc_h3_conn_destroy(h3c);
+    xqc_engine_destroy(conn->engine);
+}
+
+#else
+
+void
+xqc_test_h3_conn_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_h3_stream_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+#endif
 
 /*
  * Issue #748 regression test.

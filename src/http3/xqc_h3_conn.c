@@ -792,6 +792,23 @@ xqc_h3_conn_send_settings(xqc_h3_conn_t *h3c)
 }
 
 
+/*
+ * Destroy a uni stream created on an h3 connection, with its transport
+ * stream. The transport stream is detached from the h3 stream first:
+ * otherwise its close notification would reach the h3 stream once freed.
+ */
+static void
+xqc_h3_conn_destroy_uni_stream(xqc_h3_stream_t *h3s)
+{
+    xqc_stream_t *stream = h3s->stream;
+
+    stream->stream_flag &= ~XQC_STREAM_FLAG_HAS_H3;
+    stream->user_data = NULL;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+}
+
+
 xqc_h3_stream_t *
 xqc_h3_conn_create_uni_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_type_t h3s_type)
 {
@@ -836,10 +853,9 @@ xqc_h3_conn_create_uni_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_type_t h3s_type)
 
 error:
     if (NULL != h3s) {
-        xqc_h3_stream_destroy(h3s);
-    }
+        xqc_h3_conn_destroy_uni_stream(h3s);
 
-    if (stream) {
+    } else if (stream) {
         xqc_destroy_stream(stream);
     }
 
@@ -999,48 +1015,104 @@ xqc_h3_conn_get_user_data(xqc_h3_conn_t *h3_conn)
 }
 
 
+/*
+ * Undo the creation of an h3 connection that failed after
+ * xqc_h3_conn_create(). By then, its creation was notified, and with
+ * WebTransport, the WT connection created for it refers to it.
+ *
+ * The uni streams are destroyed first, detached from their h3 streams, as
+ * their close would reach the h3 connection. Destroying the h3 connection
+ * then notifies its close, as for any h3 connection whose creation was
+ * notified; with WebTransport, this destroys the WT connection before the
+ * h3 connection it refers to.
+ */
+static void
+xqc_h3_conn_create_rollback(xqc_h3_conn_t *h3c)
+{
+    if (h3c->qdec_stream) {
+        xqc_h3_conn_destroy_uni_stream(h3c->qdec_stream);
+        h3c->qdec_stream = NULL;
+    }
+
+    if (h3c->qenc_stream) {
+        xqc_h3_conn_destroy_uni_stream(h3c->qenc_stream);
+        h3c->qenc_stream = NULL;
+    }
+
+    if (h3c->control_stream_out) {
+        xqc_h3_conn_destroy_uni_stream(h3c->control_stream_out);
+        h3c->control_stream_out = NULL;
+    }
+
+    xqc_h3_conn_destroy(h3c);
+}
+
+
 xqc_int_t
 xqc_h3_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
     void *conn_user_data, void *conn_proto_data)
 {
     xqc_int_t ret;
     xqc_h3_conn_t *h3c;
+    void *dgram_data = xqc_datagram_get_user_data(conn);
+
     h3c = xqc_h3_conn_create(conn, conn_user_data);
     if (!h3c) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_h3_conn_create error|");
-        return -XQC_H3_ECREATE_CONN;
+        ret = -XQC_H3_ECREATE_CONN;
+        goto restore;
     }
 
     /* control local stream */
     h3c->control_stream_out = xqc_h3_conn_create_uni_stream(h3c, XQC_H3_STREAM_TYPE_CONTROL);
     if (NULL == h3c->control_stream_out) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|create control stream error|");
-        return XQC_ERROR;
+        ret = XQC_ERROR;
+        goto fail;
     }
 
     /* qpack encoder stream */
     h3c->qenc_stream = xqc_h3_conn_create_uni_stream(h3c, XQC_H3_STREAM_TYPE_QPACK_ENCODER);
     if (NULL == h3c->qenc_stream) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|create qpack encoder stream error|");
-        return XQC_ERROR;
+        ret = XQC_ERROR;
+        goto fail;
     }
 
     /* qpack decoder stream */
     h3c->qdec_stream = xqc_h3_conn_create_uni_stream(h3c, XQC_H3_STREAM_TYPE_QPACK_DECODER);
     if (NULL == h3c->qdec_stream) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|create qpack decoder stream error|");
-        return XQC_ERROR;
+        ret = XQC_ERROR;
+        goto fail;
     }
 
     /* send SETTINGS */
     ret = xqc_h3_conn_send_settings(h3c);
     if (ret) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_h3_conn_send_settings error|");
-        return ret;
+        goto fail;
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|create h3 conn success|");
     return XQC_OK;
+
+fail:
+    xqc_h3_conn_create_rollback(h3c);
+
+restore:
+    /*
+     * The transport connection notifies no close when this callback fails:
+     * a server closes it with INTERNAL_ERROR, then notifies server_refuse,
+     * and a client destroys it. Its user data are put back as they were
+     * given: once the creation was notified, xqc_h3_conn_set_user_data()
+     * may have replaced the transport user data, and the protocol and
+     * datagram user data may have been set, with what the close released.
+     */
+    xqc_conn_set_transport_user_data(conn, conn_user_data);
+    xqc_conn_set_alp_user_data(conn, conn_proto_data);
+    xqc_datagram_set_user_data(conn, dgram_data);
+    return ret;
 }
 
 

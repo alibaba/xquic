@@ -2231,6 +2231,83 @@ xqc_test_h3_frame_created_log_truncated(void)
 }
 
 
+/*
+ * Parse the len bytes of value with xqc_parse_http_priority() from a heap
+ * copy that ends with them, with no NUL after them.
+ */
+static xqc_int_t
+xqc_h3_test_parse_priority(const char *value, size_t len,
+    xqc_h3_priority_t *prio)
+{
+    uint8_t *buf = xqc_malloc(len > 0 ? len : 1);
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(buf);
+    memcpy(buf, value, len);
+    ret = xqc_parse_http_priority(prio, buf, len);
+    xqc_free(buf);
+    return ret;
+}
+
+
+static void
+xqc_h3_test_priority_equal(const xqc_h3_priority_t *a,
+    const xqc_h3_priority_t *b)
+{
+    CU_ASSERT_EQUAL(a->urgency, b->urgency);
+    CU_ASSERT_EQUAL(a->incremental, b->incremental);
+    CU_ASSERT_EQUAL(a->schedule, b->schedule);
+    CU_ASSERT_EQUAL(a->reinject, b->reinject);
+    CU_ASSERT_EQUAL(a->fec, b->fec);
+    CU_ASSERT_EQUAL(a->fastpath, b->fastpath);
+}
+
+
+/* RFC 9218 Section 4: the Priority field value is the len bytes given */
+void
+xqc_test_h3_parse_priority_bounds(void)
+{
+    xqc_h3_priority_t written, prio, defaults;
+    uint8_t buf[64];
+    size_t len;
+
+    xqc_h3_priority_init(&defaults);
+
+    /* a value that xqc_write_http_priority() wrote, with no NUL after it */
+    xqc_h3_priority_init(&written);
+    written.urgency = 5;
+    written.incremental = XQC_TRUE;
+    written.schedule = 1;
+    written.reinject = 2;
+    written.fec = XQC_FEC_NORMAL;
+    written.fastpath = 1;
+    len = xqc_write_http_priority(&written, buf, sizeof(buf));
+    CU_ASSERT_FATAL(len > 0 && len <= sizeof(buf));
+    CU_ASSERT_EQUAL(xqc_h3_test_parse_priority((const char *) buf, len,
+                                               &prio), XQC_OK);
+    xqc_h3_test_priority_equal(&prio, &written);
+
+    /* the bytes after the value are not part of it */
+    CU_ASSERT_EQUAL(xqc_h3_test_parse_priority("u=12", 3, &prio), XQC_OK);
+    CU_ASSERT_EQUAL(prio.urgency, 1);
+
+    CU_ASSERT_EQUAL(xqc_h3_test_parse_priority("u=4, i=?0", 6, &prio),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(prio.urgency, 4);
+    CU_ASSERT_EQUAL(prio.incremental, XQC_TRUE);
+
+    CU_ASSERT_EQUAL(xqc_h3_test_parse_priority("f=1234", 6, &prio), XQC_OK);
+    CU_ASSERT_EQUAL(prio.fec, XQC_FEC_CLOSE);
+
+    /* an empty value keeps the defaults */
+    CU_ASSERT_EQUAL(xqc_h3_test_parse_priority("", 0, &prio), XQC_OK);
+    xqc_h3_test_priority_equal(&prio, &defaults);
+
+    CU_ASSERT_EQUAL(xqc_h3_test_parse_priority("  ", 2, &prio), XQC_OK);
+    xqc_h3_test_priority_equal(&prio, &defaults);
+}
+
+
 static void
 xqc_h3_test_invalid_settings(const unsigned char *frame, size_t frame_size,
     uint64_t error)

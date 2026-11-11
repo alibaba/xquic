@@ -489,6 +489,83 @@ xqc_stream_do_recv_conn_flow_ctl(xqc_stream_t *stream)
     return XQC_OK;
 }
 
+/*
+ * 0-RTT data that the server rejected and that has not been sent again in
+ * 1-RTT yet (RFC 9001 Section 4.6.2); it goes out before any later data.
+ */
+static xqc_bool_t
+xqc_stream_has_0rtt_replay(xqc_stream_t *stream)
+{
+    return (stream->stream_conn->conn_flag & XQC_CONN_FLAG_0RTT_REJ)
+           && !xqc_list_empty(&stream->stream_write_buff_list.write_buff_list);
+}
+
+/*
+ * RFC 9000 Section 4.6: endpoints MUST NOT exceed the stream limit set by
+ * their peer. Before the peer's transport parameters arrive, local streams
+ * are created against the local limit as provisional credit, so a stream
+ * can lie beyond the limit that the peer then advertises. Such a stream
+ * sends no frame until a MAX_STREAMS frame covers it.
+ */
+xqc_bool_t
+xqc_stream_id_beyond_peer_limit(xqc_connection_t *conn,
+    xqc_stream_id_t stream_id)
+{
+    xqc_stream_type_t type = xqc_get_stream_type(stream_id);
+    xqc_bool_t server_initiated = type == XQC_SVR_BID || type == XQC_SVR_UNI;
+    uint64_t index = stream_id >> 2;
+
+    if (server_initiated != (conn->conn_type == XQC_CONN_TYPE_SERVER)) {
+        /* the peer opened this stream */
+        return XQC_FALSE;
+    }
+
+    if (xqc_stream_is_uni(stream_id)) {
+        return index >= conn->conn_flow_ctl.fc_max_streams_uni_can_send;
+    }
+
+    return index >= conn->conn_flow_ctl.fc_max_streams_bidi_can_send;
+}
+
+xqc_bool_t
+xqc_stream_beyond_peer_limit(xqc_stream_t *stream)
+{
+    return xqc_stream_id_beyond_peer_limit(stream->stream_conn,
+                                           stream->stream_id);
+}
+
+/*
+ * RFC 9000 Section 19.14: a sender SHOULD send STREAMS_BLOCKED when the
+ * peer's limit keeps it from opening a stream; one frame per limit value is
+ * enough. Section 12.4 allows the frame in 0-RTT and 1-RTT packets only,
+ * and xqc_write_streams_blocked_to_packet takes the packet type from the
+ * connection state, which is Initial or Handshake until the handshake
+ * completes, when the limit may still be the local provisional credit.
+ */
+static void
+xqc_stream_report_streams_blocked(xqc_connection_t *conn, int bidirectional)
+{
+    xqc_conn_flow_ctl_t *fc = &conn->conn_flow_ctl;
+    uint64_t limit = bidirectional ? fc->fc_max_streams_bidi_can_send
+                                   : fc->fc_max_streams_uni_can_send;
+    uint64_t *sent = bidirectional ? &fc->fc_streams_blocked_bidi_sent
+                                   : &fc->fc_streams_blocked_uni_sent;
+
+    if (*sent == limit
+        || xqc_state_to_pkt_type(conn) != XQC_PTYPE_SHORT_HEADER)
+    {
+        return;
+    }
+
+    if (xqc_write_streams_blocked_to_packet(conn, limit, bidirectional)
+        == XQC_OK)
+    {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|streams_blocked|limit:%ui|"
+                "bidirectional:%d|", limit, bidirectional);
+        *sent = limit;
+    }
+}
+
 int
 xqc_stream_do_create_flow_ctl(xqc_connection_t *conn, xqc_stream_id_t stream_id, xqc_stream_type_t stream_type)
 {
@@ -497,7 +574,7 @@ xqc_stream_do_create_flow_ctl(xqc_connection_t *conn, xqc_stream_id_t stream_id,
             if (conn->cur_stream_id_bidi_local >= conn->conn_flow_ctl.fc_max_streams_bidi_can_send) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|exceed max_streams_bidi_can_send:%ui|",
                         conn->conn_flow_ctl.fc_max_streams_bidi_can_send);
-                xqc_write_streams_blocked_to_packet(conn, conn->conn_flow_ctl.fc_max_streams_bidi_can_send, 1);
+                xqc_stream_report_streams_blocked(conn, 1);
                 return -XQC_EPROTO;
             }
 
@@ -505,7 +582,7 @@ xqc_stream_do_create_flow_ctl(xqc_connection_t *conn, xqc_stream_id_t stream_id,
             if (conn->cur_stream_id_uni_local >= conn->conn_flow_ctl.fc_max_streams_uni_can_send) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|exceed max_streams_uni_can_send:%ui|",
                         conn->conn_flow_ctl.fc_max_streams_uni_can_send);
-                xqc_write_streams_blocked_to_packet(conn, conn->conn_flow_ctl.fc_max_streams_uni_can_send, 0);
+                xqc_stream_report_streams_blocked(conn, 0);
                 return -XQC_EPROTO;
             }
         }
@@ -967,6 +1044,19 @@ xqc_stream_close_with_error(xqc_stream_t *stream, uint64_t err_code)
         return XQC_OK;
     }
     if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return XQC_OK;
+    }
+
+    /*
+     * RFC 9000 Sections 3.1 and 4.6: RESET_STREAM or STOP_SENDING would
+     * open a stream beyond the peer's limit, so the close is applied when
+     * MAX_STREAMS covers the stream.
+     */
+    if (xqc_stream_beyond_peer_limit(stream)) {
+        if (!(stream->stream_flag & XQC_STREAM_FLAG_CLOSE_DEFERRED)) {
+            stream->stream_flag |= XQC_STREAM_FLAG_CLOSE_DEFERRED;
+            stream->stream_err = err_code;
+        }
         return XQC_OK;
     }
 
@@ -1691,6 +1781,18 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
         xqc_stream_shutdown_write(stream);
         return -XQC_ESTREAM_RESET;
     }
+    if (stream->stream_flag & XQC_STREAM_FLAG_CLOSE_DEFERRED) {
+        /* keep the stream listed for the reset that its close defers */
+        xqc_conn_log(conn, XQC_LOG_INFO, "|stream closed, cannot send|"
+                     "stream_id:%ui|", stream->stream_id);
+        return -XQC_ESTREAM_RESET;
+    }
+    if (xqc_stream_has_0rtt_replay(stream)) {
+        /* the stream stays listed; xqc_process_write_streams sends it */
+        xqc_conn_log(conn, XQC_LOG_DEBUG, "|rejected 0-RTT data first|"
+                     "stream_id:%ui|", stream->stream_id);
+        return -XQC_EAGAIN;
+    }
     if (stream->stream_flag & XQC_STREAM_FLAG_FIN_WRITE) {
         xqc_conn_log(conn, XQC_LOG_WARN, "|fin write, cannot send|stream_id:%ui|", stream->stream_id);
         xqc_stream_shutdown_write(stream);
@@ -1722,6 +1824,13 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
             goto do_buff;
         }
     }
+
+    if (xqc_stream_beyond_peer_limit(stream)) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|blocked by peer stream limit|");
+        ret = -XQC_EAGAIN;
+        goto do_buff;
+    }
+
     while (offset < send_data_size || fin_only) {
 
         if (pkt_type == XQC_PTYPE_SHORT_HEADER) {
@@ -1878,15 +1987,30 @@ xqc_stream_write_buffed_data_to_packets(xqc_stream_t *stream)
     int ret;
     unsigned char fin;
 
+    /*
+     * RFC 9000 Section 7.4.1: after rejecting 0-RTT, the server's transport
+     * parameters can allow fewer streams and less data than the remembered
+     * ones (RFC 9000 Sections 4.1 and 4.6), so the data waits for them as
+     * new data would, and resumes from xqc_process_write_streams.
+     */
+    if (xqc_stream_beyond_peer_limit(stream)) {
+        return XQC_OK;
+    }
+
     xqc_list_for_each_safe(pos, next, &buff_list->write_buff_list) {
         write_buff = xqc_list_entry(pos, xqc_stream_write_buff_t, sw_list);
         send_data_size = write_buff->data_length;
-        offset = 0;
+        offset = write_buff->next_write_offset;
         fin = write_buff->fin;
         send_data = write_buff->sw_data;
         uint8_t fin_only = fin && send_data_size == 0;
 
         while (offset < send_data_size || fin_only) {
+
+            if (xqc_stream_do_send_flow_ctl(stream) != XQC_OK) {
+                write_buff->next_write_offset = offset;
+                return XQC_OK;
+            }
 
             ret = xqc_write_stream_frame_to_packet(conn, stream, pkt_type,
                                                     fin,
@@ -1924,12 +2048,40 @@ xqc_process_write_streams(xqc_connection_t *conn)
 
     xqc_list_for_each_safe(pos, next, &conn->conn_write_streams) {
         stream = xqc_list_entry(pos, xqc_stream_t, write_stream_list);
+        if (xqc_stream_beyond_peer_limit(stream)) {
+            /* notified again once MAX_STREAMS covers the stream */
+            xqc_stream_report_streams_blocked(conn,
+                !xqc_stream_is_uni(stream->stream_id));
+            continue;
+        }
+
+        if (stream->stream_flag & XQC_STREAM_FLAG_CLOSE_DEFERRED) {
+            stream->stream_flag &= ~XQC_STREAM_FLAG_CLOSE_DEFERRED;
+            xqc_stream_close_with_error(stream, stream->stream_err);
+            continue;
+        }
+
         if (stream->stream_flag & XQC_STREAM_FLAG_DATA_BLOCKED
             || conn->conn_flag & XQC_CONN_FLAG_DATA_BLOCKED) 
         {
             xqc_log(conn->log, XQC_LOG_DEBUG, "|DATA_BLOCKED|stream_id:%ui|conn:%p|",
                     stream->stream_id, stream->stream_conn);
             continue;
+        }
+
+        if (xqc_stream_has_0rtt_replay(stream)) {
+            ret = xqc_stream_write_buffed_data_to_packets(stream);
+            if (ret != XQC_OK) {
+                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+                return;
+            }
+            if (xqc_stream_has_0rtt_replay(stream)) {
+                continue;
+            }
+            if (stream->stream_flag & XQC_STREAM_FLAG_FIN_WRITE) {
+                xqc_stream_shutdown_write(stream);
+                continue;
+            }
         }
         xqc_log(conn->log, XQC_LOG_DEBUG, "|stream_write_notify|flag:%d|stream_id:%ui|conn:%p|cnt:%d|",
                 stream->stream_flag, stream->stream_id, stream->stream_conn, cnt++);
@@ -2338,6 +2490,10 @@ xqc_stream_reset(xqc_stream_t *stream, uint64_t error_code)
         && stream->reset_at.send_state != XQC_RESET_AT_SENT)
     {
         return -XQC_ESTATE;
+    }
+    if (xqc_stream_beyond_peer_limit(stream)) {
+        /* RFC 9000 Section 4.6: RESET_STREAM would open the stream */
+        return -XQC_EAGAIN;
     }
     xqc_int_t ret = xqc_stream_do_reset(stream, error_code);
     if (ret == XQC_OK) {

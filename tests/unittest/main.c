@@ -459,6 +459,16 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_normal_no_clamp", xqc_test_flow_ctl_normal_no_clamp)
         || !CU_add_test(pSuite, "xqc_test_uni_stream_credit_exhausted", xqc_test_uni_stream_credit_exhausted)
         || !CU_add_test(pSuite, "xqc_test_uni_stream_credit_not_exhausted", xqc_test_uni_stream_credit_not_exhausted)
+        || !CU_add_test(pSuite, "xqc_test_stream_limit_holds_early_streams",
+                        xqc_test_stream_limit_holds_early_streams)
+        || !CU_add_test(pSuite, "xqc_test_stream_limit_boundaries",
+                        xqc_test_stream_limit_boundaries)
+        || !CU_add_test(pSuite, "xqc_test_stream_limit_defers_close",
+                        xqc_test_stream_limit_defers_close)
+        || !CU_add_test(pSuite, "xqc_test_stream_limit_holds_early_reset",
+                        xqc_test_stream_limit_holds_early_reset)
+        || !CU_add_test(pSuite, "xqc_test_stream_limit_0rtt_replay",
+                        xqc_test_stream_limit_0rtt_replay)
         || !CU_add_test(pSuite, "xqc_test_recv_record", xqc_test_recv_record)
         || !CU_add_test(pSuite, "xqc_test_recv_timestamps_range_flag",
                         xqc_test_recv_timestamps_range_flag)

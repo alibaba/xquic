@@ -3270,6 +3270,19 @@ int main(int argc, char *argv[]) {
         conn_settings.max_streams_bidi = 1;
     }
 
+    /*
+     * 733, 734, 737 and 738: allow fewer bidirectional streams than the
+     * client creates before the handshake (RFC 9000 Section 4.6)
+     */
+    if (g_test_case == 733) {
+        conn_settings.max_streams_bidi = 2;
+
+    } else if (g_test_case == 734 || g_test_case == 737
+               || g_test_case == 738)
+    {
+        conn_settings.max_streams_bidi = 1;
+    }
+
     xqc_config_t config;
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_SERVER) < 0) {
         return -1;

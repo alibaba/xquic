@@ -40,6 +40,8 @@ typedef enum {
     XQC_STREAM_FLAG_UNEXPECTED      = 1 << 8,
     XQC_STREAM_FLAG_DISCARDED       = 1 << 9,   /* stream create_notify with error, all stream data will be discarded */
     XQC_STREAM_FLAG_STOP_SENDING_SENT = 1 << 10,
+    /* closed while beyond the peer's stream limit */
+    XQC_STREAM_FLAG_CLOSE_DEFERRED  = 1 << 11,
 } xqc_stream_flag_t;
 
 typedef enum {
@@ -331,6 +333,11 @@ int xqc_stream_do_recv_flow_ctl(xqc_stream_t *stream);
 int xqc_stream_do_recv_conn_flow_ctl(xqc_stream_t *stream);
 
 int xqc_stream_do_create_flow_ctl(xqc_connection_t *conn, xqc_stream_id_t stream_id, xqc_stream_type_t stream_type);
+
+xqc_bool_t xqc_stream_id_beyond_peer_limit(xqc_connection_t *conn,
+    xqc_stream_id_t stream_id);
+
+xqc_bool_t xqc_stream_beyond_peer_limit(xqc_stream_t *stream);
 
 xqc_stream_t *xqc_passive_create_stream(xqc_connection_t *conn, xqc_stream_id_t stream_id, void *user_data);
 

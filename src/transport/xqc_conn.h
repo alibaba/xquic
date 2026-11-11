@@ -300,6 +300,10 @@ typedef struct {
     uint64_t                fc_max_streams_bidi_recv_wind; /* max stream id in window*/
     uint64_t                fc_max_streams_uni_recv_wind;
 
+    /* limit in the last STREAMS_BLOCKED sent, XQC_MAX_UINT64_VALUE if none */
+    uint64_t                fc_streams_blocked_bidi_sent;
+    uint64_t                fc_streams_blocked_uni_sent;
+
     uint64_t                fc_recv_windows_size;
     xqc_usec_t              fc_last_window_update_time;
 } xqc_conn_flow_ctl_t;

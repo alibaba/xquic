@@ -871,6 +871,107 @@ fi
 }
 
 
+# 733 happy path: the client creates six requests before the handshake, and
+# the server allows two bidirectional streams. The four requests beyond the
+# limit wait for MAX_STREAMS (RFC 9000 Section 4.6), the client reports the
+# limit in STREAMS_BLOCKED (Section 19.14), and all six requests complete.
+# 734 and 737 abnormal paths: the server allows one bidirectional stream, and
+# the client cancels its third request, after the handshake (734) or before
+# it (737). The RESET_STREAM and STOP_SENDING of stream 8 reach the server
+# only after its MAX_STREAMS covers the stream, and the other two requests
+# complete.
+# 738 abnormal path: the client resumes with three requests in 0-RTT; the
+# server, restarted with a limit of one bidirectional stream, rejects 0-RTT.
+# The client sends the rejected requests again in 1-RTT within the new limit
+# (RFC 9000 Section 7.4.1): stream 8 only after MAX_STREAMS covers it, and
+# all three complete.
+case_transport_stream_limit_early_requests()
+{
+    local id="$1" name="$2" requests="$3" result=fail
+    local passed failed max3 frame8 first_rtt="-1"
+    local blocked='xqc_parse_streams_blocked_frame|type:13|'
+    blocked+='stream_type:bidirectional|limit:2|'
+    local frame8_re='xqc_parse_reset_stream_frame|type:3|stream_id:8|'
+
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    if [[ "${id}" = 738 ]]; then
+        # a first connection leaves a session ticket for 0-RTT
+        case_test_start_server ${SERVER_BIN} -l d -e > svr_stdlog
+        sleep 1
+        ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
+        case_test_stop_server
+        clear_log
+        first_rtt=""
+        frame8_re='xqc_process_stream_frame|offset:0|.*|stream_id:8|path'
+    fi
+    case_test_start_server ${SERVER_BIN} -l d -e -x "${id}" > svr_stdlog
+    sleep 1
+    ${CLIENT_BIN} -s 1024 -l d -t 2 -E ${first_rtt} -P "${requests}" \
+        -n "${requests}" -x "${id}" > stdlog
+    passed=$(grep -c '>>>>>>>> pass:1' stdlog)
+    failed=$(grep -c '>>>>>>>> pass:0' stdlog)
+    max3=$(grep -a -n -m1 \
+           'xqc_write_max_streams_to_packet|new_max_stream:3|' slog \
+           | cut -d: -f1)
+    frame8=$(grep -a -n -m1 "${frame8_re}" slog | cut -d: -f1)
+    if grep -q "\[stream-limit-test\]|early_requests:${requests}|" stdlog \
+        && ! grep -a -q 'exceed max_streams_bidi_can_recv' slog \
+        && ! grep -a -q 'xqc_parse_conn_close_frame|type:18|err_code:4|' clog
+    then
+        case "${id}" in
+        733)
+            if [[ "${passed}" -eq 6 && "${failed}" -eq 0 ]] \
+                && grep -a -q "${blocked}" slog
+            then
+                result=pass
+            fi
+            ;;
+        734|737)
+            if [[ "${passed}" -eq 2 && "${failed}" -eq 1 ]] \
+                && grep -q '|cancel|stream_id:8|ret:0|' stdlog \
+                && grep -a -q \
+                    'xqc_parse_stop_sending_frame|type:4|stream_id:8|' slog \
+                && [[ -n "${max3}" && -n "${frame8}" ]] \
+                && [[ "${max3}" -lt "${frame8}" ]]
+            then
+                result=pass
+            fi
+            ;;
+        738)
+            if [[ "${passed}" -eq 3 && "${failed}" -eq 0 ]] \
+                && grep -q 'early_data_flag:2,' stdlog \
+                && [[ -n "${max3}" && -n "${frame8}" ]] \
+                && [[ "${max3}" -lt "${frame8}" ]]
+            then
+                result=pass
+            fi
+            ;;
+        esac
+    fi
+    rm -f test_session xqc_token tp_localhost
+    case_print_result "${name}" "${result}"
+}
+case_transport_stream_limit_early_streams()
+{
+    case_transport_stream_limit_early_requests 733 stream_limit_early_streams 6
+}
+case_transport_stream_limit_cancel_held()
+{
+    case_transport_stream_limit_early_requests 734 stream_limit_cancel_held 3
+}
+case_transport_stream_limit_cancel_early()
+{
+    case_transport_stream_limit_early_requests 737 stream_limit_cancel_early 3
+}
+case_transport_stream_limit_0rtt_rejected()
+{
+    case_transport_stream_limit_early_requests 738 stream_limit_0rtt_rejected \
+        3
+}
+
+
 case_transport_stream_reliable_reset()
 {
     local id="$1" name="$2" expected_error="$3" result=fail
@@ -1014,6 +1115,14 @@ case_test_case "close_recv_only_stream" --id 725 \
     --mode self-reporting --run case_transport_stream_close_recv_only_stream
 case_test_case "close_after_data_recvd" --id 726 \
     --mode self-reporting --run case_transport_stream_close_after_data_recvd
+case_test_case "stream_limit_early_streams" --id 733 \
+    --mode self-reporting --run case_transport_stream_limit_early_streams
+case_test_case "stream_limit_cancel_held" --id 734 \
+    --mode self-reporting --run case_transport_stream_limit_cancel_held
+case_test_case "stream_limit_cancel_early" --id 737 \
+    --mode self-reporting --run case_transport_stream_limit_cancel_early
+case_test_case "stream_limit_0rtt_rejected" --id 738 \
+    --mode self-reporting --run case_transport_stream_limit_0rtt_rejected
 
 case_test_case "reliable_reset_prefix" --id 739 --mode self-reporting --run case_reliable_reset_prefix
 case_test_case "reliable_reset_invalid_size" --id 740 --mode self-reporting --run case_reliable_reset_invalid_size

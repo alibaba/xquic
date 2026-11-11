@@ -378,6 +378,82 @@ xqc_test_conn_close_transport_error_type_overlap(void)
 }
 
 
+typedef struct {
+    char             message[XQC_MAX_LOG_LEN];
+    size_t           calls;
+} xqc_test_frame_log_t;
+
+
+static void
+xqc_test_frame_log_write(xqc_log_level_t level, const void *buf, size_t size,
+    void *user_data)
+{
+    xqc_test_frame_log_t *capture = user_data;
+
+    size = xqc_min(size, sizeof(capture->message) - 1);
+    memcpy(capture->message, buf, size);
+    capture->message[size] = '\0';
+    capture->calls++;
+}
+
+
+/* the qlog line of a NEW_TOKEN frame that carries value */
+static void
+xqc_test_new_token_qlog(const unsigned char *value, size_t len,
+    xqc_test_frame_log_t *capture)
+{
+    xqc_log_callbacks_t callbacks = {
+        .xqc_log_write_err = xqc_test_frame_log_write,
+    };
+    xqc_log_t log = {
+        .log_level = XQC_LOG_DEBUG,
+        .log_event = 1,
+        .qlog_importance = EVENT_IMPORTANCE_SELECTED,
+        .log_callbacks = &callbacks,
+        .user_data = capture,
+    };
+    /* a token has no NUL after it */
+    unsigned char *token = xqc_malloc(len);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(token);
+    memcpy(token, value, len);
+    memset(capture, 0, sizeof(*capture));
+
+    xqc_log_TRA_FRAMES_PROCESSED_callback(&log, "xqc_test",
+                                          XQC_FRAME_NEW_TOKEN,
+                                          (uint64_t) len, token);
+    xqc_free(token);
+}
+
+
+/*
+ * The qlog of a NEW_TOKEN frame shows the token in hex: a token is binary,
+ * may contain NUL bytes, and has none after it.
+ */
+void
+xqc_test_new_token_frame_qlog(void)
+{
+    static const unsigned char text[] = {'t', 'k'};
+    static const unsigned char binary[] = {0x00, 0x7f, 0xff};
+    xqc_test_frame_log_t capture;
+    char expected[XQC_MAX_LOG_LEN];
+
+    xqc_test_new_token_qlog(text, sizeof(text), &capture);
+    snprintf(expected, sizeof(expected),
+             "|xqc_test|type:%d|token_length:2|token:746b|",
+             XQC_FRAME_NEW_TOKEN);
+    CU_ASSERT_EQUAL(capture.calls, 1);
+    CU_ASSERT_STRING_EQUAL(capture.message, expected);
+
+    xqc_test_new_token_qlog(binary, sizeof(binary), &capture);
+    snprintf(expected, sizeof(expected),
+             "|xqc_test|type:%d|token_length:3|token:007fff|",
+             XQC_FRAME_NEW_TOKEN);
+    CU_ASSERT_EQUAL(capture.calls, 1);
+    CU_ASSERT_STRING_EQUAL(capture.message, expected);
+}
+
+
 void
 xqc_test_conn_close_reason_truncated(void)
 {

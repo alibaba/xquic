@@ -574,6 +574,8 @@ main(int argc, char *argv[])
                         "xqc_test_stop_sending_spares_other_streams",
                         xqc_test_stop_sending_spares_other_streams)
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
+        || !CU_add_test(pSuite, "xqc_test_unknown_frame_type",
+                        xqc_test_unknown_frame_type)
         || !CU_add_test(pSuite, "xqc_test_multipath_frames_require_negotiation",
                         xqc_test_multipath_frames_require_negotiation)
         || !CU_add_test(pSuite, "xqc_test_multipath_version_requires_negotiation",

@@ -63,7 +63,13 @@ xqc_test_process_frame()
     packet_in.pos = XQC_TEST_ILL_FRAME_1;
     packet_in.last = packet_in.pos + sizeof(XQC_TEST_ILL_FRAME_1);
     int ret = xqc_process_frames(conn, &packet_in);
-    CU_ASSERT(ret == -XQC_EIGNORE_PKT);
+    CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+    CU_ASSERT(conn->conn_err == TRA_FRAME_ENCODING_ERROR);
+    xqc_engine_destroy(conn->engine);
+
+    /* the unknown frame type closed that connection */
+    conn = test_engine_connect();
+    CU_ASSERT(conn != NULL);
 
     packet_in.pos = XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME;
     packet_in.last = packet_in.pos + sizeof(XQC_TEST_ZERO_LEN_NEW_TOKEN_FRAME);
@@ -78,6 +84,69 @@ xqc_test_process_frame()
     ret = xqc_process_frames(conn, &pi_stream_init);
     CU_ASSERT(ret == -XQC_EPROTO);
 
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 9000 Section 12.4: "An endpoint MUST treat the receipt of a frame of
+ * unknown type as a connection error of type FRAME_ENCODING_ERROR." Frame
+ * types that xquic does not implement, each of them after a PING or alone,
+ * close the connection instead of dropping the packet. A PING alone is
+ * accepted.
+ */
+void
+xqc_test_unknown_frame_type(void)
+{
+    static const struct {
+        unsigned char       type[8];
+        size_t              len;
+    } types[] = {
+        /* IMMEDIATE_ACK and ACK_FREQUENCY, draft-ietf-quic-ack-frequency */
+        { {0x1f}, 1 },
+        { {0x40, 0xaf}, 2 },
+        /* PATH_ABANDON of RFC 10069, PATHS_BLOCKED of its draft 12 */
+        { {0x7e, 0x75}, 2 },
+        { {0x95, 0x22, 0x8c, 0x0d}, 4 },
+        /* 0x3f00000000000000 */
+        { {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 8 },
+    };
+    unsigned char       buf[16];
+    xqc_connection_t   *conn;
+    xqc_packet_in_t     packet_in;
+    xqc_int_t           ret;
+    size_t              i, ping;
+
+    for (i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+        for (ping = 0; ping <= 1; ping++) {
+            buf[0] = 0x01;
+            memcpy(buf + ping, types[i].type, types[i].len);
+
+            conn = test_engine_connect();
+            CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+            memset(&packet_in, 0, sizeof(packet_in));
+            packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+            packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+            packet_in.pos = buf;
+            packet_in.last = buf + ping + types[i].len;
+
+            ret = xqc_process_frames(conn, &packet_in);
+            CU_ASSERT_EQUAL(ret, -XQC_EILLEGAL_FRAME);
+            CU_ASSERT_EQUAL(conn->conn_err, TRA_FRAME_ENCODING_ERROR);
+            xqc_engine_destroy(conn->engine);
+        }
+    }
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    packet_in.pos = buf;
+    packet_in.last = buf + 1;
+    ret = xqc_process_frames(conn, &packet_in);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
     xqc_engine_destroy(conn->engine);
 }
 

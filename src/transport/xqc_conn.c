@@ -1536,6 +1536,18 @@ xqc_conn_destroy(xqc_connection_t *xc)
         return;
     }
 
+    /*
+     * Enter the closed state before the streams and the application learn
+     * below that the connection is destroyed. Their callbacks may close the
+     * connection or send on it, which queues an open connection in the
+     * engine again: the engine would keep it once it is freed, and
+     * xqc_engine_destroy() would destroy it a second time.
+     */
+    if (xc->conn_state != XQC_CONN_STATE_CLOSED) {
+        xc->conn_state = XQC_CONN_STATE_CLOSED;
+        xqc_log_event(xc->log, CON_CONNECTION_STATE_UPDATED, xc);
+    }
+
     uint8_t         fec_flag;
     xqc_conn_stats_t conn_stats;
     xqc_fec_schemes_e ensch, desch;

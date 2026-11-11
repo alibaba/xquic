@@ -495,7 +495,7 @@ xqc_tls_process_trans_param(xqc_tls_t *tls)
     /* get buffer */
     tls->peer_tp = NULL;
     SSL_get_peer_quic_transport_params(tls->ssl, &tls->peer_tp, &tp_len);
-    if (tp_len <= 0) {
+    if (tp_len == 0) {
         return;
     }
 

@@ -199,6 +199,8 @@ int g_send_body_size_defined;
 int g_save_body;
 int g_read_body;
 int g_spec_url;
+#define XQC_TEST_CASE_RETRY_LOST 759
+#define XQC_TEST_CASE_RETRY_LOST_INVALID_TOKEN 760
 #define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
 #define XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID 716
 
@@ -2690,6 +2692,8 @@ xqc_retry_packet_check(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_c
     (void *)cid;
     (void *)user_data;
     if (g_test_case == 601
+        || g_test_case == XQC_TEST_CASE_RETRY_LOST
+        || g_test_case == XQC_TEST_CASE_RETRY_LOST_INVALID_TOKEN
         || g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
         || g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID)
     {

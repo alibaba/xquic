@@ -1126,6 +1126,75 @@ fi
 rm -rf tp_localhost test_session xqc_token
 }
 
+# 759 happy path: the client drops the first Retry packet. The server
+# answers the client's next Initial packet with another Retry packet,
+# with the same Source Connection ID, and the transfer completes.
+case_transport_core_retry_lost()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "retry sent again after a lost Retry ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 759 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 2 -E -x 759 > stdlog 2>&1
+dropped=`grep -c "\[retry-loss-test\]|retry|scid:[0-9a-f]*|dropped:1|" stdlog`
+received=`grep -c "\[retry-loss-test\]|retry|scid:[0-9a-f]*|dropped:0|" stdlog`
+scids=`grep -o "\[retry-loss-test\]|retry|scid:[0-9a-f]*|" stdlog | sort -u | wc -l`
+retry_enabled=`grep "\[retry-token-test\]|retry_enabled|case:759" svr_stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+invalid_token=`grep -a -E "(conn_err:11|err:0xb|TRA_INVALID_TOKEN)" stdlog slog svr_stdlog 2>/dev/null`
+if [ "$dropped" == "1" ] && [ "$received" -ge 1 ] && [ "$scids" == "1" ] \
+    && [ -n "$retry_enabled" ] && [ "$result" == ">>>>>>>> pass:1" ] \
+    && [ -z "$invalid_token" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "retry_lost" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "retry_lost" "fail"
+    grep "\[retry-loss-test\]" stdlog
+    echo "$retry_enabled"
+    echo "$result"
+    echo "$invalid_token"
+fi
+rm -rf tp_localhost test_session xqc_token
+}
+
+# 760 abnormal path: the client drops the first Retry packet and corrupts
+# the token of the second one. The server closes the connection with
+# INVALID_TOKEN and sends no Retry packet for that Initial packet.
+case_transport_core_retry_lost_invalid_token()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "invalid token after a lost Retry closes connection ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 760 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024 -l d -t 2 -E -x 760 > stdlog 2>&1
+dropped=`grep -c "\[retry-loss-test\]|retry|scid:[0-9a-f]*|dropped:1|" stdlog`
+scids=`grep -o "\[retry-loss-test\]|retry|scid:[0-9a-f]*|" stdlog | sort -u | wc -l`
+retry_enabled=`grep "\[retry-token-test\]|retry_enabled|case:760" svr_stdlog`
+corrupted=`grep "\[retry-token-test\]|corrupt_retry_token" stdlog`
+late_retry=`sed -n '/\[retry-token-test\]|corrupt_retry_token/,$p' stdlog | grep "\[retry-loss-test\]"`
+invalid_token=`grep -a -E "(conn_err:11|err:0xb|TRA_INVALID_TOKEN)" stdlog slog svr_stdlog 2>/dev/null`
+if [ "$dropped" == "1" ] && [ "$scids" == "1" ] && [ -n "$retry_enabled" ] \
+    && [ -n "$corrupted" ] && [ -z "$late_retry" ] \
+    && [ -n "$invalid_token" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "retry_lost_invalid_token" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "retry_lost_invalid_token" "fail"
+    grep "\[retry-loss-test\]\|\[retry-token-test\]" stdlog
+    echo "$retry_enabled"
+    echo "$invalid_token"
+fi
+rm -rf tp_localhost test_session xqc_token
+}
+
 case_test_case "log_switch_off" --id native --mode self-reporting --run case_transport_core_log_switch_off
 case_test_case "server_refuse" --id native --mode self-reporting --run case_transport_core_server_refuse
 case_test_case "create_connection_fail" --id native --mode self-reporting --run case_transport_core_create_connection_fail
@@ -1148,6 +1217,8 @@ case_test_case "max_ack_delay_valid_boundary" --id native --mode self-reporting 
 case_test_case "max_ack_delay_invalid_boundary" --id native --mode self-reporting --run case_transport_core_max_ack_delay_invalid_boundary
 case_test_case "retry_invalid_token_close" --id 715 --mode self-reporting --run case_transport_core_retry_invalid_token_close
 case_test_case "retry_ignore_old_initial_dcid" --id 716 --mode self-reporting --run case_transport_core_retry_ignore_old_initial_dcid
+case_test_case "retry_lost" --id 759 --mode self-reporting --run case_transport_core_retry_lost
+case_test_case "retry_lost_invalid_token" --id 760 --mode self-reporting --run case_transport_core_retry_lost_invalid_token
 case_test_case "crypto_previous_level_boundary" --id native --mode self-reporting --run case_transport_core_crypto_previous_level_boundary
 case_test_case "crypto_previous_level_extension" --id native --mode self-reporting --run case_transport_core_crypto_previous_level_extension
 case_test_case "new_client_29_&_new_server" --id native --mode self-reporting --run case_transport_core_new_client_29_new_server

@@ -950,6 +950,264 @@ xqc_qpack_test_blocked_field_section_limit()
 }
 
 
+#define XQC_QPACK_TEST_CAP 4096
+
+/* a failure of the encoder's instruction callbacks */
+typedef enum xqc_qpack_test_cap_fault_s {
+    XQC_QPACK_TEST_CAP_NO_FAULT,
+
+    /* get_buf_cb returns no buffer */
+    XQC_QPACK_TEST_CAP_NO_BUF,
+
+    /* get_buf_cb returns a full buffer, which cannot grow */
+    XQC_QPACK_TEST_CAP_FULL_BUF,
+
+    /* write_ins_cb returns an error */
+    XQC_QPACK_TEST_CAP_WRITE_ERROR,
+} xqc_qpack_test_cap_fault_t;
+
+/*
+ * An encoder and a decoder whose dynamic tables can hold up to 4096 bytes,
+ * the encoder stream that carries the encoder's instructions, and the
+ * decoder stream that carries the decoder's.
+ */
+typedef struct xqc_qpack_test_cap_peers_s {
+    xqc_qpack_t                *enc;
+    xqc_qpack_t                *dec;
+    xqc_var_buf_t              *enc_ins;
+    xqc_var_buf_t              *dec_ins;
+    xqc_var_buf_t              *full_ins;
+    xqc_qpack_test_cap_fault_t  fault;
+} xqc_qpack_test_cap_peers_t;
+
+static xqc_http_header_t g_qpack_test_cap_hdr = {
+    .name   = {.iov_base = "x-cap-test", .iov_len = 10},
+    .value  = {.iov_base = "inserted", .iov_len = 8},
+};
+
+static xqc_var_buf_t *
+xqc_qpack_test_cap_get_buf(xqc_qpack_ins_type_t type, void *user_data)
+{
+    xqc_qpack_test_cap_peers_t *p = user_data;
+
+    if (type == XQC_INS_TYPE_DECODER) {
+        return p->dec_ins;
+    }
+
+    switch (p->fault) {
+    case XQC_QPACK_TEST_CAP_NO_BUF:
+        return NULL;
+
+    case XQC_QPACK_TEST_CAP_FULL_BUF:
+        return p->full_ins;
+
+    default:
+        return p->enc_ins;
+    }
+}
+
+static ssize_t
+xqc_qpack_test_cap_write_ins(xqc_qpack_ins_type_t type, xqc_var_buf_t *buf,
+    void *user_data)
+{
+    xqc_qpack_test_cap_peers_t *p = user_data;
+
+    if (type == XQC_INS_TYPE_ENCODER
+        && p->fault == XQC_QPACK_TEST_CAP_WRITE_ERROR)
+    {
+        return -XQC_ESTATE;
+    }
+
+    return buf->data_len;
+}
+
+static const xqc_qpack_ins_cb_t xqc_qpack_test_cap_ins_cb = {
+    xqc_qpack_test_cap_get_buf,
+    xqc_qpack_test_cap_write_ins
+};
+
+static void
+xqc_qpack_test_cap_peers_create(xqc_engine_t *engine,
+    xqc_qpack_test_cap_peers_t *p)
+{
+    memset(p, 0, sizeof(*p));
+    p->enc_ins = xqc_var_buf_create(1024);
+    p->dec_ins = xqc_var_buf_create(1024);
+    p->full_ins = xqc_var_buf_create_with_limit(1, 1);
+    p->enc = xqc_qpack_create(XQC_QPACK_TEST_CAP, XQC_QPACK_TEST_CAP,
+                              engine->log, &xqc_qpack_test_cap_ins_cb, p);
+    p->dec = xqc_qpack_create(XQC_QPACK_TEST_CAP, XQC_QPACK_TEST_CAP,
+                              engine->log, &xqc_qpack_test_cap_ins_cb, p);
+    CU_ASSERT_FATAL(p->enc_ins != NULL && p->dec_ins != NULL
+                    && p->full_ins != NULL && p->enc != NULL
+                    && p->dec != NULL);
+    CU_ASSERT(xqc_var_buf_save_data(p->full_ins, (const uint8_t *) "", 1)
+              == XQC_OK);
+
+    /* the decoder's SETTINGS */
+    CU_ASSERT(xqc_qpack_set_enc_max_dtable_cap(p->enc, XQC_QPACK_TEST_CAP)
+              == XQC_OK);
+    CU_ASSERT(xqc_qpack_set_max_blocked_stream(p->enc, 16) == XQC_OK);
+}
+
+static void
+xqc_qpack_test_cap_peers_destroy(xqc_qpack_test_cap_peers_t *p)
+{
+    xqc_qpack_destroy(p->enc);
+    xqc_qpack_destroy(p->dec);
+    xqc_var_buf_free(p->enc_ins);
+    xqc_var_buf_free(p->dec_ins);
+    xqc_var_buf_free(p->full_ins);
+}
+
+/*
+ * The decoder receives the encoder stream, then decodes the field section
+ * of the test's field line, without waiting, and the encoder receives the
+ * decoder stream. Returns the Required Insert Count of the field section.
+ */
+static uint64_t
+xqc_qpack_test_cap_decode(xqc_qpack_test_cap_peers_t *p, uint64_t stream_id,
+    xqc_var_buf_t *efs)
+{
+    xqc_http_header_t  *hdr = &g_qpack_test_cap_hdr;
+    xqc_http_header_t  *line;
+    xqc_http_headers_t  out;
+    xqc_bool_t          blocked = XQC_FALSE;
+    xqc_rep_ctx_t      *ctx = xqc_qpack_create_req_ctx(stream_id);
+    uint64_t            ricnt;
+    ssize_t             read;
+
+    CU_ASSERT_FATAL(ctx != NULL);
+    read = xqc_qpack_process_encoder(p->dec, p->enc_ins->data,
+                                     p->enc_ins->data_len);
+    CU_ASSERT(read == p->enc_ins->data_len);
+    xqc_var_buf_clear(p->enc_ins);
+
+    memset(&out, 0, sizeof(out));
+    read = xqc_qpack_dec_headers(p->dec, ctx, efs->data, efs->data_len, &out,
+                                 XQC_H3_MAX_FIELD_SECTION_SIZE, XQC_TRUE,
+                                 &blocked);
+    CU_ASSERT(read == efs->data_len);
+    CU_ASSERT(blocked == XQC_FALSE);
+    CU_ASSERT(out.count == 1);
+    if (out.count == 1) {
+        line = &out.headers[0];
+        CU_ASSERT(line->name.iov_len == hdr->name.iov_len
+                  && memcmp(line->name.iov_base, hdr->name.iov_base,
+                            hdr->name.iov_len) == 0);
+        CU_ASSERT(line->value.iov_len == hdr->value.iov_len
+                  && memcmp(line->value.iov_base, hdr->value.iov_base,
+                            hdr->value.iov_len) == 0);
+    }
+    ricnt = xqc_qpack_get_req_rqrd_insert_cnt(ctx);
+
+    read = xqc_qpack_process_decoder(p->enc, p->dec_ins->data,
+                                     p->dec_ins->data_len);
+    CU_ASSERT(read == p->dec_ins->data_len);
+    xqc_var_buf_clear(p->dec_ins);
+
+    xqc_h3_headers_free(&out);
+    xqc_qpack_destroy_req_ctx(ctx);
+    return ricnt;
+}
+
+/* the encoder encodes the test's field line, and the decoder decodes it */
+static uint64_t
+xqc_qpack_test_cap_exchange(xqc_qpack_test_cap_peers_t *p, uint64_t stream_id)
+{
+    xqc_http_headers_t  hdrs = {&g_qpack_test_cap_hdr, 1, 1};
+    xqc_var_buf_t      *efs = xqc_var_buf_create(256);
+    uint64_t            ricnt;
+
+    CU_ASSERT_FATAL(efs != NULL);
+    CU_ASSERT(xqc_qpack_enc_headers(p->enc, stream_id, &hdrs, efs)
+              == XQC_OK);
+    ricnt = xqc_qpack_test_cap_decode(p, stream_id, efs);
+    xqc_var_buf_free(efs);
+    return ricnt;
+}
+
+/*
+ * The decoder changes its dynamic table capacity only on the Set Dynamic
+ * Table Capacity instruction (RFC 9204 Section 4.3.1), so the encoder
+ * changes its own only with that instruction. When the encoder's
+ * instruction callbacks give no buffer, or a full buffer that cannot grow,
+ * raising the capacity from zero or lowering it to zero fails, and both
+ * sides keep the capacity they had: the test's field line then refers to
+ * the dynamic table only if that capacity is not zero, and the decoder
+ * decodes it. When the instruction is written but write_ins_cb fails,
+ * both sides take the new capacity. Setting the capacity again succeeds.
+ */
+static void
+xqc_qpack_test_set_dtable_cap_failures()
+{
+    static const xqc_qpack_test_cap_fault_t faults[] = {
+        XQC_QPACK_TEST_CAP_NO_BUF,
+        XQC_QPACK_TEST_CAP_FULL_BUF,
+        XQC_QPACK_TEST_CAP_WRITE_ERROR,
+    };
+    xqc_http_headers_t          hdrs = {&g_qpack_test_cap_hdr, 1, 1};
+    xqc_qpack_test_cap_peers_t  p;
+    xqc_engine_t               *engine = test_create_engine();
+    xqc_var_buf_t              *efs;
+    xqc_bool_t                  taken;
+    size_t                      i, ins_len, from, to;
+    int                         lower;
+
+    CU_ASSERT_FATAL(engine != NULL);
+
+    for (i = 0; i < sizeof(faults) / sizeof(faults[0]); i++) {
+        for (lower = 0; lower <= 1; lower++) {
+            from = lower ? XQC_QPACK_TEST_CAP : 0;
+            to = lower ? 0 : XQC_QPACK_TEST_CAP;
+            xqc_qpack_test_cap_peers_create(engine, &p);
+            if (lower) {
+                /* the decoder has the entry of the test's field line */
+                CU_ASSERT(xqc_qpack_set_dtable_cap(p.enc, from) == XQC_OK);
+                CU_ASSERT(xqc_qpack_test_cap_exchange(&p, 0) > 0);
+            }
+
+            p.fault = faults[i];
+            CU_ASSERT(xqc_qpack_set_dtable_cap(p.enc, to) != XQC_OK);
+            p.fault = XQC_QPACK_TEST_CAP_NO_FAULT;
+
+            taken = faults[i] == XQC_QPACK_TEST_CAP_WRITE_ERROR;
+            CU_ASSERT((p.enc_ins->data_len > 0) == taken);
+            CU_ASSERT((xqc_qpack_test_cap_exchange(&p, 4) > 0)
+                      == ((taken ? to : from) > 0));
+
+            CU_ASSERT(xqc_qpack_set_dtable_cap(p.enc, to) == XQC_OK);
+            CU_ASSERT((xqc_qpack_test_cap_exchange(&p, 8) > 0) == (to > 0));
+            xqc_qpack_test_cap_peers_destroy(&p);
+        }
+    }
+
+    /*
+     * An entry that a field section not acknowledged yet refers to is not
+     * evictable (RFC 9204 Section 2.1.1): the encoder refuses a capacity of
+     * zero, and the decoder gets no instruction for it.
+     */
+    xqc_qpack_test_cap_peers_create(engine, &p);
+    efs = xqc_var_buf_create(256);
+    CU_ASSERT_FATAL(efs != NULL);
+    CU_ASSERT(xqc_qpack_set_dtable_cap(p.enc, XQC_QPACK_TEST_CAP) == XQC_OK);
+    CU_ASSERT(xqc_qpack_enc_headers(p.enc, 0, &hdrs, efs) == XQC_OK);
+    ins_len = p.enc_ins->data_len;
+    CU_ASSERT(xqc_qpack_set_dtable_cap(p.enc, 0) != XQC_OK);
+    CU_ASSERT(p.enc_ins->data_len == ins_len);
+    CU_ASSERT(xqc_qpack_test_cap_decode(&p, 0, efs) > 0);
+    CU_ASSERT(xqc_qpack_test_cap_exchange(&p, 4) > 0);
+
+    /* acknowledged, the entry can be evicted */
+    CU_ASSERT(xqc_qpack_set_dtable_cap(p.enc, 0) == XQC_OK);
+    CU_ASSERT(xqc_qpack_test_cap_exchange(&p, 8) == 0);
+    xqc_var_buf_free(efs);
+    xqc_qpack_test_cap_peers_destroy(&p);
+
+    xqc_engine_destroy(engine);
+}
+
+
 void
 xqc_qpack_test()
 {
@@ -960,6 +1218,7 @@ xqc_qpack_test()
     xqc_qpack_test_duplicate_work_limit();
     xqc_qpack_test_field_section_limit();
     xqc_qpack_test_blocked_field_section_limit();
+    xqc_qpack_test_set_dtable_cap_failures();
 }
 
 

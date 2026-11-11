@@ -22,6 +22,7 @@
 #include "xqc_pq_test.h"
 #include "xqc_conn_test.h"
 #include "xqc_engine_test.h"
+#include "xqc_engine_keys_test.h"
 #include "xqc_common_test.h"
 #include "xqc_vint_test.h"
 #include "xqc_recv_record_test.h"
@@ -351,6 +352,14 @@ main(int argc, char *argv[])
                         xqc_test_cid_set_lookup_error)
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
+        || !CU_add_test(pSuite, "xqc_test_engine_keys_random_reset_key",
+                        xqc_test_engine_keys_random_reset_key)
+        || !CU_add_test(pSuite, "xqc_test_engine_keys_configured_reset_key",
+                        xqc_test_engine_keys_configured_reset_key)
+        || !CU_add_test(pSuite, "xqc_test_engine_keys_random_token_key",
+                        xqc_test_engine_keys_random_token_key)
+        || !CU_add_test(pSuite, "xqc_test_engine_keys_public_token_key_refused",
+                        xqc_test_engine_keys_public_token_key_refused)
         || !CU_add_test(pSuite, "xqc_test_engine_drop_small_initial", xqc_test_engine_drop_small_initial)
         || !CU_add_test(pSuite, "xqc_test_engine_drop_small_unknown_0rtt", xqc_test_engine_drop_small_unknown_0rtt)
         || !CU_add_test(pSuite, "xqc_test_engine_min_initial_not_pre_dropped", xqc_test_engine_min_initial_not_pre_dropped)

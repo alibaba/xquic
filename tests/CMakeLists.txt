@@ -104,6 +104,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_conn_test.c
         ${UNIT_TEST_DIR}/xqc_alloc_fail_test.c
         ${UNIT_TEST_DIR}/xqc_engine_test.c
+        ${UNIT_TEST_DIR}/xqc_engine_keys_test.c
         ${UNIT_TEST_DIR}/xqc_common_test.c
         ${UNIT_TEST_DIR}/xqc_vint_test.c
         ${UNIT_TEST_DIR}/xqc_packet_test.c

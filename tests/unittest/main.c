@@ -533,6 +533,9 @@ main(int argc, char *argv[])
                         xqc_test_rfc9001_chacha20_hp_mask)
         || !CU_add_test(pSuite, "xqc_test_rfc9001_chacha20_hp_unaligned_sample",
                         xqc_test_rfc9001_chacha20_hp_unaligned_sample)
+        || !CU_add_test(pSuite, "xqc_test_crypto_nonce", xqc_test_crypto_nonce)
+        || !CU_add_test(pSuite, "xqc_test_crypto_nonce_path_id",
+                        xqc_test_crypto_nonce_path_id)
         || !CU_add_test(pSuite, "xqc_test_packet_encrypt_hp_sample_boundary", xqc_test_packet_encrypt_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
         || !CU_add_test(pSuite, "xqc_test_stateless_reset_parse_boundary", xqc_test_stateless_reset_parse_boundary)

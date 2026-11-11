@@ -335,6 +335,8 @@ Besides, Application-Layer-Protocol implementations shall define its interfaces 
 ### xqc_config_t
 Generic config for xquic, used to initialize an engine.
 
+The keys of the stateless reset tokens (_**reset_token_key**_) and of the address validation tokens (_**token_key_list**_) are secrets. An engine whose config sets none makes up random keys when it is created, private to it: servers that must recognize each other's stateless resets or tokens, or those issued before a restart, set the same keys.
+
 ### xqc_conn_settings_t
 #### xqc_cc_params_t
 Congestion control settings.

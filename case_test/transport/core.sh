@@ -142,6 +142,94 @@ fi
 
 }
 
+case_transport_core_stateless_reset_random_key()
+{
+# Case 771: test_server sets no stateless reset key, so each process makes
+# up a random one. The restarted server sends stateless resets for the
+# connection of the previous one that the client cannot recognize; the
+# client closes when the 5 s idle timeout of case 771 expires instead.
+case_test_start_server ${SERVER_BIN} -l d -x 771 > /dev/null
+clear_log
+echo -e "stateless reset with a random key...\c"
+${CLIENT_BIN} -l d -x 41 -1 -t 8 > stdlog &
+CLIENT_PID=$!
+sleep 2
+case_test_stop_server
+sleep 0.2
+case_test_start_server ${SERVER_BIN} -l d -x 771 > /dev/null
+wait $CLIENT_PID
+sent=`grep -a "xqc_engine_send_reset ok" slog`
+result=`grep -a "|====>|receive stateless reset" clog`
+cloing_notify=`grep "conn closing: 641" stdlog`
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+if [ -n "$sent" ] && [ -z "$result" ] && [ -z "$cloing_notify" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "stateless_reset_random_key" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "stateless_reset_random_key" "fail"
+fi
+
+}
+
+case_transport_core_token_after_restart()
+{
+# test_server sets the same token keys in every process, so a restarted
+# server accepts the NEW_TOKEN token that the previous one issued.
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+rm -f xqc_token
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > /dev/null
+saved=`[ -s xqc_token ] && echo saved`
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+clear_log
+echo -e "token after a server restart...\c"
+result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E | grep ">>>>>>>> pass"`
+refused=`grep -a "check_token fail" slog`
+errlog=`grep_err_log`
+rm -f xqc_token
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+if [ -z "$errlog" ] && [ -n "$saved" ] && [ -z "$refused" ] \
+    && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "token_after_restart" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "token_after_restart" "fail"
+    echo "$errlog"
+fi
+
+}
+
+case_transport_core_token_random_key()
+{
+# Case 772: test_server sets no token key, so each process makes up a random
+# one. The restarted server cannot decrypt the NEW_TOKEN token that the
+# previous one issued; it validates the client's address by the handshake
+# instead, and the connection completes.
+case_test_start_server ${SERVER_BIN} -l d -e -x 772 > /dev/null
+rm -f xqc_token
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > /dev/null
+saved=`[ -s xqc_token ] && echo saved`
+case_test_start_server ${SERVER_BIN} -l d -e -x 772 > /dev/null
+clear_log
+echo -e "token with a random key...\c"
+result=`${CLIENT_BIN} -s 1024 -l d -t 1 -E | grep ">>>>>>>> pass"`
+refused=`grep -a "token decrypt error" slog`
+errlog=`grep_err_log | grep -a -v -E "xqc_conn_decrypt_token|xqc_conn_check_token"`
+rm -f xqc_token
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+if [ -z "$errlog" ] && [ -n "$saved" ] && [ -n "$refused" ] \
+    && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "token_random_key" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "token_random_key" "fail"
+    echo "$errlog"
+fi
+
+}
+
 case_transport_core_test_application_delay()
 {
 
@@ -770,7 +858,7 @@ case_test_stop_server
 # the client well before the wake-up packet that the test relies on.
 # Restart the server mid-test instead: it cleans up its connection
 # state silently, then the new instance generates the stateless reset
-# from the same default reset_token_key.
+# from the same reset_token_key, which test_server sets in its config.
 case_test_start_server ${SERVER_BIN} -l d > /dev/null
 sleep 1
 clear_log
@@ -1133,6 +1221,9 @@ case_test_case "socket_recv_fail" --id native --mode self-reporting --run case_t
 case_test_case "socket_send_fail" --id native --mode self-reporting --run case_transport_core_socket_send_fail
 case_test_case "verify_token_fail" --id native --mode self-reporting --run case_transport_core_verify_token_fail
 case_test_case "verify_token_success" --id native --mode self-reporting --run case_transport_core_verify_token_success
+case_test_case "stateless_reset_random_key" --id 771 --mode self-reporting --run case_transport_core_stateless_reset_random_key
+case_test_case "token_after_restart" --id native --mode self-reporting --run case_transport_core_token_after_restart
+case_test_case "token_random_key" --id 772 --mode self-reporting --run case_transport_core_token_random_key
 case_test_case "test_application_delay" --id native --mode self-reporting --run case_transport_core_test_application_delay
 case_test_case "user_close_connection" --id native --mode self-reporting --run case_transport_core_user_close_connection
 case_test_case "close_connection_with_error" --id native --mode self-reporting --run case_transport_core_close_connection_with_error

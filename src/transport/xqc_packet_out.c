@@ -414,7 +414,7 @@ xqc_write_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out
         goto error;
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|ack_size:%ui|path:%ui|path_largest_recv:%ui|frame_largest_recv:%ui|", 
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|ack_size:%z|path:%ui|path_largest_recv:%ui|frame_largest_recv:%ui|", 
                 ret, path->path_id, path->path_send_ctl->ctl_largest_received[pns], xqc_recv_record_largest(&pn_ctl->ctl_recv_record[pns]));
 
     packet_out->po_ack_offset = packet_out->po_used_size;
@@ -1705,7 +1705,7 @@ xqc_write_ack_mp_to_one_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
     if (ret < 0) {
         goto error;
     }
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|ack_size:%ui|", path->path_id, ret);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|ack_size:%z|", path->path_id, ret);
 
     packet_out->po_ack_offset = packet_out->po_used_size;
     packet_out->po_used_size += ret;
@@ -2017,7 +2017,7 @@ xqc_write_ack_ext_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet
         goto error;
     }
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|ack_size:%ui|path:%ui|path_largest_recv:%ui|frame_largest_recv:%ui|", 
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|ack_size:%z|path:%ui|path_largest_recv:%ui|frame_largest_recv:%ui|", 
                 ret, path->path_id, path->path_send_ctl->ctl_largest_received[pns], xqc_recv_record_largest(&pn_ctl->ctl_recv_record[pns]));
 
     packet_out->po_ack_offset = packet_out->po_used_size;

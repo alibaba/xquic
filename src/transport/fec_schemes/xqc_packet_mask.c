@@ -220,7 +220,7 @@ xqc_packet_mask_encode(xqc_connection_t *conn, unsigned char *stream, size_t st_
 {
     xqc_int_t ret;
     if (st_size > XQC_MAX_SYMBOL_SIZE) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_packet_mask_encode|invalid input size:%d|", st_size);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|xqc_packet_mask_encode|invalid input size:%uz|", st_size);
         return -XQC_EFEC_SYMBOL_ERROR;
     }
 

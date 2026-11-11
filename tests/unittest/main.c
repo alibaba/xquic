@@ -414,6 +414,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_application_namespace",
                         xqc_test_conn_close_application_namespace)
+        || !CU_add_test(pSuite, "xqc_test_conn_linger_close_extended_by_ack",
+                        xqc_test_conn_linger_close_extended_by_ack)
+        || !CU_add_test(pSuite, "xqc_test_conn_linger_close_not_shortened",
+                        xqc_test_conn_linger_close_not_shortened)
+        || !CU_add_test(pSuite, "xqc_test_conn_linger_close_timeout_kept",
+                        xqc_test_conn_linger_close_timeout_kept)
         || !CU_add_test(pSuite, "xqc_test_conn_close_reason_phrase",
                         xqc_test_conn_close_reason_phrase)
         || !CU_add_test(pSuite, "xqc_test_conn_close_reason_no_space",

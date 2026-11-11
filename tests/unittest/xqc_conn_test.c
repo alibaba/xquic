@@ -15,6 +15,7 @@
 #include "xquic/xquic_typedef.h"
 #include "src/common/xqc_str.h"
 #include "src/common/xqc_list.h"
+#include "src/common/xqc_time.h"
 #include "src/congestion_control/xqc_new_reno.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_engine.h"
@@ -1032,6 +1033,143 @@ xqc_test_conn_close_application_namespace(void)
     xqc_test_conn_close_packet_value(conn, XQC_PTYPE_INIT, 0x1c,
                                      TRA_APPLICATION_ERROR);
     xqc_test_conn_close_packet_reason(conn, 0x1c, NULL, 0);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* A PING packet of 1200 bytes sent at sent_time, not acknowledged yet. */
+static void
+xqc_test_linger_sent_packet(xqc_connection_t *conn, xqc_packet_number_t pn,
+    xqc_usec_t sent_time)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_packet_out_t *po = xqc_packet_out_get(sq);
+
+    CU_ASSERT_FATAL(po != NULL);
+    po->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    po->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    po->po_pkt.pkt_num = pn;
+    po->po_path_id = path->path_id;
+    po->po_frame_types = XQC_FRAME_BIT_PING;
+    po->po_used_size = 1200;
+    po->po_sent_time = sent_time;
+    xqc_send_ctl_on_packet_sent(path->path_send_ctl,
+                                xqc_get_pn_ctl(conn, path), po, sent_time);
+    xqc_send_queue_insert_unacked(po,
+        &sq->sndq_unacked_packets[XQC_PNS_APP_DATA], sq);
+}
+
+static void
+xqc_test_linger_ack(xqc_connection_t *conn, xqc_packet_number_t pn,
+    xqc_usec_t recv_time)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_ack_info_t ack_info;
+
+    memset(&ack_info, 0, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_APP_DATA;
+    ack_info.n_ranges = 1;
+    ack_info.ranges[0].low = pn;
+    ack_info.ranges[0].high = pn;
+    ack_info.largest_acked = pn;
+    CU_ASSERT(xqc_send_ctl_on_ack_received(path->path_send_ctl,
+                  xqc_get_pn_ctl(conn, path), conn->conn_send_queue,
+                  &ack_info, recv_time, XQC_TRUE) == XQC_OK);
+}
+
+/*
+ * Two packets sent at sent_time and in flight when the application closes
+ * the connection with linger on. Returns the end of the linger wait.
+ */
+static xqc_usec_t
+xqc_test_linger_close(xqc_connection_t *conn, xqc_usec_t sent_time)
+{
+    xqc_timer_t *linger = &conn->conn_timer_manager.timer[XQC_TIMER_LINGER_CLOSE];
+
+    conn->conn_settings.linger.linger_on = 1;
+    xqc_test_linger_sent_packet(conn, 1, sent_time);
+    xqc_test_linger_sent_packet(conn, 2, sent_time);
+
+    CU_ASSERT(xqc_conn_close(conn->engine, &conn->scid_set.user_scid) == XQC_OK);
+    CU_ASSERT_FATAL(conn->conn_flag & XQC_CONN_FLAG_LINGER_CLOSING);
+    CU_ASSERT_FATAL(linger->timer_is_set);
+    return linger->expire_time;
+}
+
+/*
+ * Without a linger_timeout of its own, a linger close gives up after 3*PTO
+ * without an acknowledgment of new packets: the data it waits for can take
+ * longer than 3*PTO to be sent and acknowledged. An acknowledgment just
+ * before the deadline keeps it going past the deadline, until 3*PTO after
+ * that acknowledgment.
+ */
+void
+xqc_test_conn_linger_close_extended_by_ack(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_timer_t *linger;
+    xqc_usec_t deadline;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    linger = &conn->conn_timer_manager.timer[XQC_TIMER_LINGER_CLOSE];
+    deadline = xqc_test_linger_close(conn, xqc_monotonic_timestamp());
+    xqc_test_linger_ack(conn, 1, deadline - 1);
+    CU_ASSERT(linger->timer_is_set && linger->expire_time > deadline);
+
+    xqc_conn_timer_expire(conn, deadline);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_LINGER_CLOSING);
+    CU_ASSERT(conn->conn_state < XQC_CONN_STATE_CLOSING);
+
+    xqc_conn_timer_expire(conn, linger->expire_time);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_LINGER_CLOSING));
+    CU_ASSERT(conn->conn_state == XQC_CONN_STATE_CLOSING);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * An acknowledgment never brings the end of the wait forward: here the
+ * first RTT sample, 1 ms, makes 3*PTO from that acknowledgment end long
+ * before the 3*PTO from the initial RTT that xqc_conn_close() set.
+ */
+void
+xqc_test_conn_linger_close_not_shortened(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_timer_t *linger;
+    xqc_usec_t sent_time, deadline;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    linger = &conn->conn_timer_manager.timer[XQC_TIMER_LINGER_CLOSE];
+    sent_time = xqc_monotonic_timestamp();
+    deadline = xqc_test_linger_close(conn, sent_time);
+    xqc_test_linger_ack(conn, 1, sent_time + 1000);
+    CU_ASSERT(sent_time + 1000 + 3 * xqc_conn_get_max_pto(conn) < deadline);
+    CU_ASSERT(linger->timer_is_set && linger->expire_time == deadline);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* A linger_timeout set by the application is the longest wait still. */
+void
+xqc_test_conn_linger_close_timeout_kept(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_timer_t *linger;
+    xqc_usec_t deadline;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    linger = &conn->conn_timer_manager.timer[XQC_TIMER_LINGER_CLOSE];
+    conn->conn_settings.linger.linger_timeout = 100000;
+    deadline = xqc_test_linger_close(conn, xqc_monotonic_timestamp());
+    xqc_test_linger_ack(conn, 1, deadline - 1);
+    CU_ASSERT(linger->timer_is_set && linger->expire_time == deadline);
+
+    xqc_conn_timer_expire(conn, deadline);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_LINGER_CLOSING));
+    CU_ASSERT(conn->conn_state == XQC_CONN_STATE_CLOSING);
+
     xqc_engine_destroy(conn->engine);
 }
 

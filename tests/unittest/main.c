@@ -755,6 +755,16 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_malformed_headers_uses_message_error", xqc_test_h3_malformed_headers_uses_message_error)
         || !CU_add_test(pSuite, "xqc_test_h3_headers_capacity_uses_internal_error", xqc_test_h3_headers_capacity_uses_internal_error)
         || !CU_add_test(pSuite, "xqc_test_h3_valid_headers_smoke", xqc_test_h3_valid_headers_smoke)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_life_unblock",
+                        xqc_test_h3_blocked_life_unblock)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_life_unblock_before_close",
+                        xqc_test_h3_blocked_life_unblock_before_close)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_life_unblock_after_close",
+                        xqc_test_h3_blocked_life_unblock_after_close)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_life_conn_teardown",
+                        xqc_test_h3_blocked_life_conn_teardown)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_life_limit",
+                        xqc_test_h3_blocked_life_limit)
         || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_reject_after_close",
                         xqc_test_h3_blocked_stream_reject_after_close)
         || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_limit_leak",

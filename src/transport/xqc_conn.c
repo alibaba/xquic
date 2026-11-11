@@ -3251,6 +3251,32 @@ end:
     return XQC_OK;
 }
 
+/*
+ * Without a linger_timeout of its own, a linger close gives up after 3*PTO
+ * without an acknowledgment of new packets, not 3*PTO after xqc_conn_close():
+ * the data queued then can take longer than that to be sent and acknowledged.
+ * The wait is only extended, also when the PTO got shorter.
+ */
+void
+xqc_conn_extend_linger_close(xqc_connection_t *conn, xqc_usec_t now)
+{
+    xqc_timer_manager_t *timer_manager = &conn->conn_timer_manager;
+    xqc_usec_t timeout;
+
+    if (!(conn->conn_flag & XQC_CONN_FLAG_LINGER_CLOSING)
+        || conn->conn_settings.linger.linger_timeout)
+    {
+        return;
+    }
+
+    timeout = 3 * xqc_conn_get_max_pto(conn);
+    if (!xqc_timer_is_set(timer_manager, XQC_TIMER_LINGER_CLOSE)
+        || now + timeout > timer_manager->timer[XQC_TIMER_LINGER_CLOSE].expire_time)
+    {
+        xqc_timer_set(timer_manager, XQC_TIMER_LINGER_CLOSE, now, timeout);
+    }
+}
+
 xqc_int_t
 xqc_conn_close_with_error(xqc_connection_t *conn, uint64_t err_code)
 {

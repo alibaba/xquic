@@ -616,6 +616,12 @@ main(int argc, char *argv[])
                         xqc_test_conn_close_transport_error_type_overlap)
         || !CU_add_test(pSuite, "xqc_test_conn_close_reason_truncated",
                         xqc_test_conn_close_reason_truncated)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_reason_phrase",
+                        xqc_test_path_abandon_reason_phrase)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_reason_past_packet",
+                        xqc_test_path_abandon_reason_past_packet)
+        || !CU_add_test(pSuite, "xqc_test_frame_length_past_packet",
+                        xqc_test_frame_length_past_packet)
         || !CU_add_test(pSuite, "xqc_test_conn_close_valid_packet_types",
                         xqc_test_conn_close_valid_packet_types)
         || !CU_add_test(pSuite,

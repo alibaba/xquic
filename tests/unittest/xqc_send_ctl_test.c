@@ -981,6 +981,145 @@ xqc_test_send_ctl_lost_interval_log(void)
 }
 
 
+#define XQC_TEST_SEND_CTL_PKT_SIZE 1200
+
+/*
+ * A packet of XQC_TEST_SEND_CTL_PKT_SIZE bytes counted by congestion
+ * control, on the initial path.
+ */
+static void
+xqc_test_send_ctl_sized_packet(xqc_connection_t *conn, xqc_packet_out_t *po,
+    xqc_packet_number_t pkt_num)
+{
+    po->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    po->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    po->po_pkt.pkt_num = pkt_num;
+    po->po_path_id = conn->conn_initial_path->path_id;
+    po->po_frame_types = XQC_FRAME_BIT_PING;
+    po->po_used_size = XQC_TEST_SEND_CTL_PKT_SIZE;
+}
+
+/*
+ * A packet sent long ago and acknowledged since, through another copy of
+ * it, and the copy of it that loss detection queued for retransmission:
+ * the copy holds nothing left to deliver. Returns the copy.
+ */
+static xqc_packet_out_t *
+xqc_test_send_ctl_obsolete_copy(xqc_connection_t *conn)
+{
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_packet_out_t *origin, *copy;
+
+    origin = xqc_packet_out_get(sq);
+    CU_ASSERT_FATAL(origin != NULL);
+    xqc_test_send_ctl_sized_packet(conn, origin, 1);
+    origin->po_sent_time = 1;
+    xqc_send_queue_insert_unacked(origin,
+        &sq->sndq_unacked_packets[XQC_PNS_APP_DATA], sq);
+
+    xqc_send_queue_copy_to_lost(origin, sq, XQC_TRUE);
+    CU_ASSERT_FATAL(!xqc_list_empty(&sq->sndq_lost_packets));
+    copy = xqc_list_entry(sq->sndq_lost_packets.next, xqc_packet_out_t,
+                          po_list);
+    CU_ASSERT_FATAL(copy->po_origin == origin);
+    CU_ASSERT_FATAL(origin->po_origin_ref_cnt == 1);
+
+    origin->po_acked = 1;
+    return copy;
+}
+
+/*
+ * Data still to send, and a congestion window with room left for exactly
+ * one packet of it. Returns the packet.
+ */
+static xqc_packet_out_t *
+xqc_test_send_ctl_one_packet_room(xqc_connection_t *conn)
+{
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_packet_out_t *fresh;
+    uint64_t cwnd;
+
+    fresh = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT_FATAL(fresh != NULL);
+    xqc_test_send_ctl_sized_packet(conn, fresh, 2);
+
+    cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+        send_ctl->ctl_cong);
+    CU_ASSERT_FATAL(cwnd > XQC_TEST_SEND_CTL_PKT_SIZE);
+    send_ctl->ctl_bytes_in_flight = cwnd - XQC_TEST_SEND_CTL_PKT_SIZE;
+    return fresh;
+}
+
+/* fresh is the only packet scheduled on the path, the copy is gone */
+static void
+xqc_test_send_ctl_check_fresh_scheduled(xqc_connection_t *conn,
+    xqc_packet_out_t *fresh)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_list_head_t *normal = &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL];
+
+    CU_ASSERT(xqc_list_empty(&path->path_schedule_buf[XQC_SEND_TYPE_RETRANS]));
+    CU_ASSERT(xqc_list_empty(&sq->sndq_lost_packets));
+    CU_ASSERT(xqc_list_empty(&sq->sndq_send_packets));
+    CU_ASSERT(!xqc_list_empty(normal)
+              && xqc_list_entry(normal->next, xqc_packet_out_t, po_list)
+                 == fresh);
+    CU_ASSERT(path->path_schedule_bytes == XQC_TEST_SEND_CTL_PKT_SIZE);
+    CU_ASSERT(xqc_list_empty(&sq->sndq_unacked_packets[XQC_PNS_APP_DATA]));
+}
+
+/*
+ * A copy queued for retransmission whose original was acknowledged since
+ * is not scheduled: the send loops drop it unsent, so counting it against
+ * the congestion window would keep the data still to send from going out.
+ * With room for one packet, the data is scheduled and the copy dropped;
+ * before, the copy took the room, the round sent nothing, and with
+ * nothing in flight no timer started another round.
+ */
+void
+xqc_test_send_ctl_obsolete_lost_copy_not_scheduled(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_out_t *fresh;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_test_send_ctl_obsolete_copy(conn);
+    fresh = xqc_test_send_ctl_one_packet_room(conn);
+
+    xqc_conn_schedule_packets_to_paths(conn);
+
+    xqc_test_send_ctl_check_fresh_scheduled(conn, fresh);
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * The same with the copy scheduled already, in a round that could not
+ * send it, when the acknowledgment comes: the next round drops it before
+ * scheduling the data still to send.
+ */
+void
+xqc_test_send_ctl_obsolete_scheduled_copy_dropped(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_path_ctx_t *path;
+    xqc_packet_out_t *copy, *fresh;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    path = conn->conn_initial_path;
+    copy = xqc_test_send_ctl_obsolete_copy(conn);
+    xqc_path_send_buffer_append(path, copy,
+        &path->path_schedule_buf[XQC_SEND_TYPE_RETRANS]);
+    CU_ASSERT(path->path_schedule_bytes == XQC_TEST_SEND_CTL_PKT_SIZE);
+    fresh = xqc_test_send_ctl_one_packet_room(conn);
+
+    xqc_conn_schedule_packets_to_paths(conn);
+
+    xqc_test_send_ctl_check_fresh_scheduled(conn, fresh);
+    xqc_engine_destroy(conn->engine);
+}
+
+
 /*
  * RFC 9000 14.4: the loss of a PMTU probe "SHOULD NOT trigger a congestion
  * control reaction" (also RFC 8899 3, item 7). Both tests arm the

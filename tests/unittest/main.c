@@ -877,6 +877,12 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_interval_log",
                         xqc_test_send_ctl_lost_interval_log)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_obsolete_lost_copy_not_scheduled",
+                        xqc_test_send_ctl_obsolete_lost_copy_not_scheduled)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_obsolete_scheduled_copy_dropped",
+                        xqc_test_send_ctl_obsolete_scheduled_copy_dropped)
         /* RFC 9000 14.4: no congestion reaction to a lost PMTU probe */
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction",
                         xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)

@@ -609,6 +609,8 @@ main(int argc, char *argv[])
                         xqc_test_new_conn_id_active_limit_accept)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_active_limit_exceeded",
                         xqc_test_new_conn_id_active_limit_exceeded)
+        || !CU_add_test(pSuite, "xqc_test_frame_event_log_fields",
+                        xqc_test_frame_event_log_fields)
         || !CU_add_test(pSuite, "xqc_test_conn_close_application_error_type",
                         xqc_test_conn_close_application_error_type)
         || !CU_add_test(pSuite,

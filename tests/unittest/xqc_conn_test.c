@@ -22,6 +22,7 @@
 #include "src/transport/xqc_cid.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_packet_parser.h"
 #include "src/transport/xqc_packet_in.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_send_queue.h"
@@ -1524,6 +1525,143 @@ xqc_test_conn_tls_error_cb_max_alert()
 
     xqc_engine_destroy(conn->engine);
 }
+
+/*
+ * Switch the client to the server's connection ID as processing the
+ * server's first Initial does (xqc_conn_confirm_cid()), and return a PTO
+ * copy of the ClientHello sent before.
+ */
+static xqc_packet_out_t *
+xqc_test_ch_probe_after_cid_switch(xqc_connection_t *conn,
+    xqc_cid_t *server_cid, xqc_packet_out_t **ch)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_queue_t *send_queue = conn->conn_send_queue;
+    xqc_list_head_t *init = &send_queue->sndq_unacked_packets[XQC_PNS_INIT];
+
+    CU_ASSERT_FATAL(!xqc_list_empty(init));
+    *ch = xqc_list_entry(init->next, xqc_packet_out_t, po_list);
+    CU_ASSERT_FATAL((*ch)->po_frame_types & XQC_FRAME_BIT_CRYPTO);
+
+    xqc_cid_copy(&conn->dcid_set.current_dcid, server_cid);
+    xqc_cid_copy(&path->path_dcid, server_cid);
+
+    xqc_send_queue_copy_to_probe(*ch, send_queue, path);
+    xqc_list_head_t *probes = &send_queue->sndq_pto_probe_packets;
+    CU_ASSERT_FATAL(!xqc_list_empty(probes));
+    return xqc_list_entry(probes->prev, xqc_packet_out_t, po_list);
+}
+
+/* the frames of a client Initial, without the padding added on sending */
+static size_t
+xqc_test_initial_frames_len(xqc_packet_out_t *po)
+{
+    unsigned char *end = po->po_padding != NULL
+                         ? po->po_padding : po->po_buf + po->po_used_size;
+    return end - po->po_payload;
+}
+
+/*
+ * RFC 9000 Section 7.2: after the server's first Initial, a retransmitted
+ * ClientHello carries the server's connection ID, here longer than the
+ * client's first one, with the same CRYPTO frame, in a datagram still
+ * padded to at least 1200 bytes (Section 14.1).
+ */
+void
+xqc_test_initial_retransmission_uses_server_cid(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_cid_t first, server_cid;
+    xqc_cid_copy(&first, &conn->conn_initial_path->path_dcid);
+    memset(&server_cid, 0, sizeof(server_cid));
+    server_cid.cid_len = XQC_MAX_CID_LEN;
+    memset(server_cid.cid_buf, 0xa5, server_cid.cid_len);
+    CU_ASSERT(first.cid_len < server_cid.cid_len);
+
+    xqc_packet_out_t *ch;
+    xqc_packet_out_t *probe = xqc_test_ch_probe_after_cid_switch(conn,
+                                  &server_cid, &ch);
+    size_t frames_len = xqc_test_initial_frames_len(ch);
+
+    unsigned char enc[XQC_CONN_MAX_UDP_PAYLOAD_SIZE];
+    size_t enc_len = 0;
+    CU_ASSERT_FATAL(xqc_conn_enc_packet(conn, conn->conn_initial_path, probe,
+                    (char *) enc, sizeof(enc), &enc_len,
+                    xqc_monotonic_timestamp()) == XQC_OK);
+
+    /* the DCID follows the version, in clear */
+    CU_ASSERT(enc[1 + XQC_PROTO_VERSION_LEN] == server_cid.cid_len);
+    CU_ASSERT(memcmp(enc + 2 + XQC_PROTO_VERSION_LEN, server_cid.cid_buf,
+                     server_cid.cid_len) == 0);
+    CU_ASSERT(enc_len >= XQC_PACKET_INITIAL_MIN_LENGTH);
+    CU_ASSERT(xqc_test_initial_frames_len(probe) >= frames_len);
+    CU_ASSERT(memcmp(probe->po_payload, ch->po_payload, frames_len) == 0);
+    CU_ASSERT(probe->po_payload - probe->po_buf
+              == ch->po_payload - ch->po_buf
+                 + server_cid.cid_len - first.cid_len);
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A server connection ID of the client's first length is written in
+ * place, and an Initial built once the client uses the server's ID is
+ * sent with its header unchanged.
+ */
+void
+xqc_test_initial_header_kept_with_server_cid(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+
+    xqc_cid_t server_cid;
+    xqc_cid_copy(&server_cid, &path->path_dcid);
+    for (int i = 0; i < server_cid.cid_len; i++) {
+        server_cid.cid_buf[i] ^= 0xff;
+    }
+
+    xqc_packet_out_t *ch;
+    xqc_packet_out_t *probe = xqc_test_ch_probe_after_cid_switch(conn,
+                                  &server_cid, &ch);
+    size_t hdr_len = probe->po_payload - probe->po_buf;
+
+    unsigned char enc[XQC_CONN_MAX_UDP_PAYLOAD_SIZE];
+    size_t enc_len = 0;
+    CU_ASSERT_FATAL(xqc_conn_enc_packet(conn, path, probe, (char *) enc,
+                    sizeof(enc), &enc_len, xqc_monotonic_timestamp())
+                    == XQC_OK);
+    CU_ASSERT(probe->po_payload - probe->po_buf == hdr_len);
+    CU_ASSERT(memcmp(enc + 2 + XQC_PROTO_VERSION_LEN, server_cid.cid_buf,
+                     server_cid.cid_len) == 0);
+
+    xqc_packet_out_t *ping = xqc_write_new_packet(conn, XQC_PTYPE_INIT);
+    CU_ASSERT_FATAL(ping != NULL);
+    ssize_t n = xqc_gen_ping_frame(ping);
+    CU_ASSERT_FATAL(n > 0);
+    ping->po_used_size += n;
+    unsigned char hdr[64];
+    hdr_len = ping->po_payload - ping->po_buf;
+    CU_ASSERT_FATAL(hdr_len <= sizeof(hdr));
+    memcpy(hdr, ping->po_buf, hdr_len);
+
+    CU_ASSERT_FATAL(xqc_conn_enc_packet(conn, path, ping, (char *) enc,
+                    sizeof(enc), &enc_len, xqc_monotonic_timestamp())
+                    == XQC_OK);
+    CU_ASSERT(ping->po_payload - ping->po_buf == hdr_len);
+    /* version, connection IDs and token, before the updated Length */
+    CU_ASSERT(memcmp(ping->po_buf + 1, hdr + 1, ping->po_ppktno
+                     - XQC_LONG_HEADER_LENGTH_BYTE - ping->po_buf - 1) == 0);
+    CU_ASSERT(memcmp(enc + 2 + XQC_PROTO_VERSION_LEN, server_cid.cid_buf,
+                     server_cid.cid_len) == 0);
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
 
 
 /* RFC 9001 Section 8.1 ALPN enforcement -- issue #709 */

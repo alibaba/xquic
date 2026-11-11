@@ -2534,6 +2534,97 @@ xqc_need_padding(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
     return ret;
 }
 
+/*
+ * RFC 9000 Section 7.2: once the client has processed the server's first
+ * Initial, every packet it sends carries the server's connection ID. The
+ * long header of an Initial or 0-RTT packet is written when the packet is
+ * built, and a retransmission copies it, so a ClientHello or 0-RTT packet
+ * built before kept the client's first Destination Connection ID. Write
+ * the header again with the path's one; the padding of a client Initial
+ * is generated again for the new header length.
+ */
+static void
+xqc_conn_update_long_header_dcid(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out, const xqc_cid_t *dcid)
+{
+    xqc_pkt_type_t   type = packet_out->po_pkt.pkt_type;
+    unsigned char   *hdr_dcid, *end;
+    size_t           old_hdr_len, new_hdr_len, payload_len;
+    uint32_t         token_len;
+    ssize_t          ret, diff;
+
+    if (conn->conn_type != XQC_CONN_TYPE_CLIENT
+        || (type != XQC_PTYPE_INIT && type != XQC_PTYPE_0RTT
+            && type != XQC_PTYPE_HSK)
+        || packet_out->po_payload == NULL)
+    {
+        return;
+    }
+
+    hdr_dcid = packet_out->po_buf + 1 + XQC_PROTO_VERSION_LEN;
+    if (hdr_dcid[0] == dcid->cid_len
+        && xqc_memcmp(hdr_dcid + 1, dcid->cid_buf, dcid->cid_len) == 0)
+    {
+        return;
+    }
+
+    end = packet_out->po_buf + packet_out->po_used_size;
+    if (packet_out->po_padding != NULL && xqc_need_padding(conn, packet_out)) {
+        end = packet_out->po_padding;
+    }
+
+    old_hdr_len = packet_out->po_payload - packet_out->po_buf;
+    payload_len = end - packet_out->po_payload;
+    token_len = type == XQC_PTYPE_INIT ? conn->conn_token_len : 0;
+    new_hdr_len = xqc_long_packet_header_size(dcid->cid_len,
+                      conn->scid_set.user_scid.cid_len, token_len,
+                      XQC_PKTNO_BITS, type);
+    if (new_hdr_len + payload_len > packet_out->po_buf_size) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|no room for the header|"
+                "pkt_num:%ui|hdr:%uz|payload:%uz|", packet_out->po_pkt.pkt_num,
+                new_hdr_len, payload_len);
+        return;
+    }
+
+    memmove(packet_out->po_buf + new_hdr_len, packet_out->po_payload,
+            payload_len);
+    packet_out->po_used_size = 0;
+    ret = xqc_gen_long_packet_header(packet_out, dcid->cid_buf, dcid->cid_len,
+                                     conn->scid_set.user_scid.cid_buf,
+                                     conn->scid_set.user_scid.cid_len,
+                                     conn->conn_token, token_len,
+                                     conn->version, XQC_PKTNO_BITS);
+    if (ret != (ssize_t) new_hdr_len) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|gen header error|%z|", ret);
+        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+        return;
+    }
+
+    packet_out->po_used_size = new_hdr_len + payload_len;
+    packet_out->po_padding = NULL;
+
+    diff = (ssize_t) new_hdr_len - (ssize_t) old_hdr_len;
+    if (packet_out->po_ack_offset > 0) {
+        packet_out->po_ack_offset += diff;
+    }
+    for (int i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
+        xqc_po_stream_frame_t *frame = &packet_out->po_stream_frames[i];
+        if (!frame->ps_is_used) {
+            break;
+        }
+        if (frame->ps_type_offset > 0) {
+            frame->ps_type_offset += diff;
+        }
+        if (frame->ps_length_offset > 0) {
+            frame->ps_length_offset += diff;
+        }
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|dcid updated|pkt_num:%ui|ptype:%s|"
+            "dcid:%s|", packet_out->po_pkt.pkt_num, xqc_pkt_type_2_str(type),
+            xqc_dcid_str(conn->engine, dcid));
+}
+
 xqc_int_t
 xqc_conn_enc_packet(xqc_connection_t *conn,
     xqc_path_ctx_t *path, xqc_packet_out_t *packet_out,
@@ -2541,6 +2632,9 @@ xqc_conn_enc_packet(xqc_connection_t *conn,
 {
     /* update dcid by send path */
     xqc_short_packet_update_dcid(packet_out, path->path_dcid);
+    if (packet_out->po_pkt.pkt_type != XQC_PTYPE_SHORT_HEADER) {
+        xqc_conn_update_long_header_dcid(conn, packet_out, &path->path_dcid);
+    }
 
 
     /* pad packet if needed */
@@ -2717,6 +2811,9 @@ xqc_enc_packet_with_pn(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_packet_
 {
     /* update dcid by send path */
     xqc_short_packet_update_dcid(packet_out, path->path_dcid);
+    if (packet_out->po_pkt.pkt_type != XQC_PTYPE_SHORT_HEADER) {
+        xqc_conn_update_long_header_dcid(conn, packet_out, &path->path_dcid);
+    }
 
     /* pad packet if needed */
     if (xqc_need_padding(conn, packet_out)) {

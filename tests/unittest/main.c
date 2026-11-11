@@ -701,6 +701,8 @@ main(int argc, char *argv[])
                         xqc_test_h3_reserved_uni_stream_accepted)
         || !CU_add_test(pSuite, "xqc_test_h3_push_stream_error_codes",
                         xqc_test_h3_push_stream_error_codes)
+        || !CU_add_test(pSuite, "xqc_test_h3_request_create_stream_count",
+                        xqc_test_h3_request_create_stream_count)
         || !CU_add_test(pSuite, "xqc_test_h3_max_push_id_valid",
                         xqc_test_h3_max_push_id_valid)
         || !CU_add_test(pSuite, "xqc_test_h3_max_push_id_errors",

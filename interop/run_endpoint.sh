@@ -22,6 +22,11 @@ if [ "$ROLE" == "client" ]; then
     # client args
     ARGS="-l d  -L "$LOG_DIR/client.log" -D "/downloads" -k $SSLKEYLOGFILE -K 30 -o"
 
+    # Send the key share for X25519, the group servers prefer. A server
+    # that prefers X25519 answers a P-256 key share with a HelloRetryRequest,
+    # after which 0-RTT is not possible (RFC 8446 Section 4.2.10).
+    ARGS="$ARGS -5"
+
     # zerortt
     if [ "$TESTCASE" == "zerortt" ]; then
         REQS=($REQUESTS)

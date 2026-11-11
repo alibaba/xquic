@@ -2628,6 +2628,23 @@ xqc_process_max_path_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     xqc_log(conn->log, XQC_LOG_DEBUG,
             "|max_path_id:%ui|prev_max_path_id:%ui|", max_path_id, conn->remote_max_path_id);
 
+    /*
+     * draft-ietf-quic-multipath-10 Section 7.7: the Maximum Path Identifier
+     * MUST NOT exceed 2^32-1 nor be lower than the initial_max_path_id of
+     * the peer, and an invalid value is a connection error of type
+     * MP_PROTOCOL_VIOLATION. A valid value that is not higher than the
+     * current limit is ignored.
+     */
+    if (max_path_id > XQC_PATH_ID_MAX_VALUE
+        || max_path_id < conn->remote_settings.init_max_path_id)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|invalid max_path_id|max_path_id:%ui|init_max_path_id:%ui|",
+                max_path_id, conn->remote_settings.init_max_path_id);
+        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+        return -XQC_EILLEGAL_FRAME;
+    }
+
     if (conn->remote_max_path_id < max_path_id) {
         conn->remote_max_path_id = max_path_id;
         new_max_path_id = xqc_min(conn->local_max_path_id, conn->remote_max_path_id);

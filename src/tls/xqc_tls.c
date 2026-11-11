@@ -1122,10 +1122,13 @@ xqc_ssl_new_session_cb(SSL *ssl, SSL_SESSION *session)
 {
     xqc_tls_t *tls = (xqc_tls_t *)SSL_get_app_data(ssl);
 
-    /* check if early data is enabled */
+    /*
+     * RFC 8446 Section 4.6.1: a ticket without the early_data extension
+     * cannot carry 0-RTT data, but it still resumes the session, so pass it
+     * on as well. The client offers 0-RTT only with a ticket that allows it.
+     */
     if (!xqc_ssl_session_is_early_data_enabled(session)) {
-        xqc_log(tls->log, XQC_LOG_ERROR, "|early data is not enabled|");
-        goto end;
+        xqc_log(tls->log, XQC_LOG_DEBUG, "|early data is not enabled|");
     }
 
     if (tls->cbs->session_cb != NULL) {

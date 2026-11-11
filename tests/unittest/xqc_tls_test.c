@@ -45,7 +45,8 @@ typedef struct xqc_tls_test_buff_s {
 static inline xqc_tls_test_buff_t*
 xqc_create_tls_test_buffer()
 {
-    xqc_tls_test_buff_t *ttbuf = xqc_malloc(sizeof(xqc_tls_test_buff_t));
+    /* zeroed: the TLS layer reads conn_flag through the union's conn */
+    xqc_tls_test_buff_t *ttbuf = xqc_calloc(1, sizeof(xqc_tls_test_buff_t));
     xqc_init_list_head(&ttbuf->initial_crypto_data_list);
     xqc_init_list_head(&ttbuf->hsk_crypto_data_list);
     xqc_init_list_head(&ttbuf->application_crypto_data_list);
@@ -1438,6 +1439,107 @@ xqc_test_reset_ticket_policy(void)
 
 
 /*
+ * One handshake with a server that issues tickets without the early_data
+ * extension, as a server with 0-RTT disabled does. With a saved ticket,
+ * the connection resumes without offering 0-RTT. Returns the client test
+ * buffer, which holds the ticket the client saved.
+ */
+static xqc_tls_test_buff_t *
+xqc_test_no_early_data_ticket_handshake(xqc_tls_test_buff_t *saved)
+{
+    xqc_tls_config_t cfg = {0};
+    xqc_cid_t odcid = {1};
+    uint8_t data[XQC_TEST_MAX_CRYPTO_DATA_BUF];
+    size_t len;
+    xqc_tls_test_buff_t *client = xqc_create_tls_test_buffer();
+    xqc_tls_test_buff_t *server = xqc_create_tls_test_buffer();
+
+    cfg.hostname = "test.xquic.com";
+    cfg.alpn = "transport";
+    cfg.trans_params = (uint8_t *)"10086";
+    cfg.trans_params_len = 5;
+    if (saved != NULL) {
+        cfg.session_ticket = saved->new_session_ticket;
+        cfg.session_ticket_len = saved->new_session_ticket_len;
+    }
+
+    xqc_tls_t *cli = xqc_tls_create(ctx_cli, &cfg, test_log, client);
+    xqc_tls_t *svr = xqc_tls_create(ctx_svr, &cfg, test_log, server);
+    CU_ASSERT_PTR_NOT_NULL(cli);
+    CU_ASSERT_PTR_NOT_NULL(svr);
+    if (cli == NULL || svr == NULL) {
+        goto end;
+    }
+
+    /* the server's NewSessionTicket carries no early_data extension */
+#ifdef OPENSSL_IS_BORINGSSL
+    SSL_set_early_data_enabled(xqc_tls_get_ssl(svr), 0);
+#else
+    SSL_set_max_early_data(xqc_tls_get_ssl(svr), 0);
+#endif
+
+    CU_ASSERT_EQUAL(xqc_tls_init(cli, XQC_VERSION_V1, &odcid), XQC_OK);
+    CU_ASSERT(!xqc_tls_is_ready_to_send_early_data(cli));
+    CU_ASSERT_EQUAL(xqc_tls_init(svr, XQC_VERSION_V1, &odcid), XQC_OK);
+
+    len = xqc_crypto_data_list_get_buf(&client->initial_crypto_data_list, data);
+    CU_ASSERT(len > 0);
+    CU_ASSERT_EQUAL(xqc_tls_process_crypto_data(svr, XQC_ENC_LEV_INIT,
+                                               data, len), XQC_OK);
+    len = xqc_crypto_data_list_get_buf(&server->initial_crypto_data_list, data);
+    CU_ASSERT(len > 0);
+    CU_ASSERT_EQUAL(xqc_tls_process_crypto_data(cli, XQC_ENC_LEV_INIT,
+                                               data, len), XQC_OK);
+    len = xqc_crypto_data_list_get_buf(&server->hsk_crypto_data_list, data);
+    CU_ASSERT(len > 0);
+    CU_ASSERT_EQUAL(xqc_tls_process_crypto_data(cli, XQC_ENC_LEV_HSK,
+                                               data, len), XQC_OK);
+    len = xqc_crypto_data_list_get_buf(&client->hsk_crypto_data_list, data);
+    CU_ASSERT(len > 0);
+    CU_ASSERT_EQUAL(xqc_tls_process_crypto_data(svr, XQC_ENC_LEV_HSK,
+                                               data, len), XQC_OK);
+    CU_ASSERT(client->handshake_completed && server->handshake_completed);
+
+    /* a resumed handshake sends no Certificate and accepts no 0-RTT */
+    CU_ASSERT_EQUAL(SSL_session_reused(xqc_tls_get_ssl(cli)), saved != NULL);
+    CU_ASSERT_EQUAL(SSL_session_reused(xqc_tls_get_ssl(svr)), saved != NULL);
+    CU_ASSERT_EQUAL(xqc_tls_is_early_data_accepted(svr),
+                    XQC_TLS_EARLY_DATA_REJECT);
+
+    len = xqc_crypto_data_list_get_buf(&server->application_crypto_data_list,
+                                      data);
+    CU_ASSERT(len > 0);
+    CU_ASSERT_EQUAL(xqc_tls_process_crypto_data(cli, XQC_ENC_LEV_1RTT,
+                                               data, len), XQC_OK);
+    CU_ASSERT(client->transport_error_code == 0);
+
+    /* RFC 8446 Section 4.6.1: the ticket is still good for resumption */
+    CU_ASSERT_PTR_NOT_NULL(client->new_session_ticket);
+    CU_ASSERT(client->new_session_ticket_len > 0);
+
+end:
+    xqc_tls_destroy(cli);
+    xqc_tls_destroy(svr);
+    xqc_destroy_tls_test_buffer(server);
+    return client;
+}
+
+
+static void
+xqc_test_tls_resume_without_early_data(void)
+{
+    xqc_tls_test_buff_t *first, *second;
+
+    first = xqc_test_no_early_data_ticket_handshake(NULL);
+    if (first->new_session_ticket != NULL) {
+        second = xqc_test_no_early_data_ticket_handshake(first);
+        xqc_destroy_tls_test_buffer(second);
+    }
+    xqc_destroy_tls_test_buffer(first);
+}
+
+
+/*
  * Key update with real 1-RTT keys: a client connection whose TLS completed a
  * handshake receives packets that the server protects with its retired or
  * current keys through the connection receive path, around the old-key
@@ -1801,6 +1903,7 @@ xqc_test_tls(void)
     xqc_test_tls_multiple_crypto_data();
     xqc_test_tls_generic();
     xqc_test_reset_ticket_policy();
+    xqc_test_tls_resume_without_early_data();
     xqc_test_tls_process_truncated_crypto_handshake();
     xqc_test_tls_failure();
     

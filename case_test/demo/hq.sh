@@ -62,6 +62,92 @@ hq_request_delayed_fin()
     hq_request_transfer 1703 hq_request_delayed_fin 0
 }
 
+# Serve one file with demo_server. demo_client saves its session ticket,
+# transport parameters and token in the work directory and resumes from
+# them, so the cases start without them and remove their own.
+demo_client_connect_start()
+{
+    local build_dir
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    rm -rf demo-connect-www
+    mkdir -p demo-connect-www
+    head -c 32 /dev/urandom > demo-connect-www/f1
+    rm -f session_ticket transport_params token
+    case_test_start_server \
+        "${CASE_TEST_SERVER_BIN:-${build_dir}/demo/demo_server}" \
+        -p "${CASE_TEST_PORT:-8443}" \
+        -D "${CASE_TEST_WORK_DIR}/demo-connect-www" \
+        -l d -L slog > /dev/null 2>&1
+}
+
+demo_client_connect_stop()
+{
+    case_test_stop_server
+    rm -f session_ticket transport_params token
+}
+
+# Download the file with demo_client over <alpn>, with a 10-second life
+# time. The client either downloads it and exits with status 0, or, when
+# its connection cannot be created, exits at once with status 1.
+demo_client_connect_run()
+{
+    local alpn="$1" build_dir start status=0
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    rm -rf demo-connect-dl
+    mkdir -p demo-connect-dl
+    clear_log
+    start="${SECONDS}"
+    "${build_dir}/demo/demo_client" -l d -L clog -D demo-connect-dl -K 10 \
+        -A "${alpn}" -U "https://127.0.0.1:${CASE_TEST_PORT:-8443}/f1" \
+        > stdlog 2>&1 || status=$?
+
+    ! grep -q 'kill it anyway' stdlog || return 1
+    if grep -Fq '|xqc_demo_cli_start FAILED|' stdlog; then
+        [[ "${status}" -eq 1 && $((SECONDS - start)) -lt 5 ]] \
+            && [[ ! -e demo-connect-dl/f1 ]]
+    else
+        [[ "${status}" -eq 0 ]] \
+            && cmp -s demo-connect-www/f1 demo-connect-dl/f1
+    fi
+}
+
+# 1709 happy path: the client creates its connection over h3, downloads the
+# file and exits with status 0.
+demo_client_connect_ok()
+{
+    local status=0
+
+    demo_client_connect_start
+    demo_client_connect_run h3 || status=1
+    ! grep -Fq '|xqc_demo_cli_start FAILED|' stdlog || status=1
+    demo_client_connect_stop
+    return "${status}"
+}
+
+# 1710 abnormal path: the client resumes the hq-interop session ticket of its
+# first run over h3. BabaSSL refuses to build that ClientHello ("inconsistent
+# early data alpn"), and the connection cannot be created: the client exits
+# at once with status 1 instead of waiting for its life time to end.
+# BoringSSL leaves early data out of that ClientHello and the download
+# completes.
+demo_client_connect_refused()
+{
+    local status=0
+
+    demo_client_connect_start
+    demo_client_connect_run hq || status=1
+    ! grep -Fq '|xqc_demo_cli_start FAILED|' stdlog || status=1
+    demo_client_connect_run h3 || status=1
+    demo_client_connect_stop
+    return "${status}"
+}
+
+case_test_case "demo_client_connect_ok" --id 1709 \
+    --run demo_client_connect_ok --timeout 30
+case_test_case "demo_client_connect_refused" --id 1710 \
+    --run demo_client_connect_refused --timeout 30
 case_test_case "hq_request_fin" --id 1702 --run hq_request_fin --timeout 12
 case_test_case "hq_request_delayed_fin" --id 1703 \
     --run hq_request_delayed_fin --timeout 12

@@ -588,6 +588,74 @@ fi
 
 }
 
+case_transport_core_preferred_address_migration()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "client migrates to the server's preferred address ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 756 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024000 -l d -t 2 -E -x 756 > stdlog 2>&1
+advertised=`grep "\[preferred-address-test\]|advertise|" svr_stdlog`
+blocked=`grep "\[preferred-address-test\]|no client cid|" svr_stdlog`
+migrated=`grep -a "|migrated to the preferred address|.* p-127\.0\.0\.2-" clog`
+probe=`grep -a "size:1200|.*|frame:PADDING PATH_CHALLENGE |.*|dcid_seq:1|" slog`
+moved=`grep -a "|xqc_conn_on_pkt_processed|.*STREAM .*|dcid_seq:1|" slog`
+retired=`grep -a "|frame:RETIRE_CONNECTION_ID |.*|dcid_seq:1|" slog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$advertised" ] && [ -z "$blocked" ] \
+    && [ -n "$migrated" ] && [ -n "$probe" ] && [ -n "$moved" ] \
+    && [ -n "$retired" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "preferred_address_migration" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "preferred_address_migration" "fail"
+    echo "[preferred-address]|advertised:${advertised:+1}|" \
+        "blocked:${blocked:+1}|migrated:${migrated:+1}|probe:${probe:+1}|" \
+        "moved:${moved:+1}|retired:${retired:+1}|"
+    echo "$errlog"
+fi
+
+}
+
+case_transport_core_preferred_address_unreachable()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "client stays when the preferred address does not answer ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 757 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024000 -l d -t 5 -E -x 757 > stdlog 2>&1
+advertised=`grep "\[preferred-address-test\]|advertise|" svr_stdlog`
+dropped=`grep "\[preferred-address-test\]|drop|size:1200|" svr_stdlog`
+retried=`grep -a "|preferred address PATH_CHALLENGE|ret:0|count:2|" clog`
+failed=`grep -a "|preferred address validation failed|" clog`
+migrated=`grep -a "|migrated to the preferred address|" clog`
+reached=`grep -a "|xqc_conn_on_pkt_processed|.*|dcid_seq:1|" slog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$advertised" ] && [ -n "$dropped" ] \
+    && [ -n "$retried" ] && [ -n "$failed" ] && [ -z "$migrated" ] \
+    && [ -z "$reached" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "preferred_address_unreachable" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "preferred_address_unreachable" "fail"
+    echo "[preferred-address]|advertised:${advertised:+1}|" \
+        "dropped:${dropped:+1}|retried:${retried:+1}|failed:${failed:+1}|" \
+        "migrated:${migrated:+1}|reached:${reached:+1}|"
+    echo "$errlog"
+fi
+
+}
+
 case_transport_core_server_amplification_limit()
 {
 case_test_start_server ${SERVER_BIN} -l d -e -S "server_id_0" > /dev/null
@@ -1153,6 +1221,10 @@ case_test_case "crypto_previous_level_extension" --id native --mode self-reporti
 case_test_case "new_client_29_&_new_server" --id native --mode self-reporting --run case_transport_core_new_client_29_new_server
 case_test_case "load_balancer_cid_generate_with_encryption" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate_with_encryption
 case_test_case "load_balancer_cid_generate" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate
+case_test_case "preferred_address_migration" --id 756 --mode self-reporting \
+    --run case_transport_core_preferred_address_migration
+case_test_case "preferred_address_unreachable" --id 757 --mode self-reporting \
+    --run case_transport_core_preferred_address_unreachable
 case_test_case "server_amplification_limit" --id native --mode self-reporting --run case_transport_core_server_amplification_limit
 case_test_case "version_negotiation" --id native --mode self-reporting --run case_transport_core_version_negotiation
 case_test_case "version_negotiation_abort_path" --id native --mode self-reporting --run case_transport_core_version_negotiation_abort_path

@@ -304,6 +304,33 @@ typedef struct {
     xqc_usec_t              fc_last_window_update_time;
 } xqc_conn_flow_ctl_t;
 
+/* a client's migration to the server's preferred address, RFC 9000 9.6 */
+#define XQC_PREFERRED_ADDR_MAX_CHALLENGES   5
+
+typedef enum {
+    XQC_PREFERRED_ADDR_NONE = 0,    /* none offered, or none usable */
+    XQC_PREFERRED_ADDR_OFFERED,     /* until the handshake is confirmed */
+    XQC_PREFERRED_ADDR_VALIDATING,  /* PATH_CHALLENGE sent to addr, or soon */
+    XQC_PREFERRED_ADDR_MIGRATED,
+    XQC_PREFERRED_ADDR_FAILED,
+} xqc_preferred_addr_state_t;
+
+typedef struct {
+    xqc_preferred_addr_state_t  state;
+    unsigned char               addr[sizeof(struct sockaddr_in6)];
+    socklen_t                   addrlen;
+    /* the unused connection ID that the packets to addr carry */
+    xqc_cid_t                   dcid;
+    /* the data of the challenge_cnt PATH_CHALLENGE frames sent to addr */
+    unsigned char       challenge_data[XQC_PREFERRED_ADDR_MAX_CHALLENGES]
+                                      [XQC_PATH_CHALLENGE_DATA_LEN];
+    uint32_t                    challenge_cnt;
+    /* once challenged, when the validation is abandoned (RFC 9000 8.2.4) */
+    xqc_usec_t                  deadline;
+    /* the datagram being processed comes from addr */
+    xqc_bool_t                  recv_from_addr;
+} xqc_preferred_addr_ctx_t;
+
 
 typedef struct {
     xqc_list_head_t list_head;
@@ -457,6 +484,9 @@ struct xqc_connection_s {
     uint64_t                        curr_max_path_id;
     uint64_t                        local_max_path_id;
     uint64_t                        remote_max_path_id;
+
+    /* client: migration to the server's preferred address */
+    xqc_preferred_addr_ctx_t        preferred_addr;
 
     /* for qlog */
     uint32_t                        MTU_updated_count;    
@@ -747,6 +777,38 @@ xqc_int_t xqc_conn_send_rebinding_path_challenge(xqc_connection_t *conn,
     xqc_path_ctx_t *path, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     unsigned char *challenge_data, xqc_bool_t min_padding, uint64_t max_send_bytes,
     size_t *sent_bytes);
+
+/* client: the server's transport parameters carry preferred_address */
+xqc_int_t xqc_conn_on_preferred_address(xqc_connection_t *conn,
+    const xqc_preferred_addr_t *preferred);
+
+/* client: start the migration to the preferred address, if any */
+void xqc_conn_preferred_addr_start(xqc_connection_t *conn, xqc_usec_t now);
+
+/* client: a datagram comes from peer_addr, before its packets are processed */
+void xqc_conn_preferred_addr_on_datagram(xqc_connection_t *conn,
+    const struct sockaddr *peer_addr);
+
+/*
+ * client: answer a PATH_CHALLENGE that came from the preferred address
+ * under validation; XQC_FALSE if it came from elsewhere
+ */
+xqc_bool_t xqc_conn_preferred_addr_on_challenge(xqc_connection_t *conn,
+    unsigned char *challenge_data);
+
+/*
+ * client: a PATH_RESPONSE; -XQC_EIGNORE_PKT if it answers none of the
+ * PATH_CHALLENGE frames sent to the preferred address
+ */
+xqc_int_t xqc_conn_preferred_addr_on_response(xqc_connection_t *conn,
+    const unsigned char *response_data);
+
+/* client: the server acknowledged a NEW_CONNECTION_ID frame */
+void xqc_conn_preferred_addr_on_cid_acked(xqc_connection_t *conn,
+    xqc_usec_t now);
+
+void xqc_conn_preferred_addr_on_timeout(xqc_connection_t *conn,
+    xqc_usec_t now);
 
 int xqc_conn_buff_0rtt_datagram(xqc_connection_t *conn, void *data, size_t data_len, uint64_t dgram_id, xqc_data_qos_level_t qos_level);
 

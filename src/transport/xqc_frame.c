@@ -74,7 +74,7 @@ static const char * const frame_type_2_str[XQC_FRAME_NUM] = {
     [XQC_FRAME_REPAIR_SYMBOL]        = "FEC_REPAIR",
 };
 
-static void
+void
 xqc_rollback_new_conn_id_hash_entries(xqc_connection_t *conn,
     const xqc_cid_t *new_conn_cid, xqc_bool_t sr_token_inserted)
 {
@@ -2057,6 +2057,11 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return XQC_OK;
     }
 
+    /* a client answers on the path to the preferred address it validates */
+    if (xqc_conn_preferred_addr_on_challenge(conn, path_challenge_data)) {
+        return XQC_OK;
+    }
+
     xqc_path_ctx_t *path = NULL;
     if (conn->enable_multipath) {
         path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
@@ -2127,6 +2132,12 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
                                                   path_response_data,
                                                   packet_in->pkt_recv_time);
         }
+
+    } else if (xqc_conn_preferred_addr_on_response(conn, path_response_data)
+               == XQC_OK)
+    {
+        /* RFC 9000 Section 8.2.3: received on any network path */
+        return XQC_OK;
     }
 
     xqc_path_ctx_t *path = NULL;

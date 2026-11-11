@@ -62,6 +62,8 @@ printf_null(const char *format, ...)
 
 #define TEST_SERVER_ADDR "127.0.0.1"
 #define TEST_SERVER_PORT 8443
+/* the second loopback address, to which case 812 moves path 0 */
+#define TEST_CLIENT_NEW_IP "127.0.0.2"
 
 
 #define XQC_PACKET_TMP_BUF_LEN 1500
@@ -1428,6 +1430,18 @@ xqc_client_get_path_fd_by_id(user_conn_t *user_conn, uint64_t path_id)
 }
 
 
+/*
+ * the cases that move path 0 to its rebinding socket mid-transfer: 812 to
+ * another IP address, the others to another port
+ */
+static int
+xqc_client_case_moves_path0(void)
+{
+    return g_test_case == 103 || g_test_case == 800 || g_test_case == 812
+           || g_test_case == 813;
+}
+
+
 /* 多路必须保证传正确的path id，因为conn_fd写死了，跟initial path不一定匹配 */
 ssize_t
 xqc_client_write_socket_ex(uint64_t path_id,
@@ -1559,7 +1573,7 @@ xqc_client_write_socket_ex(uint64_t path_id,
     }
 
     if (hsk_completed) {
-        if ((g_test_case == 103 || g_test_case == 800)
+        if (xqc_client_case_moves_path0()
             && path_id == 0 && path_idx >= 0
             && g_client_path[path_idx].send_size > g_send_body_size/10)
         {
@@ -1828,9 +1842,11 @@ xqc_client_bind_to_interface(int fd, const char *interface_name)
     return XQC_OK;
 }
 
-static int 
-xqc_client_create_socket(int type, 
-    const struct sockaddr *saddr, socklen_t saddr_len, char *interface_type)
+/* a socket connected to saddr, from local_addr unless it is NULL */
+static int
+xqc_client_create_bound_socket(int type,
+    const struct sockaddr *saddr, socklen_t saddr_len, char *interface_type,
+    const struct sockaddr *local_addr, socklen_t local_addrlen)
 {
     int size;
     int fd = -1;
@@ -1879,6 +1895,11 @@ xqc_client_create_socket(int type,
         goto err;
     }
 
+    if (local_addr != NULL && bind(fd, local_addr, local_addrlen) < 0) {
+        printf("bind socket failed, errno: %d\n", get_sys_errno());
+        goto err;
+    }
+
     /* connect to peer addr */
 #if !defined(__APPLE__)
     if (connect(fd, (struct sockaddr *)saddr, saddr_len) < 0) {
@@ -1892,6 +1913,14 @@ xqc_client_create_socket(int type,
 err:
     close(fd);
     return -1;
+}
+
+static int
+xqc_client_create_socket(int type,
+    const struct sockaddr *saddr, socklen_t saddr_len, char *interface_type)
+{
+    return xqc_client_create_bound_socket(type, saddr, saddr_len,
+                                          interface_type, NULL, 0);
 }
 
 
@@ -1960,11 +1989,21 @@ xqc_client_create_path_socket(xqc_user_path_t *path,
         return XQC_ERROR;
     }
 
-    if (g_test_case == 103 || g_test_case == 104
-        || g_test_case == 800)
-    {
-        path->rebinding_path_fd = xqc_client_create_socket((g_ipv6 ? AF_INET6 : AF_INET), 
-                                        path->peer_addr, path->peer_addrlen, path_interface);
+    if (xqc_client_case_moves_path0() || g_test_case == 104) {
+        struct sockaddr_in new_ip;
+        const struct sockaddr *local_addr = NULL;
+
+        if (g_test_case == 812) {
+            /* IPv4 only: the IPv6 loopback has a single address */
+            memset(&new_ip, 0, sizeof(new_ip));
+            new_ip.sin_family = AF_INET;
+            inet_pton(AF_INET, TEST_CLIENT_NEW_IP, &new_ip.sin_addr);
+            local_addr = (struct sockaddr *)&new_ip;
+        }
+
+        path->rebinding_path_fd = xqc_client_create_bound_socket(
+            (g_ipv6 ? AF_INET6 : AF_INET), path->peer_addr,
+            path->peer_addrlen, path_interface, local_addr, sizeof(new_ip));
         if (path->rebinding_path_fd < 0) {
             printf("|xqc_client_create_path_socket error|");
             return XQC_ERROR;
@@ -2002,9 +2041,7 @@ xqc_client_create_path(xqc_user_path_t *path,
         return XQC_ERROR;
     }
 
-    if (g_test_case == 103 || g_test_case == 104
-        || g_test_case == 800)
-    {
+    if (xqc_client_case_moves_path0() || g_test_case == 104) {
         path->rebinding_ev_socket = event_new(eb, path->rebinding_path_fd, EV_READ | EV_PERSIST,
                                               xqc_client_socket_event_callback, user_conn);
         if (path->rebinding_ev_socket == NULL) {
@@ -6514,6 +6551,11 @@ int main(int argc, char *argv[]) {
 
     if (g_test_case == 454) {
         conn_settings.simulate_ecn = 1;
+    }
+
+    /* the server offers a preferred address (RFC 9000 Section 9.6) */
+    if (g_test_case == 756 || g_test_case == 757) {
+        conn_settings.enable_preferred_address_migration = 1;
     }
 
     if (g_test_case == 455) {

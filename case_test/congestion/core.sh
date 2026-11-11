@@ -399,6 +399,72 @@ fi
 grep_err_log
 }
 
+# Recovery: a new peer IP address restarts congestion control (case IDs
+# 812/813). RFC 9000 Section 9.4: once the server has validated the client at
+# a new IP address, it resets the congestion controller and the RTT estimate
+# of the path, the RTT starting from the PATH_CHALLENGE round trip (RFC 9002
+# Section 6.2.2); a new port alone keeps both. Path 0 of the client moves to
+# its second socket after a tenth of the transfer.
+case_congestion_core_move_path0()
+{
+case_test_stop_server
+rm -rf tp_localhost test_session xqc_token
+case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+sleep 1
+clear_log
+case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 8 -M -i lo -i lo -E -n 2 \
+    -x $1 > stdlog
+result=`grep ">>>>>>>> pass:0" stdlog`
+errlog=`grep_err_log | grep -a -v "no match path challenge data" || true`
+for wait_idx in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    rebind=`grep -a "|path:0|REBINDING|validate NAT rebinding addr|" slog`
+    if [ -n "$rebind" ]; then
+        break
+    fi
+    sleep 0.2
+done
+reset=`grep -a "|path:0|cc and rtt reset|" slog`
+challenge_rtt=`grep -a "|path:0|initial rtt from PATH_CHALLENGE|" slog`
+}
+
+case_congestion_core_new_ip_resets_cc()
+{
+# 812 happy path: path 0 moves from 127.0.0.1 to 127.0.0.2; the server
+# restarts its congestion control and RTT estimate, and the transfer
+# completes.
+echo -e "a new peer IP address restarts congestion control ...\c"
+case_congestion_core_move_path0 812
+new_ip=`echo "$rebind" | grep -a "p-127.0.0.2-"`
+if [ -z "$errlog" ] && [ -z "$result" ] && [ -n "$new_ip" ] \
+    && [ -n "$reset" ] && [ -n "$challenge_rtt" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "new_ip_resets_cc" "pass"
+else
+    echo ">>>>>>>> pass:0 (result:${result:+y} new_ip:${new_ip:+y}" \
+        "reset:${reset:+y} challenge_rtt:${challenge_rtt:+y}" \
+        "errlog:${errlog:+y})"
+    case_print_result "new_ip_resets_cc" "fail"
+fi
+}
+
+case_congestion_core_new_port_keeps_cc()
+{
+# 813 abnormal path: path 0 moves to another port of 127.0.0.1; the server
+# validates it there but keeps its congestion control and RTT estimate.
+echo -e "a new peer port keeps congestion control ...\c"
+case_congestion_core_move_path0 813
+if [ -z "$errlog" ] && [ -z "$result" ] && [ -n "$rebind" ] \
+    && [ -z "$reset" ] && [ -z "$challenge_rtt" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "new_port_keeps_cc" "pass"
+else
+    echo ">>>>>>>> pass:0 (result:${result:+y} rebind:${rebind:+y}" \
+        "reset:${reset:+y} challenge_rtt:${challenge_rtt:+y}" \
+        "errlog:${errlog:+y})"
+    case_print_result "new_port_keeps_cc" "fail"
+fi
+}
+
 case_test_group_setup()
 {
     case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
@@ -424,6 +490,8 @@ case_test_case "sengmmsg_with_10_percent_loss" --id native --mode self-reporting
 case_test_case "max_pkt_out_size" --id native --mode self-reporting --run case_congestion_core_max_pkt_out_size
 case_test_case "lost_pmtud_probe_no_congestion_event" --id 804 --mode self-reporting --run case_congestion_core_lost_pmtud_probe_no_congestion_event
 case_test_case "lost_data_packet_congestion_event" --id 805 --mode self-reporting --run case_congestion_core_lost_data_packet_congestion_event
+case_test_case "new_ip_resets_cc" --id 812 --mode self-reporting --run case_congestion_core_new_ip_resets_cc
+case_test_case "new_port_keeps_cc" --id 813 --mode self-reporting --run case_congestion_core_new_port_keeps_cc
 
 if case_test_is_discovery; then
     case_test_run

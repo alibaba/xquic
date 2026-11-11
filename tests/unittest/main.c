@@ -31,6 +31,7 @@
 #include "xqc_bbr2_test.h"
 #include "xqc_packet_test.h"
 #include "xqc_stream_frame_test.h"
+#include "xqc_ack_frame_test.h"
 #include "xqc_process_frame_test.h"
 #include "xqc_tp_test.h"
 #include "xqc_tls_test.h"
@@ -595,6 +596,21 @@ main(int argc, char *argv[])
                         xqc_test_ack_range_zero_boundary)
         || !CU_add_test(pSuite, "xqc_test_ack_range_negative_rejected",
                         xqc_test_ack_range_negative_rejected)
+        /* ACK and ACK_MP, with and without ECN Counts (RFC 9000 19.3) */
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_golden",
+                        xqc_test_ack_frame_golden)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_next_frame",
+                        xqc_test_ack_frame_next_frame)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_negative_pn",
+                        xqc_test_ack_frame_negative_pn)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_truncated",
+                        xqc_test_ack_frame_truncated)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_range_count",
+                        xqc_test_ack_frame_range_count)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_fuzz",
+                        xqc_test_ack_frame_fuzz)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_ext_timestamps",
+                        xqc_test_ack_frame_ext_timestamps)
         /* issue #632: ACK_ECN frame parsing (RFC 9000 19.3) */
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_normal_parse", xqc_test_ack_ecn_normal_parse)
         || !CU_add_test(pSuite, "xqc_test_ack_plain_regression", xqc_test_ack_plain_regression)

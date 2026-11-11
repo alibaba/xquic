@@ -168,6 +168,13 @@ xqc_rep_decode_prefix(xqc_rep_ctx_t *ctx, size_t max_ents, uint64_t icnt, unsign
             if (ctx->sign == 0) {
                 ctx->base.value = ctx->ric.value + ctx->base.value;
             } else {
+                /*
+                 * RFC 9204 Section 4.5.1.2: the Base must not be negative,
+                 * so the Delta Base must be below the Required Insert Count
+                 */
+                if (ctx->base.value >= ctx->ric.value) {
+                    return -XQC_QPACK_DECODER_ERROR;
+                }
                 ctx->base.value = ctx->ric.value - ctx->base.value - 1;
             }
             ctx->state = XQC_REP_DECODE_STATE_OPCODE;
@@ -504,6 +511,18 @@ xqc_rep_decode_field_line(xqc_rep_ctx_t *ctx, unsigned char *buf, uint64_t buf_l
         break;
 
     default:
+        return -XQC_QPACK_DECODER_ERROR;
+    }
+
+    /*
+     * RFC 9204 Section 2.2.3: a field line must not refer to a dynamic table
+     * entry at or above the Required Insert Count of its field section
+     */
+    if (ctx->state == XQC_REP_DECODE_STATE_FINISH
+        && ctx->type != XQC_REP_TYPE_LITERAL
+        && ctx->table == XQC_DTABLE_FLAG
+        && ctx->index.value >= ctx->ric.value)
+    {
         return -XQC_QPACK_DECODER_ERROR;
     }
 

@@ -806,6 +806,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_encoder", xqc_test_encoder)
         || !CU_add_test(pSuite, "xqc_test_h3_ins", xqc_test_ins)
         || !CU_add_test(pSuite, "xqc_test_h3_rep", xqc_test_rep)
+        || !CU_add_test(pSuite, "xqc_test_rep_references",
+                        xqc_test_rep_references)
         || !CU_add_test(pSuite, "xqc_qpack_test", xqc_qpack_test)
         || !CU_add_test(pSuite, "xqc_test_qpack_create_alloc_failures",
                         xqc_test_qpack_create_alloc_failures)

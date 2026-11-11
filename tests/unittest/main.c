@@ -493,6 +493,8 @@ main(int argc, char *argv[])
                         xqc_test_bbr2_probe_wait_bounds)
         || !CU_add_test(pSuite, "xqc_test_bbr2_probe_up_log",
                         xqc_test_bbr2_probe_up_log)
+        || !CU_add_test(pSuite, "xqc_test_bbr2_increase_inflight_hi_log",
+                        xqc_test_bbr2_increase_inflight_hi_log)
         || !CU_add_test(pSuite, "xqc_test_short_header_parse_cid", xqc_test_short_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_long_header_parse_cid", xqc_test_long_header_packet_parse_cid)
         || !CU_add_test(pSuite, "xqc_test_client_discards_received_zero_rtt",
@@ -522,6 +524,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_dispatched_via_xqc_process_frame", xqc_test_crypto_frame_dispatched_via_xqc_process_frame)
         || !CU_add_test(pSuite, "xqc_test_crypto_in_0rtt_emits_connection_close", xqc_test_crypto_in_0rtt_emits_connection_close)
         || !CU_add_test(pSuite, "xqc_test_crypto", xqc_test_crypto)
+        || !CU_add_test(pSuite, "xqc_test_crypto_unsupported_cipher_log",
+                        xqc_test_crypto_unsupported_cipher_log)
         || !CU_add_test(pSuite, "xqc_test_hp_sample_boundary", xqc_test_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_hp_mask_error_log",
                         xqc_test_hp_mask_error_log)

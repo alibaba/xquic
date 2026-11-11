@@ -144,7 +144,7 @@ xqc_crypto_create(uint32_t cipher_id, xqc_log_t *log)
         break;
 
     default: /* TLS_AES_128_CCM_SHA256、TLS_AES_128_CCM_8_SHA256 not support */
-        xqc_log(log, XQC_LOG_ERROR, "|not supoort cipher_id|%u|", cipher_id);
+        xqc_log(log, XQC_LOG_ERROR, "|not supoort cipher_id|%ud|", cipher_id);
         xqc_free(crypto);
         return NULL;
     }
@@ -349,7 +349,7 @@ xqc_crypto_encrypt_payload(xqc_crypto_t *crypto,
     if (ckm->key.base == NULL || ckm->key.len == 0
         || ckm->iv.base == NULL || ckm->iv.len == 0)
     {
-        xqc_log(crypto->log, XQC_LOG_ERROR, "|pp encrypt key NULL|key_phase:%ui|", key_phase);
+        xqc_log(crypto->log, XQC_LOG_ERROR, "|pp encrypt key NULL|key_phase:%ud|", key_phase);
         return -XQC_TLS_ENCRYPT_DATA_ERROR;
     }
 
@@ -390,7 +390,7 @@ xqc_crypto_decrypt_payload(xqc_crypto_t *crypto,
     if (ckm->key.base == NULL || ckm->key.len == 0
         || ckm->iv.base == NULL || ckm->iv.len == 0)
     {
-        xqc_log(crypto->log, XQC_LOG_ERROR, "|decrypt key NULL|key_phase:%ui|", key_phase);
+        xqc_log(crypto->log, XQC_LOG_ERROR, "|decrypt key NULL|key_phase:%ud|", key_phase);
         return -XQC_TLS_DECRYPT_DATA_ERROR;
     }
 

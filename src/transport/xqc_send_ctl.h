@@ -232,7 +232,8 @@ int xqc_send_ctl_on_ack_received (xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl
 
 void xqc_send_ctl_on_dgram_received(xqc_send_ctl_t *send_ctl, size_t dgram_size);
 
-void xqc_send_ctl_update_rtt(xqc_send_ctl_t *send_ctl, xqc_usec_t *latest_rtt, xqc_usec_t ack_delay);
+void xqc_send_ctl_update_rtt(xqc_send_ctl_t *send_ctl, xqc_usec_t *latest_rtt,
+    xqc_usec_t ack_delay, xqc_usec_t ack_recv_time);
 
 void xqc_send_ctl_on_spurious_loss_detected(xqc_send_ctl_t *send_ctl,
     xqc_pkt_num_space_t pns, xqc_usec_t ack_recv_time,

@@ -46,6 +46,8 @@ void xqc_test_early_params_forbidden_fields_reset(void);
 void xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay(void);
 void xqc_test_0rtt_persistent_congestion_default_max_ack_delay(void);
 void xqc_test_pto_space_no_max_ack_delay_before_confirm(void);
+void xqc_test_pto_anti_deadlock_with_0rtt_in_flight(void);
+void xqc_test_pto_no_anti_deadlock_after_validation(void);
 void xqc_test_0rtt_ack_delay_exponent_default_in_parse(void);
 void xqc_test_0rtt_remote_mad_timeline(void);
 

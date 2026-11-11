@@ -69,7 +69,9 @@ typedef enum {
     /* XQC_HTTP3_STREAM_FLAG_PRIORITY_SET indicates that stream
        has been prioritized. */
     XQC_HTTP3_STREAM_FLAG_PRIORITY_SET          = 0x0100,
-    /* XQC_HTTP3_STREAM_FLAG_RESET indicates that stream is reset. */
+    /* XQC_HTTP3_STREAM_FLAG_RESET indicates that stream is reset, or its
+       reading abandoned, with a QPACK Stream Cancellation: it decodes no
+       field section any more */
     XQC_HTTP3_STREAM_FLAG_RESET                 = 0x0200,
     XQC_HTTP3_STREAM_NEED_WRITE_NOTIFY          = 0x0400,
     XQC_HTTP3_STREAM_IN_READING                 = 0x0800,

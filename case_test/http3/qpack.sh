@@ -16,6 +16,30 @@ case_qpack_blocked_reject_after_close()
 
 case_test_case "qpack_blocked_reject_after_close" --id native \
     --run case_qpack_blocked_reject_after_close
+case_qpack_section_end()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_h3_qpack"
+    "${binary}" section-end
+}
+
+case_test_case "qpack_section_end" --id native \
+    --run case_qpack_section_end
+case_qpack_stream_cancel()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_h3_qpack"
+    "${binary}" stream-cancel
+}
+
+case_test_case "qpack_stream_cancel" --id native \
+    --run case_qpack_stream_cancel
+case_qpack_stream_cancel_omitted()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_h3_qpack"
+    "${binary}" stream-cancel-omitted
+}
+
+case_test_case "qpack_stream_cancel_omitted" --id native \
+    --run case_qpack_stream_cancel_omitted
 
 if case_test_is_discovery; then
     case_test_run

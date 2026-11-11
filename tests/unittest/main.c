@@ -759,6 +759,14 @@ main(int argc, char *argv[])
                         xqc_test_h3_blocked_stream_reject_after_close)
         || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_limit_leak",
                         xqc_test_h3_blocked_stream_limit_leak)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_walk_uaf",
+                        xqc_test_h3_blocked_stream_walk_uaf)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_unblock_no_bytes",
+                        xqc_test_h3_blocked_stream_unblock_no_bytes)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_reblock",
+                        xqc_test_h3_blocked_stream_reblock)
+        || !CU_add_test(pSuite, "xqc_test_h3_blocked_stream_unblock_error",
+                        xqc_test_h3_blocked_stream_unblock_error)
         || !CU_add_test(pSuite, "xqc_test_h3_qpack_duplicate_uses_excessive_load",
                         xqc_test_h3_qpack_duplicate_uses_excessive_load)
         || !CU_add_test(pSuite, "xqc_test_h3_frame_parse_error_uses_frame_error", xqc_test_h3_frame_parse_error_uses_frame_error)
@@ -772,6 +780,19 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_data_before_headers_rejected",
                         xqc_test_h3_data_before_headers_rejected)
+        /* RFC 9204 Sections 2.2.2.1 and 4.5.1: the end of a field section */
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_section_ack",
+                        xqc_test_h3_qpack_section_ack)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_section_cut_short",
+                        xqc_test_h3_qpack_section_cut_short)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_qpack_section_cut_short_after_close",
+                        xqc_test_h3_qpack_section_cut_short_after_close)
+        /* RFC 9204 Section 2.2.2.2: abandonment of a stream */
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_stream_cancel",
+                        xqc_test_h3_qpack_stream_cancel)
+        || !CU_add_test(pSuite, "xqc_test_h3_qpack_stream_cancel_omitted",
+                        xqc_test_h3_qpack_stream_cancel_omitted)
         || !CU_add_test(pSuite,
                         "xqc_test_h3_server_reserved_request_frame_accepted",
                         xqc_test_h3_server_reserved_request_frame_accepted)

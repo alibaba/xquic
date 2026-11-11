@@ -4,6 +4,7 @@
 
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_ctx.h"
+#include "src/http3/xqc_h3_request.h"
 
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_stream.h"
@@ -41,6 +42,7 @@ typedef struct xqc_h3_blocked_stream_s {
     xqc_list_head_t          head;
     xqc_h3_stream_t         *h3s;
     uint64_t                 ricnt;
+    xqc_bool_t               cancelled;
 } xqc_h3_blocked_stream_t;
 
 xqc_h3_blocked_stream_t *
@@ -53,6 +55,7 @@ xqc_h3_blocked_stream_create(xqc_h3_stream_t *h3s, uint64_t ricnt)
     xqc_init_list_head(&blocked_stream->head);
     blocked_stream->h3s = h3s;
     blocked_stream->ricnt = ricnt;
+    blocked_stream->cancelled = XQC_FALSE;
     return blocked_stream;
 }
 
@@ -948,18 +951,40 @@ xqc_h3_conn_add_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_t *h3s, uint64_
 void
 xqc_h3_conn_remove_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_blocked_stream_t *blocked_stream)
 {
+    if (!blocked_stream->cancelled) {
+        h3c->block_stream_count--;
+    }
     xqc_h3_blocked_stream_free(blocked_stream);
-    h3c->block_stream_count--;
+}
+
+/*
+ * the record stays in the list until the stream is destroyed: a stream
+ * may be cancelled while the list is walked to unblock streams
+ */
+void
+xqc_h3_conn_cancel_blocked_stream(xqc_h3_conn_t *h3c,
+    xqc_h3_blocked_stream_t *blocked_stream)
+{
+    if (!blocked_stream->cancelled) {
+        blocked_stream->cancelled = XQC_TRUE;
+        h3c->block_stream_count--;
+    }
 }
 
 void
 xqc_h3_conn_destroy_blocked_stream_list(xqc_h3_conn_t *h3c)
 {
-    xqc_list_head_t *pos, *next;
-
-    xqc_list_for_each_safe(pos, next, &h3c->block_stream_head) {
+    /*
+     * Destroying a blocked h3 stream notifies the application, which may
+     * close another still-blocked request and free its record from this
+     * list, possibly the record a cached next pointer would follow. Free
+     * the head record before destroying its stream, and read the live head
+     * again after that: each pass frees a record, so the list empties.
+     */
+    while (!xqc_list_empty(&h3c->block_stream_head)) {
         xqc_h3_blocked_stream_t *blocked_stream =
-                xqc_list_entry(pos, xqc_h3_blocked_stream_t, head);
+                xqc_list_entry(h3c->block_stream_head.next,
+                               xqc_h3_blocked_stream_t, head);
 
         /**
          * when destroying h3 connection, and a h3 stream is still blocked, it means that Transport
@@ -967,6 +992,8 @@ xqc_h3_conn_destroy_blocked_stream_list(xqc_h3_conn_t *h3c)
          * connection was closed actively or some reason else.
          */
         xqc_h3_stream_t *h3s = blocked_stream->h3s;
+        xqc_h3_conn_remove_blocked_stream(h3c, blocked_stream);
+        h3s->blocked_stream = NULL;
         xqc_h3_stream_destroy(h3s);
     }
 }
@@ -975,20 +1002,53 @@ xqc_int_t
 xqc_h3_conn_process_blocked_stream(xqc_h3_conn_t *h3c)
 {
     uint64_t known_received_count = xqc_qpack_get_dec_insert_count(h3c->qpack);
-    xqc_list_head_t *pos, *next;
-    xqc_list_for_each_safe(pos, next, &h3c->block_stream_head) {
-        xqc_h3_blocked_stream_t *blocked_stream = 
-            xqc_list_entry(pos, xqc_h3_blocked_stream_t, head);
-        if (blocked_stream->ricnt <= known_received_count) {
-            xqc_int_t ret = xqc_h3_stream_process_blocked_stream(blocked_stream->h3s);
-            if (ret < 0) {
-                return ret;
-            }
+    xqc_h3_blocked_stream_t *blocked_stream;
+    xqc_h3_stream_t *h3s;
+    xqc_list_head_t *pos;
+    xqc_int_t ret;
 
-        } else {
+    /*
+     * RFC 9204 Section 2.2.1: a stream becomes unblocked when the Insert
+     * Count reaches the Required Insert Count of its field section. Unblock
+     * the stream of the first such record, freeing the record, before
+     * processing the bytes it buffered: processing runs callbacks, which may
+     * destroy any blocked stream, this one included, and free its record,
+     * so only the live list head is read after it. Bytes that the stream
+     * receives later take the normal receive path. The record of a
+     * cancelled stream stays until the stream is destroyed, and is stepped
+     * over. Each pass frees a record whose Required Insert Count is at most
+     * known_received_count, and a stream that blocks again records one
+     * above the Insert Count, which is not below known_received_count: the
+     * walk ends.
+     */
+    pos = h3c->block_stream_head.next;
+    while (pos != &h3c->block_stream_head) {
+        blocked_stream = xqc_list_entry(pos, xqc_h3_blocked_stream_t, head);
+        if (blocked_stream->ricnt > known_received_count) {
             break;
         }
+
+        if (blocked_stream->cancelled) {
+            pos = pos->next;
+            continue;
+        }
+
+        h3s = blocked_stream->h3s;
+        xqc_h3_conn_remove_blocked_stream(h3c, blocked_stream);
+        h3s->blocked_stream = NULL;
+        h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED;
+        if (h3s->type == XQC_H3_STREAM_TYPE_REQUEST && h3s->h3r) {
+            xqc_h3_request_unblocked(h3s->h3r);
+        }
+
+        ret = xqc_h3_stream_process_blocked_stream(h3s);
+        if (ret < 0) {
+            return ret;
+        }
+
+        pos = h3c->block_stream_head.next;
     }
+
     return XQC_OK;
 }
 

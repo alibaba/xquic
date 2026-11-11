@@ -126,6 +126,19 @@ void xqc_qpack_destroy_req_ctx(void *ctx);
  */
 uint64_t xqc_qpack_get_req_rqrd_insert_cnt(void *ctx);
 
+/**
+ * @brief check that the bytes decoded with ctx end a field section: the
+ * prefix was decoded, and no field line was left partially decoded
+ */
+xqc_bool_t xqc_qpack_is_field_section_complete(xqc_rep_ctx_t *ctx);
+
+/**
+ * @brief write a Stream Cancellation instruction (RFC 9204 Section 4.4.2)
+ * on the decoder stream: the field sections of the stream that the decoder
+ * did not acknowledge no longer refer to the dynamic table
+ */
+xqc_int_t xqc_qpack_cancel_stream(xqc_qpack_t *qpk, uint64_t stream_id);
+
 
 /**
  * @brief set encoder's dtable insert limit for name and entry. long name and large entry exceed
@@ -144,7 +157,8 @@ void xqc_qpack_set_enc_insert_limit(xqc_qpack_t *qpk, double name_limit, double 
  * @param ctx context for decoding representation
  * @param data input data
  * @param headers output headers
- * @param fin if stream is finished
+ * @param fin if data ends the encoded field section, which is then
+ * acknowledged if it is complete and refers to the dynamic table
  * @param blocked [out] tells that if this request stream is blocked
  * @return >= 0 for bytes consumed, others for failure
  */

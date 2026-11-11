@@ -32,6 +32,17 @@
 #include <byteswap.h>
 #endif
 
+/*
+ * Whether the host stores the most significant byte first. GCC and Clang
+ * predefine __BYTE_ORDER__ for every target; the other compilers XQUIC
+ * builds with target little-endian hosts only.
+ */
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define XQC_HOST_BIG_ENDIAN 1
+#else
+#define XQC_HOST_BIG_ENDIAN 0
+#endif
+
 #define XQC_VINT_MASK ((1 << 6) - 1)
 #define XQC_VINT_MAX ((uint64_t)((1ULL << 62) - 1))
 
@@ -64,7 +75,7 @@
 #define xqc_vint_len_by_val(val) (1 << (xqc_vint_get_2bit(val)))
 
 /* write val to dst buf with len bytes  */
-#if __BYTE_ORDER == __LITTLE_ENDIAN
+#if !XQC_HOST_BIG_ENDIAN
 #define xqc_vint_write(dst, val, two_bit, len) do {                              \
     uint64_t buf_ = (val) | (uint64_t) (two_bit) << xqc_vint_usable_bits(two_bit);\
     buf_ = bswap_64(buf_);                                                  \
@@ -80,14 +91,18 @@
 static inline uint8_t *
 xqc_put_uint64be(uint8_t *p, uint64_t n)
 {
+#if !XQC_HOST_BIG_ENDIAN
     n = bswap_64(n);
+#endif
     return xqc_cpymem(p, (const uint8_t *)&n, sizeof(n));
 }
 
 static inline uint8_t *
 xqc_put_uint48be(uint8_t *p, uint64_t n)
 {
+#if !XQC_HOST_BIG_ENDIAN
     n = bswap_64(n);
+#endif
     return xqc_cpymem(p, ((const uint8_t *)&n) + 2, 6);
 }
 

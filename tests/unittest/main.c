@@ -453,6 +453,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_sprintf_counted_string",
                         xqc_test_sprintf_counted_string)
         || !CU_add_test(pSuite, "xqc_test_vint", xqc_test_vint)
+        || !CU_add_test(pSuite, "xqc_test_vint_put_uint_be",
+                        xqc_test_vint_put_uint_be)
+        || !CU_add_test(pSuite, "xqc_test_vint_rfc9000_samples",
+                        xqc_test_vint_rfc9000_samples)
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_clamp_boundary", xqc_test_flow_ctl_clamp_boundary)
         || !CU_add_test(pSuite, "xqc_test_stream_flow_ctl_clamp", xqc_test_stream_flow_ctl_clamp)
         || !CU_add_test(pSuite, "xqc_test_conn_flow_ctl_clamp", xqc_test_conn_flow_ctl_clamp)

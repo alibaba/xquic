@@ -904,6 +904,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
                 /* 初始化 */
                 send_ctl->ctl_prior_delivered = send_ctl->ctl_delivered;
                 send_ctl->ctl_prior_bytes_in_flight = send_ctl->ctl_bytes_in_flight;
+                xqc_path_restart_idle_timer(send_ctl->ctl_path, ack_recv_time);
 
                 has_acked = 1;
             }

@@ -1422,6 +1422,24 @@ xqc_path_get_idle_timeout(xqc_path_ctx_t *path)
     return xqc_conn_get_idle_timeout(path->parent_conn);
 }
 
+/*
+ * Evidence that the path works restarts its idle timer: a datagram received
+ * on it, or a new acknowledgment of packets sent on it, whichever path that
+ * PATH_ACK came on (RFC 10069 Section 5.5). The deadline of a path being
+ * validated is kept (RFC 9000 Section 8.2.4).
+ */
+void
+xqc_path_restart_idle_timer(xqc_path_ctx_t *path, xqc_usec_t now)
+{
+    if (path->path_state == XQC_PATH_STATE_VALIDATING) {
+        return;
+    }
+
+    xqc_timer_set(&path->path_send_ctl->path_timer_manager,
+                  XQC_TIMER_PATH_IDLE, now,
+                  xqc_path_get_idle_timeout(path) * 1000);
+}
+
 xqc_usec_t
 xqc_path_get_validation_timeout(xqc_path_ctx_t *path)
 {

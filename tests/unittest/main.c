@@ -576,6 +576,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_process_frame", xqc_test_process_frame)
         || !CU_add_test(pSuite, "xqc_test_multipath_frames_require_negotiation",
                         xqc_test_multipath_frames_require_negotiation)
+        || !CU_add_test(pSuite, "xqc_test_multipath_frames_only_in_1rtt",
+                        xqc_test_multipath_frames_only_in_1rtt)
+        || !CU_add_test(pSuite, "xqc_test_multipath_frame_outside_1rtt_ignored",
+                        xqc_test_multipath_frame_outside_1rtt_ignored)
+        || !CU_add_test(pSuite, "xqc_test_frame_dispatch_fuzz",
+                        xqc_test_frame_dispatch_fuzz)
         || !CU_add_test(pSuite, "xqc_test_multipath_version_requires_negotiation",
                         xqc_test_multipath_version_requires_negotiation)
         || !CU_add_test(pSuite, "xqc_test_negotiated_multipath_frozen_frame",

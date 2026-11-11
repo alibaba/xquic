@@ -141,6 +141,458 @@ xqc_test_multipath_version_requires_negotiation(void)
     xqc_engine_destroy(conn->engine);
 }
 
+
+/* the frame type bits that the multipath frame parsers set */
+#define XQC_TEST_MP_FRAME_BITS                                              \
+    (XQC_FRAME_BIT_ACK_MP | XQC_FRAME_BIT_PATH_ABANDON                      \
+     | XQC_FRAME_BIT_PATH_STANDBY | XQC_FRAME_BIT_PATH_AVAILABLE            \
+     | XQC_FRAME_BIT_PATH_FROZEN | XQC_FRAME_BIT_MP_NEW_CONNECTION_ID       \
+     | XQC_FRAME_BIT_MP_RETIRE_CONNECTION_ID | XQC_FRAME_BIT_MAX_PATH_ID)
+
+/* the highest path ID of the multipath test connections */
+#define XQC_TEST_MP_MAX_PATH_ID 2
+
+/* one well-formed frame of each draft-ietf-quic-multipath-10 frame type */
+typedef struct {
+    const char             *name;
+    unsigned char           bytes[32];
+    size_t                  len;
+    /* processed without error in a 1-RTT packet on xqc_test_mp_conn() */
+    xqc_bool_t              ok_in_1rtt;
+} xqc_test_mp_frame_t;
+
+static const xqc_test_mp_frame_t xqc_test_mp_frames[] = {
+    /* path 2 (no path yet), largest 0, delay 0, 0 ranges, first range 0 */
+    {"MP_ACK", {0x95, 0x22, 0x8c, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00},
+     9, XQC_TRUE},
+    /* the same with ECN counts 0, 0, 0 */
+    {"MP_ACK_ECN", {0x95, 0x22, 0x8c, 0x01, 0x02, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00},
+     12, XQC_FALSE},
+    /* path 2, error 0, empty reason phrase */
+    {"PATH_ABANDON", {0x95, 0x22, 0x8c, 0x05, 0x02, 0x00, 0x00},
+     7, XQC_TRUE},
+    /* path 0, status sequence number 1 */
+    {"PATH_STANDBY", {0x95, 0x22, 0x8c, 0x07, 0x00, 0x01}, 6, XQC_TRUE},
+    {"PATH_AVAILABLE", {0x95, 0x22, 0x8c, 0x08, 0x00, 0x01}, 6, XQC_TRUE},
+    {"PATH_FROZEN", {0x95, 0x22, 0x8c, 0xff, 0x00, 0x01}, 6, XQC_TRUE},
+    /* path 1, seq 0, retire prior to 0, 8-byte CID, reset token */
+    {"MP_NEW_CONNECTION_ID", {0x95, 0x22, 0x8c, 0x09, 0x01, 0x00, 0x00, 0x08,
+                              0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1, 0xc1,
+                              0x7a, 0x7a, 0x7a, 0x7a, 0x7a, 0x7a, 0x7a, 0x7a,
+                              0x7a, 0x7a, 0x7a, 0x7a, 0x7a, 0x7a, 0x7a, 0x7a},
+     32, XQC_TRUE},
+    /* path 1, seq 0 */
+    {"MP_RETIRE_CONNECTION_ID", {0x95, 0x22, 0x8c, 0x0a, 0x01, 0x00},
+     6, XQC_FALSE},
+    /* maximum path ID 5 */
+    {"MAX_PATH_ID", {0x95, 0x22, 0x8c, 0x0c, 0x05}, 5, XQC_TRUE},
+};
+
+static const xqc_pkt_type_t xqc_test_frame_pkt_types[] = {
+    XQC_PTYPE_INIT, XQC_PTYPE_HSK, XQC_PTYPE_0RTT, XQC_PTYPE_SHORT_HEADER,
+};
+
+static xqc_connection_t *xqc_test_mp_conn(xqc_bool_t enable_multipath);
+static xqc_int_t xqc_test_recv_frames(xqc_connection_t *conn,
+    xqc_pkt_type_t pkt_type, unsigned char *frames, size_t len,
+    xqc_packet_in_t *packet_in);
+
+
+/*
+ * A connection that negotiated draft-ietf-quic-multipath-10 with path IDs up
+ * to XQC_TEST_MP_MAX_PATH_ID on both sides, or one without multipath.
+ */
+static xqc_connection_t *
+xqc_test_mp_conn(xqc_bool_t enable_multipath)
+{
+    xqc_connection_t *conn;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn->conn_initial_path);
+    conn->conn_initial_path->path_state = XQC_PATH_STATE_ACTIVE;
+
+    if (!enable_multipath) {
+        conn->enable_multipath = XQC_CONN_MP_DISABLED;
+        return conn;
+    }
+
+    conn->enable_multipath = XQC_CONN_MP_ENABLED;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    conn->local_settings.init_max_path_id = XQC_TEST_MP_MAX_PATH_ID;
+    conn->remote_settings.init_max_path_id = XQC_TEST_MP_MAX_PATH_ID;
+    conn->local_max_path_id = XQC_TEST_MP_MAX_PATH_ID;
+    conn->remote_max_path_id = XQC_TEST_MP_MAX_PATH_ID;
+    conn->curr_max_path_id = XQC_TEST_MP_MAX_PATH_ID;
+    CU_ASSERT_FATAL(xqc_conn_add_path_cid_sets(conn, XQC_INITIAL_PATH_ID + 1,
+                                               XQC_TEST_MP_MAX_PATH_ID)
+                    == XQC_OK);
+
+    return conn;
+}
+
+
+static xqc_int_t
+xqc_test_recv_frames(xqc_connection_t *conn, xqc_pkt_type_t pkt_type,
+    unsigned char *frames, size_t len, xqc_packet_in_t *packet_in)
+{
+    memset(packet_in, 0, sizeof(*packet_in));
+    packet_in->pi_pkt.pkt_type = pkt_type;
+    packet_in->pi_pkt.pkt_pns = xqc_packet_type_to_pns(pkt_type);
+    packet_in->pos = frames;
+    packet_in->last = frames + len;
+
+    return xqc_process_frames(conn, packet_in);
+}
+
+
+/*
+ * draft-ietf-quic-multipath-10 Section 7: "All frames defined in this
+ * document MUST only be sent in 1-RTT packets. If an endpoint receives a
+ * multipath-specific frame in a different packet type, it MUST close the
+ * connection with an error of type FRAME_ENCODING_ERROR." Section 2: without
+ * multipath on both sides, no multipath frame is used at all.
+ */
+void
+xqc_test_multipath_frames_only_in_1rtt(void)
+{
+    const xqc_test_mp_frame_t  *f;
+    unsigned char               buf[sizeof(f->bytes)];
+    xqc_connection_t           *conn;
+    xqc_packet_in_t             packet_in;
+    xqc_pkt_type_t              pkt_type;
+    xqc_int_t                   ret;
+    unsigned int                failures;
+    size_t                      i, j;
+    int                         mp;
+
+    for (i = 0; i < sizeof(xqc_test_mp_frames) / sizeof(xqc_test_mp_frames[0]);
+         i++)
+    {
+        f = &xqc_test_mp_frames[i];
+
+        for (j = 0;
+             j < sizeof(xqc_test_frame_pkt_types)
+                 / sizeof(xqc_test_frame_pkt_types[0]);
+             j++)
+        {
+            pkt_type = xqc_test_frame_pkt_types[j];
+
+            for (mp = 0; mp <= 1; mp++) {
+                if (mp && pkt_type == XQC_PTYPE_SHORT_HEADER
+                    && !f->ok_in_1rtt)
+                {
+                    continue;
+                }
+
+                failures = CU_get_number_of_failures();
+                memcpy(buf, f->bytes, f->len);
+                conn = xqc_test_mp_conn(mp);
+                ret = xqc_test_recv_frames(conn, pkt_type, buf, f->len,
+                                           &packet_in);
+
+                if (!mp) {
+                    /* the engine closes with FRAME_ENCODING_ERROR */
+                    CU_ASSERT_EQUAL(ret, -XQC_EMP_INVALID_MP_VERTION);
+                    CU_ASSERT_EQUAL(packet_in.pi_frame_types, 0);
+
+                } else if (pkt_type != XQC_PTYPE_SHORT_HEADER) {
+                    CU_ASSERT_EQUAL(ret, -XQC_EILLEGAL_FRAME);
+                    CU_ASSERT_EQUAL(conn->conn_err, TRA_FRAME_ENCODING_ERROR);
+                    CU_ASSERT_EQUAL(packet_in.pi_frame_types, 0);
+
+                } else {
+                    CU_ASSERT_EQUAL(ret, XQC_OK);
+                    CU_ASSERT_EQUAL(conn->conn_err, 0);
+                    CU_ASSERT((packet_in.pi_frame_types
+                               & XQC_TEST_MP_FRAME_BITS) != 0);
+                }
+
+                if (CU_get_number_of_failures() != failures) {
+                    printf("|%s|pkt_type:%s|multipath:%d|ret:%d|\n", f->name,
+                           xqc_pkt_type_2_str(pkt_type), mp, (int) ret);
+                }
+
+                xqc_engine_destroy(conn->engine);
+            }
+        }
+    }
+}
+
+
+/* the multipath state that the rejected frames must leave untouched */
+void
+xqc_test_multipath_frame_outside_1rtt_ignored(void)
+{
+    /* PATH_STANDBY for path 0, then MAX_PATH_ID 5 */
+    unsigned char frames[] = {
+        0x95, 0x22, 0x8c, 0x07, 0x00, 0x01,
+        0x95, 0x22, 0x8c, 0x0c, 0x05,
+    };
+    xqc_connection_t   *conn;
+    xqc_packet_in_t     packet_in;
+    xqc_int_t           ret;
+
+    conn = xqc_test_mp_conn(XQC_TRUE);
+    ret = xqc_test_recv_frames(conn, XQC_PTYPE_HSK, frames, sizeof(frames),
+                               &packet_in);
+    CU_ASSERT_EQUAL(ret, -XQC_EILLEGAL_FRAME);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_FRAME_ENCODING_ERROR);
+    CU_ASSERT_EQUAL(conn->conn_initial_path->app_path_status,
+                    XQC_APP_PATH_STATUS_AVAILABLE);
+    CU_ASSERT_EQUAL(conn->remote_max_path_id, XQC_TEST_MP_MAX_PATH_ID);
+    xqc_engine_destroy(conn->engine);
+
+    /* the same frames in a 1-RTT packet are applied */
+    conn = xqc_test_mp_conn(XQC_TRUE);
+    ret = xqc_test_recv_frames(conn, XQC_PTYPE_SHORT_HEADER, frames,
+                               sizeof(frames), &packet_in);
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT_EQUAL(conn->conn_initial_path->app_path_status,
+                    XQC_APP_PATH_STATUS_STANDBY);
+    CU_ASSERT_EQUAL(conn->remote_max_path_id, 5);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * Deterministic, structure-aware fuzzing of the frame dispatcher: packets of
+ * one to three multipath or common frames with random field values, cut at a
+ * random byte one time in four, in random packet types, on connections with
+ * and without multipath. Whatever the input, no multipath frame is processed
+ * outside 1-RTT packets or without multipath, a multipath frame first in such
+ * a packet gets the error of its gate, and no frame is read past the packet.
+ */
+#define XQC_TEST_FUZZ_PACKETS   3000
+#define XQC_TEST_FUZZ_FRAME_LEN 64
+#define XQC_TEST_FUZZ_FRAMES    3
+
+typedef struct {
+    uint64_t                state;
+} xqc_test_rng_t;
+
+static uint64_t xqc_test_rng_next(xqc_test_rng_t *rng);
+static uint64_t xqc_test_fuzz_value(xqc_test_rng_t *rng);
+static size_t xqc_test_fuzz_varint(unsigned char *p, uint64_t v);
+static size_t xqc_test_fuzz_frame(xqc_test_rng_t *rng, unsigned char *p,
+    xqc_bool_t *mp_frame, size_t *type_len);
+
+
+/* xorshift64 */
+static uint64_t
+xqc_test_rng_next(xqc_test_rng_t *rng)
+{
+    uint64_t x = rng->state;
+
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    rng->state = x;
+    return x;
+}
+
+
+/* a varint value, biased toward the bounds of the encodings and path IDs */
+static uint64_t
+xqc_test_fuzz_value(xqc_test_rng_t *rng)
+{
+    switch (xqc_test_rng_next(rng) % 8) {
+    case 0:
+        return 0;
+    case 1:
+    case 2:
+        return xqc_test_rng_next(rng) % (XQC_TEST_MP_MAX_PATH_ID + 2);
+    case 3:
+        return xqc_test_rng_next(rng) % 64;
+    case 4:
+        return xqc_test_rng_next(rng) % 16384;
+    case 5:
+        return 0xffffffffULL + xqc_test_rng_next(rng) % 3;
+    case 6:
+        return xqc_test_rng_next(rng) & 0xffffffffULL;
+    default:
+        return xqc_test_rng_next(rng) & XQC_VINT_MAX;
+    }
+}
+
+
+static size_t
+xqc_test_fuzz_varint(unsigned char *p, uint64_t v)
+{
+    unsigned bits = xqc_vint_get_2bit(v);
+
+    xqc_vint_write(p, v, bits, xqc_vint_len(bits));
+    return xqc_vint_len(bits);
+}
+
+
+/* write one frame, at most XQC_TEST_FUZZ_FRAME_LEN bytes */
+static size_t
+xqc_test_fuzz_frame(xqc_test_rng_t *rng, unsigned char *p,
+    xqc_bool_t *mp_frame, size_t *type_len)
+{
+    static const uint64_t mp_types[] = {
+        XQC_TRANS_FRAME_TYPE_MP_ACK0, XQC_TRANS_FRAME_TYPE_MP_ACK1,
+        XQC_TRANS_FRAME_TYPE_MP_ABANDON, XQC_TRANS_FRAME_TYPE_MP_STANDBY,
+        XQC_TRANS_FRAME_TYPE_MP_AVAILABLE, XQC_TRANS_FRAME_TYPE_MP_FROZEN,
+        XQC_TRANS_FRAME_TYPE_MP_NEW_CONN_ID,
+        XQC_TRANS_FRAME_TYPE_MP_RETIRE_CONN_ID,
+        XQC_TRANS_FRAME_TYPE_MAX_PATH_ID,
+    };
+    unsigned char  *begin = p;
+    uint64_t        type, n, i;
+
+    switch (xqc_test_rng_next(rng) % 6) {
+    case 0:
+        /* PADDING or PING */
+        *mp_frame = XQC_FALSE;
+        *type_len = xqc_test_fuzz_varint(p, xqc_test_rng_next(rng) % 2);
+        return *type_len;
+    case 1:
+        /* MAX_DATA */
+        *mp_frame = XQC_FALSE;
+        *type_len = xqc_test_fuzz_varint(p, 0x10);
+        p += *type_len;
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        return p - begin;
+    default:
+        break;
+    }
+
+    *mp_frame = XQC_TRUE;
+    type = mp_types[xqc_test_rng_next(rng)
+                    % (sizeof(mp_types) / sizeof(mp_types[0]))];
+    *type_len = xqc_test_fuzz_varint(p, type);
+    p += *type_len;
+
+    switch (type) {
+    case XQC_TRANS_FRAME_TYPE_MP_ACK0:
+    case XQC_TRANS_FRAME_TYPE_MP_ACK1:
+        /* path ID, largest, delay, range count, first range, ranges */
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        n = xqc_test_rng_next(rng) % 3;
+        p += xqc_test_fuzz_varint(p, n);
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        for (i = 0; i < n; i++) {
+            p += xqc_test_fuzz_varint(p, xqc_test_rng_next(rng) % 64);
+            p += xqc_test_fuzz_varint(p, xqc_test_rng_next(rng) % 64);
+        }
+        break;
+
+    case XQC_TRANS_FRAME_TYPE_MP_ABANDON:
+        /* path ID, error code, empty reason phrase */
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        p += xqc_test_fuzz_varint(p, 0);
+        break;
+
+    case XQC_TRANS_FRAME_TYPE_MP_NEW_CONN_ID:
+        /* path ID, sequence, retire prior to, length, CID, reset token */
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        p += xqc_test_fuzz_varint(p, xqc_test_rng_next(rng) % 4);
+        p += xqc_test_fuzz_varint(p, xqc_test_rng_next(rng) % 4);
+        n = xqc_test_rng_next(rng) % (XQC_MAX_CID_LEN + 2);
+        *p++ = (unsigned char) n;
+        for (i = 0; i < n + XQC_STATELESS_RESET_TOKENLEN; i++) {
+            *p++ = (unsigned char) xqc_test_rng_next(rng);
+        }
+        break;
+
+    case XQC_TRANS_FRAME_TYPE_MAX_PATH_ID:
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        break;
+
+    default:
+        /* PATH_STANDBY, PATH_AVAILABLE, PATH_FROZEN: path ID, sequence;
+         * MP_RETIRE_CONNECTION_ID: path ID, sequence */
+        p += xqc_test_fuzz_varint(p, xqc_test_fuzz_value(rng));
+        p += xqc_test_fuzz_varint(p, xqc_test_rng_next(rng) % 4);
+        break;
+    }
+
+    return p - begin;
+}
+
+
+void
+xqc_test_frame_dispatch_fuzz(void)
+{
+    xqc_test_rng_t      rng = { 0x9e3779b97f4a7c15ULL };
+    unsigned char       buf[XQC_TEST_FUZZ_FRAMES * XQC_TEST_FUZZ_FRAME_LEN];
+    xqc_connection_t   *conn = NULL;
+    xqc_packet_in_t     packet_in;
+    xqc_pkt_type_t      pkt_type;
+    xqc_bool_t          mp = XQC_FALSE, mp_frame, first_mp_frame;
+    xqc_int_t           ret;
+    size_t              len, type_len, first_type_len, n;
+    int                 i, f, frames;
+
+    for (i = 0; i < XQC_TEST_FUZZ_PACKETS; i++) {
+        if (conn == NULL) {
+            mp = xqc_test_rng_next(&rng) % 4 != 0;
+            conn = xqc_test_mp_conn(mp);
+        }
+
+        len = 0;
+        first_type_len = 0;
+        first_mp_frame = XQC_FALSE;
+        frames = 1 + xqc_test_rng_next(&rng) % XQC_TEST_FUZZ_FRAMES;
+        for (f = 0; f < frames; f++) {
+            n = xqc_test_fuzz_frame(&rng, buf + len, &mp_frame, &type_len);
+            CU_ASSERT_FATAL(n <= XQC_TEST_FUZZ_FRAME_LEN);
+            if (f == 0) {
+                first_mp_frame = mp_frame;
+                first_type_len = type_len;
+            }
+            len += n;
+        }
+
+        if (xqc_test_rng_next(&rng) % 4 == 0) {
+            len = 1 + xqc_test_rng_next(&rng) % len;
+        }
+
+        pkt_type = xqc_test_frame_pkt_types[
+            xqc_test_rng_next(&rng)
+            % (sizeof(xqc_test_frame_pkt_types)
+               / sizeof(xqc_test_frame_pkt_types[0]))];
+
+        ret = xqc_test_recv_frames(conn, pkt_type, buf, len, &packet_in);
+
+        CU_ASSERT(packet_in.pos <= packet_in.last);
+
+        if (!mp || pkt_type != XQC_PTYPE_SHORT_HEADER) {
+            CU_ASSERT_EQUAL(packet_in.pi_frame_types & XQC_TEST_MP_FRAME_BITS,
+                            0);
+
+            if (first_mp_frame && len >= first_type_len) {
+                if (!mp) {
+                    CU_ASSERT_EQUAL(ret, -XQC_EMP_INVALID_MP_VERTION);
+
+                } else {
+                    CU_ASSERT_EQUAL(ret, -XQC_EILLEGAL_FRAME);
+                    CU_ASSERT_EQUAL(conn->conn_err, TRA_FRAME_ENCODING_ERROR);
+                }
+            }
+        }
+
+        if (ret != XQC_OK || conn->conn_err != 0
+            || conn->conn_state >= XQC_CONN_STATE_CLOSING)
+        {
+            xqc_engine_destroy(conn->engine);
+            conn = NULL;
+        }
+    }
+
+    if (conn != NULL) {
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
 void
 xqc_test_negotiated_multipath_frozen_frame(void)
 {

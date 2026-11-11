@@ -7,6 +7,7 @@
 
 #include <xquic/xquic_typedef.h>
 #include "src/common/xqc_list.h"
+#include "src/transport/xqc_path_status.h"
 
 #define XQC_DEFAULT_CID_LEN 8
 
@@ -46,6 +47,11 @@ typedef struct xqc_cid_set_inner_s {
     uint64_t            retired_cnt;
     uint64_t            original_cid_cnt;
     uint64_t            path_id;
+    /*
+     * dcid set: the status that the peer indicates for the path ID while no
+     * path uses it, applied once a path is created for it
+     */
+    xqc_path_peer_status_t peer_status;
     union {
     uint64_t            largest_scid_seq_num;    /* for scid set */
     uint64_t            largest_retire_prior_to; /* for dcid set */

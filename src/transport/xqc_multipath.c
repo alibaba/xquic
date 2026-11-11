@@ -100,8 +100,8 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
     path->path_state = XQC_PATH_STATE_INIT;
     path->parent_conn = conn;
     path->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
-    path->app_path_status_send_seq_num = 0;
-    path->app_path_status_recv_seq_num = 0;
+    path->local_status.wanted = XQC_APP_PATH_STATUS_AVAILABLE;
+    path->local_status.advertised = XQC_APP_PATH_STATUS_AVAILABLE;
     path->path_id = path_id;
 
     path->path_pn_ctl = xqc_pn_ctl_create(conn);
@@ -148,6 +148,13 @@ xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64
 
     xqc_cid_set_update_state(&conn->dcid_set, path_id, XQC_CID_SET_USED);
     xqc_cid_set_update_state(&conn->scid_set, path_id, XQC_CID_SET_USED);
+
+    /* what the peer indicated for the path ID before (RFC 10069 4.3) */
+    xqc_cid_set_inner_t *path_id_set = xqc_get_path_cid_set(&conn->dcid_set,
+                                                            path_id);
+    if (path_id_set != NULL) {
+        path->peer_status = path_id_set->peer_status;
+    }
 
     path->path_create_time = xqc_monotonic_timestamp();
     path->curr_pkt_out_size = conn->pkt_out_size;
@@ -541,7 +548,8 @@ xqc_path_init(xqc_path_ctx_t *path, xqc_connection_t *conn)
         }
 
         /* write path challenge frame & send immediately */
-        ret = xqc_write_path_challenge_frame_to_packet(conn, path, path->app_path_status == XQC_APP_PATH_STATUS_STANDBY);
+        ret = xqc_write_path_challenge_frame_to_packet(conn, path,
+                  path->local_status.wanted != path->local_status.advertised);
         if (ret != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_challenge_frame_to_packet error|%d|", ret);
             return ret;
@@ -958,6 +966,7 @@ xqc_conn_create_path_inner(xqc_connection_t *conn,
         return NULL;
     }
 
+    path->local_status.wanted = path_status;
     path->app_path_status = path_status;
 
     ret = xqc_path_init(path, conn);
@@ -1416,6 +1425,73 @@ xqc_conn_client_init_path_addr(xqc_connection_t *conn)
 }
 
 
+/* the stricter of two path statuses is the one a path is used with */
+static const uint8_t xqc_path_status_strictness[XQC_APP_PATH_STATUS_MAX] = {
+    [XQC_APP_PATH_STATUS_NONE]      = 0,
+    [XQC_APP_PATH_STATUS_AVAILABLE] = 1,
+    [XQC_APP_PATH_STATUS_STANDBY]   = 2,
+    [XQC_APP_PATH_STATUS_FROZEN]    = 3,
+};
+
+_Static_assert(XQC_APP_PATH_STATUS_MAX == XQC_APP_PATH_STATUS_FROZEN + 1,
+               "every path status has a strictness");
+
+/*
+ * The status a path is used with for sending is the stricter of the one
+ * this endpoint indicates and the one the peer indicates: RFC 10069 Section
+ * 3.3 leaves following the peer's to the sender, and one the peer has not
+ * indicated does not restrict. A path is used with it once validated.
+ */
+static void
+xqc_path_update_app_status(xqc_path_ctx_t *path)
+{
+    xqc_connection_t     *conn = path->parent_conn;
+    xqc_app_path_status_t local = path->local_status.wanted;
+    xqc_app_path_status_t peer = path->peer_status.status;
+    xqc_app_path_status_t last_status = path->app_path_status;
+    xqc_app_path_status_t status;
+
+    if (path->path_state < XQC_PATH_STATE_ACTIVE) {
+        return;
+    }
+
+    status = xqc_path_status_strictness[peer]
+             > xqc_path_status_strictness[local] ? peer : local;
+    if (status == last_status) {
+        return;
+    }
+
+    path->app_path_status = status;
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|app_path_status:%d->%d|",
+            path->path_id, last_status, status);
+    path->app_path_status_changed_count++;
+    path->last_app_path_status_changed_time = xqc_monotonic_timestamp();
+
+    if (status == XQC_APP_PATH_STATUS_FROZEN) {
+        xqc_path_move_unack_packets_from_conn(path, conn);
+        for (xqc_send_type_t type = 0; type < XQC_SEND_TYPE_N; type++) {
+            xqc_path_send_buffer_clear(conn, path, NULL, type);
+        }
+    }
+}
+
+/*
+ * Tell the peer the status this endpoint indicates, if it changed. That is
+ * done on an active path: one indicated before the validation is sent then,
+ * and draft-10 Section 7.2 forbids frames for an abandoned path ID.
+ */
+static xqc_int_t
+xqc_path_send_local_status(xqc_path_ctx_t *path)
+{
+    if (path->path_state != XQC_PATH_STATE_ACTIVE
+        || path->local_status.wanted == path->local_status.advertised)
+    {
+        return XQC_OK;
+    }
+
+    return xqc_write_path_status_frame_to_packet(path->parent_conn, path);
+}
+
 xqc_msec_t
 xqc_path_get_idle_timeout(xqc_path_ctx_t *path)
 {
@@ -1448,17 +1524,10 @@ xqc_path_validate(xqc_path_ctx_t *path)
                 "|path validated|path_id:%ui|validated_path_count:%ud|", 
                 path->path_id, path->parent_conn->validated_path_count);
 
-        if (path->path_flag & XQC_PATH_FLAG_SEND_STATUS) {
-            path->path_flag &= ~XQC_PATH_FLAG_SEND_STATUS;
-            xqc_int_t ret = xqc_set_application_path_status(path, path->next_app_path_state, XQC_TRUE);
-            if (ret != XQC_OK) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|error|");
-            }
-        }
-
-        if (path->path_flag & XQC_PATH_FLAG_RECV_STATUS) {
-            path->path_flag &= ~XQC_PATH_FLAG_RECV_STATUS;
-            xqc_set_application_path_status(path, path->next_app_path_state, XQC_FALSE);
+        /* the statuses that each side indicated before the validation */
+        xqc_path_update_app_status(path);
+        if (xqc_path_send_local_status(path) != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|send path status error|");
         }
 
         /* PMTUD: launch probing immediately */
@@ -1564,92 +1633,61 @@ xqc_path_is_full(xqc_path_ctx_t *path)
 }
 
 xqc_int_t
-xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t status, xqc_bool_t is_tx)
+xqc_path_set_local_status(xqc_path_ctx_t *path, xqc_app_path_status_t status)
 {
-    if (path->app_path_status != status
-        && status > XQC_APP_PATH_STATUS_NONE
-        && status < XQC_APP_PATH_STATUS_MAX)
-    {
-        xqc_app_path_status_t last_status = path->app_path_status;
-        xqc_connection_t *conn = path->parent_conn;
+    xqc_app_path_status_t last_wanted = path->local_status.wanted;
+    xqc_int_t ret;
 
-        path->app_path_status = status;
-
-        if (is_tx) {
-            xqc_int_t ret = XQC_ERROR;
-
-            ret = xqc_write_path_status_frame_to_packet(conn, path);
-
-            if (ret != XQC_OK) {
-                path->app_path_status = last_status;
-                xqc_log(conn->log, XQC_LOG_ERROR, "|error|%d|", ret);
-                return ret;
-            }
-        }
-
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|app_path_status:%d->%d|", path->path_id, last_status, status);
-        path->app_path_status_changed_count++;
-        path->last_app_path_status_changed_time = xqc_monotonic_timestamp();
-
-        if (status == XQC_APP_PATH_STATUS_FROZEN) {
-            xqc_path_move_unack_packets_from_conn(path, conn);
-            for (xqc_send_type_t type = 0; type < XQC_SEND_TYPE_N; type++) {
-                xqc_path_send_buffer_clear(conn, path, NULL, type);
-            }
-        }        
+    path->local_status.wanted = status;
+    ret = xqc_path_send_local_status(path);
+    if (ret != XQC_OK) {
+        path->local_status.wanted = last_wanted;
+        xqc_log(path->parent_conn->log, XQC_LOG_ERROR,
+                "|send path status error|%d|", ret);
+        return ret;
     }
-    
+
+    xqc_path_update_app_status(path);
     return XQC_OK;
 }
 
 
-
-xqc_int_t
-xqc_conn_mark_path_standby(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t path_id)
+void
+xqc_conn_on_peer_path_status(xqc_connection_t *conn, uint64_t path_id,
+    xqc_path_status_seq_t seq, xqc_app_path_status_t status)
 {
-    xqc_path_ctx_t *path = NULL;
-    xqc_connection_t *conn = NULL;
+    xqc_path_ctx_t      *path = xqc_conn_find_path_by_path_id(conn, path_id);
+    xqc_cid_set_inner_t *path_id_set;
 
-    conn = xqc_engine_conns_hash_find(engine, cid, 's');
-    if (!conn) {
-        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|");
-        return -XQC_ECONN_NFOUND;
-    }
-    if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
-        return -XQC_CLOSING;
+    if (path != NULL) {
+        if (xqc_path_peer_status_update(&path->peer_status, seq, status)) {
+            xqc_path_update_app_status(path);
+        }
+        return;
     }
 
-    /* check mp-support */
-    if (!conn->enable_multipath) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|Multipath is not supported in connection|%p|", conn);
-        return -XQC_EMP_NOT_SUPPORT_MP;
+    /*
+     * RFC 10069 Section 4.3: the peer may indicate a status for a path ID
+     * that no path uses yet. The connection ID set of the path ID keeps it
+     * until a path is created for it.
+     */
+    if (xqc_cid_set_add_path(&conn->dcid_set, path_id) != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_cid_set_add_path error|path:%ui|", path_id);
+        return;
     }
 
-    /* find path */
-    path = xqc_conn_find_path_by_path_id(conn, path_id);
-    if (path == NULL) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|path is not found by path_id in connection|%p|%ui|", 
-                conn, path_id);
-        return -XQC_EMP_PATH_NOT_FOUND;
-    }
-
-    path->next_app_path_state = XQC_APP_PATH_STATUS_STANDBY;
-
-    if (path->path_state < XQC_PATH_STATE_ACTIVE) {
-        path->path_flag |= XQC_PATH_FLAG_SEND_STATUS;
-        return XQC_OK;
-    }
-
-    return xqc_set_application_path_status(path, path->next_app_path_state, XQC_TRUE);
+    path_id_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
+    xqc_path_peer_status_update(&path_id_set->peer_status, seq, status);
 }
 
-xqc_int_t 
-xqc_conn_mark_path_frozen(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t path_id)
+
+static xqc_int_t
+xqc_conn_mark_path(xqc_engine_t *engine, const xqc_cid_t *cid,
+    uint64_t path_id, xqc_app_path_status_t status)
 {
-    xqc_connection_t *conn = NULL;
     xqc_path_ctx_t *path = NULL;
+    xqc_connection_t *conn = NULL;
 
     conn = xqc_engine_conns_hash_find(engine, cid, 's');
     if (!conn) {
@@ -1677,7 +1715,8 @@ xqc_conn_mark_path_frozen(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t p
     }
 
     /* do not freeze the only active path */
-    if (path->path_state == XQC_PATH_STATE_ACTIVE 
+    if (status == XQC_APP_PATH_STATUS_FROZEN
+        && path->path_state == XQC_PATH_STATE_ACTIVE
         && conn->active_path_count == 1)
     {
         xqc_log(conn->log, XQC_LOG_WARN, 
@@ -1685,56 +1724,33 @@ xqc_conn_mark_path_frozen(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t p
         return -XQC_EMP_NO_ACTIVE_PATH;
     }
 
-    path->next_app_path_state = XQC_APP_PATH_STATUS_FROZEN;
-
-    if (path->path_state < XQC_PATH_STATE_ACTIVE) {
-        path->path_flag |= XQC_PATH_FLAG_SEND_STATUS;
-        return XQC_OK;
-    }
-
-    return xqc_set_application_path_status(path, path->next_app_path_state, XQC_TRUE);
+    return xqc_path_set_local_status(path, status);
 }
 
 
 xqc_int_t
-xqc_conn_mark_path_available(xqc_engine_t *engine, const xqc_cid_t *cid, uint64_t path_id)
+xqc_conn_mark_path_standby(xqc_engine_t *engine, const xqc_cid_t *cid,
+    uint64_t path_id)
 {
-    xqc_connection_t *conn = NULL;
-    xqc_path_ctx_t *path = NULL;
+    return xqc_conn_mark_path(engine, cid, path_id,
+                              XQC_APP_PATH_STATUS_STANDBY);
+}
 
-    conn = xqc_engine_conns_hash_find(engine, cid, 's');
-    if (!conn) {
-        xqc_log(engine->log, XQC_LOG_ERROR, "|can not find connection|");
-        return -XQC_ECONN_NFOUND;
-    }
-    if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
-        return -XQC_CLOSING;
-    }
+xqc_int_t
+xqc_conn_mark_path_frozen(xqc_engine_t *engine, const xqc_cid_t *cid,
+    uint64_t path_id)
+{
+    return xqc_conn_mark_path(engine, cid, path_id,
+                              XQC_APP_PATH_STATUS_FROZEN);
+}
 
-    /* check mp-support */
-    if (!conn->enable_multipath) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|Multipath is not supported in connection|%p|", conn);
-        return -XQC_EMP_NOT_SUPPORT_MP;
-    }
 
-    /* find path */
-    path = xqc_conn_find_path_by_path_id(conn, path_id);
-    if (path == NULL) {
-        xqc_log(engine->log, XQC_LOG_WARN,
-                "|path is not found by path_id in connection|%p|%ui|", 
-                conn, path_id);
-        return -XQC_EMP_PATH_NOT_FOUND;
-    }
-
-    path->next_app_path_state = XQC_APP_PATH_STATUS_AVAILABLE;
-
-    if (path->path_state < XQC_PATH_STATE_ACTIVE) {
-        path->path_flag |= XQC_PATH_FLAG_SEND_STATUS;
-        return XQC_OK;
-    }
-
-    return xqc_set_application_path_status(path, path->next_app_path_state, XQC_TRUE);
+xqc_int_t
+xqc_conn_mark_path_available(xqc_engine_t *engine, const xqc_cid_t *cid,
+    uint64_t path_id)
+{
+    return xqc_conn_mark_path(engine, cid, path_id,
+                              XQC_APP_PATH_STATUS_AVAILABLE);
 }
 
 

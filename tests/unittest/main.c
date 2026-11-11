@@ -339,6 +339,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conns_hash_reject_non_owner", xqc_test_conns_hash_reject_non_owner)
         || !CU_add_test(pSuite, "xqc_test_mp_new_cid_above_curr_max_path_id",
                         xqc_test_mp_new_cid_above_curr_max_path_id)
+        || !CU_add_test(pSuite, "xqc_test_mp_cid_sets_largest_path_id_limit",
+                        xqc_test_mp_cid_sets_largest_path_id_limit)
         || !CU_add_test(pSuite, "xqc_test_mp_new_cid_rejected_without_cid_set",
                         xqc_test_mp_new_cid_rejected_without_cid_set)
         || !CU_add_test(pSuite, "xqc_test_mp_abandon_above_curr_max_path_id",

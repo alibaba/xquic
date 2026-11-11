@@ -1030,9 +1030,10 @@ xqc_parse_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in,
     xqc_fec_rpr_syb_t *rpr_symbol)
 {
     int                  vlen = 0;
-    uint64_t             frame_type, flow_id, fss_esi, repair_payload_id, repair_symbol_size, repair_key_size;
+    uint64_t             frame_type, flow_id, fss_esi, repair_payload_id;
     xqc_int_t            ret;
-    unsigned char       *p = packet_in->pos, *end = packet_in->last, *tmp_payload_p, *repair_key_p, *repair_symbol_p;
+    xqc_frame_bytes_t    repair_key, repair_symbol;
+    const unsigned char *p = packet_in->pos, *end = packet_in->last;
 
     frame_type = flow_id = fss_esi = repair_payload_id = 0;
     ret = 0;
@@ -1069,24 +1070,21 @@ xqc_parse_repair_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in,
     }
     rpr_symbol->symbol_idx = repair_payload_id;
 
-    vlen = xqc_vint_read(p, end, &repair_key_size);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
+    /* Repair Key Size (i), Repair Key (..) */
+    ret = xqc_parse_frame_bytes(&p, end, &repair_key);
+    if (ret != XQC_OK) {
+        return ret;
     }
-    p += vlen;
-    rpr_symbol->repair_key_size = repair_key_size;
-    rpr_symbol->repair_key = p;
+    rpr_symbol->repair_key_size = repair_key.len;
+    rpr_symbol->repair_key = (unsigned char *) repair_key.data;
 
-    p = p + rpr_symbol->repair_key_size;
-    vlen = xqc_vint_read(p, end, &repair_symbol_size);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
+    /* Repair Symbol Size (i), Repair Symbol (..) */
+    ret = xqc_parse_frame_bytes(&p, end, &repair_symbol);
+    if (ret != XQC_OK) {
+        return ret;
     }
-    p += vlen;
-    rpr_symbol->payload_size = repair_symbol_size;
-    rpr_symbol->payload = p;
-
-    p += rpr_symbol->payload_size;
+    rpr_symbol->payload_size = repair_symbol.len;
+    rpr_symbol->payload = (unsigned char *) repair_symbol.data;
 
     if ((packet_in->pi_flag & XQC_PIF_FEC_RECOVERED) != 0) {
         ret = -XQC_EFEC_TOLERABLE_ERROR;

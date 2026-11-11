@@ -839,6 +839,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)
         || !CU_add_test(pSuite, "xqc_test_fec", xqc_test_fec)
+        || !CU_add_test(pSuite, "xqc_test_fec_repair_frame_past_packet",
+                        xqc_test_fec_repair_frame_past_packet)
 #endif
         || !CU_add_test(pSuite, "xqc_test_ack_with_timestamp", xqc_test_ack_with_timestamp)
         || !CU_add_test(pSuite, "xqc_test_pto_uses_remote_max_ack_delay",

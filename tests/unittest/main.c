@@ -933,6 +933,14 @@ main(int argc, char *argv[])
                         xqc_test_quic_v2_retry_tag)
         || !CU_add_test(pSuite, "xqc_test_quic_v2_chacha20",
                         xqc_test_quic_v2_chacha20)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_version_info_codec",
+                        xqc_test_quic_v2_version_info_codec)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_version_info_malformed",
+                        xqc_test_quic_v2_version_info_malformed)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_version_info_conn",
+                        xqc_test_quic_v2_version_info_conn)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_token_version",
+                        xqc_test_quic_v2_token_version)
         /* issue #695: initial salt strlen fix */
         || !CU_add_test(pSuite, "xqc_test_initial_salt_length", xqc_test_initial_salt_length)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_v1_value", xqc_test_initial_salt_v1_value)

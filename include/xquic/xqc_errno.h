@@ -41,6 +41,11 @@ typedef enum {
     TRA_AEAD_LIMIT_REACHED          =  0xF,   /**< RFC 9000 Section 20.1 */
     TRA_NO_VIABLE_PATH              =  0x10,  /**< RFC 9000 Section 8.2.4 */
     /*
+     * RFC 9368 Section 10.2: VERSION_NEGOTIATION_ERROR, sent when the
+     * Version Information of the peer fails validation (Section 4).
+     */
+    TRA_VERSION_INFORMATION_ERROR   =  0x11,
+    /*
      * RFC 9000 Section 6.2 does not assign a CONNECTION_CLOSE code for
      * the Version Negotiation abort path, because the client cannot
      * send CONNECTION_CLOSE before keys are established. This value is

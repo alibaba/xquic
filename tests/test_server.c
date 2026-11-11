@@ -42,6 +42,9 @@
 #define XQC_FIRST_OCTET 1
 #define XQC_TEST_CASE_QUIC_V2_HANDSHAKE 913
 #define XQC_TEST_CASE_QUIC_V2_RETRY 915
+#define XQC_TEST_CASE_QUIC_V2_VERSION_INFO 918
+#define XQC_TEST_CASE_QUIC_V2_RESUMPTION 919
+#define XQC_TEST_CASE_QUIC_V2_RESUMPTION_OTHER_VERSION 920
 #define XQC_TEST_CASE_RELIABLE_RESET_PREFIX 739
 #define XQC_TEST_CASE_RELIABLE_RESET_INVALID_SIZE 740
 #define XQC_TEST_CASE_RELIABLE_RESET_CLOSE 741
@@ -3330,7 +3333,10 @@ int main(int argc, char *argv[]) {
 
     /* RFC 9369: accept QUIC version 2 as well */
     if (g_test_case == XQC_TEST_CASE_QUIC_V2_HANDSHAKE
-        || g_test_case == XQC_TEST_CASE_QUIC_V2_RETRY)
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_RETRY
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_VERSION_INFO
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_RESUMPTION
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_RESUMPTION_OTHER_VERSION)
     {
         config.support_version_list[config.support_version_count++] =
             0x6b3343cf;

@@ -107,6 +107,9 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_QUIC_V2_HANDSHAKE 913
 #define XQC_TEST_CASE_QUIC_V2_UNSUPPORTED 914
 #define XQC_TEST_CASE_QUIC_V2_RETRY 915
+#define XQC_TEST_CASE_QUIC_V2_VERSION_INFO 918
+#define XQC_TEST_CASE_QUIC_V2_RESUMPTION 919
+#define XQC_TEST_CASE_QUIC_V2_RESUMPTION_OTHER_VERSION 920
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_DATAGRAM_INITIAL_REJECTED 1202
 #define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
@@ -6606,7 +6609,10 @@ int main(int argc, char *argv[]) {
     /* RFC 9369: connect with QUIC version 2 */
     if (g_test_case == XQC_TEST_CASE_QUIC_V2_HANDSHAKE
         || g_test_case == XQC_TEST_CASE_QUIC_V2_UNSUPPORTED
-        || g_test_case == XQC_TEST_CASE_QUIC_V2_RETRY)
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_RETRY
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_VERSION_INFO
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_RESUMPTION
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_RESUMPTION_OTHER_VERSION)
     {
         conn_settings.proto_version = XQC_VERSION_V2;
     }

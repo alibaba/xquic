@@ -798,6 +798,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_empty_data_fin",
                         xqc_test_h3_empty_data_fin)
         || !CU_add_test(pSuite, "xqc_test_stable", xqc_test_stable)
+        || !CU_add_test(pSuite, "xqc_test_dtable_insert_alloc_failure",
+                        xqc_test_dtable_insert_alloc_failure)
         || !CU_add_test(pSuite, "xqc_test_dtable", xqc_test_dtable)
         || !CU_add_test(pSuite, "test_2d_hash_table", test_2d_hash_table)
         || !CU_add_test(pSuite, "test_ring_array", test_ring_array)

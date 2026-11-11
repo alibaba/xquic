@@ -1133,6 +1133,128 @@ xqc_test_qpack_create_alloc_failures(void)
 
 
 /*
+ * The encoder remembers a field section that refers to an entry not yet
+ * acknowledged both as unacknowledged and as blocking its stream, or,
+ * when it cannot remember both, as neither: a Section Acknowledgment
+ * acknowledges the earliest unacknowledged field section of its stream
+ * (RFC 9204 2.2.2.1), and the streams that could become blocked are
+ * limited (RFC 9204 2.1.2). On stream 4, the encoder refers to an entry
+ * that it inserted for stream 0. Each allocation of that encoding fails in
+ * turn, and makes it fail, then the field section is encoded again. Once
+ * the decoder decoded both field sections and the encoder received the
+ * decoder's instructions, no field section refers to the entry: the
+ * encoder can empty its dynamic table.
+ */
+void
+xqc_test_qpack_enc_blocked_alloc_failures(void)
+{
+    long                n;
+    int                 failed;
+    size_t              i;
+    ssize_t             read;
+    xqc_int_t           ret;
+    xqc_bool_t          blocked;
+    xqc_qpack_t        *enc;
+    xqc_qpack_t        *dec;
+    xqc_rep_ctx_t      *ctx;
+    xqc_var_buf_t      *ins;
+    xqc_var_buf_t      *efs[2];
+    xqc_ins_buf_t       enc_bufs;
+    xqc_ins_buf_t       dec_bufs;
+    xqc_http_headers_t  out;
+    xqc_http_header_t   hdr = {
+        .name   = {.iov_base = "x-referred", .iov_len = 10},
+        .value  = {.iov_base = "unacknowledged", .iov_len = 14},
+    };
+    xqc_http_headers_t  hdrs = {&hdr, 1, 1};
+    xqc_engine_t       *engine = test_create_engine();
+
+    CU_ASSERT_FATAL(engine != NULL);
+
+    for (n = 1; n < 100; n++) {
+        xqc_test_alloc_live = 0;
+        xqc_test_alloc_tracking = 1;
+        enc_bufs.enc_ins = xqc_var_buf_create(1024);
+        enc_bufs.dec_ins = xqc_var_buf_create(1024);
+        dec_bufs.enc_ins = xqc_var_buf_create(1024);
+        dec_bufs.dec_ins = xqc_var_buf_create(1024);
+        efs[0] = xqc_var_buf_create(256);
+        efs[1] = xqc_var_buf_create(256);
+        enc = xqc_qpack_create(1024, 1024, engine->log, &ins_cb, &enc_bufs);
+        dec = xqc_qpack_create(1024, 1024, engine->log, &ins_cb, &dec_bufs);
+        CU_ASSERT_FATAL(enc_bufs.enc_ins != NULL && enc_bufs.dec_ins != NULL
+                        && dec_bufs.enc_ins != NULL
+                        && dec_bufs.dec_ins != NULL
+                        && efs[0] != NULL && efs[1] != NULL
+                        && enc != NULL && dec != NULL);
+        CU_ASSERT(xqc_qpack_set_enc_max_dtable_cap(enc, 1024) == XQC_OK);
+        CU_ASSERT(xqc_qpack_set_max_blocked_stream(enc, 16) == XQC_OK);
+        CU_ASSERT(xqc_qpack_set_dtable_cap(enc, 1024) == XQC_OK);
+
+        /* stream 0 inserts the entry, which the decoder receives */
+        CU_ASSERT(xqc_qpack_enc_headers(enc, 0, &hdrs, efs[0]) == XQC_OK);
+        ins = enc_bufs.enc_ins;
+        CU_ASSERT(xqc_qpack_process_encoder(dec, ins->data, ins->data_len)
+                  == ins->data_len);
+
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        ret = xqc_qpack_enc_headers(enc, 4, &hdrs, efs[1]);
+        xqc_test_alloc_count = -1;
+        failed = xqc_test_alloc_failed;
+        CU_ASSERT((ret != XQC_OK) == failed);
+
+        if (ret != XQC_OK) {
+            xqc_var_buf_clear(efs[1]);
+            CU_ASSERT(xqc_qpack_enc_headers(enc, 4, &hdrs, efs[1])
+                      == XQC_OK);
+        }
+
+        /* the decoder acknowledges both field sections */
+        for (i = 0; i < 2; i++) {
+            ctx = xqc_qpack_create_req_ctx(i * 4);
+            CU_ASSERT_FATAL(ctx != NULL);
+            memset(&out, 0, sizeof(out));
+            blocked = XQC_FALSE;
+            read = xqc_qpack_dec_headers(dec, ctx, efs[i]->data,
+                                         efs[i]->data_len, &out,
+                                         XQC_H3_MAX_FIELD_SECTION_SIZE,
+                                         XQC_TRUE, &blocked);
+            CU_ASSERT(read == efs[i]->data_len);
+            CU_ASSERT(blocked == XQC_FALSE && out.count == 1);
+            xqc_h3_headers_free(&out);
+            xqc_qpack_destroy_req_ctx(ctx);
+        }
+
+        ins = dec_bufs.dec_ins;
+        CU_ASSERT(xqc_qpack_process_decoder(enc, ins->data, ins->data_len)
+                  == ins->data_len);
+        CU_ASSERT(xqc_qpack_set_dtable_cap(enc, 0) == XQC_OK);
+
+        xqc_qpack_destroy(enc);
+        xqc_qpack_destroy(dec);
+        xqc_var_buf_free(enc_bufs.enc_ins);
+        xqc_var_buf_free(enc_bufs.dec_ins);
+        xqc_var_buf_free(dec_bufs.enc_ins);
+        xqc_var_buf_free(dec_bufs.dec_ins);
+        xqc_var_buf_free(efs[0]);
+        xqc_var_buf_free(efs[1]);
+        xqc_test_alloc_tracking = 0;
+        CU_ASSERT(xqc_test_alloc_live == 0);
+
+        if (!failed) {
+            /* nothing failed */
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+
+    xqc_engine_destroy(engine);
+}
+
+
+/*
  * Each allocation that an h3 client connection makes to create its h3
  * connection, up to and including its QPACK context, fails in turn: the
  * h3 connection is not created, xqc_h3_connect() fails, and once the
@@ -1180,6 +1302,12 @@ xqc_test_qpack_h3_conn_create_alloc_failures(void)
 
 void
 xqc_test_qpack_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_qpack_enc_blocked_alloc_failures(void)
 {
     /* needs the linker's --wrap (see tests/CMakeLists.txt) */
 }

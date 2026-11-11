@@ -193,7 +193,7 @@ xqc_encoder_blocked_stream_free(xqc_encoder_blocked_stream_t *stream)
 }
 
 /* remember a stream that refers entries larger than known received count */
-void
+xqc_int_t
 xqc_encoder_add_blocked_stream(xqc_encoder_t *enc, uint64_t stream_id, uint64_t ricnt)
 {
     xqc_list_head_t *pos, *next;
@@ -213,15 +213,21 @@ xqc_encoder_add_blocked_stream(xqc_encoder_t *enc, uint64_t stream_id, uint64_t 
                 stream->rqrd_insert_cnt = ricnt;
             }
 
-            return;
+            return XQC_OK;
         }
     }
 
     /* stream not found, add to blocked list */
     xqc_encoder_blocked_stream_t *stream = xqc_encoder_blocked_stream_create(stream_id, ricnt);
+    if (stream == NULL) {
+        xqc_log(enc->log, XQC_LOG_ERROR, "|create blocked stream error|");
+        return -XQC_EMALLOC;
+    }
+
     xqc_list_add_tail(&stream->head, &enc->blocked_list);
 
     enc->blocked_stream_count++;
+    return XQC_OK;
 }
 
 /* delete blocked streams. this will happen after Insert Increment or Section Acknowledgement */
@@ -885,6 +891,7 @@ static inline xqc_int_t
 xqc_encoder_save_unacked(xqc_encoder_t *enc, uint64_t stream_id, xqc_field_section_t *fs)
 {
     uint64_t min_unack_idx_ori = enc->min_unack_index;
+    xqc_int_t ret;
 
     if (fs->rqrd_insert_cnt != 0) {
         xqc_encoder_unack_section_t *section = 
@@ -892,6 +899,20 @@ xqc_encoder_save_unacked(xqc_encoder_t *enc, uint64_t stream_id, xqc_field_secti
         if (section == NULL) {
             xqc_log(enc->log, XQC_LOG_ERROR, "|create unack section error|");
             return -XQC_EMALLOC;
+        }
+
+        /*
+         * required insert count is larger than known received count, take
+         * it as blocked stream. the section is saved only after that, so
+         * that a failure leaves neither
+         */
+        if (fs->rqrd_insert_cnt > enc->krc) {
+            ret = xqc_encoder_add_blocked_stream(enc, stream_id,
+                                                 fs->rqrd_insert_cnt);
+            if (ret != XQC_OK) {
+                xqc_free(section);
+                return ret;
+            }
         }
 
         /* add to the end of unack list, with the same sequence of sections */
@@ -936,16 +957,11 @@ xqc_encoder_enc_headers(xqc_encoder_t *enc, xqc_var_buf_t *efs,
         goto fail;
     }
 
-    /* save representation info */
+    /* save representation info, and the stream if it might be blocked */
     ret = xqc_encoder_save_unacked(enc, stream_id, fs);
     if (ret != XQC_OK) {
         xqc_log(enc->log, XQC_LOG_ERROR, "|save unacked error|ret:%d|", ret);
         goto fail;
-    }
-
-    /* required insert count is larger than known received count, take it as blocked stream */
-    if (fs->rqrd_insert_cnt > enc->krc) {
-        xqc_encoder_add_blocked_stream(enc, stream_id, fs->rqrd_insert_cnt);
     }
 
 fail:

@@ -809,6 +809,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_qpack_test", xqc_qpack_test)
         || !CU_add_test(pSuite, "xqc_test_qpack_create_alloc_failures",
                         xqc_test_qpack_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_qpack_enc_blocked_alloc_failures",
+                        xqc_test_qpack_enc_blocked_alloc_failures)
         || !CU_add_test(pSuite,
                         "xqc_test_qpack_h3_conn_create_alloc_failures",
                         xqc_test_qpack_h3_conn_create_alloc_failures)

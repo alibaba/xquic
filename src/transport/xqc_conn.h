@@ -718,6 +718,8 @@ void xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out
 void xqc_conn_increase_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 void xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_send_ctl_t *ctl, 
     xqc_packet_out_t *packet_out, xqc_usec_t now);
+/* an acknowledgment of new packets restarts the default linger close timeout */
+void xqc_conn_extend_linger_close(xqc_connection_t *conn, xqc_usec_t now);
 
 /* 选择所有path的PTO中最大的那个，作为conn的PTO，用于连接级别的定时器触发:
  * - XQC_TIMER_LINGER_CLOSE

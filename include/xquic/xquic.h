@@ -1324,7 +1324,10 @@ typedef struct xqc_conn_ssl_config_s {
 typedef struct xqc_linger_s {
     /** close connection after all data sent and acked, default: 0 */
     uint32_t                    linger_on; 
-    /** 3*PTO if linger_timeout is 0 */
+    /**
+     * the longest wait after xqc_conn_close. If 0, the wait ends after 3*PTO
+     * without an acknowledgment of new packets
+     */
     xqc_usec_t                  linger_timeout; 
 } xqc_linger_t;
 

@@ -341,6 +341,12 @@ main(int argc, char *argv[])
                         xqc_test_mp_new_cid_above_curr_max_path_id)
         || !CU_add_test(pSuite, "xqc_test_mp_new_cid_rejected_without_cid_set",
                         xqc_test_mp_new_cid_rejected_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_create_path_peer_allows",
+                        xqc_test_mp_create_path_peer_allows)
+        || !CU_add_test(pSuite, "xqc_test_mp_create_path_migration_disabled",
+                        xqc_test_mp_create_path_migration_disabled)
+        || !CU_add_test(pSuite, "xqc_test_mp_ready_notify_migration_disabled",
+                        xqc_test_mp_ready_notify_migration_disabled)
         || !CU_add_test(pSuite, "xqc_test_mp_abandon_above_curr_max_path_id",
                         xqc_test_mp_abandon_above_curr_max_path_id)
         || !CU_add_test(pSuite, "xqc_test_mp_abandon_rejected_without_cid_set",
@@ -408,6 +414,11 @@ main(int argc, char *argv[])
                         xqc_test_transport_error_code_passthrough)
         || !CU_add_test(pSuite, "xqc_test_0rtt_error_wire_codes",
                         xqc_test_0rtt_error_wire_codes)
+        || !CU_add_test(pSuite, "xqc_test_conn_mp_server_cannot_open_path",
+                        xqc_test_conn_mp_server_cannot_open_path)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_mp_server_not_ready_to_open_path",
+                        xqc_test_conn_mp_server_not_ready_to_open_path)
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_transport_crypto_namespace",
                         xqc_test_conn_close_transport_crypto_namespace)

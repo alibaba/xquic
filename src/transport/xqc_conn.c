@@ -5793,6 +5793,17 @@ xqc_conn_reassemble_packet(xqc_connection_t *conn, xqc_packet_out_t *ori_po)
     /* set RESEND flag */
     new_po->po_flag |= XQC_POF_RESEND;
 
+    /*
+     * The dropped packet is counted in the unacknowledged packets of its
+     * streams (XQC_POF_STREAM_UNACK). The new one takes that count over
+     * instead of adding to it when it is sent, so that acknowledging it
+     * completes the streams.
+     */
+    if (ori_po->po_flag & XQC_POF_STREAM_UNACK) {
+        new_po->po_flag |= XQC_POF_STREAM_UNACK;
+        ori_po->po_flag &= ~XQC_POF_STREAM_UNACK;
+    }
+
     if (new_po->po_frame_types & XQC_FRAME_BIT_CRYPTO) {
         xqc_send_queue_move_to_high_pri(&new_po->po_list, conn->conn_send_queue);
     }
@@ -5829,8 +5840,15 @@ xqc_conn_resend_packets(xqc_connection_t *conn)
             continue;
         }
 
-        /* reassemble new packet with updated header and insert to send queue */
-        if (xqc_need_reassemble_packet(packet_out)) {
+        /*
+         * Reassemble new packet with updated header and insert to send
+         * queue. A copy made for a loss or PTO retransmission is only
+         * dropped: its original is in this list too and carries the same
+         * frames, which are resent once.
+         */
+        if (packet_out->po_origin == NULL
+            && xqc_need_reassemble_packet(packet_out))
+        {
             ret = xqc_conn_reassemble_packet(conn, packet_out);
             if (ret != XQC_OK) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_reassemble_packet error|ret:%d|", ret);

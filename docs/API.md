@@ -923,6 +923,12 @@ xqc_int_t xqc_h3_conn_set_qpack_dtable_cap(xqc_h3_conn_t *h3c, size_t capacity);
 ```
 Set dynamic table capacity of a existent h3 connection.
 If capacity shrinks, and new capacity can't hold the inserted entries in the original dynamic table, the earliest entries will be erased.
+The capacity is limited to qpack_enc_max_table_capacity and to the peer's
+SETTINGS_QPACK_MAX_TABLE_CAPACITY (RFC 9204 Section 3.2.3). The peer's
+maximum is 0 until its SETTINGS frame is received, which then sets the
+capacity to the lower of both maximums. While the peer's maximum is 0, no
+instruction is sent, and a non-zero capacity fails with
+-XQC_QPACK_STATE_ERROR.
 
 
 ### H3-Request Interfaces

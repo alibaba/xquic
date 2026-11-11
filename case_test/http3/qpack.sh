@@ -17,6 +17,15 @@ case_qpack_blocked_reject_after_close()
 case_test_case "qpack_blocked_reject_after_close" --id native \
     --run case_qpack_blocked_reject_after_close
 
+case_qpack_peer_max_table_capacity()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_h3_qpack"
+    "${binary}" peer-max-table-capacity
+}
+
+case_test_case "qpack_peer_max_table_capacity" --id native \
+    --run case_qpack_peer_max_table_capacity
+
 if case_test_is_discovery; then
     case_test_run
     exit 0

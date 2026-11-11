@@ -607,6 +607,29 @@ xqc_write_repair_packets(xqc_connection_t *conn, xqc_int_t fss_esi, xqc_list_hea
     return -XQC_EFEC_SCHEME_ERROR;
 }
 #endif
+
+/*
+ * First packet of a long header type that waits in the high priority queue,
+ * where packets with CRYPTO frames are queued.
+ */
+static xqc_packet_out_t *
+xqc_write_ack_find_crypto_packet(xqc_connection_t *conn,
+    xqc_pkt_type_t pkt_type)
+{
+    xqc_list_head_t  *head = &conn->conn_send_queue->sndq_send_packets_high_pri;
+    xqc_list_head_t  *pos;
+    xqc_packet_out_t *packet_out;
+
+    xqc_list_for_each(pos, head) {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (packet_out->po_pkt.pkt_type == pkt_type) {
+            return packet_out;
+        }
+    }
+
+    return NULL;
+}
+
 xqc_int_t
 xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_pkt_num_space_t pns,
     xqc_path_ctx_t *path, xqc_bool_t is_mp_ack, xqc_bool_t is_ext_ack, xqc_bool_t is_new_pkt)
@@ -685,7 +708,30 @@ xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(xqc_connection_t *conn)
                 /* ENC count is not supported */
                 is_ext_ack = 1;
             }
-            
+
+            /*
+             * Initial and Handshake packets are acknowledged at once (RFC
+             * 9000 Section 13.2.1). Their CRYPTO frames wait in the high
+             * priority queue, ahead of an ACK packet created below, and a
+             * server's first ones may be all that its anti-amplification
+             * limit lets out: carry the ACK in the first one with room.
+             */
+            if (pns != XQC_PNS_APP_DATA) {
+                packet_out = xqc_write_ack_find_crypto_packet(conn, pkt_type);
+                if (packet_out != NULL
+                    && xqc_packet_out_can_attach_ack(packet_out, path,
+                                                     pkt_type))
+                {
+                    ret = xqc_write_ack_to_one_packet(conn, packet_out, pns);
+                    if (ret == XQC_OK) {
+                        goto done;
+
+                    } else if (ret != -XQC_ENOBUF) {
+                        return ret;
+                    }
+                }
+            }
+
 path_buffer:
             /* Try to attach ack or mp_ack to packet_out in path_buffer */
             xqc_list_for_each_safe(pos, next, &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]) {

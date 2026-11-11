@@ -531,6 +531,10 @@ main(int argc, char *argv[])
                         xqc_test_rfc9001_chacha20_hp_unaligned_sample)
         || !CU_add_test(pSuite, "xqc_test_packet_encrypt_hp_sample_boundary", xqc_test_packet_encrypt_hp_sample_boundary)
         || !CU_add_test(pSuite, "xqc_test_empty_pkt", xqc_test_empty_pkt)
+        || !CU_add_test(pSuite, "xqc_test_ack_server_hello_carries_ack",
+                        xqc_test_ack_server_hello_carries_ack)
+        || !CU_add_test(pSuite, "xqc_test_ack_full_crypto_packet_unchanged",
+                        xqc_test_ack_full_crypto_packet_unchanged)
         || !CU_add_test(pSuite, "xqc_test_stateless_reset_parse_boundary", xqc_test_stateless_reset_parse_boundary)
         || !CU_add_test(pSuite, "xqc_test_coalesced_matching_dcid_processed",
                         xqc_test_coalesced_matching_dcid_processed)

@@ -464,6 +464,103 @@ fi
 
 }
 
+# Print the frames of the first Initial packet a log says its endpoint sent.
+case_transport_packet_first_initial_frames()
+{
+grep -a -m 1 "xqc_send_packet_with_pn|<==|.*|pkt_type:INIT|" "$1" \
+    | grep -a -o "frame:[A-Z_ ]*"
+}
+
+case_transport_packet_server_hello_carries_ack()
+{
+# RFC 9000 Section 13.2.1: the server's first Initial, which carries the
+# ServerHello, also acknowledges the client's Initial.
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+echo -e "server hello carries ack ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+frames=`case_transport_packet_first_initial_frames slog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] \
+    && [[ "$frames" == *ACK* ]] && [[ "$frames" == *CRYPTO* ]]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_hello_carries_ack" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_hello_carries_ack" "fail"
+    echo "$result"
+    echo "$frames"
+    echo "$errlog"
+fi
+case_test_stop_server
+rm -f test_session xqc_token tp_localhost
+}
+
+case_transport_packet_server_hello_ack_under_amplification_limit()
+{
+# With a certificate larger than three times the client's first Initial,
+# the anti-amplification limit holds back most of the server's flight. The
+# ACK of the client's Initial still goes out with the ServerHello, so the
+# client gets it before it sends any Handshake packet.
+local work_dir=`pwd`
+local dir="${work_dir}/server_hello_ack_large_cert"
+local san="DNS:test.xquic.com"
+local i
+
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+rm -rf "$dir"
+mkdir -p "$dir"
+for i in $(seq 1 60); do
+    san="${san},DNS:$(printf 'a%0249d' "$i")"
+done
+echo -e "server hello ack under amplification limit ...\c"
+if ! openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+    -nodes -keyout "$dir/server.key" -out "$dir/server.crt" -days 1 \
+    -subj "/CN=test.xquic.com" -addext "subjectAltName=${san}" \
+    > /dev/null 2>&1
+then
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_hello_ack_under_amplification_limit" "fail"
+    echo "large certificate generation failed"
+    rm -rf "$dir"
+    return
+fi
+
+cd "$dir" && case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+cd "$work_dir"
+${CLIENT_BIN} -s 1024 -l d -t 3 -E > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+aal=`grep -a "blocked by anti amplification limit" "$dir/slog"`
+frames=`case_transport_packet_first_initial_frames "$dir/slog"`
+acked=`grep -a -n -m 1 "xqc_send_ctl_on_ack_received|.*|pkt_type:INIT|" clog \
+    | cut -d: -f1`
+first_hsk=`grep -a -n -m 1 "xqc_send_packet_with_pn|<==|.*|pkt_type:HSK|" clog \
+    | cut -d: -f1`
+errlog=`grep -a "\[error\]" clog "$dir/slog"`
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] && [ -n "$aal" ] \
+    && [[ "$frames" == *ACK* ]] && [ -n "$acked" ] && [ -n "$first_hsk" ] \
+    && [ "$acked" -lt "$first_hsk" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_hello_ack_under_amplification_limit" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_hello_ack_under_amplification_limit" "fail"
+    echo "$result"
+    echo "aal:${aal:0:200}"
+    echo "$frames"
+    echo "clog lines: Initial acked ${acked}, first Handshake ${first_hsk}"
+    echo "$errlog"
+fi
+case_test_stop_server
+rm -rf "$dir"
+rm -f test_session xqc_token tp_localhost
+}
+
 case_test_case "illegal_packet" --id native --mode self-reporting --run case_transport_packet_illegal_packet
 case_test_case "duplicate_packet" --id native --mode self-reporting --run case_transport_packet_duplicate_packet
 case_test_case "packet_with_wrong_cid" --id native --mode self-reporting --run case_transport_packet_packet_with_wrong_cid
@@ -482,6 +579,12 @@ case_test_case "ack_timestamp_frame_case_5" --id native --mode self-reporting --
 case_test_case "ack_timestamp_frame_case_6" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_6
 case_test_case "ack_ecn_parse_both" --id native --mode self-reporting --run case_transport_packet_ack_ecn_parse_both
 case_test_case "ack_ecn_parse_server_only" --id native --mode self-reporting --run case_transport_packet_ack_ecn_parse_server_only
+case_test_case "server_hello_carries_ack" --id native \
+    --mode self-reporting \
+    --run case_transport_packet_server_hello_carries_ack
+case_test_case "server_hello_ack_under_amplification_limit" --id native \
+    --mode self-reporting \
+    --run case_transport_packet_server_hello_ack_under_amplification_limit
 
 if case_test_is_discovery; then
     case_test_run

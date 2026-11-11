@@ -51,13 +51,13 @@ void
 xqc_log_CON_CONNECTION_CLOSED_callback(xqc_log_t *log, const char *func, xqc_connection_t *conn)
 {
     if (conn->conn_err != 0){
-        xqc_list_head_t *pos, *next;
         xqc_path_ctx_t *path = NULL;
         unsigned char log_buf[500];
         unsigned char *p = log_buf;
         unsigned char *last = log_buf + sizeof(log_buf);
-        xqc_list_for_each_safe(pos, next, &conn->conn_paths_list) {
-            path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        for (path = xqc_conn_all_paths_first(conn); path != NULL;
+             path = xqc_conn_all_paths_next(conn, path))
+        {
             uint8_t idx = path->path_send_ctl->ctl_cwndlim_update_idx;
             p = xqc_sprintf(p, last, "<path:%ui, (%ui,%ui,%ui)>",
             path->path_id,

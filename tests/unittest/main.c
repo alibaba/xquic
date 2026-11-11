@@ -345,6 +345,10 @@ main(int argc, char *argv[])
                         xqc_test_mp_abandon_above_curr_max_path_id)
         || !CU_add_test(pSuite, "xqc_test_mp_abandon_rejected_without_cid_set",
                         xqc_test_mp_abandon_rejected_without_cid_set)
+        || !CU_add_test(pSuite, "xqc_test_mp_max_path_id_grant",
+                        xqc_test_mp_max_path_id_grant)
+        || !CU_add_test(pSuite, "xqc_test_mp_max_path_id_grant_bounds",
+                        xqc_test_mp_max_path_id_grant_bounds)
         || !CU_add_test(pSuite, "xqc_test_mp_retire_cid_without_cid_set",
                         xqc_test_mp_retire_cid_without_cid_set)
         || !CU_add_test(pSuite, "xqc_test_cid_set_lookup_error",
@@ -564,6 +568,16 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_tp_cid_overflow", xqc_test_tp_cid_overflow)
         || !CU_add_test(pSuite, "xqc_test_active_cid_limit_minimum", xqc_test_active_cid_limit_minimum)
         || !CU_add_test(pSuite, "xqc_test_check_transport_params_cids", xqc_test_check_transport_params_cids)
+        || !CU_add_test(pSuite, "xqc_test_init_max_path_id_valid_boundary",
+                        xqc_test_init_max_path_id_valid_boundary)
+        || !CU_add_test(pSuite, "xqc_test_init_max_path_id_invalid_boundary",
+                        xqc_test_init_max_path_id_invalid_boundary)
+        || !CU_add_test(pSuite, "xqc_test_init_max_path_id_local_settings",
+                        xqc_test_init_max_path_id_local_settings)
+        || !CU_add_test(pSuite, "xqc_test_mp_max_path_id_invalid",
+                        xqc_test_mp_max_path_id_invalid)
+        || !CU_add_test(pSuite, "xqc_test_mp_max_path_id_valid",
+                        xqc_test_mp_max_path_id_valid)
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
                 || !CU_add_test(pSuite, "xqc_test_stream_frame_buffered_limit", xqc_test_stream_frame_buffered_limit)

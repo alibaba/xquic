@@ -778,6 +778,14 @@ xqc_engine_process_conn(xqc_connection_t *conn, xqc_usec_t now)
 
     XQC_CHECK_IMMEDIATE_CLOSE();
 
+    /* before the connection IDs, so that granted path IDs get some too */
+    ret = xqc_conn_try_grant_path_ids(conn);
+    if (ret) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_conn_try_grant_path_ids error|ret:%d|", ret);
+        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+    }
+
     ret = xqc_conn_try_add_new_conn_id(conn, 0);
     if (ret) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_try_add_new_conn_id error|");

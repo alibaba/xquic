@@ -70,6 +70,12 @@ void xqc_test_mp_abandon_above_curr_max_path_id();
 /* rejected PATH_ABANDON frames leave no connection ID set behind */
 void xqc_test_mp_abandon_rejected_without_cid_set();
 
+/* RFC 10069 Section 3.2.1: MAX_PATH_ID replaces abandoned paths */
+void xqc_test_mp_max_path_id_grant();
+
+/* no MAX_PATH_ID from a server, nor above 2^32-1 */
+void xqc_test_mp_max_path_id_grant_bounds();
+
 /* MP_RETIRE_CONNECTION_ID for a path ID without our connection IDs */
 void xqc_test_mp_retire_cid_without_cid_set();
 

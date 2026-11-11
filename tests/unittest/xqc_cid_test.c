@@ -1488,6 +1488,187 @@ xqc_test_mp_abandon_rejected_without_cid_set()
 
 
 /*
+ * A confirmed multipath client that advertised init_max_path_id and whose
+ * peer allows remote_max_path_id.
+ */
+static xqc_connection_t *
+xqc_test_mp_grant_conn(uint64_t init_max_path_id, uint64_t remote_max_path_id)
+{
+    xqc_connection_t *conn;
+
+    conn = xqc_test_mp_cid_conn(init_max_path_id, remote_max_path_id);
+    CU_ASSERT_FATAL(conn->conn_type == XQC_CONN_TYPE_CLIENT);
+    conn->local_settings.init_max_path_id = init_max_path_id;
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    xqc_set_path_state(conn->conn_initial_path, XQC_PATH_STATE_ACTIVE);
+    return conn;
+}
+
+
+/* open a path on path_id, with a connection ID of each side, and abandon it */
+static void
+xqc_test_mp_grant_abandon_path(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_path_ctx_t *path;
+
+    CU_ASSERT_FATAL(xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, path_id)
+                    == XQC_OK);
+    CU_ASSERT_FATAL(xqc_test_cid_recv_mp_new_cid(conn, path_id, 0, 0)
+                    == XQC_OK);
+    path = xqc_conn_create_path_inner(conn, NULL, NULL,
+                                      XQC_APP_PATH_STATUS_AVAILABLE, path_id);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    CU_ASSERT_FATAL(xqc_path_immediate_close(path) == XQC_OK);
+}
+
+
+/*
+ * The Maximum Path Identifier of the last MAX_PATH_ID frame queued for
+ * sending, each in a packet of its own, or 0 when none is.
+ */
+static uint64_t
+xqc_test_mp_queued_max_path_id(xqc_connection_t *conn)
+{
+    uint64_t            max_path_id = 0;
+    xqc_list_head_t    *pos;
+    xqc_packet_out_t   *packet_out;
+    xqc_packet_in_t     packet_in;
+
+    xqc_list_for_each(pos, &conn->conn_send_queue->sndq_send_packets_high_pri) {
+        packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (!(packet_out->po_frame_types & XQC_FRAME_BIT_MAX_PATH_ID)) {
+            continue;
+        }
+
+        memset(&packet_in, 0, sizeof(packet_in));
+        packet_in.pos = packet_out->po_payload;
+        packet_in.last = packet_out->po_buf + packet_out->po_used_size;
+        CU_ASSERT_FATAL(xqc_parse_max_path_id_frame(&packet_in, &max_path_id)
+                        == XQC_OK);
+    }
+
+    return max_path_id;
+}
+
+
+/*
+ * RFC 10069 Section 3.2.1: an endpoint without unused path IDs SHOULD send
+ * MAX_PATH_ID when its own limit blocks. Each abandoned path of a client,
+ * the initial one included, raises its limit by one, so that it can still
+ * open as many paths as initial_max_path_id let it: with its limit at 2 and
+ * the peer's at 4, the abandoned path 1 grants path ID 3 once, which gets
+ * its connection ID sets. The limit may pass the peer's, but path IDs above
+ * the peer's limit get sets only once its MAX_PATH_ID allows them.
+ */
+void
+xqc_test_mp_max_path_id_grant()
+{
+    xqc_connection_t   *conn;
+
+    conn = xqc_test_mp_grant_conn(2, 4);
+    CU_ASSERT(xqc_conn_try_grant_path_ids(conn) == XQC_OK);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_MAX_PATH_ID) == 0);
+    CU_ASSERT(conn->local_max_path_id == 2);
+
+    xqc_test_mp_grant_abandon_path(conn, 1);
+    CU_ASSERT(conn->abandoned_path_count == 1);
+    CU_ASSERT(xqc_conn_try_grant_path_ids(conn) == XQC_OK);
+    CU_ASSERT(xqc_conn_try_grant_path_ids(conn) == XQC_OK);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_MAX_PATH_ID) == 1);
+    CU_ASSERT(xqc_test_mp_queued_max_path_id(conn) == 3);
+    CU_ASSERT(conn->local_max_path_id == 3);
+    CU_ASSERT(conn->curr_max_path_id == 3);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 3) != NULL);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->dcid_set, 3) != NULL);
+
+    xqc_test_mp_grant_abandon_path(conn, 2);
+    CU_ASSERT(xqc_path_immediate_close(conn->conn_initial_path) == XQC_OK);
+    CU_ASSERT(conn->abandoned_path_count == 3);
+    CU_ASSERT(xqc_conn_try_grant_path_ids(conn) == XQC_OK);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_MAX_PATH_ID) == 2);
+    CU_ASSERT(xqc_test_mp_queued_max_path_id(conn) == 5);
+    CU_ASSERT(conn->local_max_path_id == 5);
+    CU_ASSERT(conn->curr_max_path_id == 4);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 5) == NULL);
+
+    CU_ASSERT(xqc_test_cid_recv_max_path_id(conn, 8) == XQC_OK);
+    CU_ASSERT(conn->curr_max_path_id == 5);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 5) != NULL);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 6) == NULL);
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * No MAX_PATH_ID: from a server, whose paths a client sets up; for a path
+ * ID that the peer abandoned before any path used it; before the handshake
+ * is confirmed; or without multipath. The granted value stops at 2^32-1
+ * (RFC 10069 Section 4.6).
+ */
+void
+xqc_test_mp_max_path_id_grant_bounds()
+{
+    static const struct {
+        uint64_t        init_max_path_id;
+        uint32_t        abandoned_paths;
+        xqc_conn_type_t type;
+        xqc_bool_t      confirmed;
+        xqc_bool_t      multipath;
+        uint64_t        granted;            /* 0: no MAX_PATH_ID */
+    } cases[] = {
+        {2, 1, XQC_CONN_TYPE_CLIENT, XQC_TRUE, XQC_TRUE, 3},
+        {2, 1, XQC_CONN_TYPE_SERVER, XQC_TRUE, XQC_TRUE, 0},
+        {2, 1, XQC_CONN_TYPE_CLIENT, XQC_FALSE, XQC_TRUE, 0},
+        {2, 1, XQC_CONN_TYPE_CLIENT, XQC_TRUE, XQC_FALSE, 0},
+        {XQC_PATH_ID_MAX_VALUE - 1, 3, XQC_CONN_TYPE_CLIENT, XQC_TRUE,
+         XQC_TRUE, XQC_PATH_ID_MAX_VALUE},
+        {XQC_PATH_ID_MAX_VALUE, 1, XQC_CONN_TYPE_CLIENT, XQC_TRUE,
+         XQC_TRUE, 0},
+    };
+    size_t              i;
+    xqc_int_t           ret;
+    xqc_connection_t   *conn;
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        conn = xqc_test_mp_grant_conn(cases[i].init_max_path_id, 8);
+        conn->conn_type = cases[i].type;
+        conn->abandoned_path_count = cases[i].abandoned_paths;
+        if (!cases[i].confirmed) {
+            conn->conn_flag &= ~XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+        }
+        if (!cases[i].multipath) {
+            conn->enable_multipath = XQC_CONN_MP_DISABLED;
+        }
+
+        CU_ASSERT(xqc_conn_try_grant_path_ids(conn) == XQC_OK);
+        CU_ASSERT(xqc_test_mp_queued_max_path_id(conn) == cases[i].granted);
+        CU_ASSERT(conn->local_max_path_id
+                  == (cases[i].granted ? cases[i].granted
+                                       : cases[i].init_max_path_id));
+
+        xqc_engine_destroy(conn->engine);
+    }
+
+    /* the peer abandons path ID 1, which no path used: no MAX_PATH_ID */
+    conn = xqc_test_mp_grant_conn(2, 8);
+    ret = xqc_test_cid_recv_path_abandon(conn, 1);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 1)->set_state
+              == XQC_CID_SET_ABANDONED);
+    CU_ASSERT(conn->abandoned_path_count == 0);
+    CU_ASSERT(xqc_conn_try_grant_path_ids(conn) == XQC_OK);
+    CU_ASSERT(xqc_test_mp_queued_max_path_id(conn) == 0);
+    CU_ASSERT(conn->local_max_path_id == 2);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
  * RFC 9000 Section 19.16, applied per path by draft-ietf-quic-multipath-10
  * Section 7.6: retiring a sequence number greater than any sent is a
  * PROTOCOL_VIOLATION. A connection ID issued for path ID 1 is retired, while

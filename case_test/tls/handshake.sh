@@ -596,6 +596,93 @@ else
 fi
 }
 
+# RFC 9369 Section 4 and RFC 9368 Section 4: in a QUIC version 2
+# connection, each endpoint sends its Version Information and validates the
+# peer's.
+case_tls_handshake_quic_v2_version_information()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 918 > /dev/null
+sleep 1
+echo -e "QUIC version 2 Version Information ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 918 > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+svr_vi=`grep -a "|version information|chosen:6b3343cf|available:1|" slog`
+cli_vi=`grep -a "|version information|chosen:6b3343cf|available:3|" clog`
+errlog=`grep_err_log`
+if [ -n "$result" ] && [ -n "$svr_vi" ] && [ -n "$cli_vi" ] \
+    && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_version_information" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_version_information" "fail"
+fi
+}
+
+# RFC 9369 Section 5: a QUIC version 2 connection resumes the session of an
+# earlier version 2 connection, with 0-RTT, and its token is valid.
+case_tls_handshake_quic_v2_resumption()
+{
+case_test_stop_server
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 919 > /dev/null
+sleep 1
+${CLIENT_BIN} -s 1024 -l e -t 1 -E -1 -x 919 > /dev/null
+clear_log
+echo -e "QUIC version 2 resumption ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 919 > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+flag=`grep "early_data_flag:1" stdlog`
+token_err=`grep -a "|token decrypt error|" slog`
+errlog=`grep_err_log`
+if [ -n "$result" ] && [ -n "$flag" ] && [ -z "$token_err" ] \
+    && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_resumption" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_resumption" "fail"
+fi
+}
+
+# RFC 9369 Section 5: the server accepts neither the session ticket nor the
+# token of a connection in another QUIC version. A version 1 connection
+# after a version 2 one, then a version 2 connection after that version 1
+# one, make full handshakes: 0-RTT is rejected and the token is not valid.
+case_tls_handshake_quic_v2_resumption_other_version()
+{
+case_test_stop_server
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 920 > /dev/null
+sleep 1
+${CLIENT_BIN} -s 1024 -l e -t 1 -E -1 -x 920 > /dev/null
+clear_log
+echo -e "QUIC version 2 resumption in another version ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
+v1_result=`grep ">>>>>>>> pass:1" stdlog`
+v1_flag=`grep "early_data_flag:2" stdlog`
+v1_token=`grep -a "|token decrypt error|" slog`
+v1_err=`grep_err_log | grep -v "|EVP_DecryptFinal_ex failed|"`
+clear_log
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 920 > stdlog
+v2_result=`grep ">>>>>>>> pass:1" stdlog`
+v2_flag=`grep "early_data_flag:2" stdlog`
+v2_token=`grep -a "|token decrypt error|" slog`
+v2_err=`grep_err_log | grep -v "|EVP_DecryptFinal_ex failed|"`
+if [ -n "$v1_result" ] && [ -n "$v1_flag" ] && [ -n "$v1_token" ] \
+    && [ -z "$v1_err" ] && [ -n "$v2_result" ] && [ -n "$v2_flag" ] \
+    && [ -n "$v2_token" ] && [ -z "$v2_err" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_resumption_other_version" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_resumption_other_version" "fail"
+fi
+}
+
 case_tls_handshake_key_update_stale_deadline()
 {
     # RFC 9001 Sections 6.1 and 6.5: a second key update started while the
@@ -782,6 +869,13 @@ case_test_case "quic_v2_unsupported" --id 914 --mode self-reporting \
     --run case_tls_handshake_quic_v2_unsupported
 case_test_case "quic_v2_retry" --id 915 --mode self-reporting \
     --run case_tls_handshake_quic_v2_retry
+case_test_case "quic_v2_version_information" --id 918 \
+    --mode self-reporting --run case_tls_handshake_quic_v2_version_information
+case_test_case "quic_v2_resumption" --id 919 --mode self-reporting \
+    --run case_tls_handshake_quic_v2_resumption
+case_test_case "quic_v2_resumption_other_version" --id 920 \
+    --mode self-reporting \
+    --run case_tls_handshake_quic_v2_resumption_other_version
 
 if case_test_is_discovery; then
     case_test_run

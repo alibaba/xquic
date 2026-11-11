@@ -250,6 +250,12 @@ typedef int (*xqc_conn_notify_pt)(xqc_connection_t *conn, const xqc_cid_t *cid,
  *
  * NOTICE: as client initiate multiple connections to multiple QUIC servers or server clusters,
  * it shall save the tokens separately, e.g. save the token with the domain as the key
+ *
+ * NOTICE: tokens and session tickets are specific to the QUIC version of the
+ * connection that provided them (RFC 9369 Section 5). A client that connects
+ * with QUIC version 1 and version 2 shall save them per version too, and never
+ * use the ones of a version 1 connection for a version 2 connection, or the
+ * reverse; a server does not accept them across versions.
  */
 typedef void (*xqc_save_token_pt)(const unsigned char *token, uint32_t token_len,
     void *conn_user_data);

@@ -10,6 +10,9 @@
 
 #include "src/transport/xqc_defs.h"
 #include "src/transport/xqc_packet.h"
+#include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_engine.h"
+#include "src/transport/xqc_transport_params.h"
 #include "src/tls/xqc_tls_defs.h"
 #include "src/tls/xqc_tls.h"
 #include "src/tls/xqc_tls_common.h"
@@ -421,4 +424,204 @@ xqc_test_quic_v2_chacha20(void)
 
     xqc_crypto_destroy(crypto);
     xqc_engine_destroy(engine);
+}
+
+
+/* RFC 9368 Section 3: a Version Information, in and out */
+void
+xqc_test_quic_v2_version_info_codec(void)
+{
+    xqc_transport_params_t params, dec;
+    uint8_t buf[XQC_MAX_TRANSPORT_PARAM_BUF_LEN];
+    size_t len = 0;
+
+    xqc_init_transport_params(&params);
+    params.version_info_present = 1;
+    params.chosen_version = XQC_VERSION_V2_VALUE;
+    params.available_versions[0] = XQC_VERSION_V2_VALUE;
+    params.available_versions[1] = XQC_VERSION_V1_VALUE;
+    params.available_versions_count = 2;
+    CU_ASSERT_EQUAL(xqc_encode_transport_params(&params,
+                    XQC_TP_TYPE_CLIENT_HELLO, buf, sizeof(buf), &len), XQC_OK);
+
+    memset(&dec, 0, sizeof(dec));
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&dec,
+                    XQC_TP_TYPE_CLIENT_HELLO, buf, len), XQC_OK);
+    CU_ASSERT(dec.version_info_present == 1);
+    CU_ASSERT(dec.chosen_version == XQC_VERSION_V2_VALUE);
+    CU_ASSERT(dec.available_versions_count == 2
+              && dec.available_versions[0] == XQC_VERSION_V2_VALUE
+              && dec.available_versions[1] == XQC_VERSION_V1_VALUE);
+
+    /* absent, it is reported absent */
+    params.version_info_present = 0;
+    CU_ASSERT_EQUAL(xqc_encode_transport_params(&params,
+                    XQC_TP_TYPE_CLIENT_HELLO, buf, sizeof(buf), &len), XQC_OK);
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&dec,
+                    XQC_TP_TYPE_CLIENT_HELLO, buf, len), XQC_OK);
+    CU_ASSERT(dec.version_info_present == 0);
+}
+
+
+/* RFC 9368 Section 4: the Version Information parsing failures */
+void
+xqc_test_quic_v2_version_info_malformed(void)
+{
+    /* the Chosen Version, version 1, out of Available Versions */
+    static const uint8_t not_offered[] = {
+        0x11, 0x08, 0x00, 0x00, 0x00, 0x01, 0x6b, 0x33, 0x43, 0xcf,
+    };
+    static const uint8_t no_available[] = {
+        0x11, 0x04, 0x00, 0x00, 0x00, 0x01,
+    };
+    static const uint8_t short_len[] = {
+        0x11, 0x03, 0x00, 0x00, 0x01,
+    };
+    static const uint8_t unaligned[] = {
+        0x11, 0x06, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+    };
+    static const uint8_t zero_chosen[] = {
+        0x11, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    };
+    static const uint8_t zero_available[] = {
+        0x11, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+    };
+    static const uint8_t twice[] = {
+        0x11, 0x04, 0x00, 0x00, 0x00, 0x01,
+        0x11, 0x04, 0x00, 0x00, 0x00, 0x01,
+    };
+    xqc_transport_params_t params;
+
+    /* a server may leave its Chosen Version out, a client may not */
+    memset(&params, 0, sizeof(params));
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                    XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, not_offered,
+                    sizeof(not_offered)), XQC_OK);
+    CU_ASSERT(params.version_info_present == 1
+              && params.chosen_version == XQC_VERSION_V1_VALUE
+              && params.available_versions_count == 1);
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                    XQC_TP_TYPE_CLIENT_HELLO, not_offered,
+                    sizeof(not_offered)), -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+
+    /* the Available Versions of a server may be empty */
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                    XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, no_available,
+                    sizeof(no_available)), XQC_OK);
+    CU_ASSERT(params.version_info_present == 1
+              && params.available_versions_count == 0);
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                    XQC_TP_TYPE_CLIENT_HELLO, no_available,
+                    sizeof(no_available)), -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                    XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, short_len,
+                    sizeof(short_len)), -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                    XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, unaligned,
+                    sizeof(unaligned)), -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                    XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, zero_chosen,
+                    sizeof(zero_chosen)), -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                    XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, zero_available,
+                    sizeof(zero_available)),
+                    -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+
+    /* RFC 9000 Section 7.4: a parameter sent twice */
+    CU_ASSERT_EQUAL(xqc_decode_transport_params(&params,
+                    XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, twice, sizeof(twice)),
+                    -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+}
+
+
+/*
+ * RFC 9369 Section 4: an endpoint that supports version 2 sends its Version
+ * Information; RFC 9368 Section 4: the peer's Chosen Version is the version
+ * in use.
+ */
+void
+xqc_test_quic_v2_version_info_conn(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_config_t *config = conn->engine->config;
+    xqc_transport_params_t params;
+
+    /* a version 1 client without version 2 sends none */
+    CU_ASSERT_FATAL(conn->version == XQC_VERSION_V1);
+    config->support_version_list[0] = XQC_VERSION_V1_VALUE;
+    config->support_version_count = 1;
+    memset(&params, 0, sizeof(params));
+    xqc_conn_get_local_version_info(conn, &params);
+    CU_ASSERT(params.version_info_present == 0);
+
+    /* with version 2, the client offers the version in use alone */
+    config->support_version_list[1] = XQC_VERSION_V2_VALUE;
+    config->support_version_count = 2;
+    xqc_conn_get_local_version_info(conn, &params);
+    CU_ASSERT(params.version_info_present == 1
+              && params.chosen_version == XQC_VERSION_V1_VALUE
+              && params.available_versions_count == 1
+              && params.available_versions[0] == XQC_VERSION_V1_VALUE);
+
+    conn->version = XQC_VERSION_V2;
+    xqc_conn_get_local_version_info(conn, &params);
+    CU_ASSERT(params.version_info_present == 1
+              && params.chosen_version == XQC_VERSION_V2_VALUE
+              && params.available_versions_count == 1
+              && params.available_versions[0] == XQC_VERSION_V2_VALUE);
+
+    /* a server lists the versions it implements, once each */
+    config->support_version_list[0] = XQC_VERSION_V2_VALUE;
+    config->support_version_list[1] = 0x0a1a2a3a;
+    config->support_version_list[2] = XQC_VERSION_V1_VALUE;
+    config->support_version_list[3] = XQC_VERSION_V2_VALUE;
+    config->support_version_count = 4;
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    xqc_conn_get_local_version_info(conn, &params);
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    CU_ASSERT(params.version_info_present == 1
+              && params.chosen_version == XQC_VERSION_V2_VALUE
+              && params.available_versions_count == 2
+              && params.available_versions[0] == XQC_VERSION_V2_VALUE
+              && params.available_versions[1] == XQC_VERSION_V1_VALUE);
+
+    /* the peer's Chosen Version, absent or equal to the version in use */
+    CU_ASSERT_EQUAL(xqc_conn_check_version_info(conn, &params), XQC_OK);
+    params.version_info_present = 0;
+    CU_ASSERT_EQUAL(xqc_conn_check_version_info(conn, &params), XQC_OK);
+    params.version_info_present = 1;
+    params.chosen_version = XQC_VERSION_V1_VALUE;
+    CU_ASSERT_EQUAL(xqc_conn_check_version_info(conn, &params),
+                    -XQC_EVERSION);
+    conn->version = XQC_VERSION_V1;
+    CU_ASSERT_EQUAL(xqc_conn_check_version_info(conn, &params), XQC_OK);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* RFC 9369 Section 5: a token is accepted in the version that issued it */
+void
+xqc_test_quic_v2_token_version(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    unsigned char v1_token[XQC_MAX_TOKEN_LEN], v2_token[XQC_MAX_TOKEN_LEN];
+    unsigned v1_len = sizeof(v1_token), v2_len = sizeof(v2_token);
+
+    conn->version = XQC_VERSION_V1;
+    CU_ASSERT_EQUAL(xqc_conn_gen_token(conn, v1_token, &v1_len), XQC_OK);
+    conn->version = XQC_VERSION_V2;
+    CU_ASSERT_EQUAL(xqc_conn_gen_token(conn, v2_token, &v2_len), XQC_OK);
+
+    CU_ASSERT_EQUAL(xqc_conn_check_token(conn, v2_token, v2_len), XQC_OK);
+    CU_ASSERT_EQUAL(xqc_conn_check_token(conn, v1_token, v1_len), XQC_ERROR);
+
+    conn->version = XQC_VERSION_V1;
+    CU_ASSERT_EQUAL(xqc_conn_check_token(conn, v1_token, v1_len), XQC_OK);
+    CU_ASSERT_EQUAL(xqc_conn_check_token(conn, v2_token, v2_len), XQC_ERROR);
+
+    xqc_engine_destroy(conn->engine);
 }

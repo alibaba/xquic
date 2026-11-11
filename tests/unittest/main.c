@@ -616,6 +616,12 @@ main(int argc, char *argv[])
                         xqc_test_conn_close_transport_error_type_overlap)
         || !CU_add_test(pSuite, "xqc_test_conn_close_reason_truncated",
                         xqc_test_conn_close_reason_truncated)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_reason_phrase",
+                        xqc_test_path_abandon_reason_phrase)
+        || !CU_add_test(pSuite, "xqc_test_path_abandon_reason_past_packet",
+                        xqc_test_path_abandon_reason_past_packet)
+        || !CU_add_test(pSuite, "xqc_test_frame_length_past_packet",
+                        xqc_test_frame_length_past_packet)
         || !CU_add_test(pSuite, "xqc_test_conn_close_valid_packet_types",
                         xqc_test_conn_close_valid_packet_types)
         || !CU_add_test(pSuite,
@@ -833,6 +839,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)
         || !CU_add_test(pSuite, "xqc_test_fec", xqc_test_fec)
+        || !CU_add_test(pSuite, "xqc_test_fec_repair_frame_past_packet",
+                        xqc_test_fec_repair_frame_past_packet)
 #endif
         || !CU_add_test(pSuite, "xqc_test_ack_with_timestamp", xqc_test_ack_with_timestamp)
         || !CU_add_test(pSuite, "xqc_test_pto_uses_remote_max_ack_delay",

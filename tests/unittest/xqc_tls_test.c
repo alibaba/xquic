@@ -1283,19 +1283,36 @@ void xqc_test_destroy_tls_ctx()
 static int
 xqc_test_invalid_reset_ticket_cb(SSL *ssl, void *arg)
 {
-    const uint8_t data[] = {2, 0};
+    const uint8_t data[XQC_EARLY_DATA_TP_LEN + 1] = {2};
+    const size_t len[] = {0, 1, XQC_EARLY_DATA_TP_LEN, sizeof(data)};
     int binding = *(int *)arg;
 
-    /* Missing binding, invalid value, or invalid length, authenticated by TLS. */
+    /*
+     * Missing binding, a one-byte binding of the earlier layout, invalid
+     * reset value, or invalid length, authenticated by TLS.
+     */
     return SSL_SESSION_set1_ticket_appdata(SSL_get_session(ssl), data,
-        binding - 1);
+        len[binding - 1]);
 }
 #endif
 
 
+/* Server limits of the ticket handshakes, varied by the limit policy test. */
+static const uint64_t xqc_test_early_data_limits[XQC_EARLY_DATA_LIMIT_COUNT] = {
+    [XQC_EARLY_DATA_LIMIT_ACTIVE_CONNECTION_ID] = 8,
+    [XQC_EARLY_DATA_LIMIT_MAX_DATA] = 1ULL << 32,
+    [XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_BIDI_LOCAL] = 16 * 1024 * 1024,
+    [XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_BIDI_REMOTE] = 256,
+    [XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_UNI] = (1ULL << 62) - 1,
+    [XQC_EARLY_DATA_LIMIT_MAX_STREAMS_BIDI] = 1024,
+    [XQC_EARLY_DATA_LIMIT_MAX_STREAMS_UNI] = 3,
+};
+
+
 static xqc_tls_test_buff_t *
-xqc_test_reset_ticket_handshake(xqc_tls_ctx_t *server_ctx, int reset,
-    xqc_tls_test_buff_t *saved, int reused, int early, int ticket_binding)
+xqc_test_ticket_handshake(xqc_tls_ctx_t *server_ctx, int reset,
+    const uint64_t *limits, xqc_tls_test_buff_t *saved, int reused, int early,
+    int ticket_binding)
 {
     xqc_tls_config_t cfg = {0};
     xqc_cid_t odcid = {1};
@@ -1309,6 +1326,7 @@ xqc_test_reset_ticket_handshake(xqc_tls_ctx_t *server_ctx, int reset,
     cfg.trans_params = (uint8_t *)(reset ? "new parameters" : "old parameters");
     cfg.trans_params_len = strlen((char *)cfg.trans_params);
     cfg.reset_stream_at = reset;
+    memcpy(cfg.early_data_limits, limits, sizeof(cfg.early_data_limits));
     if (saved != NULL) {
         cfg.session_ticket = saved->new_session_ticket;
         cfg.session_ticket_len = saved->new_session_ticket_len;
@@ -1381,6 +1399,15 @@ end:
 }
 
 
+static xqc_tls_test_buff_t *
+xqc_test_reset_ticket_handshake(xqc_tls_ctx_t *server_ctx, int reset,
+    xqc_tls_test_buff_t *saved, int reused, int early, int ticket_binding)
+{
+    return xqc_test_ticket_handshake(server_ctx, reset,
+        xqc_test_early_data_limits, saved, reused, early, ticket_binding);
+}
+
+
 static void
 xqc_test_reset_ticket_policy(void)
 {
@@ -1397,7 +1424,7 @@ xqc_test_reset_ticket_policy(void)
         CU_ASSERT_PTR_NOT_NULL_FATAL(ctx);
         CU_ASSERT_EQUAL(xqc_tls_ctx_register_alpn(ctx, "transport", 9), XQC_OK);
 
-        /* Bind only reset; reject either mismatch and retain PSK reuse. */
+        /* Reject either reset mismatch and retain PSK reuse. */
         for (int saved = 0; saved <= 1; saved++) {
             for (int current = 0; current <= 1; current++) {
                 int early = saved != current ? XQC_TLS_EARLY_DATA_REJECT
@@ -1416,7 +1443,7 @@ xqc_test_reset_ticket_policy(void)
 
         int invalid_bindings = 1;
 #ifndef OPENSSL_IS_BORINGSSL
-        invalid_bindings = 3;
+        invalid_bindings = 4;
 #endif
         for (int binding = 1; binding <= invalid_bindings; binding++) {
             /* Invalid bindings reject early data but permit renewed tickets. */
@@ -1434,6 +1461,53 @@ xqc_test_reset_ticket_policy(void)
         }
         xqc_tls_ctx_destroy(ctx);
     }
+}
+
+
+/*
+ * RFC 9000 Section 7.4.1: a server that accepts 0-RTT MUST NOT reduce a limit
+ * below the value remembered with the ticket. A smaller limit rejects 0-RTT
+ * and keeps the resumption, and the renewed ticket allows 0-RTT again.
+ */
+static void
+xqc_test_early_data_limit_ticket_policy(void)
+{
+    def_engine_ssl_config_svr;
+    xqc_tls_ctx_t *ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_SERVER,
+        &engine_ssl_config_svr, &tls_test_cbs, test_log);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(ctx);
+    CU_ASSERT_EQUAL(xqc_tls_ctx_register_alpn(ctx, "transport", 9), XQC_OK);
+
+    for (xqc_tls_early_data_limit_t limit = 0;
+         limit < XQC_EARLY_DATA_LIMIT_COUNT; limit++)
+    {
+        for (int delta = -1; delta <= 1; delta++) {
+            uint64_t current[XQC_EARLY_DATA_LIMIT_COUNT];
+            int early = delta < 0 ? XQC_TLS_EARLY_DATA_REJECT
+                                  : XQC_TLS_EARLY_DATA_ACCEPT;
+#ifdef OPENSSL_IS_BORINGSSL
+            if (delta > 0) {
+                /* Native contexts support equality, not an ordering. */
+                early = XQC_TLS_EARLY_DATA_REJECT;
+            }
+#endif
+
+            memcpy(current, xqc_test_early_data_limits, sizeof(current));
+            current[limit] += delta;
+
+            xqc_tls_test_buff_t *first = xqc_test_ticket_handshake(ctx, 1,
+                xqc_test_early_data_limits, NULL, 0, 0, 0);
+            xqc_tls_test_buff_t *second = xqc_test_ticket_handshake(ctx, 1,
+                current, first, 1, early, 0);
+            xqc_tls_test_buff_t *third = xqc_test_ticket_handshake(ctx, 1,
+                current, second, 1, XQC_TLS_EARLY_DATA_ACCEPT, 0);
+            xqc_destroy_tls_test_buffer(first);
+            xqc_destroy_tls_test_buffer(second);
+            xqc_destroy_tls_test_buffer(third);
+        }
+    }
+
+    xqc_tls_ctx_destroy(ctx);
 }
 
 
@@ -1801,6 +1875,7 @@ xqc_test_tls(void)
     xqc_test_tls_multiple_crypto_data();
     xqc_test_tls_generic();
     xqc_test_reset_ticket_policy();
+    xqc_test_early_data_limit_ticket_policy();
     xqc_test_tls_process_truncated_crypto_handshake();
     xqc_test_tls_failure();
     

@@ -930,6 +930,8 @@ main(int argc, char *argv[])
                         xqc_test_0rtt_params_all_increased)
         || !CU_add_test(pSuite, "xqc_test_0rtt_params_each_reduced",
                         xqc_test_0rtt_params_each_reduced)
+        || !CU_add_test(pSuite, "xqc_test_conn_early_data_limits",
+                        xqc_test_conn_early_data_limits)
         || !CU_add_test(pSuite, "xqc_test_early_params_forbidden_fields_reset",
                         xqc_test_early_params_forbidden_fields_reset)
         || !CU_add_test(pSuite, "xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay",

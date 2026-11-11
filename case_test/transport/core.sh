@@ -1007,18 +1007,22 @@ sleep 1
 
 ## RFC 9000 Section 7.4.1: 0-RTT transport parameter validation
 
-# test 701: server reduces max_streams_bidi after first connection,
-# client detects reduction on 0-RTT resumption, reports its local cleanup
-# reason (0x54 = conn_err:84), and sends TRANSPORT_PARAMETER_ERROR (0x08)
+# test 701: a server that accepts 0-RTT keeps the remembered limits (it
+# rejects 0-RTT after lowering one), so the client remembers a larger
+# max_streams_bidi than the server sends; the client detects reduction on
+# 0-RTT resumption, reports its local cleanup reason (0x54 = conn_err:84),
+# and sends TRANSPORT_PARAMETER_ERROR (0x08)
 case_test_stop_server
 clear_log
 rm -f test_session xqc_token tp_localhost
 echo -e "0RTT param reduction detection ...\c"
-case_test_start_server ${SERVER_BIN} -l d -e -x 701 > /dev/null
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
 sleep 1
 # first connection: establish session ticket with normal params
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
-# second connection: 0-RTT with reduced max_streams_bidi on server
+case_test_replace_in_file '^initial_max_streams_bidi=.*' \
+    'initial_max_streams_bidi=2048' tp_localhost
+# second connection: 0-RTT with a smaller max_streams_bidi from the server
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
 conn_err=`grep "conn_err:84" stdlog`
 peer_err=`grep -a "[error].*err:0x8" slog`

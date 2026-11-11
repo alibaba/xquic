@@ -1141,6 +1141,24 @@ xqc_conn_encode_local_tp(xqc_connection_t *conn, uint8_t *dst, size_t dst_cap, s
 }
 
 
+void
+xqc_conn_get_early_data_limits(const xqc_trans_settings_t *settings,
+    uint64_t limits[XQC_EARLY_DATA_LIMIT_COUNT])
+{
+    limits[XQC_EARLY_DATA_LIMIT_ACTIVE_CONNECTION_ID] =
+        settings->active_connection_id_limit;
+    limits[XQC_EARLY_DATA_LIMIT_MAX_DATA] = settings->max_data;
+    limits[XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_BIDI_LOCAL] =
+        settings->max_stream_data_bidi_local;
+    limits[XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_BIDI_REMOTE] =
+        settings->max_stream_data_bidi_remote;
+    limits[XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_UNI] =
+        settings->max_stream_data_uni;
+    limits[XQC_EARLY_DATA_LIMIT_MAX_STREAMS_BIDI] = settings->max_streams_bidi;
+    limits[XQC_EARLY_DATA_LIMIT_MAX_STREAMS_UNI] = settings->max_streams_uni;
+}
+
+
 xqc_int_t
 xqc_conn_create_server_tls(xqc_connection_t *conn)
 {
@@ -1159,6 +1177,8 @@ xqc_conn_create_server_tls(xqc_connection_t *conn)
     }
 
     cfg.reset_stream_at = conn->local_settings.reset_stream_at;
+    xqc_conn_get_early_data_limits(&conn->local_settings,
+                                   cfg.early_data_limits);
 
     /* create tls instance */
     conn->tls = xqc_tls_create(conn->engine->tls_ctx, &cfg, conn->log, conn);

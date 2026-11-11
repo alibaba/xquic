@@ -591,14 +591,17 @@ xqc_packet_check_aead_confidentiality_limit(xqc_connection_t *conn)
     return -XQC_EAEAD_LIMIT;
 }
 
-static xqc_bool_t
+xqc_bool_t
 xqc_packet_can_initiate_key_update(xqc_connection_t *conn)
 {
-    return conn->key_update_ctx.first_sent_pktno
-               <= conn->conn_initial_path->path_send_ctl
-                      ->ctl_largest_acked[XQC_PNS_APP_DATA]
-           && xqc_monotonic_timestamp()
-                  > conn->key_update_ctx.initiate_time_guard;
+    if (xqc_monotonic_timestamp() <= conn->key_update_ctx.initiate_time_guard) {
+        return XQC_FALSE;
+    }
+
+    /* the first key update needs no acknowledgment, see
+       xqc_conn_on_key_phase_acked */
+    return conn->key_update_ctx.key_update_cnt == 0
+           || conn->key_update_ctx.current_keys_acked;
 }
 
 static xqc_int_t

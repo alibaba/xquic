@@ -1121,12 +1121,10 @@ xqc_h3_priority_init(xqc_h3_priority_t *prio)
     prio->fastpath = 0;
 }
 
-size_t
-xqc_write_http_priority(xqc_h3_priority_t *prio,
-    uint8_t *dst, size_t dstcap)
+ssize_t
+xqc_write_http_priority(xqc_h3_priority_t *prio, uint8_t *dst, size_t dstcap)
 {
     uint8_t *begin = dst;
-    char *fec_str = xqc_calloc(1, XQC_PRIORITY_FEC_VAL_LEN);
 
     size_t need = XQC_PRIORITY_URGENCY_LEN + 1
                 + XQC_PRIORITY_INCREMENTAL_LEN
@@ -1157,11 +1155,9 @@ xqc_write_http_priority(xqc_h3_priority_t *prio,
 
     xqc_memcpy(dst, XQC_PRIORITY_FEC, XQC_PRIORITY_FEC_LEN);
     dst += XQC_PRIORITY_FEC_LEN;
-    xqc_int_2_str(fec_str, prio->fec, XQC_PRIORITY_FEC_VAL_LEN);
-    xqc_memcpy(dst, fec_str, XQC_PRIORITY_FEC_VAL_LEN);
+    /* zero-padded to its fixed width, in the space checked above */
+    xqc_int_2_str((char *)dst, prio->fec, XQC_PRIORITY_FEC_VAL_LEN);
     dst += XQC_PRIORITY_FEC_VAL_LEN;
-
-    xqc_free(fec_str);
 
     if (prio->fastpath) {
         xqc_memcpy(dst, XQC_PRIORITY_FASTPATH, XQC_PRIORITY_FASTPATH_LEN);

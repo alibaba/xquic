@@ -26,6 +26,7 @@ void xqc_test_packets_acked_log(void);
 void xqc_test_stream_state_updated_log(void);
 void xqc_test_parameters_set_log(void);
 void xqc_test_packet_lost_log(void);
+void xqc_test_dirty_stack(void) __attribute__((noinline));
 const xqc_cid_t *test_cid_connect(xqc_engine_t *engine);
 xqc_connection_t *test_engine_connect();
 xqc_engine_t *test_create_engine();

@@ -214,13 +214,11 @@ xqc_test_connection_closed_log_with_error(void)
 }
 
 /*
- * Fill the stack below the caller with non-zero bytes, so that a formatter
- * called next finds them, not a zero left there by chance, if it reads its
- * buffer past what it wrote.
+ * Fill the stack below the caller with non-zero bytes, so that a function
+ * called next finds them, not a zero left there by chance, if it reads a
+ * buffer past what it wrote or a variable it never set.
  */
-static void xqc_test_dirty_stack(void) __attribute__((noinline));
-
-static void
+void
 xqc_test_dirty_stack(void)
 {
     volatile unsigned char  stack[XQC_MAX_LOG_LEN * 4];

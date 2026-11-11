@@ -4957,7 +4957,8 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 
         if (user_conn->get_local_addr == 0) {
             user_conn->get_local_addr = 1;
-            socklen_t tmp = sizeof(struct sockaddr_in6);
+            /* the size of local_addr: a sockaddr_in for IPv4 */
+            socklen_t tmp = user_conn->local_addrlen;
             int ret = getsockname(user_conn->fd, (struct sockaddr *) user_conn->local_addr, &tmp);
             if (ret < 0) {
                 printf("getsockname error, errno: %d\n", get_sys_errno());

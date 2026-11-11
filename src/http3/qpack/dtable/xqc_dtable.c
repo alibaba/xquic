@@ -298,7 +298,7 @@ xqc_dtable_pop_entry(xqc_dtable_t *dt)
 
     /* remove from 2d hash table */
     if (dt->ht2d) {
-        ret = xqc_2d_hash_table_remove(dt->ht2d, entry->nv.nidx, entry->nv.vidx, entry);
+        ret = xqc_2d_hash_table_remove(dt->ht2d, entry->nhash, entry->vhash, entry);
         if (ret != XQC_OK) {
             xqc_log(dt->log, XQC_LOG_ERROR, "|remove from 2d hash error|ret:%d|", ret);
             return ret;

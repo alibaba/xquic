@@ -530,6 +530,117 @@ xqc_test_conn_pmtud_legacy_compatibility()
  * one short-circuits the loop in the broken version, and the
  * assertions on the third stream catch the regression.
  */
+/*
+ * A multipath connection holding what a new path needs: a connection ID of
+ * each side for path ID 1, the endpoint's acknowledged by the peer.
+ */
+static xqc_connection_t *
+xqc_test_conn_mp_ready(xqc_conn_type_t type)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_cid_t scid, dcid;
+
+    if (conn == NULL) {
+        return NULL;
+    }
+
+    conn->conn_type = type;
+    conn->enable_multipath = XQC_CONN_MP_ENABLED;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    conn->local_max_path_id = 1;
+    conn->remote_max_path_id = 1;
+    conn->curr_max_path_id = 1;
+    CU_ASSERT_EQUAL(xqc_conn_add_path_cid_sets(conn, 1, 1), XQC_OK);
+
+    memset(&scid, 0, sizeof(scid));
+    memset(&dcid, 0, sizeof(dcid));
+    scid.cid_len = dcid.cid_len = XQC_DEFAULT_CID_LEN;
+    memset(scid.cid_buf, 0x51, XQC_DEFAULT_CID_LEN);
+    memset(dcid.cid_buf, 0x61, XQC_DEFAULT_CID_LEN);
+    CU_ASSERT_EQUAL(xqc_cid_set_insert_cid(&conn->scid_set, &scid,
+                                           XQC_CID_UNUSED,
+                                           XQC_CONN_ACTIVE_CID_LIMIT, 1),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(xqc_cid_set_insert_cid(&conn->dcid_set, &dcid,
+                                           XQC_CID_UNUSED,
+                                           XQC_CONN_ACTIVE_CID_LIMIT, 1),
+                    XQC_OK);
+    xqc_cid_set_on_cid_acked(&conn->scid_set, 1, scid.cid_seq_num);
+
+    return conn;
+}
+
+/*
+ * RFC 10069 Section 3: "this extension only enables clients to open a new
+ * path"; draft-ietf-quic-multipath-10 Section 1: "a QUIC server does not
+ * initiate the creation of a path". A client opens path 1; a server
+ * refuses, and uses none of the connection IDs.
+ */
+void
+xqc_test_conn_mp_server_cannot_open_path(void)
+{
+    xqc_connection_t *conn;
+    uint64_t path_id = 0;
+
+    conn = xqc_test_conn_mp_ready(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_EQUAL(xqc_conn_create_path(conn->engine,
+                                         &conn->scid_set.user_scid,
+                                         &path_id, 0), XQC_OK);
+    CU_ASSERT_EQUAL(path_id, 1);
+    CU_ASSERT_PTR_NOT_NULL(xqc_conn_find_path_by_path_id(conn, 1));
+    xqc_engine_destroy(conn->engine);
+
+    conn = xqc_test_conn_mp_ready(XQC_CONN_TYPE_SERVER);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    path_id = 0;
+    CU_ASSERT_EQUAL(xqc_conn_create_path(conn->engine,
+                                         &conn->scid_set.user_scid,
+                                         &path_id, 0),
+                    -XQC_EMP_PATH_NOT_ALLOWED);
+    CU_ASSERT_EQUAL(path_id, 0);
+    CU_ASSERT_PTR_NULL(xqc_conn_find_path_by_path_id(conn, 1));
+    CU_ASSERT_EQUAL(xqc_cid_set_get_unused_cnt(&conn->scid_set, 1), 1);
+    CU_ASSERT_EQUAL(xqc_cid_set_get_unused_cnt(&conn->dcid_set, 1), 1);
+    CU_ASSERT_EQUAL(conn->create_path_count, 1);
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * ready_to_create_path_notify tells an application that it can open a path:
+ * a client waits for it once multipath is negotiated, a server never does.
+ */
+void
+xqc_test_conn_mp_server_not_ready_to_open_path(void)
+{
+    const xqc_conn_type_t types[] = {
+        XQC_CONN_TYPE_CLIENT, XQC_CONN_TYPE_SERVER,
+    };
+    xqc_connection_t *conn;
+
+    for (size_t i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+        conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+        conn->conn_type = types[i];
+        conn->local_settings.enable_multipath = 1;
+        conn->remote_settings.enable_multipath = 1;
+        conn->local_settings.multipath_version = XQC_MULTIPATH_10;
+        conn->remote_settings.multipath_version = XQC_MULTIPATH_10;
+        conn->local_settings.init_max_path_id = 2;
+        conn->remote_settings.init_max_path_id = 2;
+        conn->conn_flag &= ~XQC_CONN_FLAG_MP_WAIT_MP_READY;
+
+        CU_ASSERT_EQUAL(xqc_conn_try_to_enable_multipath(conn), XQC_OK);
+        CU_ASSERT_EQUAL(conn->enable_multipath, XQC_CONN_MP_ENABLED);
+        CU_ASSERT_EQUAL((conn->conn_flag & XQC_CONN_FLAG_MP_WAIT_MP_READY)
+                        != 0, types[i] == XQC_CONN_TYPE_CLIENT);
+
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
 void
 xqc_test_conn_early_data_reject()
 {

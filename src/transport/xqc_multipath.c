@@ -754,6 +754,17 @@ xqc_conn_multipath_version_negotiation(xqc_connection_t *conn)
     return XQC_ERR_MULTIPATH_VERSION;
 }
 
+/*
+ * RFC 10069 Section 3: "this extension only enables clients to open a new
+ * path"; draft-ietf-quic-multipath-10 Section 1: "a QUIC server does not
+ * initiate the creation of a path"
+ */
+xqc_bool_t
+xqc_conn_may_open_paths(const xqc_connection_t *conn)
+{
+    return conn->conn_type == XQC_CONN_TYPE_CLIENT;
+}
+
 xqc_int_t
 xqc_conn_is_current_mp_version_supported(xqc_multipath_version_t mp_version)
 {
@@ -791,6 +802,11 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
         xqc_log(conn->log, XQC_LOG_WARN,
                 "|Multipath is not supported in remote host, use the first path as default!|");
         return -XQC_EMP_NOT_SUPPORT_MP;
+    }
+
+    if (!xqc_conn_may_open_paths(conn)) {
+        xqc_log(conn->log, XQC_LOG_WARN, "|no new path allowed|");
+        return -XQC_EMP_PATH_NOT_ALLOWED;
     }
 
     if (xqc_conn_get_available_path_id(conn, &path_id) != XQC_OK) {

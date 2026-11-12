@@ -203,7 +203,8 @@ void xqc_get_lack_src_syb(unsigned char* pm, unsigned char* recv_mask, xqc_int_t
     uint8_t *syb_idx, uint8_t *syb_num);
 
 ssize_t xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now,
-    int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, 
+    int ack_delay_exponent, xqc_recv_record_t *recv_record,
+    const xqc_ecn_counts_t *ecn, xqc_usec_t largest_pkt_recv_time, int *has_gap,
     xqc_packet_number_t *largest_ack, xqc_recv_timestamps_info_t *recv_ts_info);
 
 xqc_int_t xqc_parse_ack_ext_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,

@@ -684,7 +684,7 @@ xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(xqc_connection_t *conn)
                         && pns == XQC_PNS_APP_DATA
                         && xqc_recv_timestamps_info_length(path->recv_ts_info) > 0)
             {
-                /* ENC count is not supported */
+                /* with the ECN Counts, when the peer accepts them */
                 is_ext_ack = 1;
             }
             
@@ -2014,7 +2014,11 @@ xqc_write_ack_ext_to_one_packet(xqc_connection_t *conn, xqc_packet_out_t *packet
     }
 
     ret = xqc_gen_ack_ext_frame(conn, packet_out, now, conn->local_settings.ack_delay_exponent,
-                            &pn_ctl->ctl_recv_record[pns], path->path_send_ctl->ctl_largest_recv_time[pns],
+                            &pn_ctl->ctl_recv_record[pns],
+                            (conn->conn_settings.extended_ack_features
+                             & XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT)
+                            ? &pn_ctl->ctl_ecn_recv[pns] : NULL,
+                            path->path_send_ctl->ctl_largest_recv_time[pns],
                             &has_gap, &largest_ack, path->recv_ts_info);
     if (ret < 0) {
         goto error;

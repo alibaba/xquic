@@ -15,4 +15,11 @@ void xqc_test_ecn_validation(void);
 void xqc_test_ecn_validation_on_ack(void);
 void xqc_test_ecn_ce_congestion_event(void);
 
+/* write_mmsg_ecn, lost testing packets, ACK_EXTENDED ECN Counts */
+void xqc_test_ecn_write_mmsg(void);
+void xqc_test_ecn_burst_flags(void);
+void xqc_test_ecn_testing_lost(void);
+void xqc_test_ecn_ack_ext_negotiation(void);
+void xqc_test_ecn_ack_ext_frame_counts(void);
+
 #endif /* XQC_ECN_TEST_H */

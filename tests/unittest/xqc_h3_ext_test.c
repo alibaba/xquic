@@ -85,3 +85,113 @@ xqc_test_h3_ext_frame()
 
     xqc_var_buf_free(buf);
 }
+
+
+static int    xqc_test_bs_read_cnt;
+static size_t xqc_test_bs_read_len;
+static int    xqc_test_bs_read_ret;
+
+static int
+xqc_test_h3_ext_bytestream_read(xqc_h3_ext_bytestream_t *h3_ext_bs,
+    const void *data, size_t data_len, uint8_t fin, void *bs_user_data,
+    uint64_t data_recv_time)
+{
+    xqc_test_bs_read_cnt++;
+    xqc_test_bs_read_len += data_len;
+    return xqc_test_bs_read_ret;
+}
+
+/* queue a received message of the given segments, all of it received */
+static void
+xqc_test_h3_ext_bytestream_queue_msg(xqc_h3_ext_bytestream_t *bs,
+    const char **segs, size_t seg_cnt)
+{
+    xqc_h3_frame_pctx_t pctx;
+    xqc_h3_ext_bytestream_data_buf_t *buf;
+    size_t i, len = 0;
+
+    for (i = 0; i < seg_cnt; i++) {
+        len += strlen(segs[i]);
+    }
+
+    memset(&pctx, 0, sizeof(pctx));
+    pctx.frame.len = len;
+    buf = xqc_h3_ext_bytestream_get_last_data_buf(bs, &pctx);
+    CU_ASSERT_FATAL(buf != NULL);
+
+    for (i = 0; i < seg_cnt; i++) {
+        CU_ASSERT(xqc_h3_ext_bytestream_save_data_to_buf(buf,
+            (const uint8_t *)segs[i], strlen(segs[i])) == XQC_OK);
+    }
+    buf->end_time = xqc_monotonic_timestamp();
+}
+
+/*
+ * xqc_h3_ext_bytestream_notify_read() hands each received message to the
+ * application, then frees it: a message of one segment, which is handed
+ * over in its own buffer, and one of two segments, merged into a new
+ * buffer, with the read callback succeeding, then failing. The test leaks
+ * the messages under LeakSanitizer if they are not freed.
+ */
+void
+xqc_test_h3_ext_bytestream_read_frees_message(void)
+{
+    const char *one[] = {"hello"};
+    const char *two[] = {"wor", "ld!"};
+    int fail;
+
+    for (fail = 0; fail <= 1; fail++) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+
+        /* the h3 connection takes its callbacks from the ALPN's context */
+        if (conn->alpn) {
+            xqc_free(conn->alpn);
+        }
+        conn->alpn_len = strlen(XQC_ALPN_H3);
+        conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+        xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+
+        xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+        CU_ASSERT_FATAL(stream != NULL);
+
+        xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+        CU_ASSERT_FATAL(h3c != NULL);
+        h3c->h3_ext_bs_callbacks.bs_read_notify =
+            xqc_test_h3_ext_bytestream_read;
+
+        xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_BYTESTEAM, NULL);
+        CU_ASSERT_FATAL(h3s != NULL);
+
+        xqc_h3_ext_bytestream_t *bs =
+            xqc_h3_ext_bytestream_create_passive(h3c, h3s, NULL);
+        CU_ASSERT_FATAL(bs != NULL);
+
+        xqc_test_h3_ext_bytestream_queue_msg(bs, one, 1);
+        xqc_test_h3_ext_bytestream_queue_msg(bs, two, 2);
+
+        xqc_test_bs_read_cnt = 0;
+        xqc_test_bs_read_len = 0;
+        xqc_test_bs_read_ret = fail ? -XQC_EPARAM : 0;
+
+        xqc_int_t ret = xqc_h3_ext_bytestream_notify_read(bs);
+        if (fail) {
+            /* the first message fails the read: the second one stays */
+            CU_ASSERT(ret == -XQC_EPARAM);
+            CU_ASSERT(xqc_test_bs_read_cnt == 1);
+            CU_ASSERT(xqc_test_bs_read_len == 5);
+
+        } else {
+            CU_ASSERT(ret == XQC_OK);
+            CU_ASSERT(xqc_test_bs_read_cnt == 2);
+            CU_ASSERT(xqc_test_bs_read_len == 11);
+        }
+
+        xqc_h3_stream_destroy(h3s);
+        xqc_h3_conn_destroy(h3c);
+        xqc_destroy_stream(stream);
+        xqc_engine_destroy(conn->engine);
+    }
+}

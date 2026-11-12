@@ -829,6 +829,9 @@ main(int argc, char *argv[])
                         "xqc_test_reject_dgram_at_invalid_encryption_level",
                         xqc_test_reject_dgram_at_invalid_encryption_level)
         || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_ext_bytestream_read_frees_message",
+                        xqc_test_h3_ext_bytestream_read_frees_message)
 #ifdef XQC_ENABLE_FEC
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)

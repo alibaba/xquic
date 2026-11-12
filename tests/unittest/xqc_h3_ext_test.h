@@ -6,5 +6,6 @@
 #define XQUIC_XQC_H3_EXT_TEST_H
 
 void xqc_test_h3_ext_frame();
+void xqc_test_h3_ext_bytestream_read_frees_message(void);
 
 #endif //XQUIC_XQC_H3_EXT_TEST_H

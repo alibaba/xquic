@@ -7127,13 +7127,18 @@ int main(int argc, char *argv[]) {
                 if (user_conn->h3 == 0 || user_conn->h3 == 2) {
                     if (g_test_case == 11) { /* create stream fail */
                         xqc_cid_t tmp;
-                        xqc_h3_request_create(ctx.engine, &tmp, NULL, user_stream);
+                        if (xqc_h3_request_create(ctx.engine, &tmp, NULL,
+                                                  user_stream) == NULL)
+                        {
+                            free(user_stream);
+                        }
                         continue;
                     }
 
                     user_stream->h3_request = xqc_h3_request_create(ctx.engine, cid, &stream_settings, user_stream);
                     if (user_stream->h3_request == NULL) {
                         printf("xqc_h3_request_create error\n");
+                        free(user_stream);
                         continue;
                     }
 
@@ -7143,6 +7148,7 @@ int main(int argc, char *argv[]) {
                     user_stream->stream = xqc_stream_create(ctx.engine, cid, NULL, user_stream);
                     if (user_stream->stream == NULL) {
                         printf("xqc_stream_create error\n");
+                        free(user_stream);
                         continue;
                     }
                     printf("[qperf]|ts:%"PRIu64"|test_start|\n", xqc_now());

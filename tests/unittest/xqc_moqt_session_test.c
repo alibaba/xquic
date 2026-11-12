@@ -1056,6 +1056,67 @@ xqc_test_moqt_messages(void)
 }
 
 void
+xqc_test_moqt_early_request(void)
+{
+    /* Draft-22 section 6.3: the request may overtake peer SETUP. */
+    for (unsigned fin = 0; fin <= 1; fin++) {
+        moqt_fixture_t f;
+        xqc_test_moqt_init(&f, 1);
+        f.session->callbacks.on_authorize = xqc_test_moqt_authorize_notify;
+        f.session->callbacks.on_message = xqc_test_moqt_message_notify;
+        xqc_test_moqt_start(&f);
+        xqc_moqt_stream_t *st = xqc_test_moqt_request_stream(&f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(st);
+        CU_ASSERT_FALSE(st->discarded);
+        xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_PUBLISH_NAMESPACE};
+        CU_ASSERT_EQUAL(xqc_test_moqt_request_input(st, &m, m.type, fin),
+                        XQC_OK);
+        CU_ASSERT_EQUAL(f.messages, 0);
+        CU_ASSERT(st->rx.data_len > 0);
+        CU_ASSERT_EQUAL(xqc_test_moqt_options(xqc_test_moqt_incoming(&f),
+                                              NULL, 0), XQC_OK);
+        CU_ASSERT_EQUAL(f.ready, 1);
+        CU_ASSERT_EQUAL(f.messages, 1);
+        CU_ASSERT_EQUAL(st->rx.data_len, 0);
+        CU_ASSERT_EQUAL(st->rx_fin, fin);
+        xqc_test_moqt_destroy(&f);
+    }
+}
+
+void
+xqc_test_moqt_early_request_errors(void)
+{
+    for (unsigned reject = 0; reject < 3; reject++) {
+        moqt_fixture_t f;
+        xqc_test_moqt_init(&f, 1);
+        f.session->callbacks.on_authorize = xqc_test_moqt_authorize_notify;
+        f.session->callbacks.on_message = xqc_test_moqt_message_notify;
+        xqc_test_moqt_start(&f);
+        xqc_moqt_stream_t *st = xqc_test_moqt_request_stream(&f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(st);
+        xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_PUBLISH_NAMESPACE};
+        CU_ASSERT_EQUAL(xqc_test_moqt_request_input(st, &m, m.type, 0),
+                        XQC_OK);
+        CU_ASSERT_EQUAL(f.messages, 0);
+        if (reject == 0) {
+            f.reject = XQC_MOQT_UNAUTHORIZED;
+            xqc_test_moqt_options(xqc_test_moqt_incoming(&f), NULL, 0);
+            CU_ASSERT_EQUAL(f.error, XQC_MOQT_UNAUTHORIZED);
+        } else if (reject == 1) {
+            xqc_moqt_session_timeout(f.session->timer,
+                                      f.session->setup_deadline, f.session);
+            CU_ASSERT_EQUAL(f.error, XQC_MOQT_CONTROL_MESSAGE_TIMEOUT);
+        } else {
+            f.close_in_ready = 1;
+            xqc_test_moqt_options(xqc_test_moqt_incoming(&f), NULL, 0);
+            CU_ASSERT_TRUE(f.session->closed);
+        }
+        CU_ASSERT_EQUAL(f.messages, 0);
+        xqc_test_moqt_destroy(&f);
+    }
+}
+
+void
 xqc_test_moqt_request_ids(void)
 {
     for (xqc_int_t server = 0; server <= 1; server++) {

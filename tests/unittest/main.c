@@ -835,6 +835,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_fec", xqc_test_fec)
 #endif
         || !CU_add_test(pSuite, "xqc_test_ack_with_timestamp", xqc_test_ack_with_timestamp)
+        || !CU_add_test(pSuite, "xqc_test_ack_ext_advertised_features",
+                        xqc_test_ack_ext_advertised_features)
+        || !CU_add_test(pSuite, "xqc_test_ack_ext_unadvertised_features",
+                        xqc_test_ack_ext_unadvertised_features)
         || !CU_add_test(pSuite, "xqc_test_pto_uses_remote_max_ack_delay",
                         xqc_test_pto_uses_remote_max_ack_delay)
         || !CU_add_test(pSuite, "xqc_test_pto_remote_default_when_unset",

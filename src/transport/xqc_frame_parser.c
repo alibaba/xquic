@@ -3641,6 +3641,21 @@ xqc_parse_ack_ext_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
         return -XQC_EVINTREAD;
     }
     p += vlen;
+
+    /*
+     * draft-smith-quic-receive-ts-01 Section 6: "An endpoint receiving an
+     * ACK_EXTENDED frame with features it did not include in the transport
+     * parameter should terminate the connection with a PROTOCOL_VIOLATION
+     * violation error." The fields of such a feature cannot be parsed.
+     */
+    if (ack_ext_feature & ~conn->local_settings.extended_ack_features) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|ACK_EXTENDED features not advertised|features:%ui|"
+                "advertised:%ui|", ack_ext_feature,
+                conn->local_settings.extended_ack_features);
+        XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
+        return -XQC_EPROTO;
+    }
     packet_in->pos = p;
     /* parse ENC count */
     /*

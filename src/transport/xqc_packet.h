@@ -98,6 +98,19 @@ xqc_packet_long_header_type(uint32_t version, xqc_uint_t bits)
     return version == XQC_PACKET_VERSION_V2 ? (bits + 3) & 0x03 : bits;
 }
 
+/* write the version of a long header packet at buf, and its type bits */
+static inline void
+xqc_packet_set_long_header_version(unsigned char *buf, uint32_t version,
+    xqc_pkt_type_t type)
+{
+    buf[0] = (buf[0] & ~0x30)
+             | (xqc_packet_long_header_type_bits(version, type) << 4);
+    buf[1] = (unsigned char)(version >> 24);
+    buf[2] = (unsigned char)(version >> 16);
+    buf[3] = (unsigned char)(version >> 8);
+    buf[4] = (unsigned char)version;
+}
+
 /* the type of the long header packet of len bytes at buf */
 static inline xqc_pkt_type_t
 xqc_packet_get_long_header_type(const unsigned char *buf, size_t len)

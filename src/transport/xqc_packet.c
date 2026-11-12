@@ -228,6 +228,7 @@ xqc_packet_decrypt_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
     /* decrypt packet */
     ret = xqc_packet_decrypt(c, packet_in);
+    xqc_conn_client_version_checked(c, ret == XQC_OK);
     if (ret == XQC_OK) {
         /* process frames */
         xqc_log(c->log, XQC_LOG_DEBUG, "|pkt_type:%s|pkt_num:%ui|",

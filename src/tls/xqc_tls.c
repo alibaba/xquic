@@ -8,6 +8,7 @@
 #include "xqc_ssl_cbs.h"
 #include "xqc_crypto.h"
 #include "src/common/xqc_common.h"
+#include "src/transport/xqc_defs.h"
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
 
@@ -58,6 +59,13 @@ typedef struct xqc_tls_s {
     /* crypto context */
     xqc_crypto_t               *crypto[XQC_ENC_LEV_MAX];
 
+    /*
+     * RFC 9369 Section 4.1: on a server that switched to a compatible
+     * version, the Initial keys of the original version, kept to read the
+     * client's Initial packets in it
+     */
+    xqc_crypto_t               *crypto_orig_init;
+
     /* log handler */
     xqc_log_t                  *log;
 
@@ -73,6 +81,8 @@ typedef struct xqc_tls_s {
 
     /* quic version. used to decide protection salt */
     xqc_proto_version_t         version;
+    /* RFC 9368 Section 2.3: the version of the client's first flight */
+    xqc_proto_version_t         original_version;
 
     xqc_bool_t                  key_update_confirmed;
 
@@ -614,30 +624,54 @@ xqc_tls_init_server(xqc_tls_t *tls, const xqc_cid_t *odcid)
     return xqc_tls_derive_and_install_initial_keys(tls, odcid);
 }
 
+/*
+ * RFC 9369 Section 5: session tickets are specific to the QUIC version of
+ * the connection that issued them. A server resumes a session only in the
+ * context it was created in: the tickets of QUIC version 2 connections are
+ * given their own, so that the server makes a full handshake, without
+ * 0-RTT, for a ticket of another version. A TLS library that creates the
+ * session of a full handshake before the version is selected (BabaSSL)
+ * gives it the context of the original version: the session takes that of
+ * the new version too, for the tickets it issues.
+ */
+static xqc_int_t
+xqc_tls_set_version_context(xqc_tls_t *tls)
+{
+    static const uint8_t v2_ctx[] = {0x6b, 0x33, 0x43, 0xcf};
+    unsigned int len = tls->version == XQC_VERSION_V2 ? sizeof(v2_ctx) : 0;
+    SSL_SESSION *session;
+
+    if (tls->type != XQC_TLS_TYPE_SERVER) {
+        return XQC_OK;
+    }
+
+    session = SSL_get_session(tls->ssl);
+    if (SSL_set_session_id_context(tls->ssl, v2_ctx, len) != XQC_SSL_SUCCESS
+        || (session != NULL
+            && SSL_SESSION_set1_id_context(session, v2_ctx, len)
+               != XQC_SSL_SUCCESS))
+    {
+        xqc_log(tls->log, XQC_LOG_ERROR, "|set session id context error|");
+        return -XQC_TLS_INTERNAL;
+    }
+
+    return XQC_OK;
+}
+
 xqc_int_t
 xqc_tls_init(xqc_tls_t *tls, xqc_proto_version_t version, const xqc_cid_t *odcid)
 {
     tls->version = version;
+    tls->original_version = version;
 
     /* set the quic_transport_parameters extension codepoint */
     SSL_set_quic_use_legacy_codepoint(tls->ssl,
                                       tls->version == XQC_IDRAFT_VER_29);
 
-    /*
-     * RFC 9369 Section 5: session tickets are specific to the QUIC version
-     * of the connection that issued them. A server resumes a session only
-     * in the context it was created in: the tickets of QUIC version 2
-     * connections are given their own, so that the server makes a full
-     * handshake, without 0-RTT, for a ticket of another version.
-     */
-    if (tls->type == XQC_TLS_TYPE_SERVER && version == XQC_VERSION_V2) {
-        static const uint8_t v2_ctx[] = {0x6b, 0x33, 0x43, 0xcf};
-        if (SSL_set_session_id_context(tls->ssl, v2_ctx, sizeof(v2_ctx))
-            != XQC_SSL_SUCCESS)
-        {
-            xqc_log(tls->log, XQC_LOG_ERROR, "|set session id context error|");
-            return -XQC_TLS_INTERNAL;
-        }
+    if (version == XQC_VERSION_V2
+        && xqc_tls_set_version_context(tls) != XQC_OK)
+    {
+        return -XQC_TLS_INTERNAL;
     }
 
     /* create init level crypto */
@@ -672,6 +706,51 @@ xqc_tls_reset_initial(xqc_tls_t *tls, xqc_proto_version_t version, const xqc_cid
 }
 
 
+/*
+ * RFC 9368 Section 2.3 and RFC 9369 Section 4.1: the connection goes on in a
+ * compatible version. Its Initial keys are those of the new version; a
+ * server keeps those of the original version to read the client's Initial
+ * packets in it, and gives the session the context of the new version.
+ */
+xqc_int_t
+xqc_tls_switch_version(xqc_tls_t *tls, xqc_proto_version_t version,
+    const xqc_cid_t *odcid)
+{
+    xqc_proto_version_t prev = tls->version;
+    xqc_int_t ret;
+
+    if (version == prev) {
+        return XQC_OK;
+    }
+
+    if (tls->type == XQC_TLS_TYPE_SERVER && tls->crypto_orig_init == NULL) {
+        tls->crypto_orig_init = tls->crypto[XQC_ENC_LEV_INIT];
+        tls->crypto[XQC_ENC_LEV_INIT] =
+            xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256, tls->log);
+        if (tls->crypto[XQC_ENC_LEV_INIT] == NULL) {
+            tls->crypto[XQC_ENC_LEV_INIT] = tls->crypto_orig_init;
+            tls->crypto_orig_init = NULL;
+            return -XQC_TLS_NOMEM;
+        }
+    }
+
+    ret = xqc_tls_reset_initial(tls, version, odcid);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    return xqc_tls_set_version_context(tls);
+}
+
+
+void
+xqc_tls_discard_original_initial(xqc_tls_t *tls)
+{
+    xqc_crypto_destroy(tls->crypto_orig_init);
+    tls->crypto_orig_init = NULL;
+}
+
+
 void
 xqc_tls_destroy(xqc_tls_t *tls)
 {
@@ -683,6 +762,7 @@ xqc_tls_destroy(xqc_tls_t *tls)
         for (xqc_encrypt_level_t lv = 0; lv < XQC_ENC_LEV_MAX; lv++) {
             xqc_crypto_destroy(tls->crypto[lv]);
         }
+        xqc_crypto_destroy(tls->crypto_orig_init);
 
         xqc_free(tls);
     }
@@ -767,11 +847,32 @@ xqc_tls_encrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
                                       dst, dst_cap, dst_len);
 }
 
+/*
+ * RFC 9369 Section 4.1: "The server MUST NOT discard its original version
+ * Initial receive keys until it successfully processes a Handshake packet
+ * with the negotiated version." An Initial packet whose long header has
+ * the original version is read with them.
+ */
+static xqc_crypto_t *
+xqc_tls_rx_crypto(xqc_tls_t *tls, xqc_encrypt_level_t level,
+    const uint8_t *header)
+{
+    if (level == XQC_ENC_LEV_INIT && tls->crypto_orig_init != NULL
+        && xqc_parse_uint32(header + 1)
+           == xqc_proto_version_value[tls->original_version])
+    {
+        return tls->crypto_orig_init;
+    }
+
+    return tls->crypto[level];
+}
+
+
 xqc_int_t
 xqc_tls_decrypt_header(xqc_tls_t *tls, xqc_encrypt_level_t level, 
     xqc_pkt_type_t pkt_type, uint8_t *header, uint8_t *pktno, uint8_t *end)
 {
-    xqc_crypto_t *crypto = tls->crypto[level];
+    xqc_crypto_t *crypto = xqc_tls_rx_crypto(tls, level, header);
     if (crypto == NULL) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|crypto not initialized|level:%d|", level);
         return -XQC_TLS_INVALID_STATE;
@@ -787,7 +888,7 @@ xqc_tls_decrypt_payload(xqc_tls_t *tls, xqc_encrypt_level_t level,
     uint8_t *header, size_t header_len, uint8_t *payload, size_t payload_len,
     uint8_t *dst, size_t dst_cap, size_t *dst_len)
 {
-    xqc_crypto_t *crypto = tls->crypto[level];
+    xqc_crypto_t *crypto = xqc_tls_rx_crypto(tls, level, header);
     if (crypto == NULL) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|crypto not initialized|level:%d|", level);
         return -XQC_TLS_INVALID_STATE;
@@ -852,6 +953,12 @@ xqc_tls_is_early_data_accepted(xqc_tls_t *tls)
 
     return xqc_ssl_is_early_data_accepted(tls->ssl)
         ? XQC_TLS_EARLY_DATA_ACCEPT : XQC_TLS_EARLY_DATA_REJECT;
+}
+
+xqc_bool_t
+xqc_tls_is_session_resumed(xqc_tls_t *tls)
+{
+    return SSL_session_reused(tls->ssl) == 1;
 }
 
 xqc_bool_t
@@ -1256,6 +1363,14 @@ xqc_ssl_cert_cb(SSL *ssl, void *arg)
         return XQC_SSL_FAIL;
     }
 
+    /*
+     * RFC 9368 Section 2.3: the server selects the version of the
+     * connection from the client's Version Information before it writes
+     * its first flight and, with BoringSSL, before it resumes a session:
+     * process the client's transport parameters now.
+     */
+    xqc_tls_process_trans_param(tls);
+
     hostname = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
     /* RFC 8446 Section 9.2 permits a missing server_name extension. */
     if (NULL == hostname) {
@@ -1389,7 +1504,10 @@ xqc_tls_set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
 
     /* derive and install read key */
     xqc_crypto_t *crypto = tls->crypto[level];
-    crypto->quic_v2 = tls->version == XQC_VERSION_V2;
+    /* RFC 9369 Section 4.1: 0-RTT in the original version */
+    crypto->quic_v2 = (level == ssl_encryption_early_data
+                       ? tls->original_version : tls->version)
+                      == XQC_VERSION_V2;
     ret = xqc_crypto_derive_keys(crypto, secret, secret_len, XQC_KEY_TYPE_RX_READ);
     if (ret != XQC_OK) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|install read key error|level:%d|ret:%d", level, ret);
@@ -1433,7 +1551,10 @@ xqc_tls_set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
 
     /* derive and install write key */
     xqc_crypto_t *crypto = tls->crypto[level];
-    crypto->quic_v2 = tls->version == XQC_VERSION_V2;
+    /* RFC 9369 Section 4.1: 0-RTT in the original version */
+    crypto->quic_v2 = (level == ssl_encryption_early_data
+                       ? tls->original_version : tls->version)
+                      == XQC_VERSION_V2;
     ret = xqc_crypto_derive_keys(crypto, secret, secret_len, XQC_KEY_TYPE_TX_WRITE);
     if (ret != XQC_OK) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|install write key error|level:%d|ret:%d", level, ret);

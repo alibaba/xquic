@@ -941,6 +941,14 @@ main(int argc, char *argv[])
                         xqc_test_quic_v2_version_info_conn)
         || !CU_add_test(pSuite, "xqc_test_quic_v2_token_version",
                         xqc_test_quic_v2_token_version)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_cvn_select",
+                        xqc_test_quic_v2_cvn_select)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_cvn_client",
+                        xqc_test_quic_v2_cvn_client)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_cvn_header",
+                        xqc_test_quic_v2_cvn_header)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_cvn_initial_keys",
+                        xqc_test_quic_v2_cvn_initial_keys)
         /* issue #695: initial salt strlen fix */
         || !CU_add_test(pSuite, "xqc_test_initial_salt_length", xqc_test_initial_salt_length)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_v1_value", xqc_test_initial_salt_v1_value)

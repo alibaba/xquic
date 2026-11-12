@@ -110,6 +110,9 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_QUIC_V2_VERSION_INFO 918
 #define XQC_TEST_CASE_QUIC_V2_RESUMPTION 919
 #define XQC_TEST_CASE_QUIC_V2_RESUMPTION_OTHER_VERSION 920
+#define XQC_TEST_CASE_QUIC_V2_CVN 921
+#define XQC_TEST_CASE_QUIC_V2_CVN_KEPT 922
+#define XQC_TEST_CASE_QUIC_V2_CVN_RETRY 923
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_DATAGRAM_INITIAL_REJECTED 1202
 #define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
@@ -6615,6 +6618,15 @@ int main(int argc, char *argv[]) {
         || g_test_case == XQC_TEST_CASE_QUIC_V2_RESUMPTION_OTHER_VERSION)
     {
         conn_settings.proto_version = XQC_VERSION_V2;
+    }
+
+    /* RFC 9368 Section 2.3: version 1, and version 2 offered */
+    if (g_test_case == XQC_TEST_CASE_QUIC_V2_CVN
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_CVN_KEPT
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_CVN_RETRY)
+    {
+        config.support_version_list[config.support_version_count++] =
+            0x6b3343cf;
     }
 
 #if defined(XQC_SUPPORT_SENDMMSG) && !defined(XQC_SYS_WINDOWS)

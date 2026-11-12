@@ -45,6 +45,9 @@
 #define XQC_TEST_CASE_QUIC_V2_VERSION_INFO 918
 #define XQC_TEST_CASE_QUIC_V2_RESUMPTION 919
 #define XQC_TEST_CASE_QUIC_V2_RESUMPTION_OTHER_VERSION 920
+#define XQC_TEST_CASE_QUIC_V2_CVN 921
+#define XQC_TEST_CASE_QUIC_V2_CVN_KEPT 922
+#define XQC_TEST_CASE_QUIC_V2_CVN_RETRY 923
 #define XQC_TEST_CASE_RELIABLE_RESET_PREFIX 739
 #define XQC_TEST_CASE_RELIABLE_RESET_INVALID_SIZE 740
 #define XQC_TEST_CASE_RELIABLE_RESET_CLOSE 741
@@ -2695,7 +2698,9 @@ xqc_retry_packet_check(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_c
     (void *)cid;
     (void *)user_data;
     /* RFC 9369 Section 3.2: a Retry in QUIC version 2 */
-    if (g_test_case == XQC_TEST_CASE_QUIC_V2_RETRY) {
+    if (g_test_case == XQC_TEST_CASE_QUIC_V2_RETRY
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_CVN_RETRY)
+    {
         printf("[retry-token-test]|retry_enabled|case:%d|\n", g_test_case);
         return XQC_TRUE;
     }
@@ -3336,10 +3341,20 @@ int main(int argc, char *argv[]) {
         || g_test_case == XQC_TEST_CASE_QUIC_V2_RETRY
         || g_test_case == XQC_TEST_CASE_QUIC_V2_VERSION_INFO
         || g_test_case == XQC_TEST_CASE_QUIC_V2_RESUMPTION
-        || g_test_case == XQC_TEST_CASE_QUIC_V2_RESUMPTION_OTHER_VERSION)
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_RESUMPTION_OTHER_VERSION
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_CVN_KEPT)
     {
         config.support_version_list[config.support_version_count++] =
             0x6b3343cf;
+    }
+
+    /* RFC 9368 Section 2.3: version 2 preferred to version 1 */
+    if (g_test_case == XQC_TEST_CASE_QUIC_V2_CVN
+        || g_test_case == XQC_TEST_CASE_QUIC_V2_CVN_RETRY)
+    {
+        config.support_version_list[0] = 0x6b3343cf;
+        config.support_version_list[1] = 0x00000001;
+        config.support_version_count = 2;
     }
 
     /* test server cid negotiate */

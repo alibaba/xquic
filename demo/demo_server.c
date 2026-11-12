@@ -132,6 +132,9 @@ typedef struct xqc_demo_svr_quic_config_s {
     uint64_t least_available_cid_count;
 
     size_t max_pkt_sz;
+
+    /* RFC 9368 Section 2.3: prefer QUIC version 2 */
+    int prefer_v2;
 } xqc_demo_svr_quic_config_t;
 
 
@@ -1282,6 +1285,7 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -6    IPv6\n"
             "   -k    Key output file path\n"
             "   -r    retry\n"
+            "   -2    prefer QUIC version 2: compatible version negotiation\n"
             "   -d    do not read responses from files\n"
             "   -i    use interop mode\n"
             "   -M    enable MPQUIC.\n"
@@ -1345,6 +1349,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
                         "v:K:T:"
 #endif
 #endif
+                        "2"
                         )) != -1)
     {
         switch (ch) {
@@ -1444,6 +1449,11 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
         case 'r':
             printf("option validate addr with retry packet\n");
             args->quic_cfg.retry_on = 1;
+            break;
+
+        case '2':
+            printf("option QUIC version 2 preferred\n");
+            args->quic_cfg.prefer_v2 = 1;
             break;
 
         case 'd':
@@ -1732,6 +1742,16 @@ xqc_demo_svr_init_xquic_engine(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_args_t *arg
     }
 
     config.cid_len = 12;
+
+    /*
+     * RFC 9368 Section 2.3: version 2 first, so that a client offering it
+     * in a version 1 connection goes on in it
+     */
+    if (args->quic_cfg.prefer_v2) {
+        config.support_version_list[0] = 0x6b3343cf;
+        config.support_version_list[1] = 0x00000001;
+        config.support_version_count = 2;
+    }
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
     if (xqc_demo_wt_app_is_interop()) {
         config.manually_triggered_send = 1;

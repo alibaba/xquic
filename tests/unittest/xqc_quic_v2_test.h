@@ -19,4 +19,10 @@ void xqc_test_quic_v2_version_info_malformed(void);
 void xqc_test_quic_v2_version_info_conn(void);
 void xqc_test_quic_v2_token_version(void);
 
+/* RFC 9368 Section 2.3 and RFC 9369 Section 4.1 */
+void xqc_test_quic_v2_cvn_select(void);
+void xqc_test_quic_v2_cvn_client(void);
+void xqc_test_quic_v2_cvn_header(void);
+void xqc_test_quic_v2_cvn_initial_keys(void);
+
 #endif /* XQC_QUIC_V2_TEST_H */

@@ -683,6 +683,146 @@ else
 fi
 }
 
+# RFC 9368 Section 2.3 and RFC 9369 Section 4.1: a client connects in QUIC
+# version 1 and offers version 2, which the server prefers: the connection
+# goes on in version 2.
+case_tls_handshake_quic_v2_cvn()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 921 > /dev/null
+sleep 1
+echo -e "QUIC version 2 by compatible version negotiation ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 921 > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+svr_cvn=`grep -a "|compatible version negotiation|from:1|to:6b3343cf|" slog`
+cli_cvn=`grep -a "|compatible version negotiation|from:1|to:6b3343cf|" clog`
+svr_vi=`grep -a "|version information|chosen:1|available:2|" slog`
+cli_vi=`grep -a "|version information|chosen:6b3343cf|available:2|" clog`
+errlog=`grep_err_log`
+if [ -n "$result" ] && [ -n "$svr_cvn" ] && [ -n "$cli_cvn" ] \
+    && [ -n "$svr_vi" ] && [ -n "$cli_vi" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_cvn" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_cvn" "fail"
+fi
+}
+
+# RFC 9368 Section 2.3: a server that prefers version 1 keeps a client that
+# offers version 2 in version 1.
+case_tls_handshake_quic_v2_cvn_kept()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 922 > /dev/null
+sleep 1
+echo -e "QUIC version 1 kept with version 2 offered ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 922 > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+cvn=`grep -a "|compatible version negotiation|" slog clog`
+cli_vi=`grep -a "|version information|chosen:1|available:3|" clog`
+errlog=`grep_err_log`
+if [ -n "$result" ] && [ -z "$cvn" ] && [ -n "$cli_vi" ] \
+    && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_cvn_kept" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_cvn_kept" "fail"
+fi
+}
+
+# RFC 9369 Section 4.1: the server sends its Retry in the original version,
+# version 1, and switches to version 2 once the client retries.
+case_tls_handshake_quic_v2_cvn_retry()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 923 > /dev/null
+sleep 1
+echo -e "QUIC version 2 by compatible version negotiation after a Retry ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 923 > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+retry_sent=`grep -a -E "<==.*xqc_conn_send_retry ok" slog`
+retry_recvd=`grep -a "packet parse|retry" clog`
+svr_cvn=`grep -a "|compatible version negotiation|from:1|to:6b3343cf|" slog`
+cli_cvn=`grep -a "|compatible version negotiation|from:1|to:6b3343cf|" clog`
+errlog=`grep_err_log`
+if [ -n "$result" ] && [ -n "$retry_sent" ] && [ -n "$retry_recvd" ] \
+    && [ -n "$svr_cvn" ] && [ -n "$cli_cvn" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_cvn_retry" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_cvn_retry" "fail"
+fi
+}
+
+# RFC 9369 Section 5: "After compatible version negotiation, any resulting
+# session ticket maps to the negotiated version rather than the original
+# one." The ticket of a connection negotiated to version 2 resumes a
+# version 2 connection.
+case_tls_handshake_quic_v2_cvn_ticket()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 921 > /dev/null
+sleep 1
+${CLIENT_BIN} -s 1024 -l e -t 1 -E -1 -x 921 > /dev/null
+warm_cvn=`grep -a "|compatible version negotiation|from:1|to:6b3343cf|" slog`
+clear_log
+echo -e "QUIC version 2 ticket of a negotiated connection ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 913 > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+flag=`grep "early_data_flag:1" stdlog`
+errlog=`grep_err_log`
+if [ -n "$warm_cvn" ] && [ -n "$result" ] && [ -n "$flag" ] \
+    && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_cvn_ticket" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_cvn_ticket" "fail"
+fi
+}
+
+# RFC 9369 Section 5: a server does not accept a ticket issued from another
+# version. A version 1 ticket either resumes the connection in version 1 (a
+# TLS library that resumes before the version is selected) or is rejected
+# when the server goes on in version 2.
+case_tls_handshake_quic_v2_cvn_v1_ticket()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 921 > /dev/null
+sleep 1
+${CLIENT_BIN} -s 1024 -l e -t 1 -E -1 > /dev/null
+clear_log
+echo -e "QUIC version 1 ticket with version 2 offered ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 921 > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+accepted=`grep "early_data_flag:1" stdlog`
+rejected=`grep "early_data_flag:2" stdlog`
+svr_cvn=`grep -a "|compatible version negotiation|" slog`
+errlog=`grep_err_log`
+if [ -n "$result" ] && [ -z "$errlog" ] \
+    && { { [ -n "$accepted" ] && [ -z "$svr_cvn" ]; } \
+         || { [ -n "$rejected" ] && [ -n "$svr_cvn" ]; }; }; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_cvn_v1_ticket" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_cvn_v1_ticket" "fail"
+fi
+}
+
 case_tls_handshake_key_update_stale_deadline()
 {
     # RFC 9001 Sections 6.1 and 6.5: a second key update started while the
@@ -876,6 +1016,16 @@ case_test_case "quic_v2_resumption" --id 919 --mode self-reporting \
 case_test_case "quic_v2_resumption_other_version" --id 920 \
     --mode self-reporting \
     --run case_tls_handshake_quic_v2_resumption_other_version
+case_test_case "quic_v2_cvn" --id 921 --mode self-reporting \
+    --run case_tls_handshake_quic_v2_cvn
+case_test_case "quic_v2_cvn_kept" --id 922 --mode self-reporting \
+    --run case_tls_handshake_quic_v2_cvn_kept
+case_test_case "quic_v2_cvn_retry" --id 923 --mode self-reporting \
+    --run case_tls_handshake_quic_v2_cvn_retry
+case_test_case "quic_v2_cvn_ticket" --id 924 --mode self-reporting \
+    --run case_tls_handshake_quic_v2_cvn_ticket
+case_test_case "quic_v2_cvn_v1_ticket" --id 925 --mode self-reporting \
+    --run case_tls_handshake_quic_v2_cvn_v1_ticket
 
 if case_test_is_discovery; then
     case_test_run

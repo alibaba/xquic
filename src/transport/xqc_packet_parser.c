@@ -691,6 +691,20 @@ xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packet_out,
     /* copy header to dest */
     xqc_memcpy(dst_header, header, header_len);
 
+    /*
+     * RFC 9369 Section 4.1: Initial and Handshake packets in the version of
+     * the connection, also those written before a switch of version, and
+     * 0-RTT packets in the original version
+     */
+    if (level == XQC_ENC_LEV_INIT || level == XQC_ENC_LEV_0RTT
+        || level == XQC_ENC_LEV_HSK)
+    {
+        xqc_packet_set_long_header_version(dst_header,
+            xqc_proto_version_value[level == XQC_ENC_LEV_0RTT
+                                    ? conn->original_version : conn->version],
+            packet_out->po_pkt.pkt_type);
+    }
+
     /* refresh header length */
     if (level == XQC_ENC_LEV_INIT || level == XQC_ENC_LEV_0RTT
         || level == XQC_ENC_LEV_HSK)
@@ -1469,6 +1483,31 @@ xqc_packet_parse_long_header(xqc_connection_t *c,
         }
     }
 
+    /*
+     * RFC 9369 Section 4.1: a client learns the negotiated version from the
+     * server's Initial packets; a server that switched reads the client's
+     * Initial and 0-RTT packets of the original version, and drops the
+     * other packets of another version, as does a client.
+     */
+    if (type != XQC_PTYPE_VERSION_NEGOTIATION
+        && c->version != XQC_IDRAFT_INIT_VER
+        && version != xqc_proto_version_value[c->version])
+    {
+        if (c->conn_type == XQC_CONN_TYPE_CLIENT) {
+            ret = xqc_conn_client_on_version(c, version, type);
+            if (ret != XQC_OK) {
+                return ret;
+            }
+
+        } else if (version != xqc_proto_version_value[c->original_version]
+                   || (type != XQC_PTYPE_INIT && type != XQC_PTYPE_0RTT))
+        {
+            xqc_log(c->log, XQC_LOG_DEBUG,
+                    "|packet of another version|v:%xL|", (uint64_t)version);
+            return -XQC_EILLPKT;
+        }
+    }
+
     /* check protocol version */
     if (xqc_conn_version_check(c, version) != XQC_OK) {
         xqc_log(c->log, XQC_LOG_INFO, "|version not supported|v:%ui|", version);
@@ -1499,6 +1538,10 @@ xqc_packet_parse_long_header(xqc_connection_t *c,
         xqc_log(c->log, XQC_LOG_ERROR, "|invalid packet type|%ui|", type);
         ret = -XQC_EILLPKT;
         break;
+    }
+
+    if (ret != XQC_OK) {
+        xqc_conn_client_version_checked(c, XQC_FALSE);
     }
 
     return ret;

@@ -556,21 +556,34 @@ xqc_test_quic_v2_version_info_conn(void)
     xqc_conn_get_local_version_info(conn, &params);
     CU_ASSERT(params.version_info_present == 0);
 
-    /* with version 2, the client offers the version in use alone */
+    /*
+     * with version 2, the client offers the version in use first, then
+     * the other compatible version (RFC 9368 Section 2.3)
+     */
     config->support_version_list[1] = XQC_VERSION_V2_VALUE;
     config->support_version_count = 2;
     xqc_conn_get_local_version_info(conn, &params);
     CU_ASSERT(params.version_info_present == 1
               && params.chosen_version == XQC_VERSION_V1_VALUE
-              && params.available_versions_count == 1
-              && params.available_versions[0] == XQC_VERSION_V1_VALUE);
+              && params.available_versions_count == 2
+              && params.available_versions[0] == XQC_VERSION_V1_VALUE
+              && params.available_versions[1] == XQC_VERSION_V2_VALUE);
 
     conn->version = XQC_VERSION_V2;
+    conn->original_version = XQC_VERSION_V2;
     xqc_conn_get_local_version_info(conn, &params);
     CU_ASSERT(params.version_info_present == 1
               && params.chosen_version == XQC_VERSION_V2_VALUE
-              && params.available_versions_count == 1
-              && params.available_versions[0] == XQC_VERSION_V2_VALUE);
+              && params.available_versions_count == 2
+              && params.available_versions[0] == XQC_VERSION_V2_VALUE
+              && params.available_versions[1] == XQC_VERSION_V1_VALUE);
+
+    /* in a version it does not list, the client offers it alone */
+    config->support_version_list[1] = XQC_IDRAFT_VER_29_VALUE;
+    xqc_conn_get_local_version_info(conn, &params);
+    CU_ASSERT(params.version_info_present == 1
+              && params.chosen_version == XQC_VERSION_V2_VALUE
+              && params.available_versions_count == 1);
 
     /* a server lists the versions it implements, once each */
     config->support_version_list[0] = XQC_VERSION_V2_VALUE;
@@ -624,4 +637,268 @@ xqc_test_quic_v2_token_version(void)
     CU_ASSERT_EQUAL(xqc_conn_check_token(conn, v2_token, v2_len), XQC_ERROR);
 
     xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 9368 Section 2.3: a server selects a compatible version that the
+ * client offers, in its own order of preference.
+ */
+void
+xqc_test_quic_v2_cvn_select(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_config_t *config = conn->engine->config;
+    xqc_transport_params_t params;
+
+    /* the client's first flight in version 1, offering version 2 too */
+    memset(&params, 0, sizeof(params));
+    conn->original_version = XQC_VERSION_V1;
+    params.version_info_present = 1;
+    params.chosen_version = XQC_VERSION_V1_VALUE;
+    params.available_versions[0] = XQC_VERSION_V1_VALUE;
+    params.available_versions[1] = XQC_VERSION_V2_VALUE;
+    params.available_versions_count = 2;
+
+    /* a server that prefers version 2 selects it, else version 1 */
+    config->support_version_list[0] = XQC_VERSION_V2_VALUE;
+    config->support_version_list[1] = XQC_VERSION_V1_VALUE;
+    config->support_version_count = 2;
+    CU_ASSERT_EQUAL(xqc_conn_select_version(conn, &params), XQC_VERSION_V2);
+    config->support_version_list[0] = XQC_VERSION_V1_VALUE;
+    config->support_version_list[1] = XQC_VERSION_V2_VALUE;
+    CU_ASSERT_EQUAL(xqc_conn_select_version(conn, &params), XQC_VERSION_V1);
+
+    /* a version the client does not offer is not selected */
+    config->support_version_list[0] = XQC_VERSION_V2_VALUE;
+    config->support_version_list[1] = XQC_VERSION_V1_VALUE;
+    params.available_versions_count = 1;
+    CU_ASSERT_EQUAL(xqc_conn_select_version(conn, &params), XQC_VERSION_V1);
+    params.version_info_present = 0;
+    CU_ASSERT_EQUAL(xqc_conn_select_version(conn, &params), XQC_VERSION_V1);
+
+    /* draft-29 is not compatible with version 2 */
+    CU_ASSERT(xqc_conn_versions_compatible(XQC_VERSION_V2, XQC_VERSION_V1));
+    CU_ASSERT(!xqc_conn_versions_compatible(XQC_IDRAFT_VER_29,
+                                            XQC_VERSION_V2));
+    conn->original_version = XQC_IDRAFT_VER_29;
+    params.version_info_present = 1;
+    params.chosen_version = XQC_IDRAFT_VER_29_VALUE;
+    params.available_versions[0] = XQC_IDRAFT_VER_29_VALUE;
+    params.available_versions[1] = XQC_VERSION_V2_VALUE;
+    params.available_versions_count = 2;
+    CU_ASSERT_EQUAL(xqc_conn_select_version(conn, &params),
+                    XQC_IDRAFT_VER_29);
+    conn->original_version = XQC_VERSION_V1;
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 9369 Section 4.1: "The client learns the negotiated version by
+ * observing the first long header Version field that differs from the
+ * original version", if it offered that version.
+ */
+void
+xqc_test_quic_v2_cvn_client(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_config_t *config = conn->engine->config;
+
+    /* not offered */
+    config->support_version_list[0] = XQC_VERSION_V1_VALUE;
+    config->support_version_count = 1;
+    CU_ASSERT_EQUAL(xqc_conn_client_on_version(conn, XQC_VERSION_V2_VALUE,
+                    XQC_PTYPE_INIT), -XQC_EILLPKT);
+    CU_ASSERT_EQUAL(conn->version, XQC_VERSION_V1);
+
+    /* offered: only an Initial packet makes the client switch */
+    config->support_version_list[1] = XQC_VERSION_V2_VALUE;
+    config->support_version_count = 2;
+    CU_ASSERT_EQUAL(xqc_conn_client_on_version(conn, XQC_VERSION_V2_VALUE,
+                    XQC_PTYPE_HSK), -XQC_EILLPKT);
+    CU_ASSERT_EQUAL(xqc_conn_client_on_version(conn, XQC_VERSION_V2_VALUE,
+                    XQC_PTYPE_INIT), XQC_OK);
+    CU_ASSERT_EQUAL(conn->version, XQC_VERSION_V2);
+
+    /* a packet that does not decrypt takes the client back */
+    xqc_conn_client_version_checked(conn, XQC_FALSE);
+    CU_ASSERT_EQUAL(conn->version, XQC_VERSION_V1);
+
+    /* one that decrypts keeps it */
+    CU_ASSERT_EQUAL(xqc_conn_client_on_version(conn, XQC_VERSION_V2_VALUE,
+                    XQC_PTYPE_INIT), XQC_OK);
+    xqc_conn_client_version_checked(conn, XQC_TRUE);
+    CU_ASSERT(conn->version == XQC_VERSION_V2 && !conn->version_pending);
+    CU_ASSERT_EQUAL(conn->original_version, XQC_VERSION_V1);
+
+    /* learned: the packets of the original version are dropped */
+    CU_ASSERT_EQUAL(xqc_conn_client_on_version(conn, XQC_VERSION_V1_VALUE,
+                    XQC_PTYPE_INIT), -XQC_EILLPKT);
+    CU_ASSERT_EQUAL(conn->version, XQC_VERSION_V2);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* RFC 9369 Section 3.2: the version and type of a long header, rewritten */
+void
+xqc_test_quic_v2_cvn_header(void)
+{
+    /* a version 1 Initial with a 4-byte packet number */
+    uint8_t hdr[5] = {0xc3, 0x00, 0x00, 0x00, 0x01};
+
+    xqc_packet_set_long_header_version(hdr, XQC_VERSION_V2_VALUE,
+                                       XQC_PTYPE_INIT);
+    CU_ASSERT(hdr[0] == 0xd3
+              && xqc_parse_uint32(hdr + 1) == XQC_VERSION_V2_VALUE);
+    CU_ASSERT_EQUAL(xqc_packet_get_long_header_type(hdr, sizeof(hdr)),
+                    XQC_PTYPE_INIT);
+
+    xqc_packet_set_long_header_version(hdr, XQC_VERSION_V1_VALUE,
+                                       XQC_PTYPE_HSK);
+    CU_ASSERT(hdr[0] == 0xe3
+              && xqc_parse_uint32(hdr + 1) == XQC_VERSION_V1_VALUE);
+    CU_ASSERT_EQUAL(xqc_packet_get_long_header_type(hdr, sizeof(hdr)),
+                    XQC_PTYPE_HSK);
+
+    xqc_packet_set_long_header_version(hdr, XQC_VERSION_V2_VALUE,
+                                       XQC_PTYPE_0RTT);
+    CU_ASSERT(hdr[0] == 0xe3
+              && xqc_parse_uint32(hdr + 1) == XQC_VERSION_V2_VALUE);
+    CU_ASSERT_EQUAL(xqc_packet_get_long_header_type(hdr, sizeof(hdr)),
+                    XQC_PTYPE_0RTT);
+}
+
+
+#define XQC_TEST_CVN_HDR_LEN    (1 + 4 + 1 + 8 + 1 + 1 + 2 + 4)
+#define XQC_TEST_CVN_PAYLOAD    32
+
+/* a client Initial of the version for v2_dcid, with a PING */
+static size_t
+xqc_test_quic_v2_cvn_initial(xqc_engine_t *engine,
+    xqc_proto_version_t version, const xqc_cid_t *dcid,
+    uint8_t *pkt, size_t cap)
+{
+    uint8_t cli[INITIAL_SECRET_MAX_LEN] = {0};
+    uint8_t svr[INITIAL_SECRET_MAX_LEN] = {0};
+    uint8_t payload[XQC_TEST_CVN_PAYLOAD] = {0x01};
+    size_t clen = 0;
+    uint8_t *p = pkt;
+
+    CU_ASSERT_FATAL(xqc_crypto_derive_initial_secret(cli, sizeof(cli), svr,
+                    sizeof(svr), dcid, xqc_crypto_initial_salt[version],
+                    XQC_INITIAL_SALT_LEN) == XQC_OK);
+    xqc_crypto_t *crypto = xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256,
+                                             engine->log);
+    CU_ASSERT_FATAL(crypto != NULL);
+    crypto->quic_v2 = version == XQC_VERSION_V2;
+    CU_ASSERT_FATAL(xqc_crypto_derive_keys(crypto, cli, sizeof(cli),
+                    XQC_KEY_TYPE_TX_WRITE) == XQC_OK);
+
+    /* header: DCID, no SCID, no token, Length, packet number 2 */
+    *p++ = 0xc3;
+    p += 4;
+    *p++ = dcid->cid_len;
+    memcpy(p, dcid->cid_buf, dcid->cid_len);
+    p += dcid->cid_len;
+    *p++ = 0;
+    *p++ = 0;
+    *p++ = 0x40;
+    *p++ = 4 + XQC_TEST_CVN_PAYLOAD + 16;
+    memcpy(p, "\x00\x00\x00\x02", 4);
+    p += 4;
+    xqc_packet_set_long_header_version(pkt, xqc_proto_version_value[version],
+                                       XQC_PTYPE_INIT);
+
+    CU_ASSERT_FATAL(xqc_crypto_encrypt_payload(crypto, 2, 0, 0, pkt,
+                    p - pkt, payload, sizeof(payload), p,
+                    cap - (p - pkt), &clen) == XQC_OK);
+    CU_ASSERT_FATAL(xqc_crypto_encrypt_header(crypto, XQC_PTYPE_INIT, pkt,
+                    p - 4, p + clen) == XQC_OK);
+    xqc_crypto_destroy(crypto);
+    return (p - pkt) + clen;
+}
+
+/* decrypt a client Initial with the server's TLS instance */
+static xqc_int_t
+xqc_test_quic_v2_cvn_open(xqc_tls_t *tls, uint8_t *pkt, size_t len)
+{
+    uint8_t out[XQC_TEST_CVN_PAYLOAD + 16];
+    size_t hlen = XQC_TEST_CVN_HDR_LEN;
+    size_t out_len = 0;
+    xqc_int_t ret;
+
+    ret = xqc_tls_decrypt_header(tls, XQC_ENC_LEV_INIT, XQC_PTYPE_INIT, pkt,
+                                 pkt + hlen - 4, pkt + len);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_tls_decrypt_payload(tls, XQC_ENC_LEV_INIT, 2, 0, pkt, hlen,
+                                  pkt + hlen, len - hlen, out, sizeof(out),
+                                  &out_len);
+    if (ret == XQC_OK
+        && (out_len != XQC_TEST_CVN_PAYLOAD || out[0] != 0x01))
+    {
+        ret = XQC_ERROR;
+    }
+    return ret;
+}
+
+/*
+ * RFC 9369 Section 4.1: "The server MUST NOT discard its original version
+ * Initial receive keys until it successfully processes a Handshake packet
+ * with the negotiated version."
+ */
+void
+xqc_test_quic_v2_cvn_initial_keys(void)
+{
+    xqc_engine_t *engine = test_create_engine_server();
+    CU_ASSERT_FATAL(engine != NULL);
+    uint8_t v1_pkt[128], v2_pkt[128], copy[128];
+    xqc_tls_config_t cfg;
+    xqc_cid_t dcid;
+
+    memset(&dcid, 0, sizeof(dcid));
+    memcpy(dcid.cid_buf, v2_dcid, sizeof(v2_dcid));
+    dcid.cid_len = sizeof(v2_dcid);
+    size_t v1_len = xqc_test_quic_v2_cvn_initial(engine, XQC_VERSION_V1,
+                                                 &dcid, v1_pkt, sizeof(v1_pkt));
+    size_t v2_len = xqc_test_quic_v2_cvn_initial(engine, XQC_VERSION_V2,
+                                                 &dcid, v2_pkt, sizeof(v2_pkt));
+
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.trans_params = (uint8_t *)"10086";
+    cfg.trans_params_len = 5;
+    xqc_tls_t *tls = xqc_tls_create(engine->tls_ctx, &cfg, engine->log, NULL);
+    CU_ASSERT_FATAL(tls != NULL);
+    CU_ASSERT_FATAL(xqc_tls_init(tls, XQC_VERSION_V1, &dcid) == XQC_OK);
+
+    /* version 1: only the version 1 Initial is read */
+    memcpy(copy, v1_pkt, v1_len);
+    CU_ASSERT_EQUAL(xqc_test_quic_v2_cvn_open(tls, copy, v1_len), XQC_OK);
+    memcpy(copy, v2_pkt, v2_len);
+    CU_ASSERT_NOT_EQUAL(xqc_test_quic_v2_cvn_open(tls, copy, v2_len), XQC_OK);
+
+    /* switched to version 2: both are read */
+    CU_ASSERT_EQUAL(xqc_tls_switch_version(tls, XQC_VERSION_V2, &dcid),
+                    XQC_OK);
+    memcpy(copy, v1_pkt, v1_len);
+    CU_ASSERT_EQUAL(xqc_test_quic_v2_cvn_open(tls, copy, v1_len), XQC_OK);
+    memcpy(copy, v2_pkt, v2_len);
+    CU_ASSERT_EQUAL(xqc_test_quic_v2_cvn_open(tls, copy, v2_len), XQC_OK);
+
+    /* the original keys discarded: only the version 2 one */
+    xqc_tls_discard_original_initial(tls);
+    memcpy(copy, v1_pkt, v1_len);
+    CU_ASSERT_NOT_EQUAL(xqc_test_quic_v2_cvn_open(tls, copy, v1_len), XQC_OK);
+    memcpy(copy, v2_pkt, v2_len);
+    CU_ASSERT_EQUAL(xqc_test_quic_v2_cvn_open(tls, copy, v2_len), XQC_OK);
+
+    xqc_tls_destroy(tls);
+    xqc_engine_destroy(engine);
 }

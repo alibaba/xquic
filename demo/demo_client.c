@@ -205,6 +205,9 @@ typedef struct xqc_demo_cli_quic_config_s {
 
     uint8_t mp_version;
 
+    /* RFC 9368 Section 2.3: offer QUIC version 2 in version 1 connections */
+    uint8_t offer_v2;
+
     uint64_t init_max_path_id;
 
     /* support interop test */
@@ -2062,6 +2065,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -y    cid rotation after x ms\n"
         "   -Y    cid retirement after x ms\n"
         "   -f    max path id\n"
+        "   -2    offer QUIC version 2: compatible version negotiation\n"
         "   -5    use X25519 group as the first choice\n"
         , prog);
 }
@@ -2080,6 +2084,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
                         "v:J:"
 #endif
 #endif
+                        "2"
                         )) != -1)
     {
         switch (ch) {
@@ -2277,6 +2282,11 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
          case 'o':
             printf("set interop mode\n");
             args->quic_cfg.is_interop_mode = 1;
+            break;
+
+        case '2':
+            printf("option QUIC version 2 offered\n");
+            args->quic_cfg.offer_v2 = 1;
             break;
         case 'i':
             printf("option adding interface: %s\n", optarg);
@@ -2947,6 +2957,12 @@ xqc_demo_cli_init_xquic_engine(xqc_demo_cli_ctx_t *ctx, xqc_demo_cli_client_args
     xqc_config_t config;
     if (xqc_engine_get_default_config(&config, XQC_ENGINE_CLIENT) < 0) {
         return XQC_ERROR;
+    }
+
+    /* RFC 9368 Section 2.3: version 1, and version 2 offered */
+    if (args->quic_cfg.offer_v2) {
+        config.support_version_list[config.support_version_count++] =
+            0x6b3343cf;
     }
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
     if (xqc_demo_wt_app_is_interop()) {

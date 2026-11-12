@@ -82,6 +82,17 @@ xqc_int_t xqc_tls_reset_initial(xqc_tls_t *tls, xqc_proto_version_t version,
     const xqc_cid_t *odcid);
 
 /**
+ * @brief go on in a compatible version (RFC 9368 Section 2.3): install the
+ * Initial keys of the version; a server keeps those of the original version
+ * to read the client's Initial packets in it, until
+ * xqc_tls_discard_original_initial is called
+ */
+xqc_int_t xqc_tls_switch_version(xqc_tls_t *tls, xqc_proto_version_t version,
+    const xqc_cid_t *odcid);
+
+void xqc_tls_discard_original_initial(xqc_tls_t *tls);
+
+/**
  * @brief destroy a tls instance
  */
 void xqc_tls_destroy(xqc_tls_t *tls);
@@ -179,6 +190,11 @@ xqc_bool_t xqc_tls_is_ready_to_send_early_data(xqc_tls_t *tls);
  * @brief check if early data is accepted
  */
 xqc_tls_early_data_accept_t xqc_tls_is_early_data_accepted(xqc_tls_t *tls);
+
+/**
+ * @brief check whether the handshake resumes a session
+ */
+xqc_bool_t xqc_tls_is_session_resumed(xqc_tls_t *tls);
 
 /**
  * @brief get crypto aead tag length

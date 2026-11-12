@@ -348,6 +348,10 @@ struct xqc_connection_s {
     xqc_engine_t                   *engine;
 
     xqc_proto_version_t             version;
+    /* RFC 9368 Section 1.2: the version of the client's first flight */
+    xqc_proto_version_t             original_version;
+    /* client: switched to the version of a server Initial not decrypted yet */
+    uint8_t                         version_pending;
 
     /* original destination connection id, RFC 9000, Section 7.3. */
     xqc_cid_t                       original_dcid;
@@ -692,6 +696,17 @@ xqc_bool_t xqc_conn_has_hsk_keys(xqc_connection_t *c);
 void *xqc_conn_get_user_data(xqc_connection_t *c);
 
 /* transport parameters functions */
+/* RFC 9368 Section 2.3: compatible version negotiation */
+xqc_bool_t xqc_conn_versions_compatible(xqc_proto_version_t a,
+    xqc_proto_version_t b);
+xqc_proto_version_t xqc_conn_select_version(xqc_connection_t *conn,
+    const xqc_transport_params_t *params);
+xqc_int_t xqc_conn_switch_version(xqc_connection_t *conn,
+    xqc_proto_version_t version);
+xqc_int_t xqc_conn_client_on_version(xqc_connection_t *conn, uint32_t value,
+    xqc_pkt_type_t type);
+void xqc_conn_client_version_checked(xqc_connection_t *conn, xqc_bool_t ok);
+
 /* RFC 9368 Section 3: the local Version Information, and the peer's check */
 void xqc_conn_get_local_version_info(xqc_connection_t *conn,
     xqc_transport_params_t *params);

@@ -131,6 +131,43 @@ else
 fi
 }
 
+case_transport_packet_ack_with_response()
+{
+# RFC 9000 Section 13.2.1: an endpoint SHOULD send an ACK frame with other
+# frames when there are new ack-eliciting packets to acknowledge. Requests
+# after the first fit in one packet, whose acknowledgment the server's
+# delayed-ACK timer holds back; the response the server sends at once
+# carries it, so the client sees each request acknowledged before it reads
+# the response.
+case_test_stop_server
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l e -e > /dev/null
+sleep 1
+clear_log
+echo -e "ACK with the response ...\c"
+passed=`${CLIENT_BIN} -s 100 -n 4 -l e -t 1 -E | grep -c ">>>>>>>> pass:1"`
+late=""
+for stream_id in 4 8 12; do
+    order=`awk -v s="${stream_id}" '
+        index($0, "|stream_id:" s "|send_stream|") && /new:3\|/ {
+            print "acked"; exit
+        }
+        index($0, "xqc_stream_recv|stream_id:" s "|") { print "read"; exit }' clog`
+    if [ "$order" != "acked" ]; then
+        late="${late} ${stream_id}:${order:-none}"
+    fi
+done
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ "$passed" = 4 ] && [ -z "$late" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "ack_with_response" "pass"
+else
+    echo ">>>>>>>> pass:0 (requests passed:${passed} read first:${late})"
+    case_print_result "ack_with_response" "fail"
+    echo "$errlog"
+fi
+}
+
 case_transport_packet_client_initial_dcid_corruption()
 {
 case_test_stop_server
@@ -474,6 +511,7 @@ case_test_case "client_initial_scid_corruption" --id native --mode self-reportin
 case_test_case "server_initial_dcid_corruption" --id native --mode self-reporting --run case_transport_packet_server_initial_dcid_corruption
 case_test_case "server_initial_scid_corruption" --id native --mode self-reporting --run case_transport_packet_server_initial_scid_corruption
 case_test_case "server_odcid_hash" --id native --mode self-reporting --run case_transport_packet_server_odcid_hash
+case_test_case "ack_with_response" --id native --mode self-reporting --run case_transport_packet_ack_with_response
 case_test_case "ack_timestamp_frame_case_1" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_1
 case_test_case "ack_timestamp_frame_case_2" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_2
 case_test_case "ack_timestamp_frame_case_3" --id native --mode self-reporting --run case_transport_packet_ack_timestamp_frame_case_3

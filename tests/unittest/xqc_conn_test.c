@@ -29,6 +29,8 @@
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 
 extern void xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data);
+extern void xqc_conn_record_single(xqc_connection_t *c,
+    xqc_packet_in_t *packet_in);
 extern xqc_int_t xqc_conn_set_remote_transport_params(
     xqc_connection_t *conn, const xqc_transport_params_t *params,
     xqc_transport_params_type_t exttype);
@@ -1387,6 +1389,192 @@ xqc_test_0rtt_persistent_congestion_default_max_ack_delay(void)
     /* stale 100ms would give (18000 + 100000) * 3 = 354000 > 200000 */
     conn->remote_settings.max_ack_delay = 100;
     CU_ASSERT_EQUAL(xqc_send_ctl_in_persistent_congestion(send_ctl, &po, now), XQC_FALSE);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/* record the receipt of an ack-eliciting 1-RTT packet, packet number pn */
+static void
+xqc_test_pending_ack_recv(xqc_connection_t *conn, xqc_packet_number_t pn)
+{
+    xqc_packet_in_t pi;
+
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    pi.pi_pkt.pkt_num = pn;
+    pi.pi_frame_types = XQC_FRAME_BIT_STREAM;
+    pi.pkt_recv_time = xqc_monotonic_timestamp();
+    xqc_conn_record_single(conn, &pi);
+}
+
+/*
+ * A client connection that may send 1-RTT packets, without keys: nothing is
+ * encrypted here. It received one ack-eliciting 1-RTT packet, pn 7: fewer
+ * than ack_frequency, so its acknowledgment waits for the delayed-ACK timer.
+ */
+static xqc_connection_t *
+xqc_test_pending_ack_conn(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_send_ctl_t *send_ctl;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    send_ctl = conn->conn_initial_path->path_send_ctl;
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+    xqc_test_pending_ack_recv(conn, 7);
+
+    CU_ASSERT_FATAL(send_ctl->ctl_ack_eliciting_pkt[XQC_PNS_APP_DATA] == 1);
+    CU_ASSERT_FATAL(xqc_timer_is_set(&send_ctl->path_timer_manager,
+                                     XQC_TIMER_ACK_01RTT));
+    return conn;
+}
+
+static uint32_t
+xqc_test_pending_ack_cwnd(xqc_send_ctl_t *send_ctl)
+{
+    return send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+}
+
+/* a packet of type pkt_type holding a PING frame, not sent yet */
+static xqc_packet_out_t *
+xqc_test_pending_ack_ping(xqc_connection_t *conn, xqc_pkt_type_t pkt_type)
+{
+    xqc_packet_out_t *po = xqc_write_new_packet(conn, pkt_type);
+    ssize_t ret;
+
+    CU_ASSERT_FATAL(po != NULL);
+    ret = xqc_gen_ping_frame(po);
+    CU_ASSERT_FATAL(ret > 0);
+    po->po_used_size += ret;
+    return po;
+}
+
+/*
+ * RFC 9000 Section 13.2.1: "An endpoint SHOULD send an ACK frame with other
+ * frames when there are new ack-eliciting packets to acknowledge." A 1-RTT
+ * packet sent while the delayed-ACK timer holds an acknowledgment back
+ * carries it, and the timer stops; so does a packet that the congestion
+ * window does not limit, such as a PTO probe, when the window is full.
+ */
+void
+xqc_test_conn_attach_pending_ack(void)
+{
+    xqc_connection_t *conn = xqc_test_pending_ack_conn();
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_packet_out_t *po = xqc_test_pending_ack_ping(conn,
+                                                     XQC_PTYPE_SHORT_HEADER);
+
+    xqc_conn_attach_pending_ack(conn, path, po, 1, 0);
+
+    CU_ASSERT(po->po_frame_types & XQC_FRAME_BIT_ACK);
+    CU_ASSERT(po->po_largest_ack == 7);
+    CU_ASSERT(send_ctl->ctl_ack_eliciting_pkt[XQC_PNS_APP_DATA] == 0);
+    CU_ASSERT(!xqc_timer_is_set(&send_ctl->path_timer_manager,
+                                XQC_TIMER_ACK_01RTT));
+
+    /* nothing new to acknowledge: the next packet carries none */
+    po = xqc_test_pending_ack_ping(conn, XQC_PTYPE_SHORT_HEADER);
+    xqc_conn_attach_pending_ack(conn, path, po, 1, 0);
+    CU_ASSERT(!(po->po_frame_types & XQC_FRAME_BIT_ACK));
+
+    xqc_test_pending_ack_recv(conn, 8);
+    CU_ASSERT(xqc_timer_is_set(&send_ctl->path_timer_manager,
+                               XQC_TIMER_ACK_01RTT));
+    send_ctl->ctl_bytes_in_flight = xqc_test_pending_ack_cwnd(send_ctl);
+    po = xqc_test_pending_ack_ping(conn, XQC_PTYPE_SHORT_HEADER);
+    xqc_conn_attach_pending_ack(conn, path, po, 0, 0);
+    CU_ASSERT(po->po_frame_types & XQC_FRAME_BIT_ACK);
+    CU_ASSERT(po->po_largest_ack == 8);
+    CU_ASSERT(!xqc_timer_is_set(&send_ctl->path_timer_manager,
+                                XQC_TIMER_ACK_01RTT));
+    send_ctl->ctl_bytes_in_flight = 0;
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * The pending acknowledgment stays with its timer for a 0-RTT packet, which
+ * cannot carry an ACK frame (RFC 9000 Section 12.4), for a PMTU probe, which
+ * is likely lost, for a packet whose congestion check would fail with the
+ * largest ACK frame that it can take, and on a server path that the
+ * anti-amplification limit still restricts; both checks were made without
+ * the ACK frame.
+ */
+void
+xqc_test_conn_attach_pending_ack_skipped(void)
+{
+    xqc_connection_t *conn = xqc_test_pending_ack_conn();
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_packet_out_t *po;
+    uint32_t cwnd = xqc_test_pending_ack_cwnd(send_ctl);
+
+    po = xqc_test_pending_ack_ping(conn, XQC_PTYPE_0RTT);
+    xqc_conn_attach_pending_ack(conn, path, po, 1, 0);
+    CU_ASSERT(!(po->po_frame_types & XQC_FRAME_BIT_ACK));
+
+    po = xqc_test_pending_ack_ping(conn, XQC_PTYPE_SHORT_HEADER);
+    po->po_flag |= XQC_POF_PMTUD_PROBING;
+    xqc_conn_attach_pending_ack(conn, path, po, 1, 0);
+    CU_ASSERT(!(po->po_frame_types & XQC_FRAME_BIT_ACK));
+
+    /*
+     * the window holds the bytes in flight, or scheduled, and the packet,
+     * not the largest ACK frame that the packet can take
+     */
+    po = xqc_test_pending_ack_ping(conn, XQC_PTYPE_SHORT_HEADER);
+    send_ctl->ctl_bytes_in_flight = cwnd - po->po_used_size;
+    CU_ASSERT(xqc_send_ctl_can_send(send_ctl, po, 0));
+    xqc_conn_attach_pending_ack(conn, path, po, 1, 0);
+    CU_ASSERT(!(po->po_frame_types & XQC_FRAME_BIT_ACK));
+    send_ctl->ctl_bytes_in_flight = 0;
+    xqc_conn_attach_pending_ack(conn, path, po, 1, cwnd - po->po_used_size);
+    CU_ASSERT(!(po->po_frame_types & XQC_FRAME_BIT_ACK));
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flag &= ~XQC_CONN_FLAG_ADDR_VALIDATED;
+    po = xqc_test_pending_ack_ping(conn, XQC_PTYPE_SHORT_HEADER);
+    xqc_conn_attach_pending_ack(conn, path, po, 1, 0);
+    CU_ASSERT(!(po->po_frame_types & XQC_FRAME_BIT_ACK));
+
+    CU_ASSERT(send_ctl->ctl_ack_eliciting_pkt[XQC_PNS_APP_DATA] == 1);
+    CU_ASSERT(xqc_timer_is_set(&send_ctl->path_timer_manager,
+                               XQC_TIMER_ACK_01RTT));
+
+    conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A PATH_CHALLENGE that validates a NAT rebinding goes to the new address
+ * apart from the send queue, within the anti-amplification budget of that
+ * address, and is not tracked: it leaves the pending acknowledgment to its
+ * timer, whether it is sent or, as here without keys, not.
+ */
+void
+xqc_test_conn_rebinding_challenge_keeps_pending_ack(void)
+{
+    xqc_connection_t *conn = xqc_test_pending_ack_conn();
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    unsigned char challenge[XQC_PATH_CHALLENGE_DATA_LEN];
+    struct sockaddr_in addr;
+    size_t sent_bytes;
+
+    memset(challenge, 0x5a, sizeof(challenge));
+    xqc_memzero(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+
+    xqc_conn_send_rebinding_path_challenge(conn, path,
+        (struct sockaddr *)&addr, sizeof(addr), challenge, XQC_FALSE,
+        XQC_MAX_UINT64_VALUE, &sent_bytes);
+
+    CU_ASSERT(send_ctl->ctl_ack_eliciting_pkt[XQC_PNS_APP_DATA] == 1);
+    CU_ASSERT(xqc_timer_is_set(&send_ctl->path_timer_manager,
+                               XQC_TIMER_ACK_01RTT));
 
     xqc_engine_destroy(conn->engine);
 }

@@ -13,14 +13,6 @@
  * @brief definitions for inner usage
  */
 
-#ifdef WORDS_BIGENDIAN
-#  define bswap64(N) (N)
-#else /* !WORDS_BIGENDIAN */
-#  define bswap64(N)                                                           \
-    ((uint64_t)(ntohl((uint32_t)(N))) << 32 | ntohl((uint32_t)((N) >> 32)))
-#endif /* !WORDS_BIGENDIAN */
-
-
 #define XQC_SSL_SUCCESS 1   /* openssl or boringssl 1 success */
 #define XQC_SSL_FAIL    0   /* openssl or boringssl 0 failure */
 

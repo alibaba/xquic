@@ -188,9 +188,10 @@ xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t
      * The exclusive OR of the padded packet number and the IV forms the AEAD nonce.
      */
 
-    pktno = bswap64(pktno);
-    for (i = 0; i < 8; ++i) {
-        dest[ivlen - 8 + i] ^= ((uint8_t *)&pktno)[i];
+    uint8_t pktno_be[8];
+    xqc_put_uint64be(pktno_be, pktno);
+    for (i = 0; i < sizeof(pktno_be); ++i) {
+        dest[ivlen - sizeof(pktno_be) + i] ^= pktno_be[i];
     }
 
     /* the path id occupies the 32 bits before the packet number, so it can
@@ -200,9 +201,10 @@ xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen, uint64_t
      * the same way, so the nonce stays symmetric.
      */
     if (ivlen >= 12) {
-        path_id = ntohl(path_id);
-        for (i = 0; i < 4; ++i) {
-            dest[ivlen - 12 + i] ^= ((uint8_t *)&path_id)[i];
+        uint8_t path_id_be[4];
+        xqc_put_uint32be(path_id_be, path_id);
+        for (i = 0; i < sizeof(path_id_be); ++i) {
+            dest[ivlen - 12 + i] ^= path_id_be[i];
         }
     }
 }

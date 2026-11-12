@@ -3379,7 +3379,7 @@ xqc_conn_send_retry(xqc_connection_t *conn, unsigned char *token, unsigned token
                                                      conn->original_dcid.cid_buf,
                                                      conn->original_dcid.cid_len,
                                                      token, token_len,
-                                                     XQC_VERSION_V1);
+                                                     xqc_proto_version_value[conn->version]);
     if (size < 0) {
         xqc_log(engine->log, XQC_LOG_WARN, "|xqc_conn_send_retry|generate retry packet failed|"
                 "size:%d|", size);
@@ -3425,8 +3425,12 @@ xqc_conn_version_check(xqc_connection_t *c, uint32_t version)
             return -XQC_EPROTO;
         }
 
-        for (i = XQC_IDRAFT_INIT_VER + 1; i < XQC_IDRAFT_VER_NEGOTIATION; i++) {
-            if (xqc_proto_version_value[i] == version) {
+        for (i = XQC_IDRAFT_INIT_VER + 1; i < XQC_VERSION_MAX; i++) {
+            if (xqc_check_proto_version_valid(i)
+                && xqc_proto_version_value[i] == version)
+            {
+                xqc_log(c->log, XQC_LOG_DEBUG, "|version selected|v:%xL|",
+                        (uint64_t)version);
                 c->version = i;
                 return XQC_OK;
             }

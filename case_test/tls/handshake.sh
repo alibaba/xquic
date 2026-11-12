@@ -522,6 +522,80 @@ rm -f aead_confidentiality_server.log
 
 }
 
+# RFC 9369: a connection in QUIC version 2, the Initial secrets and the keys
+# derived with its salt and labels.
+case_tls_handshake_quic_v2_handshake()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 913 > /dev/null
+sleep 1
+echo -e "QUIC version 2 handshake ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 913 > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+v2_selected=`grep -a "|version selected|v:6b3343cf|" slog`
+errlog=`grep_err_log`
+if [ -n "$result" ] && [ -n "$v2_selected" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_handshake" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_handshake" "fail"
+fi
+}
+
+# RFC 9000 Section 6: a server without QUIC version 2 answers its Initial
+# with a Version Negotiation packet, and the client abandons the attempt.
+case_tls_handshake_quic_v2_unsupported()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+sleep 1
+echo -e "QUIC version 2 to a server without it ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 914 > stdlog
+unsupported=`grep -a "|version not supported|v:1798521807|" slog`
+vn=`grep -a "packet parse|version negotiation" clog`
+aborted=`grep -a "version negotiation: aborting connection attempt" clog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+if [ -n "$unsupported" ] && [ -n "$vn" ] && [ -n "$aborted" ] \
+    && [ -z "$result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_unsupported" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_unsupported" "fail"
+fi
+}
+
+# RFC 9369 Sections 3.2 and 3.3.3: a Retry in QUIC version 2, with its
+# packet type and Retry Integrity Tag.
+case_tls_handshake_quic_v2_retry()
+{
+case_test_stop_server
+clear_log
+rm -f test_session xqc_token tp_localhost
+case_test_start_server ${SERVER_BIN} -l d -e -x 915 > /dev/null
+sleep 1
+echo -e "QUIC version 2 Retry ...\c"
+${CLIENT_BIN} -s 1024 -l d -t 1 -E -x 915 > stdlog
+result=`grep ">>>>>>>> pass:1" stdlog`
+retry_sent=`grep -a -E "<==.*xqc_conn_send_retry ok" slog`
+retry_recvd=`grep -a "packet parse|retry" clog`
+v2_selected=`grep -a "|version selected|v:6b3343cf|" slog`
+errlog=`grep_err_log`
+if [ -n "$result" ] && [ -n "$retry_sent" ] && [ -n "$retry_recvd" ] \
+    && [ -n "$v2_selected" ] && [ -z "$errlog" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "quic_v2_retry" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "quic_v2_retry" "fail"
+fi
+}
+
 case_tls_handshake_key_update_stale_deadline()
 {
     # RFC 9001 Sections 6.1 and 6.5: a second key update started while the
@@ -702,6 +776,12 @@ case_test_case "crypto_error_not_fixed_enum" --id native --mode self-reporting -
 case_test_case "aead_confidentiality_boundary_updates_keys" --id native --mode self-reporting --run case_tls_handshake_aead_confidentiality_boundary_updates_keys
 case_test_case "aead_confidentiality_exhaustion_stops_sender" --id native --mode self-reporting --run case_tls_handshake_aead_confidentiality_exhaustion_stops_sender
 case_test_case "key_update_stale_deadline" --id 905 --mode self-reporting --run case_tls_handshake_key_update_stale_deadline
+case_test_case "quic_v2_handshake" --id 913 --mode self-reporting \
+    --run case_tls_handshake_quic_v2_handshake
+case_test_case "quic_v2_unsupported" --id 914 --mode self-reporting \
+    --run case_tls_handshake_quic_v2_unsupported
+case_test_case "quic_v2_retry" --id 915 --mode self-reporting \
+    --run case_tls_handshake_quic_v2_retry
 
 if case_test_is_discovery; then
     case_test_run

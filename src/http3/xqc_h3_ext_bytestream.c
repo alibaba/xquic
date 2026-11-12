@@ -666,6 +666,8 @@ xqc_h3_ext_bytestream_notify_read(xqc_h3_ext_bytestream_t *bs)
                                                            buf->end_time - buf->start_time);
                 }
 
+                /* the application has read the message in the callback */
+                xqc_var_buf_free(merged_buf);
                 
                 bs->bytes_rcvd += data_sz;
                 xqc_log(bs->h3_stream->h3c->log, XQC_LOG_DEBUG, 

@@ -20,4 +20,16 @@ void xqc_test_preferred_addr_challenge_path();
 void xqc_test_preferred_addr_response_and_challenge();
 void xqc_test_preferred_addr_transport_params();
 
+/* a server's move to its preferred address, RFC 9000 9.6.2 */
+void xqc_test_server_preferred_addr_offer();
+void xqc_test_server_preferred_addr_not_offered();
+void xqc_test_server_preferred_addr_migrate();
+void xqc_test_server_preferred_addr_order();
+void xqc_test_server_preferred_addr_no_cid();
+void xqc_test_server_preferred_addr_give_up();
+void xqc_test_server_preferred_addr_new_client_addr();
+void xqc_test_server_preferred_addr_spoofed();
+void xqc_test_server_preferred_addr_padding();
+void xqc_test_server_preferred_addr_multipath();
+
 #endif /* XQC_PREFERRED_ADDR_TEST_H */

@@ -2062,6 +2062,13 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return XQC_OK;
     }
 
+    /* and a server, on the path to its preferred address */
+    if (xqc_conn_server_preferred_addr_on_challenge(conn,
+                                                    path_challenge_data))
+    {
+        return XQC_OK;
+    }
+
     xqc_path_ctx_t *path = NULL;
     if (conn->enable_multipath) {
         path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
@@ -2131,6 +2138,14 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
             return xqc_path_rebinding_on_response(conn, rebinding_path,
                                                   path_response_data,
                                                   packet_in->pkt_recv_time);
+        }
+
+        /* RFC 9000 Section 8.2.3: received on any network path */
+        if (xqc_conn_server_preferred_addr_on_response(conn,
+                                                       path_response_data)
+            == XQC_OK)
+        {
+            return XQC_OK;
         }
 
     } else if (xqc_conn_preferred_addr_on_response(conn, path_response_data)

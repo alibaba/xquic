@@ -331,6 +331,45 @@ typedef struct {
     xqc_bool_t                  recv_from_addr;
 } xqc_preferred_addr_ctx_t;
 
+/*
+ * a server's move to its preferred address, RFC 9000 Section 9.6.2:
+ * OFFERED until it probes the client from there (VALIDATING), MIGRATED
+ * once it sends everything from there, FAILED if it gave up probing
+ */
+typedef struct {
+    xqc_preferred_addr_state_t  state;
+    /* the preferred address reached, and the client's address seen there */
+    unsigned char               local_addr[sizeof(struct sockaddr_in6)];
+    socklen_t                   local_addrlen;
+    unsigned char               peer_addr[sizeof(struct sockaddr_in6)];
+    socklen_t                   peer_addrlen;
+    /* the unused client connection ID that the packets from there carry */
+    xqc_cid_t                   dcid;
+    /* the PATH_CHALLENGE frames sent from there, the last one at time */
+    unsigned char       challenge_data[XQC_PREFERRED_ADDR_MAX_CHALLENGES]
+                                      [XQC_PATH_CHALLENGE_DATA_LEN];
+    uint32_t                    challenge_cnt;
+    xqc_usec_t                  challenge_time;
+    /* once challenged, when the validation is abandoned (RFC 9000 8.2.4) */
+    xqc_usec_t                  deadline;
+    /* toward an unvalidated client address, the anti-amplification limit */
+    uint64_t                    recv_bytes;
+    uint64_t                    sent_bytes;
+    xqc_bool_t                  validated;
+    xqc_bool_t                  non_probing_recvd;
+    /*
+     * the datagram being processed reached dgram_local from dgram_peer,
+     * which count once one of its packets is authenticated (dgram_counted)
+     */
+    xqc_bool_t                  recv_at_addr;
+    xqc_bool_t                  dgram_counted;
+    const struct sockaddr      *dgram_local;
+    unsigned char               dgram_peer[sizeof(struct sockaddr_in6)];
+    socklen_t                   dgram_peerlen;
+    size_t                      dgram_size;
+    uint32_t                    authenticated_pkts;
+} xqc_server_preferred_addr_ctx_t;
+
 
 typedef struct {
     xqc_list_head_t list_head;
@@ -487,6 +526,8 @@ struct xqc_connection_s {
 
     /* client: migration to the server's preferred address */
     xqc_preferred_addr_ctx_t        preferred_addr;
+    /* server: the move to its preferred address */
+    xqc_server_preferred_addr_ctx_t server_preferred_addr;
 
     /* for qlog */
     uint32_t                        MTU_updated_count;    
@@ -808,6 +849,42 @@ void xqc_conn_preferred_addr_on_cid_acked(xqc_connection_t *conn,
     xqc_usec_t now);
 
 void xqc_conn_preferred_addr_on_timeout(xqc_connection_t *conn,
+    xqc_usec_t now);
+
+/*
+ * server: offer the preferred addresses of the connection settings, with a
+ * connection ID of sequence number 1
+ */
+xqc_int_t xqc_conn_server_preferred_addr_init(xqc_connection_t *conn);
+
+/*
+ * server: a datagram reached local_addr from peer_addr, before its packets
+ * are processed
+ */
+void xqc_conn_server_preferred_addr_on_datagram(xqc_connection_t *conn,
+    const struct sockaddr *local_addr, const struct sockaddr *peer_addr,
+    socklen_t peer_addrlen, size_t size);
+
+/*
+ * server: answer there a PATH_CHALLENGE that reached the preferred address,
+ * or drop it; XQC_FALSE if it reached another address
+ */
+xqc_bool_t xqc_conn_server_preferred_addr_on_challenge(
+    xqc_connection_t *conn, unsigned char *challenge_data);
+
+/*
+ * server: a PATH_RESPONSE; -XQC_EIGNORE_PKT if it answers none of the
+ * PATH_CHALLENGE frames sent from the preferred address
+ */
+xqc_int_t xqc_conn_server_preferred_addr_on_response(xqc_connection_t *conn,
+    const unsigned char *response_data);
+
+/* server: a packet is processed, before it is recorded */
+void xqc_conn_server_preferred_addr_on_packet(xqc_connection_t *conn,
+    xqc_packet_in_t *packet_in);
+
+/* server: the packets of a datagram were processed without error */
+void xqc_conn_server_preferred_addr_on_processed(xqc_connection_t *conn,
     xqc_usec_t now);
 
 int xqc_conn_buff_0rtt_datagram(xqc_connection_t *conn, void *data, size_t data_len, uint64_t dgram_id, xqc_data_qos_level_t qos_level);

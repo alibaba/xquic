@@ -4393,25 +4393,43 @@ xqc_conn_update_flow_ctl_settings(xqc_connection_t *conn)
     flow_ctl->fc_max_streams_uni_can_send = remote_settings->max_streams_uni;
 }
 
+/*
+ * The path IDs start to end have become usable: add their connection ID
+ * sets in increasing order, after those of lower path IDs that still wait
+ * for theirs, until XQC_UNUSED_PATH_CID_SETS path IDs have unused sets. The
+ * others get theirs from later calls, as unused ones are used or abandoned.
+ */
 xqc_int_t
-xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end)
+xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint64_t start,
+    uint64_t end)
 {
-    if (conn->enable_multipath) {
-        uint32_t path_id;
-        xqc_int_t ret;
-        /* add cid_set_inner for all paths */
-        for (path_id = start; path_id <= end; path_id++) {
-            ret = xqc_cid_set_add_path(&conn->scid_set, path_id);
-            if (ret != XQC_OK) {
-                return ret;
-            }
+    uint64_t path_id;
+    xqc_int_t ret;
 
-            ret = xqc_cid_set_add_path(&conn->dcid_set, path_id);
-            if (ret != XQC_OK) {
-                return ret;
-            }
-        }
+    if (!conn->enable_multipath) {
+        return XQC_OK;
     }
+
+    for (path_id = xqc_min(start, conn->cid_sets_max_path_id + 1);
+         path_id <= end
+         && conn->scid_set.set_cnt[XQC_CID_SET_UNUSED]
+            < XQC_UNUSED_PATH_CID_SETS;
+         path_id++)
+    {
+        ret = xqc_cid_set_add_path(&conn->scid_set, path_id);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+
+        ret = xqc_cid_set_add_path(&conn->dcid_set, path_id);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+
+        conn->cid_sets_max_path_id = xqc_max(conn->cid_sets_max_path_id,
+                                             path_id);
+    }
+
     return XQC_OK;
 }
 
@@ -5424,6 +5442,13 @@ xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
     xqc_int_t ret = XQC_OK;
     uint8_t unused_limit = 2;
     xqc_cid_set_inner_t *inner_set;
+
+    /* the next unused path IDs replace those that were used or abandoned */
+    ret = xqc_conn_add_path_cid_sets(conn, conn->cid_sets_max_path_id + 1,
+                                     conn->curr_max_path_id);
+    if (ret != XQC_OK) {
+        return ret;
+    }
 
     if (xqc_conn_is_handshake_confirmed(conn)) {
         if (conn->enable_multipath && conn->conn_settings.multipath_version >= XQC_MULTIPATH_10) 

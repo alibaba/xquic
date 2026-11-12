@@ -58,6 +58,9 @@ void xqc_test_conns_hash_reject_non_owner();
  */
 void xqc_test_mp_new_cid_above_curr_max_path_id();
 
+/* connection ID sets for the lowest unused path IDs, whatever the limits */
+void xqc_test_mp_cid_sets_largest_path_id_limit();
+
 /* rejected MP_NEW_CONNECTION_ID frames leave no connection ID set behind */
 void xqc_test_mp_new_cid_rejected_without_cid_set();
 

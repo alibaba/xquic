@@ -156,7 +156,7 @@ make -j
 ### Run testcases
 
 ```bash
-sh ../scripts/xquic_test.sh
+bash ../scripts/xquic_test.sh
 ```
 
 ## Optional WebTransport

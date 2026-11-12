@@ -1,5 +1,5 @@
+#!/bin/bash
 # Copyright (c) 2022, Alibaba Group Holding Limited
-#!/bin/sh
 
 android_archs=(armeabi-v7a arm64-v8a)
 ios_archs=(armv7 arm64 x86_64)

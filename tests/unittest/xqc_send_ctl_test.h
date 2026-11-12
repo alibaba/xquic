@@ -75,6 +75,12 @@ void xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void);
 void xqc_test_send_ctl_lost_interval_log(void);
 
 /*
+ * The PTO line logs its 64-bit values, and the peer's max_ack_delay after
+ * them, in full.
+ */
+void xqc_test_send_ctl_pto_log(void);
+
+/*
  * RFC 9000 14.4: a lost PMTU probe is dropped without a congestion
  * reaction or a loss sample, while an ordinary lost packet still gets
  * both.

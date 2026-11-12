@@ -1736,6 +1736,9 @@ xqc_client_write_mmsg(const struct iovec *msg_iov, unsigned int vlen,
     }
     do {
         set_sys_errno(0);
+
+        g_last_sock_op_time = xqc_now();
+
         if (TEST_DROP) return vlen;
 
         if (g_test_case == 5) { /* socket send fail */
@@ -1788,6 +1791,9 @@ xqc_client_mp_write_mmsg(uint64_t path_id,
     }
     do {
         errno = 0;
+
+        g_last_sock_op_time = xqc_now();
+
         if (TEST_DROP) return vlen;
 
         if (g_test_case == 5) { /* socket send fail */

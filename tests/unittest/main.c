@@ -936,6 +936,12 @@ main(int argc, char *argv[])
                         xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay)
         || !CU_add_test(pSuite, "xqc_test_0rtt_persistent_congestion_default_max_ack_delay",
                         xqc_test_0rtt_persistent_congestion_default_max_ack_delay)
+        || !CU_add_test(pSuite, "xqc_test_conn_attach_pending_ack",
+                        xqc_test_conn_attach_pending_ack)
+        || !CU_add_test(pSuite, "xqc_test_conn_attach_pending_ack_skipped",
+                        xqc_test_conn_attach_pending_ack_skipped)
+        || !CU_add_test(pSuite, "xqc_test_conn_rebinding_challenge_keeps_pending_ack",
+                        xqc_test_conn_rebinding_challenge_keeps_pending_ack)
         || !CU_add_test(pSuite, "xqc_test_pto_space_no_max_ack_delay_before_confirm",
                         xqc_test_pto_space_no_max_ack_delay_before_confirm)
         || !CU_add_test(pSuite, "xqc_test_0rtt_ack_delay_exponent_default_in_parse",

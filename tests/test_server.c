@@ -1139,9 +1139,12 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
 {
 
     DEBUG;
-    /* user_conn_t *user_conn = (xqc_server_ctx_t*)conn_user_data; */
-
-    user_conn_t *user_conn = calloc(1, sizeof(user_conn_t));
+    /*
+     * the user_conn of xqc_server_accept(): xqc_h3_conn_set_user_data()
+     * below keeps it as the transport user data, and
+     * xqc_server_h3_conn_close_notify() frees it
+     */
+    user_conn_t *user_conn = (user_conn_t *)conn_user_data;
 
     user_conn->h3_conn = h3_conn;
 
@@ -2371,12 +2374,21 @@ int
 xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data)
 {
     DEBUG;
+    /*
+     * xqc_server_refuse() frees user_conn only for an accepted connection:
+     * a refusal frees it here, and only an accepted connection gets it
+     */
+    if (g_test_case == 11) {
+        g_test_case = -1;
+        return -1;
+    }
+
     user_conn_t *user_conn = calloc(1, sizeof(*user_conn));
-    xqc_conn_set_transport_user_data(conn, user_conn);
 
     xqc_int_t ret = xqc_conn_get_peer_addr(conn, (struct sockaddr *)&user_conn->peer_addr,
                                            sizeof(user_conn->peer_addr), &user_conn->peer_addrlen);
     if (ret != XQC_OK) {
+        free(user_conn);
         return -1;
     }
 
@@ -2384,19 +2396,16 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
 
     memcpy(&user_conn->cid, cid, sizeof(*cid));
 
-    if (g_test_case == 11) {
-        g_test_case = -1;
-        return -1;
-    }
-
     if (g_batch) {
         int ret = connect(ctx.fd, (struct sockaddr *)&user_conn->peer_addr, user_conn->peer_addrlen);
         if (ret != 0) {
             printf("connect error, errno: %d\n", get_sys_errno());
+            free(user_conn);
             return ret;
         }
     }
 
+    xqc_conn_set_transport_user_data(conn, user_conn);
     return 0;
 }
 
@@ -2699,14 +2708,14 @@ xqc_retry_packet_check(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_c
     return XQC_FALSE; 
 }
 
+/*
+ * SIGINT and SIGTERM, run by the event loop: main() destroys the engine
+ * once the loop has returned, never in the middle of an engine call
+ */
 void
-stop(int signo)
+stop(evutil_socket_t signo, short what, void *arg)
 {
     event_base_loopbreak(eb);
-    xqc_engine_destroy(ctx.engine);
-    destroy_cdf();
-    fflush(stdout);
-    exit(0);
 }
 
 void usage(int argc, char *argv[]) {
@@ -2754,9 +2763,6 @@ int main(int argc, char *argv[]) {
 
     /* line-buffer stdout so runtime markers are flushed promptly for case_test.sh to grep */
     setvbuf(stdout, NULL, _IOLBF, 0);
-
-    signal(SIGINT, stop);
-    signal(SIGTERM, stop);
 
     g_send_body_size = 1024*1024;
     g_send_body_size_defined = 0;
@@ -3300,6 +3306,12 @@ int main(int argc, char *argv[]) {
 
     eb = event_base_new();
     ctx.ev_engine = event_new(eb, -1, 0, xqc_server_engine_callback, &ctx);
+
+    /* SIGINT and SIGTERM leave the event loop through stop() */
+    struct event *ev_sigint = evsignal_new(eb, SIGINT, stop, NULL);
+    struct event *ev_sigterm = evsignal_new(eb, SIGTERM, stop, NULL);
+    event_add(ev_sigint, NULL);
+    event_add(ev_sigterm, NULL);
 
 #if defined(XQC_SUPPORT_SENDMMSG) && !defined(XQC_SYS_WINDOWS)
     if (g_batch) {

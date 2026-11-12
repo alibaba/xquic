@@ -850,68 +850,70 @@ xqc_decode_fec_max_symbols_num(xqc_transport_params_t *params, xqc_transport_par
     XQC_DECODE_VINT_VALUE(&params->fec_max_symbols_num, p, end);
 }
 
+/*
+ * Read a FEC scheme list: the number of schemes, then each scheme, every one
+ * a varint. A list that ends early is malformed; a scheme this endpoint does
+ * not support is skipped.
+ */
 static xqc_int_t
-xqc_decode_encoder_schemes(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
-    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+xqc_decode_fec_schemes(const uint8_t *p, const uint8_t *end,
+                       xqc_fec_schemes_e *schemes, xqc_int_t *schemes_num)
 {
-    int         vlen;
-    uint64_t    schemes_len, curr_scheme;
-    xqc_int_t   i, tmp_len;
-    
-    tmp_len = 0;
-    schemes_len = curr_scheme = 0;
-    vlen = xqc_vint_read(p, end, &schemes_len);
-    
-    if (schemes_len < 0 || schemes_len > XQC_FEC_MAX_SCHEME_NUM) {
+    uint64_t count, scheme, i;
+    xqc_int_t num = 0;
+    int vlen;
+
+    vlen = xqc_vint_read(p, end, &count);
+    if (vlen < 0 || count > XQC_FEC_MAX_SCHEME_NUM) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
     }
-
-    params->fec_encoder_schemes_num = schemes_len;
     p += vlen;
 
-    for (i = 0; i < schemes_len; i++) {
-        vlen = xqc_vint_read(p, end, &curr_scheme);
-        if (xqc_set_fec_scheme(curr_scheme, &params->fec_encoder_schemes[tmp_len]) == XQC_OK) {
-            tmp_len++;
+    for (i = 0; i < count; i++) {
+        vlen = xqc_vint_read(p, end, &scheme);
+        if (vlen < 0) {
+            return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
         }
         p += vlen;
+
+        if (xqc_set_fec_scheme(scheme, &schemes[num]) == XQC_OK) {
+            num++;
+        }
     }
 
-    params->enable_encode_fec = 1;
-    params->fec_encoder_schemes_num = tmp_len;
+    *schemes_num = num;
     return XQC_OK;
 }
 
 static xqc_int_t
-xqc_decode_decoder_schemes(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
-    const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
+xqc_decode_encoder_schemes(xqc_transport_params_t *params,
+                           xqc_transport_params_type_t exttype,
+                           const uint8_t *p, const uint8_t *end,
+                           uint64_t param_type, uint64_t param_len)
 {
-    int      vlen;
-    uint64_t schemes_len, curr_scheme;
-    xqc_int_t i, tmp_len;
-
-    tmp_len = 0;
-    schemes_len = curr_scheme = 0;
-    vlen = xqc_vint_read(p, end, &schemes_len);
-
-    if (schemes_len < 0 || schemes_len > XQC_FEC_MAX_SCHEME_NUM) {
-        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    xqc_int_t ret = xqc_decode_fec_schemes(p, end, params->fec_encoder_schemes,
+                                           &params->fec_encoder_schemes_num);
+    if (ret != XQC_OK) {
+        return ret;
     }
 
-    params->fec_decoder_schemes_num = schemes_len;
-    p += vlen;
+    params->enable_encode_fec = 1;
+    return XQC_OK;
+}
 
-    for (i = 0; i < schemes_len; i++) {
-        vlen = xqc_vint_read(p, end, &curr_scheme);
-        if (xqc_set_fec_scheme(curr_scheme, &params->fec_decoder_schemes[tmp_len]) == XQC_OK) {
-            tmp_len++;
-        }
-        p += vlen;
+static xqc_int_t
+xqc_decode_decoder_schemes(xqc_transport_params_t *params,
+                           xqc_transport_params_type_t exttype,
+                           const uint8_t *p, const uint8_t *end,
+                           uint64_t param_type, uint64_t param_len)
+{
+    xqc_int_t ret = xqc_decode_fec_schemes(p, end, params->fec_decoder_schemes,
+                                           &params->fec_decoder_schemes_num);
+    if (ret != XQC_OK) {
+        return ret;
     }
 
     params->enable_decode_fec = 1;
-    params->fec_decoder_schemes_num = tmp_len;
-
     return XQC_OK;
 }
 #endif
@@ -936,7 +938,7 @@ static xqc_int_t xqc_decode_max_receive_timestamps_per_ack(xqc_transport_params_
 static xqc_int_t xqc_decode_receive_timestamps_exponent(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
-    size_t nread = xqc_vint_read(p, end, &params->receive_timestamps_exponent);
+    ssize_t nread = xqc_vint_read(p, end, &params->receive_timestamps_exponent);
     /* [TRANSPORT] Values above 20 are invalid */
     if (nread < 0 || params->receive_timestamps_exponent > XQC_MAX_RECEIVE_TIMESTAMPS_EXPONENT) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;

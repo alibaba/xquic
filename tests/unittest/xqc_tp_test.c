@@ -774,6 +774,109 @@ xqc_test_check_transport_params_cids(void)
     xqc_tp_test_check_client_no_retry_but_rscid_present();
 }
 
+/* draft-smith-quic-receive-ts: receive_timestamps_exponent is at most 20. */
+void
+xqc_test_tp_receive_timestamps_exponent(void)
+{
+    uint8_t tp[] = {
+        0x8f, 0xf0, 0xa0, 0x03, 0x01, 0x14 /* 0xff0a003 = 20 */
+    };
+    uint8_t too_large[] = {
+        0x8f, 0xf0, 0xa0, 0x03, 0x01, 0x15 /* 0xff0a003 = 21 */
+    };
+    xqc_transport_params_t params;
+    xqc_int_t ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp, sizeof(tp));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.receive_timestamps_exponent, 20);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      too_large, sizeof(too_large));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+}
+
+/* A receive_timestamps_exponent value that ends inside its varint. */
+void
+xqc_test_tp_receive_timestamps_exponent_truncated(void)
+{
+    uint8_t empty[] = {0x8f, 0xf0, 0xa0, 0x03, 0x00};
+    /* 0x40 starts a two-byte varint, but the value is one byte long */
+    uint8_t cut[] = {0x8f, 0xf0, 0xa0, 0x03, 0x01, 0x40};
+    xqc_transport_params_t params;
+    xqc_int_t ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      empty, sizeof(empty));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      cut, sizeof(cut));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+}
+
+#ifdef XQC_ENABLE_FEC
+/* A FEC scheme list: its length, then each scheme, unknown ones skipped. */
+void
+xqc_test_tp_fec_schemes(void)
+{
+    /* encoder schemes: XOR, the unknown 7, Reed-Solomon */
+    uint8_t encoder[] = {0x80, 0xfe, 0xce, 0x01, 0x04, 0x03, 0x0b, 0x07, 0x08};
+    /* decoder schemes: packet mask */
+    uint8_t decoder[] = {0x80, 0xfe, 0xcd, 0x02, 0x02, 0x01, 0x0c};
+    xqc_transport_params_t params;
+    xqc_int_t ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      encoder, sizeof(encoder));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.enable_encode_fec, 1);
+    CU_ASSERT_EQUAL(params.fec_encoder_schemes_num, 2);
+    CU_ASSERT_EQUAL(params.fec_encoder_schemes[0], XQC_XOR_CODE);
+    CU_ASSERT_EQUAL(params.fec_encoder_schemes[1], XQC_REED_SOLOMON_CODE);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      decoder, sizeof(decoder));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.enable_decode_fec, 1);
+    CU_ASSERT_EQUAL(params.fec_decoder_schemes_num, 1);
+    CU_ASSERT_EQUAL(params.fec_decoder_schemes[0], XQC_PACKET_MASK_CODE);
+}
+
+/* FEC scheme lists that end before their length or a scheme does. */
+void
+xqc_test_tp_fec_schemes_truncated(void)
+{
+    uint8_t no_length[] = {0x80, 0xfe, 0xce, 0x01, 0x00};
+    /* two encoder schemes announced, one present */
+    uint8_t short_encoder[] = {0x80, 0xfe, 0xce, 0x01, 0x02, 0x02, 0x0b};
+    /* two decoder schemes announced, one present */
+    uint8_t short_decoder[] = {0x80, 0xfe, 0xcd, 0x02, 0x02, 0x02, 0x08};
+    /* 0x40 starts a two-byte scheme that the value cuts */
+    uint8_t cut_scheme[] = {0x80, 0xfe, 0xce, 0x01, 0x02, 0x01, 0x40};
+    uint8_t *cases[] = {no_length, short_encoder, short_decoder, cut_scheme};
+    size_t lens[] = {sizeof(no_length), sizeof(short_encoder),
+                     sizeof(short_decoder), sizeof(cut_scheme)};
+    xqc_transport_params_t params;
+    size_t i;
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        memset(&params, 0, sizeof(params));
+        CU_ASSERT_EQUAL(xqc_decode_transport_params(
+                            &params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS, cases[i],
+                            lens[i]),
+                        -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+    }
+}
+#endif
+
 /*
  * RFC 9000 Section 18: the Transport Parameter Length field gives the length
  * of the value in bytes, so a value whose own encoding is longer than the

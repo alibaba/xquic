@@ -988,6 +988,16 @@ main(int argc, char **argv)
         puts("ok 1 - unsupported # SKIP test not implemented");
         return 127;
     }
+    if (!strncmp(url, "https://", 8)) {
+        unsigned index = 0;
+        for (unsigned i = 0; i < ncases; i++) {
+            if (!test || !strcmp(test, xqc_interop_cases[i])) {
+                printf("ok %u - %s # SKIP WebTransport not implemented\n",
+                       ++index, xqc_interop_cases[i]);
+            }
+        }
+        return 127;
+    }
     if (xqc_interop_url(&app, url)) {
         puts("Bail out! invalid/unsupported URL (IPv4 native QUIC)");
         return 1;

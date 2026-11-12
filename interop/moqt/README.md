@@ -6,6 +6,7 @@ Native QUIC. Build it with `./scripts/validate.sh build --feature moqt`.
 
 ```sh
 ./build/validation/tests/moqt_interop --list
+python3 interop/moqt/test_cli.py
 RELAY_URL=moqt://localhost:4443/ TLS_DISABLE_VERIFY=1 \
     ./build/validation/tests/moqt_interop
 ./build/validation/tests/moqt_interop --server --port 4443 \

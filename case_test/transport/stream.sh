@@ -222,19 +222,42 @@ grep_err_log|grep -a -v stream
 clear_log
 echo -e "Reset stream when receiving...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 21 > stdlog
-reset=`grep -a "xqc_write_reset_stream_to_packet" clog`
-# RFC 9000 Sections 3.1 and 3.4: an acknowledged send stays Data Recvd.
-flag=`grep -a 'xqc_destroy_stream|err:0x10c|.*send_state:[35]|recv_state:5|stream_id:0|' clog`
+# RFC 9000 Sections 3.1 and 3.4: the client closes the request at the first
+# bytes of the response. A send side acknowledged by then stays Data Recvd
+# and sends no RESET_STREAM. The server may still delay its acknowledgment
+# of the last request packet while the response goes out: a send side still
+# in Data Sent sends RESET_STREAM and ends in Reset Recvd.
+close=`grep -a -m1 -o 'xqc_stream_close_with_error|stream_id:0|stream_state_send:[0-9]*' clog`
+reset=`grep -a "xqc_write_reset_stream_to_packet|stream_id:0|" clog`
+case "$close" in
+*stream_state_send:3)
+    end_state=3
+    reset_mismatch="$reset"
+    ;;
+*stream_state_send:2)
+    end_state=5
+    reset_mismatch=""
+    if [ -z "$reset" ]; then
+        reset_mismatch="no RESET_STREAM from Data Sent"
+    fi
+    ;;
+*)
+    end_state=none
+    reset_mismatch=""
+    ;;
+esac
+flag=`grep -a "xqc_destroy_stream|err:0x10c|.*send_state:${end_state}|recv_state:5|stream_id:0|" clog`
 errlog=`grep_err_log|grep -a -v stream`
-if [ -n "$flag" ] && [ -z "$errlog" ] && [ -z "$reset" ]; then
+if [ -n "$flag" ] && [ -z "$errlog" ] && [ -z "$reset_mismatch" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "reset_stream_when_receiving" "pass"
 else
     echo ">>>>>>>> pass:0"
     case_print_result "reset_stream_when_receiving" "fail"
+    echo "$close"
     echo "$flag"
     echo "$errlog"
-    echo "$reset"
+    echo "$reset_mismatch"
 fi
 
 }

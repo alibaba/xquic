@@ -125,4 +125,17 @@ static inline int64_t xqc_get_varint_fb(const uint8_t *p) { return *p & 0x3f; }
 size_t xqc_put_varint_len(uint64_t n);
 uint8_t *xqc_put_varint(uint8_t *p, uint64_t n);
 
+/* MoQT draft-22 section 8.1; separate from the QUIC varint format above. */
+#define XQC_VI64_MAX_LEN 9
+
+size_t xqc_vi64_len(uint64_t value);
+
+/*
+ * Read/write one vi64 in [p, end), returning its byte count or -1 if short.
+ * On failure the output is unchanged. Write uses the minimum width; read
+ * accepts non-minimum widths. Pointers must designate valid buffer storage.
+ */
+xqc_int_t xqc_vi64_write(uint8_t *p, const uint8_t *end, uint64_t value);
+xqc_int_t xqc_vi64_read(const uint8_t *p, const uint8_t *end, uint64_t *value);
+
 #endif /* _XQC_VARIABLE_LEN_INT_H_INCLUDED_ */

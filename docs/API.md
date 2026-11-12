@@ -1011,3 +1011,19 @@ Get connection's user_data by request
 xqc_stream_id_t xqc_h3_stream_id(xqc_h3_request_t *h3_request);
 ```
 Get the stream_id of QUIC Transport stream on which the h3 request stream relies.
+
+# MoQT APIs
+
+Build with `XQC_ENABLE_MOQ=ON` and include
+[`moq/xqc_moqt.h`](../include/moq/xqc_moqt.h) for the separate draft-22
+Native QUIC endpoint API. Configure version 22 explicitly and register its
+ALPN with `xqc_moqt_init_alpn()`. Create the Session in the connection-create
+callback, start it after the QUIC handshake, and destroy it in the
+connection-close callback. The required `on_setup` callback supplies policy;
+readiness additionally requires both SETUP messages to complete.
+
+The [MoQT protocol specification](../spec/moqt/moqt-protocol.md) defines
+request, subscription, incremental Object, FETCH/Fill, and discovery APIs,
+borrowed-view lifetimes, and current capability gaps. Existing `xqc_moq_*`
+interfaces retain their draft-05 behavior. Relay and draft-22 resumption are
+separate planned capabilities.

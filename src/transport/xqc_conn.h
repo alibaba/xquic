@@ -602,6 +602,10 @@ xqc_int_t xqc_conn_enc_packet(xqc_connection_t *conn,
     xqc_path_ctx_t *path, xqc_packet_out_t *packet_out,
     char *enc_pkt, size_t enc_pkt_cap, size_t *enc_pkt_len, xqc_usec_t current_time);
 
+/* add the ACK frame held by the delayed-ACK timer to a packet being sent */
+void xqc_conn_attach_pending_ack(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_out_t *packet_out, int congest, uint32_t schedule_bytes);
+
 void xqc_conn_transmit_pto_probe_packets(xqc_connection_t *conn);
 void xqc_conn_transmit_pto_probe_packets_batch(xqc_connection_t *conn);
 void xqc_conn_retransmit_lost_packets(xqc_connection_t *conn);

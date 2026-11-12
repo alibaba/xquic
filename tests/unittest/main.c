@@ -31,7 +31,9 @@
 #include "xqc_bbr2_test.h"
 #include "xqc_packet_test.h"
 #include "xqc_stream_frame_test.h"
+#include "xqc_ack_frame_test.h"
 #include "xqc_process_frame_test.h"
+#include "xqc_ecn_test.h"
 #include "xqc_tp_test.h"
 #include "xqc_tls_test.h"
 #include "xqc_crypto_test.h"
@@ -595,11 +597,42 @@ main(int argc, char *argv[])
                         xqc_test_ack_range_zero_boundary)
         || !CU_add_test(pSuite, "xqc_test_ack_range_negative_rejected",
                         xqc_test_ack_range_negative_rejected)
+        /* ACK and ACK_MP, with and without ECN Counts (RFC 9000 19.3) */
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_golden",
+                        xqc_test_ack_frame_golden)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_next_frame",
+                        xqc_test_ack_frame_next_frame)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_negative_pn",
+                        xqc_test_ack_frame_negative_pn)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_truncated",
+                        xqc_test_ack_frame_truncated)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_range_count",
+                        xqc_test_ack_frame_range_count)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_fuzz",
+                        xqc_test_ack_frame_fuzz)
+        || !CU_add_test(pSuite, "xqc_test_ack_frame_ext_timestamps",
+                        xqc_test_ack_frame_ext_timestamps)
         /* issue #632: ACK_ECN frame parsing (RFC 9000 19.3) */
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_normal_parse", xqc_test_ack_ecn_normal_parse)
         || !CU_add_test(pSuite, "xqc_test_ack_plain_regression", xqc_test_ack_plain_regression)
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_truncated", xqc_test_ack_ecn_truncated)
         || !CU_add_test(pSuite, "xqc_test_ack_ecn_followed_by_ping", xqc_test_ack_ecn_followed_by_ping)
+        /* RFC 9000 Section 13.4, RFC 9002 Section 7.1: ECN */
+        || !CU_add_test(pSuite, "xqc_test_ecn_recv_counts",
+                        xqc_test_ecn_recv_counts)
+        || !CU_add_test(pSuite, "xqc_test_ecn_ack_frame_counts",
+                        xqc_test_ecn_ack_frame_counts)
+        || !CU_add_test(pSuite, "xqc_test_ecn_ack_mp_frame_counts",
+                        xqc_test_ecn_ack_mp_frame_counts)
+        || !CU_add_test(pSuite, "xqc_test_ecn_marking", xqc_test_ecn_marking)
+        || !CU_add_test(pSuite, "xqc_test_ecn_write_socket",
+                        xqc_test_ecn_write_socket)
+        || !CU_add_test(pSuite, "xqc_test_ecn_validation",
+                        xqc_test_ecn_validation)
+        || !CU_add_test(pSuite, "xqc_test_ecn_validation_on_ack",
+                        xqc_test_ecn_validation_on_ack)
+        || !CU_add_test(pSuite, "xqc_test_ecn_ce_congestion_event",
+                        xqc_test_ecn_ce_congestion_event)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_zero_len_cid", xqc_test_new_conn_id_zero_len_cid)
         || !CU_add_test(pSuite, "xqc_test_gen_new_conn_id_frame_min_cid",
                         xqc_test_gen_new_conn_id_frame_min_cid)

@@ -66,6 +66,66 @@ case_test_case "hq_request_fin" --id 1702 --run hq_request_fin --timeout 12
 case_test_case "hq_request_delayed_fin" --id 1703 \
     --run hq_request_delayed_fin --timeout 12
 
+# Download a resource from the demo server, which marks its datagrams ECT(0)
+# and reports the codepoints it receives (-3); the client does with
+# client_ecn set to -3.
+demo_ecn_transfer()
+{
+    local name="$1"
+    local client_ecn="$2"
+    local port="${CASE_TEST_PORT:-8443}"
+    local build_dir
+    local status=0
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    rm -rf test_session tp_localhost xqc_token ecn-downloads
+    clear_log
+    mkdir -p ecn-downloads
+    head -c 100000 /dev/urandom > ecn-resource
+
+    case_test_start_server \
+        "${CASE_TEST_SERVER_BIN:-${build_dir}/demo/demo_server}" \
+        -p "${port}" -D "${CASE_TEST_WORK_DIR}" -l d -L slog -3 \
+        > /dev/null 2>&1
+
+    "${build_dir}/demo/demo_client" -a 127.0.0.1 -p "${port}" -l d -L clog \
+        -D ecn-downloads -U "https://127.0.0.1:${port}/ecn-resource" -K 10 \
+        -o ${client_ecn} > stdlog 2>&1 || status=1
+
+    kill -0 "${CASE_TEST_SERVER_PID}" 2> /dev/null || status=1
+    case_test_stop_server
+    case_test_snapshot_case_logs "${name}"
+
+    [[ "${status}" -eq 0 ]] || return 1
+    cmp -s ecn-resource ecn-downloads/ecn-resource || return 1
+}
+
+# RFC 9000 Section 13.4: both endpoints mark, report and validate ECN.
+demo_ecn_validated()
+{
+    local counts='|ACK_ECN frame ECN counts consumed|type:[0-9a-f]*|ect0:[1-9]'
+
+    demo_ecn_transfer demo_ecn_validated -3 || return 1
+    grep -a -q "${counts}" slog || return 1
+    grep -a -q "${counts}" clog || return 1
+    grep -a -q '|ECN validated|path:0|' slog || return 1
+    grep -a -q '|ECN validated|path:0|' clog || return 1
+    ! grep -a -q 'ECN validation failed' slog clog
+}
+
+# RFC 9000 Section 13.4.2.1: a peer that reports no ECN counts fails the
+# validation, and the server stops marking.
+demo_ecn_not_reported()
+{
+    demo_ecn_transfer demo_ecn_not_reported "" || return 1
+    grep -a -q '|ECN validation failed|path:0|no ECN counts|' slog || return 1
+    ! grep -a -q '|ACK_ECN frame ECN counts consumed|' slog
+}
+
+case_test_case "demo_ecn_validated" --id native \
+    --run demo_ecn_validated --timeout 20
+case_test_case "demo_ecn_not_reported" --id native \
+    --run demo_ecn_not_reported --timeout 20
 if case_test_is_discovery; then
     case_test_run
     exit 0

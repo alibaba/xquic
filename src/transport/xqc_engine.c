@@ -1343,6 +1343,28 @@ after_process:
 }
 
 
+/*
+ * RFC 9000 Section 13.4.1: the packets of the datagram are counted with its
+ * ECN codepoint, which the engine keeps while it processes the datagram.
+ */
+xqc_int_t
+xqc_engine_packet_process_ecn(xqc_engine_t *engine,
+    const unsigned char *packet_in_buf, size_t packet_in_size,
+    const struct sockaddr *local_addr, socklen_t local_addrlen,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    xqc_usec_t recv_time, xqc_ecn_codepoint_t ecn, void *user_data)
+{
+    xqc_int_t ret;
+
+    engine->recv_ecn = ecn & 0x03;
+    ret = xqc_engine_packet_process(engine, packet_in_buf, packet_in_size,
+                                    local_addr, local_addrlen, peer_addr,
+                                    peer_addrlen, recv_time, user_data);
+    engine->recv_ecn = XQC_ECN_NOT_ECT;
+    return ret;
+}
+
+
 
 
 

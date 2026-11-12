@@ -673,6 +673,11 @@ xqc_conn_has_undecrypt_packets(xqc_connection_t *conn)
 xqc_int_t xqc_conn_process_packet(xqc_connection_t *c, const unsigned char *packet_in_buf,
     size_t packet_in_size, xqc_usec_t recv_time);
 
+/* process an UDP datagram carried with the ECN codepoint ecn */
+xqc_int_t xqc_conn_process_packet_ecn(xqc_connection_t *c,
+    const unsigned char *packet_in_buf, size_t packet_in_size,
+    xqc_usec_t recv_time, uint8_t ecn);
+
 void xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid, 
     size_t packet_in_size, xqc_usec_t recv_time);
 

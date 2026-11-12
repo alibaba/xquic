@@ -2334,6 +2334,16 @@ xqc_stream_reset(xqc_stream_t *stream, uint64_t error_code)
     {
         return -XQC_EPARAM;
     }
+    xqc_connection_t *conn = stream->stream_conn;
+    /*
+     * A closing connection sends no RESET_STREAM, as it sends no STREAM
+     * frame. It may be closed and in its destruction, whose callbacks may
+     * call this function: queuing it again would leave the engine with the
+     * freed connection.
+     */
+    if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return -XQC_CLOSING;
+    }
     if (stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_RECVD
         && stream->reset_at.send_state != XQC_RESET_AT_SENT)
     {
@@ -2341,7 +2351,6 @@ xqc_stream_reset(xqc_stream_t *stream, uint64_t error_code)
     }
     xqc_int_t ret = xqc_stream_do_reset(stream, error_code);
     if (ret == XQC_OK) {
-        xqc_connection_t *conn = stream->stream_conn;
         xqc_engine_remove_wakeup_queue(conn->engine, conn);
         xqc_engine_add_active_queue(conn->engine, conn);
     }

@@ -132,6 +132,145 @@ xqc_test_engine_drop_small_unknown_0rtt()
 }
 
 
+/*
+ * What the public calls that send on a connection returned, and the
+ * engine queue that each of them left the connection in, if any.
+ */
+typedef struct xqc_test_conn_send_calls_s {
+    xqc_connection_t   *conn;
+    xqc_stream_t       *reset_stream;
+    int                 runs;
+    xqc_int_t           continue_ret;
+    xqc_int_t           ping_ret;
+    xqc_int_t           reset_ret;
+    xqc_conn_flag_t     continue_queue;
+    xqc_conn_flag_t     ping_queue;
+    xqc_conn_flag_t     reset_queue;
+} xqc_test_conn_send_calls_t;
+
+/* take the connection out of the engine's queues, returning its queue */
+static xqc_conn_flag_t
+xqc_test_conn_dequeue(xqc_connection_t *conn)
+{
+    xqc_conn_flag_t queue = conn->conn_flag
+        & (XQC_CONN_FLAG_TICKING | XQC_CONN_FLAG_WAIT_WAKEUP);
+
+    xqc_engine_remove_active_queue(conn->engine, conn);
+    xqc_engine_remove_wakeup_queue(conn->engine, conn);
+    return queue;
+}
+
+/*
+ * Call xqc_conn_continue_send(), xqc_conn_send_ping() and
+ * xqc_stream_reset() on the connection. The connection is taken out of the
+ * engine's queues after each call, so that a destroyed connection that a
+ * call queued again does not stay in the engine.
+ */
+static void
+xqc_test_conn_send_calls_run(xqc_test_conn_send_calls_t *calls)
+{
+    xqc_connection_t *conn = calls->conn;
+    const xqc_cid_t *cid = &conn->scid_set.user_scid;
+
+    calls->continue_ret = xqc_conn_continue_send(conn->engine, cid);
+    calls->continue_queue = xqc_test_conn_dequeue(conn);
+    calls->ping_ret = xqc_conn_send_ping(conn->engine, cid, NULL);
+    calls->ping_queue = xqc_test_conn_dequeue(conn);
+    calls->reset_ret = xqc_stream_reset(calls->reset_stream, 9);
+    calls->reset_queue = xqc_test_conn_dequeue(conn);
+    calls->runs++;
+}
+
+static xqc_int_t
+xqc_test_conn_send_calls_on_stream_close(xqc_stream_t *stream,
+    void *user_data)
+{
+    xqc_test_conn_send_calls_t *calls = user_data;
+
+    if (calls != NULL) {
+        xqc_test_conn_send_calls_run(calls);
+    }
+    return XQC_OK;
+}
+
+/*
+ * The main logic destroys a connection whose idle timeout expired once it
+ * is closed. The callbacks of its destruction must not put it in an
+ * engine queue again: the main logic would take the freed connection out
+ * of the active queue next. Here the close callback of its first stream
+ * sends on it and resets its second stream.
+ */
+void
+xqc_test_engine_closed_conn_not_queued()
+{
+    xqc_test_conn_send_calls_t calls = {0};
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_engine_t *engine;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    engine = conn->engine;
+    calls.conn = conn;
+    conn->app_proto_cbs.stream_cbs.stream_close_notify =
+        xqc_test_conn_send_calls_on_stream_close;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(xqc_stream_create(engine,
+        &conn->scid_set.user_scid, NULL, &calls));
+    calls.reset_stream = xqc_stream_create(engine, &conn->scid_set.user_scid,
+                                           NULL, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(calls.reset_stream);
+
+    conn->conn_flag |= XQC_CONN_FLAG_TIME_OUT;
+    xqc_engine_remove_wakeup_queue(engine, conn);
+    xqc_engine_add_active_queue(engine, conn);
+    xqc_engine_main_logic(engine);
+
+    /* the connection is freed: only what the callback recorded remains */
+    CU_ASSERT(calls.runs == 1);
+    CU_ASSERT(calls.continue_ret == XQC_OK);
+    CU_ASSERT(calls.continue_queue == 0);
+    CU_ASSERT(calls.ping_ret == -XQC_CLOSING);
+    CU_ASSERT(calls.ping_queue == 0);
+    CU_ASSERT(calls.reset_ret == -XQC_CLOSING);
+    CU_ASSERT(calls.reset_queue == 0);
+
+    xqc_engine_destroy(engine);
+}
+
+/*
+ * The same calls on an open connection, from a callback that the running
+ * engine makes: each of them puts the connection in the active queue.
+ */
+void
+xqc_test_engine_open_conn_send_calls_queue()
+{
+    xqc_test_conn_send_calls_t calls = {0};
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_engine_t *engine;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    engine = conn->engine;
+    calls.conn = conn;
+    calls.reset_stream = xqc_stream_create(engine, &conn->scid_set.user_scid,
+                                           NULL, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(calls.reset_stream);
+
+    engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
+    xqc_test_conn_dequeue(conn);
+    xqc_test_conn_send_calls_run(&calls);
+    engine->eng_flag &= ~XQC_ENG_FLAG_RUNNING;
+
+    CU_ASSERT(calls.continue_ret == XQC_OK);
+    CU_ASSERT(calls.continue_queue == XQC_CONN_FLAG_TICKING);
+    CU_ASSERT(calls.ping_ret == XQC_OK);
+    CU_ASSERT(calls.ping_queue == XQC_CONN_FLAG_TICKING);
+    CU_ASSERT(calls.reset_ret == XQC_OK);
+    CU_ASSERT(calls.reset_queue == XQC_CONN_FLAG_TICKING);
+
+    /* xqc_engine_destroy() destroys the connections of its queues */
+    xqc_engine_add_active_queue(engine, conn);
+    xqc_engine_destroy(engine);
+}
+
+
 void
 xqc_test_engine_min_initial_not_pre_dropped()
 {

@@ -9,6 +9,8 @@ void xqc_test_engine_create();
 void xqc_test_engine_packet_process();
 void xqc_test_engine_drop_small_initial();
 void xqc_test_engine_drop_small_unknown_0rtt();
+void xqc_test_engine_closed_conn_not_queued();
+void xqc_test_engine_open_conn_send_calls_queue();
 void xqc_test_engine_min_initial_not_pre_dropped();
 void xqc_test_engine_min_unknown_0rtt_not_pre_dropped();
 void xqc_test_engine_lb_cid_encryption();

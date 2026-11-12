@@ -1979,7 +1979,7 @@ xqc_int_t xqc_conn_get_local_addr(xqc_connection_t *conn, struct sockaddr *addr,
 
 /**
  * Send PING to peer, if ack received, conn_ping_acked will callback with user_data
- * @return 0 for success, <0 for error
+ * @return 0 for success, -XQC_CLOSING for a closing connection, <0 for error
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_send_ping(xqc_engine_t *engine, const xqc_cid_t *cid, void *ping_user_data);
@@ -2216,13 +2216,15 @@ XQC_EXPORT_PUBLIC_API
 uint8_t xqc_engine_config_get_cid_len(xqc_engine_t *engine);
 
 /**
- * User should call xqc_conn_continue_send when write event ready
+ * User should call xqc_conn_continue_send when write event ready.
+ * A draining or closed connection has nothing more to send.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_conn_continue_send(xqc_engine_t *engine, const xqc_cid_t *cid);
 
 /**
- * User should call xqc_conn_continue_send when write event ready
+ * User should call xqc_conn_continue_send when write event ready.
+ * A draining or closed connection has nothing more to send.
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_conn_continue_send_by_conn(xqc_connection_t *conn);

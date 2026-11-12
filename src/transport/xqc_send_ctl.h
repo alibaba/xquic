@@ -192,6 +192,10 @@ typedef struct xqc_send_ctl_s {
     uint8_t                     ctl_ecn_last_write;
     /* packets sent with ECT(0) while testing */
     uint32_t                    ctl_ecn_testing_sent;
+    /* the packets sent with ECT(0) while testing that were lost */
+    uint32_t                    ctl_ecn_testing_lost;
+    /* the datagrams of the last burst written with ECT(0), from its start */
+    uint32_t                    ctl_ecn_burst_marked;
     /* the ECN counts of the last ACK frame validated, per space */
     xqc_ecn_counts_t            ctl_ecn_acked[XQC_PNS_N];
 
@@ -270,6 +274,8 @@ xqc_bool_t xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl, xqc_p
 void xqc_send_ctl_congestion_event(xqc_send_ctl_t *send_ctl, xqc_usec_t sent_time);
 
 uint8_t xqc_send_ctl_ecn_on_write(xqc_send_ctl_t *send_ctl);
+uint32_t xqc_send_ctl_ecn_burst_marks(xqc_send_ctl_t *send_ctl, uint32_t cnt);
+void xqc_send_ctl_ecn_on_lost(xqc_send_ctl_t *send_ctl);
 
 void xqc_send_ctl_ecn_on_ack(xqc_send_ctl_t *send_ctl,
     const xqc_ack_info_t *ack_info, uint64_t acked_ect0,

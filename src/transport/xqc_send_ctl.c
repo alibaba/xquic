@@ -1405,6 +1405,9 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
                     }
                 }
 
+                if (po->po_flag & XQC_POF_ECN_ECT0) {
+                    xqc_send_ctl_ecn_on_lost(send_ctl);
+                }
                 conn->detected_loss_cnt++;
                 lost_n++;
 
@@ -1577,6 +1580,51 @@ xqc_send_ctl_ecn_fail(xqc_send_ctl_t *send_ctl, const char *reason)
             "|ECN validation failed|path:%ui|%s|",
             send_ctl->ctl_path->path_id, reason);
     send_ctl->ctl_ecn_state = XQC_ECN_STATE_FAILED;
+}
+
+
+/*
+ * RFC 9000 Appendix A.4: of the next cnt datagrams of the path, the number
+ * to mark ECT(0), from the first: those left to test, or all of them once
+ * ECN is validated.
+ */
+uint32_t
+xqc_send_ctl_ecn_burst_marks(xqc_send_ctl_t *send_ctl, uint32_t cnt)
+{
+    uint32_t left;
+
+    if (xqc_send_ctl_ecn_on_write(send_ctl) != XQC_ECN_ECT_0) {
+        return 0;
+    }
+
+    if (send_ctl->ctl_ecn_state == XQC_ECN_STATE_CAPABLE) {
+        return cnt;
+    }
+
+    left = XQC_ECN_TESTING_PACKETS - send_ctl->ctl_ecn_testing_sent;
+    return cnt < left ? cnt : left;
+}
+
+
+/*
+ * RFC 9000 Section 13.4.2: "If all packets marked with non-zero ECN
+ * codepoints are subsequently lost, it can disable marking on the
+ * assumption that the marking caused the loss." A testing packet that is
+ * lost before any of them is acknowledged with valid counts is counted:
+ * when all are lost, the validation fails and the path is not marked.
+ */
+void
+xqc_send_ctl_ecn_on_lost(xqc_send_ctl_t *send_ctl)
+{
+    if (send_ctl->ctl_ecn_state != XQC_ECN_STATE_TESTING
+        && send_ctl->ctl_ecn_state != XQC_ECN_STATE_UNKNOWN)
+    {
+        return;
+    }
+
+    if (++send_ctl->ctl_ecn_testing_lost >= XQC_ECN_TESTING_PACKETS) {
+        xqc_send_ctl_ecn_fail(send_ctl, "all marked packets lost");
+    }
 }
 
 

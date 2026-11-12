@@ -3348,7 +3348,8 @@ xqc_parse_max_path_id_frame(xqc_packet_in_t *packet_in, uint64_t *max_path_id)
 */
 ssize_t
 xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now,
-    int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time,
+    int ack_delay_exponent, xqc_recv_record_t *recv_record,
+    const xqc_ecn_counts_t *ecn, xqc_usec_t largest_pkt_recv_time,
     int *has_gap, xqc_packet_number_t *largest_ack, xqc_recv_timestamps_info_t *recv_ts_info)
 {
     unsigned char *dst_buf = packet_out->po_buf + packet_out->po_used_size;
@@ -3474,9 +3475,17 @@ xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_
      * value indicates which optional fields are included in the ACK. Bit 0 
      * indicates whether ECN count fields are included in the frame.
      * Bit 1 indicates whether Receive Timestamps are included in the frame.
-     * XQUIC doesn't send ECN count currently, But Receive Timestamps is enabled
+     * The ECN Counts are included once a codepoint was counted in the space
+     * (RFC 9000 Section 13.4.1), when the peer accepts them.
      */
-    int64_t ext_ack_features = 2;
+    int64_t ext_ack_features = XQC_ACK_EXT_FEATURE_BIT_RECV_TS;
+    if (ecn != NULL && (ecn->ect0 || ecn->ect1 || ecn->ce)) {
+        ext_ack_features |= XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT;
+
+    } else {
+        ecn = NULL;
+    }
+
     if (dst_buf + 1 > end) {
         return -XQC_ENOBUF;
     }
@@ -3485,9 +3494,25 @@ xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_
     xqc_vint_write(dst_buf, ext_ack_features, 0, 1);
     dst_buf += 1;
 
+    /* draft-smith-quic-receive-ts-01 Section 5: ECN Counts first */
+    if (ecn != NULL) {
+        const uint64_t counts[] = {ecn->ect0, ecn->ect1, ecn->ce};
+        for (int i = 0; i < 3; i++) {
+            unsigned bits = xqc_vint_get_2bit(counts[i]);
+            if (dst_buf + xqc_vint_len(bits) > end) {
+                return -XQC_ENOBUF;
+            }
+            xqc_vint_write(dst_buf, counts[i], bits, xqc_vint_len(bits));
+            dst_buf += xqc_vint_len(bits);
+        }
+    }
+
     size_t left_buf_len = end - dst_buf;
     if (left_buf_len < ts_range_need) {
-        xqc_vint_write(ext_ack_features_pos, 0, 0, 1);
+        /* without the Receive Timestamps */
+        xqc_vint_write(ext_ack_features_pos,
+                       ext_ack_features & XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT,
+                       0, 1);
         xqc_recv_timestamps_info_set_nobuf_flag(recv_ts_info, 1);
         return dst_buf - begin;
     }

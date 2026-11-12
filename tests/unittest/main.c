@@ -625,6 +625,16 @@ main(int argc, char *argv[])
                         xqc_test_ecn_validation_on_ack)
         || !CU_add_test(pSuite, "xqc_test_ecn_ce_congestion_event",
                         xqc_test_ecn_ce_congestion_event)
+        || !CU_add_test(pSuite, "xqc_test_ecn_write_mmsg",
+                        xqc_test_ecn_write_mmsg)
+        || !CU_add_test(pSuite, "xqc_test_ecn_burst_flags",
+                        xqc_test_ecn_burst_flags)
+        || !CU_add_test(pSuite, "xqc_test_ecn_testing_lost",
+                        xqc_test_ecn_testing_lost)
+        || !CU_add_test(pSuite, "xqc_test_ecn_ack_ext_negotiation",
+                        xqc_test_ecn_ack_ext_negotiation)
+        || !CU_add_test(pSuite, "xqc_test_ecn_ack_ext_frame_counts",
+                        xqc_test_ecn_ack_ext_frame_counts)
         || !CU_add_test(pSuite, "xqc_test_new_conn_id_zero_len_cid", xqc_test_new_conn_id_zero_len_cid)
         || !CU_add_test(pSuite, "xqc_test_gen_new_conn_id_frame_min_cid",
                         xqc_test_gen_new_conn_id_frame_min_cid)

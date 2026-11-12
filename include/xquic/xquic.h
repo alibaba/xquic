@@ -379,6 +379,31 @@ typedef ssize_t (*xqc_socket_write_ecn_pt)(uint64_t path_id,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     xqc_ecn_codepoint_t ecn, void *conn_user_data);
 
+/**
+ * @brief batch write socket callback with an ECN codepoint
+ *
+ * with enable_ecn set and sendmmsg_on, xquic writes the bursts of datagrams
+ * of the connection with this callback instead of write_mmsg_ex and
+ * write_mmsg. All the datagrams of one call are written with the same
+ * codepoint: a burst whose datagrams need different codepoints is written
+ * with one call per codepoint, the marked ones first.
+ *
+ * @param path_id path identifier
+ * @param msg_iov vector of messages
+ * @param vlen count of messages
+ * @param peer_addr peer address
+ * @param peer_addrlen peer address length
+ * @param ecn the codepoint of all the messages, XQC_ECN_ECT_0 or
+ * XQC_ECN_NOT_ECT
+ * @param conn_user_data user_data of connection
+ * @return as xqc_send_mmsg_ex_pt: the count of messages written,
+ * XQC_SOCKET_ERROR or XQC_SOCKET_EAGAIN
+ */
+typedef ssize_t (*xqc_send_mmsg_ecn_pt)(uint64_t path_id,
+    const struct iovec *msg_iov, unsigned int vlen,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    xqc_ecn_codepoint_t ecn, void *conn_user_data);
+
 
 /**
  * @brief return value of xqc_socket_write_pt and xqc_send_mmsg_pt callback function
@@ -777,6 +802,14 @@ typedef struct xqc_transport_callbacks_s {
      * with enable_ecn set. OPTIONAL: without it, no datagram is marked
      */
     xqc_socket_write_ecn_pt                 write_socket_ecn;
+
+    /**
+     * @brief batch write socket callback with the ECN codepoint of the
+     * datagrams, used instead of write_mmsg_ex and write_mmsg for the
+     * connections with enable_ecn set when sendmmsg_on is set. OPTIONAL:
+     * without it, the datagrams of a burst are not marked
+     */
+    xqc_send_mmsg_ecn_pt                    write_mmsg_ecn;
 
 } xqc_transport_callbacks_t;
 
@@ -1620,10 +1653,10 @@ typedef struct xqc_conn_settings_s {
 
     /**
      * @brief mark the datagrams ECT(0) and validate ECN on each path
-     * (RFC 9000 Section 13.4.2), with the write_socket_ecn callback.
-     * default: 0, not marked. The ECN counts of received packets are
-     * reported whenever the application passes the codepoints of the
-     * datagrams with xqc_engine_packet_process_ecn.
+     * (RFC 9000 Section 13.4.2), with the write_socket_ecn callback, and
+     * write_mmsg_ecn for bursts. default: 0, not marked. The ECN counts of
+     * received packets are reported whenever the application passes the
+     * codepoints of the datagrams with xqc_engine_packet_process_ecn.
      */
     uint8_t                     enable_ecn;
 

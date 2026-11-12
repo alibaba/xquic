@@ -362,12 +362,13 @@ xqc_lb_cid_encryption(uint8_t *cid_buf, size_t enc_len, uint8_t *out_buf, size_t
         }
     }
 
+    /* the whole CID: its first octet and the enc_len octets after it */
     unsigned char tmp_cid_buf[XQC_MAX_CID_LEN * 2 + 1];
-    xqc_hex_dump(tmp_cid_buf, cid_buf, enc_len);
-    tmp_cid_buf[enc_len * 2] = '\0';
+    xqc_hex_dump(tmp_cid_buf, cid_buf, cid_buf_len);
+    tmp_cid_buf[cid_buf_len * 2] = '\0';
     unsigned char tmp_out_buf[XQC_MAX_CID_LEN * 2 + 1];
-    xqc_hex_dump(tmp_out_buf, out_buf, enc_len);
-    tmp_out_buf[enc_len * 2] = '\0';
+    xqc_hex_dump(tmp_out_buf, out_buf, cid_buf_len);
+    tmp_out_buf[cid_buf_len * 2] = '\0';
     xqc_log(log, XQC_LOG_INFO, "|lb cid encrypted|ori:%s|new:%s|", 
                     tmp_cid_buf, tmp_out_buf);
     return XQC_OK;

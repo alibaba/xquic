@@ -1,6 +1,5 @@
-# Copyright (c) 2022, Alibaba Group Holding Limited
-
 #!/bin/bash
+# Copyright (c) 2022, Alibaba Group Holding Limited
 
 function generate_cert() {
     if [[ ! -f "server.key" || ! -f "server.crt" ]]; then

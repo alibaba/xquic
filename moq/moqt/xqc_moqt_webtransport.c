@@ -22,10 +22,6 @@ xqc_moqt_wt_created(xqc_wt_stream_base_t *wt)
     }
     st->wt_stream = wt;
     wt->user_data = st;
-    if (st->discarded) {
-        /* Draft-22 6.3: refuse early requests using WT's reset mapping. */
-        xqc_moqt_transport_reset(st, XQC_MOQT_RESET_INTERNAL_ERROR);
-    }
     return XQC_OK;
 }
 

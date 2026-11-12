@@ -249,11 +249,15 @@ xqc_test_moqt_webtransport_streams(void)
     h3[2] = (xqc_h3_stream_t){.stream = &raw[2], .user_data = &f};
     wt[2] = (xqc_wt_stream_base_t){.session = &f.wt[0], .h3_stream = &h3[2],
         .bidi = 1, .can_recv = 1, .can_send = 1, .io = &io};
-    /* Draft-22 6.3 / WT 4.4: pre-SETUP rejection is a mapped stream reset. */
+    /* Draft-22 6.3: an early request waits in the bounded shared parser. */
     CU_ASSERT_EQUAL(f.wt[0].binding->stream_cbs.wt_bidistream_create_notify(
         (void *)&wt[2], &f.wt[0], NULL), XQC_OK);
-    CU_ASSERT(((xqc_moqt_stream_t *)wt[2].user_data)->discarded);
-    CU_ASSERT_EQUAL(f.reset_error, UINT64_C(0x52e4a40fa8db));
+    CU_ASSERT_FALSE(((xqc_moqt_stream_t *)wt[2].user_data)->discarded);
+    uint8_t request_prefix = 0x80;
+    CU_ASSERT_EQUAL(f.wt[0].binding->stream_cbs.wt_bidistream_read_notify(
+        (void *)&wt[2], &f.wt[0], &request_prefix, 1, NULL), XQC_OK);
+    CU_ASSERT_EQUAL(((xqc_moqt_stream_t *)wt[2].user_data)->rx.data_len, 1);
+    CU_ASSERT_EQUAL(f.reset_error, 0);
     CU_ASSERT_PTR_EQUAL(raw[2].user_data, &h3[2]);
     CU_ASSERT(!f.session[0]->closed && !f.session[1]->closed);
     moqt_wt_stream(&f, &wt[0], &h3[0], &raw[0], XQC_FALSE);

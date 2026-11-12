@@ -105,6 +105,12 @@ XQC_OK/XQC_ERROR indicate allow/deny; an output parameter supplies the error.
 The default denial is UNAUTHORIZED. A missing application handler produces
 NOT_SUPPORTED followed by FIN.
 
+Incoming bidirectional request streams that overtake SETUP are retained
+within the same Session stream/byte/time budgets. Dispatch them only after
+the handshake, local SETUP submission and peer SETUP authorization complete.
+Rejected or timed-out SETUP never dispatches buffered requests. This bounded
+policy follows draft-22 §6.3 and avoids depending on cross-stream ordering.
+
 Sending validates and copies a frame before accepting it into a bounded
 queue. Writable callbacks resume partial writes/AGAIN without committing state
 twice. Budgets include allocated capacity, queue/buffer headers, and empty FIN
@@ -2013,6 +2019,17 @@ nonzero Range Filters, nor Token Aliases. Three-node execution still depends
 on the separate Relay's authorized enumeration/source routing and runner
 integration; two-endpoint success cannot substitute for it.
 
+#### Endpoint Runner Adapter
+
+The Native QUIC adapter in `interop/moqt/` exposes a TAP v14 client and a
+direct test server through the public endpoint APIs. Its
+[usage and role boundaries](../../interop/moqt/README.md) define CLI,
+environment, capability discovery, bounded fixtures, and unsupported cases.
+The server is not a Relay: cross-Session routing, fanout, namespace observer
+propagation and rendezvous remain outside it. Register only its client role
+with the runner. Client scenarios may use an independent Relay to exercise
+existing endpoint capabilities; that does not implement XQUIC Relay support.
+
 #### Data and Media Boundaries
 
 Deterministic sources/oracles are independent of the protocol library.
@@ -2112,8 +2129,8 @@ padding probes.
 | F39 [Relay FETCH/Fill forwarding, source switch, total budget](#rendezvous-and-relay-contract) | Complete | Core complete; single-source FETCH/Fill mappings and total budgets; automatic source switching deferred | No; no historical retrieval |
 | F40 [Relay property fidelity and malformed/auth/slow-peer isolation](#properties-cache-and-malformed) | Complete | Core complete; property fidelity, malformed/authorization/slow-subscriber isolation, and cancellation propagation | No; C18 ordinary properties counted in F18/F35, not these abnormal cases |
 | F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Core complete; overlapping sources and subscription replacement; application-selected URI/credentials, no automatic reconnection | No; no migration case |
-| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Partial; version/result definitions ready; image entrypoint/runner contract pending | Not implemented; old draft-18 matrix excluded | Yes; prerequisite of C01–C22 |
-| F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Not implemented; separate C08/eight moq-test integration | Yes; C08/C13–C20 |
+| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Complete for Native endpoint CLI/role boundary; WT remains separate | Partial; Native client/direct-server adapter and local image build; Relay/media coverage deferred | Yes; prerequisite of C01–C22 |
+| F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Partial; bounded C08/eight moq-test generator and identity/payload oracle in interop/moqt; broader delivery conformance remains separate | Yes; C08/C13–C20 |
 | F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; minimum format profile defined; full workflow/decoder pending | Partial; LOC properties and independent MSF LOC catalog codecs with paired units; application workflow and decoder/display remain gaps, legacy APIs unchanged | Yes; C22, no inferred pass |
 
 ### Completeness Counts

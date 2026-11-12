@@ -329,6 +329,17 @@ xqc_moqt_ready(xqc_moqt_session_t *s)
         if (s->callbacks.on_ready != NULL) {
             s->callbacks.on_ready(s, s->user_data);
         }
+        /* Draft-22 section 6.3: QUIC streams can overtake peer SETUP. */
+        xqc_moqt_stream_t *head = xqc_moqt_streams_hold(s);
+        for (xqc_moqt_stream_t *st = head; st && !s->closed; st = st->next) {
+            if (!st->discarded && st->transport_stream != NULL
+                && xqc_stream_get_direction(st->transport_stream)
+                   == XQC_STREAM_BIDI && (st->rx.data_len || st->rx_fin))
+            {
+                xqc_moqt_stream_input(st, NULL, 0, st->rx_fin);
+            }
+        }
+        xqc_moqt_streams_release(head);
     }
 }
 
@@ -760,6 +771,12 @@ xqc_moqt_stream_input_bytes(xqc_moqt_stream_t *stream, const uint8_t *data,
     if (len) {
         xqc_memcpy(rx->data + rx->data_len, data, len);
         rx->data_len += len;
+    }
+    if (request && !s->ready) {
+        /* Existing session byte/stream limits and SETUP timeout still apply. */
+        stream->rx_fin |= fin;
+        xqc_moqt_timer_update(s);
+        return XQC_OK;
     }
     while (rx->data_len && !s->closed && !stream->discarded) {
         if (stream->kind == XQC_MOQT_STREAM_SUBGROUP

@@ -7428,11 +7428,17 @@ xqc_conn_gp_timer_get_info(xqc_connection_t *conn, xqc_gp_timer_id_t gp_timer_id
 /**
  * @brief get public local transport settings.
  */
-xqc_conn_public_local_trans_settings_t 
+xqc_conn_public_local_trans_settings_t
 xqc_conn_get_public_local_trans_settings(xqc_connection_t *conn)
 {
-    xqc_conn_public_local_trans_settings_t settings;
+    xqc_conn_public_local_trans_settings_t settings = {0};
+
+    if (conn == NULL) {
+        return settings;
+    }
+
     settings.max_datagram_frame_size = conn->local_settings.max_datagram_frame_size;
+    settings.datagram_redundancy = conn->conn_settings.datagram_redundancy;
     return settings;
 }
 

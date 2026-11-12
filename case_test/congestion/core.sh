@@ -342,10 +342,47 @@ fi
 # RFC 9000 Section 14.4: the loss of a PMTU probe SHOULD NOT trigger a
 # congestion control reaction. The client path drops every datagram above
 # 1300 bytes, which only PMTUD probes exceed.
+
+# Print the congestion signals of lost PMTUD probes in a client log: a probe
+# marked lost like an ordinary packet, and a congestion event whose largest
+# lost packet is not an ordinary packet marked lost.
+case_congestion_core_probe_congestion()
+{
+awk -F'|' '
+function field(prefix,    i) {
+    for (i = 1; i <= NF; i++) {
+        if (index($i, prefix) == 1) {
+            return substr($i, length(prefix) + 1)
+        }
+    }
+    return ""
+}
+FNR == NR {
+    if (index($0, "|PMTUD probe lost|")) {
+        probe[field("pns:") ":" field("pkt_num:")] = 1
+    } else if (index($0, "|mark lost|")) {
+        marked_sent[field("po_sent_time:")] = 1
+    }
+    next
+}
+index($0, "|mark lost|") && ((field("pns:") ":" field("pkt_num:")) in probe) {
+    print
+}
+index($0, "|OnLostDetection|largest_lost sent time: ") {
+    sent = field("largest_lost sent time: ")
+    sub(/[^0-9]+$/, "", sent)
+    if (!(sent in marked_sent)) {
+        print
+    }
+}' "$1" "$1"
+}
+
 case_congestion_core_lost_pmtud_probe_no_congestion_event()
 {
-# 804 happy path: the probes are lost, the transfer completes, and no packet
-# is marked lost, so no congestion event starts.
+# 804 happy path: the probes are lost, the transfer completes, and no probe
+# is marked lost or starts a congestion event. The loopback may also drop
+# ordinary packets when an endpoint falls behind: those are marked lost and
+# may start congestion events, which must then come from them.
 case_test_stop_server
 rm -rf tp_localhost test_session xqc_token
 case_test_start_server ${SERVER_BIN} -l d -e --pmtud 1 > /dev/null
@@ -355,16 +392,16 @@ echo -e "lost PMTUD probes start no congestion event ...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E --pmtud 1 -x 804 > stdlog
 result=`grep ">>>>>>>> pass:1" stdlog`
 probe_lost=`grep -a "|PMTUD probe lost|" clog`
-marked=`grep -a "|mark lost|" clog`
-cc_event=`grep -a "|OnLostDetection|" clog`
+probe_congestion=`case_congestion_core_probe_congestion clog`
 errlog=`grep_err_log`
 if [ -z "$errlog" ] && [ -n "$result" ] && [ -n "$probe_lost" ] \
-    && [ -z "$marked" ] && [ -z "$cc_event" ]; then
+    && [ -z "$probe_congestion" ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "lost_pmtud_probe_no_congestion_event" "pass"
 else
     echo ">>>>>>>> pass:0 (result:${result:+y} probe_lost:${probe_lost:+y}" \
-        "marked:${marked:+y} cc_event:${cc_event:+y} errlog:${errlog:+y})"
+        "probe_congestion:${probe_congestion:+y} errlog:${errlog:+y})"
+    echo "$probe_congestion"
     case_print_result "lost_pmtud_probe_no_congestion_event" "fail"
 fi
 grep_err_log

@@ -888,10 +888,11 @@ xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void)
 typedef struct xqc_test_send_ctl_log_s {
     char    line[XQC_MAX_LOG_LEN];
     int     lines;
+    const char *match;
 } xqc_test_send_ctl_log_t;
 
 
-/* keep the statistics lines of the lost packets */
+/* keep the lines that contain the match of the capture */
 static void
 xqc_test_send_ctl_log_write(xqc_log_level_t lvl, const void *buf,
     size_t size, void *user_data)
@@ -903,7 +904,7 @@ xqc_test_send_ctl_log_write(xqc_log_level_t lvl, const void *buf,
     memcpy(line, buf, size);
     line[size] = '\0';
 
-    if (strstr(line, "|lost interval:") != NULL) {
+    if (strstr(line, capture->match) != NULL) {
         memcpy(capture->line, line, size + 1);
         capture->lines++;
     }
@@ -933,6 +934,7 @@ xqc_test_send_ctl_lost_interval_log(void)
     CU_ASSERT_FATAL(send_ctl != NULL);
     conn->remote_settings.max_ack_delay = 25;
 
+    capture.match = "|lost interval:";
     callbacks.xqc_log_write_err = xqc_test_send_ctl_log_write;
     log_callbacks = conn->log->log_callbacks;
     log_user_data = conn->log->user_data;
@@ -974,6 +976,66 @@ xqc_test_send_ctl_lost_interval_log(void)
     CU_ASSERT(xqc_list_empty(&sq->sndq_unacked_packets[XQC_PNS_APP_DATA]));
     CU_ASSERT(send_ctl->ctl_info.last_lost_time == 1000000);
     CU_ASSERT(capture.lines == lines);
+
+    conn->log->log_callbacks = log_callbacks;
+    conn->log->user_data = log_user_data;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * The PTO line logs the RTT estimates and the PTO duration, all 64-bit
+ * values, and the peer's max_ack_delay after them, each in full.
+ */
+void
+xqc_test_send_ctl_pto_log(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_test_send_ctl_log_t capture = {.match = "|pto_duration:"};
+    xqc_log_callbacks_t callbacks = {0};
+    xqc_log_callbacks_t *log_callbacks;
+    void *log_user_data;
+    xqc_pkt_num_space_t pns;
+    char expected[128];
+
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    CU_ASSERT_FATAL(send_ctl != NULL);
+
+    callbacks.xqc_log_write_err = xqc_test_send_ctl_log_write;
+    log_callbacks = conn->log->log_callbacks;
+    log_user_data = conn->log->user_data;
+    conn->log->log_level = XQC_LOG_DEBUG;
+    conn->log->log_callbacks = &callbacks;
+    conn->log->user_data = &capture;
+
+    /* RTT estimates above 32 bits, no backoff */
+    send_ctl->ctl_srtt = 0x100000001ULL;
+    send_ctl->ctl_rttvar = 0x100000002ULL;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+    send_ctl->ctl_pto_count = 0;
+    conn->remote_settings.max_ack_delay = 25;
+
+    xqc_send_ctl_get_pto_time_and_space(send_ctl, 0, &pns);
+
+    /* the PTO duration is srtt + 4 * rttvar */
+    snprintf(expected, sizeof(expected),
+             "|srtt:%llu|rtt_var:%llu|pto_duration:%llu|",
+             (unsigned long long)send_ctl->ctl_srtt,
+             (unsigned long long)send_ctl->ctl_rttvar,
+             (unsigned long long)(send_ctl->ctl_srtt
+                                  + 4 * send_ctl->ctl_rttvar));
+#if !defined(XQC_DISABLE_LOG) && !defined(XQC_ONLY_ERROR_LOG)
+    CU_ASSERT(capture.lines == 1);
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.line, expected));
+    CU_ASSERT_PTR_NOT_NULL(
+        strstr(capture.line, "|pto_cnt:0|max_ack_delay:25|"));
+#else
+    /* the PTO line is compiled out */
+    CU_ASSERT(capture.lines == 0);
+#endif
 
     conn->log->log_callbacks = log_callbacks;
     conn->log->user_data = log_user_data;

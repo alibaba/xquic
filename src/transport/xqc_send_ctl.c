@@ -1751,11 +1751,13 @@ xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *send_ctl, xqc_usec_t now, xq
     }
 
     duration *= backoff;
-    
-    xqc_log(c->log, XQC_LOG_DEBUG, 
-            "|srtt:%ud|rtt_var:%ud|pto_duration:%ud|backoff_factor:%.2f|backoff:%.2f|pto_cnt:%d|max_ack_delay:%d|",
-            send_ctl->ctl_srtt, send_ctl->ctl_rttvar, duration, 
-            c->conn_settings.pto_backoff_factor, backoff, pto_cnt, c->remote_settings.max_ack_delay);
+
+    xqc_log(
+        c->log, XQC_LOG_DEBUG,
+        "|srtt:%ui|rtt_var:%ui|pto_duration:%ui|backoff_factor:%.2f|backoff:%.2f|pto_cnt:%d|max_ack_delay:%ui|",
+        send_ctl->ctl_srtt, send_ctl->ctl_rttvar, duration,
+        c->conn_settings.pto_backoff_factor, backoff, pto_cnt,
+        c->remote_settings.max_ack_delay);
 
     /* Arm PTO from now when there are no inflight packets */
     if (send_ctl->ctl_bytes_in_flight == 0) {

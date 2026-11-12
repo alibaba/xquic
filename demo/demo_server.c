@@ -540,6 +540,9 @@ xqc_demo_svr_hq_req_close_notify(xqc_hq_request_t *hqr, void *req_user_data)
 {
     DEBUG;
     xqc_demo_svr_user_stream_t *user_stream = (xqc_demo_svr_user_stream_t*)req_user_data;
+    /* the file and buffer of a response that the close cut short */
+    xqc_demo_svr_close_user_stream_resource(user_stream);
+    free(user_stream->recv_buf);
     free(user_stream);
     return 0;
 }
@@ -785,6 +788,7 @@ xqc_demo_svr_h3_request_close_notify(xqc_h3_request_t *h3_request, void *strm_us
 
     xqc_demo_svr_user_stream_t *user_stream = (xqc_demo_svr_user_stream_t*)strm_user_data;
     xqc_demo_svr_close_user_stream_resource(user_stream);
+    free(user_stream->recv_buf);
     free(user_stream);
 
     return 0;

@@ -546,15 +546,15 @@ xqc_demo_cli_close_task(xqc_demo_cli_task_t *task)
             user_conn->active_path_cnt--;
             /* remove event handle */
             if (user_conn->paths[i].ev_socket) {
-                event_del(user_conn->paths[i].ev_socket);
+                event_free(user_conn->paths[i].ev_socket);
             }
             
-            event_del(user_conn->paths[i].ev_timeout);
+            event_free(user_conn->paths[i].ev_timeout);
             /* close socket */
             close(user_conn->paths[i].fd);
 
             if (user_conn->paths[i].ev_rebind_socket) {
-                event_del(user_conn->paths[i].ev_rebind_socket);
+                event_free(user_conn->paths[i].ev_rebind_socket);
             }
 
             if (user_conn->paths[i].rebind_fd != -1) {
@@ -564,27 +564,27 @@ xqc_demo_cli_close_task(xqc_demo_cli_task_t *task)
     }
 
     if (user_conn->ev_delay_req) {
-        event_del(user_conn->ev_delay_req);
+        event_free(user_conn->ev_delay_req);
         user_conn->ev_delay_req = NULL;
     }
 
     if (user_conn->ev_idle_restart) {
-        event_del(user_conn->ev_idle_restart);
+        event_free(user_conn->ev_idle_restart);
         user_conn->ev_idle_restart = NULL;
     }
 
     if (user_conn->ev_close_path) {
-        event_del(user_conn->ev_close_path);
+        event_free(user_conn->ev_close_path);
         user_conn->ev_close_path = NULL;
     }
 
     if (user_conn->ev_rebinding_p0) {
-        event_del(user_conn->ev_rebinding_p0);
+        event_free(user_conn->ev_rebinding_p0);
         user_conn->ev_rebinding_p0 =  NULL;
     }
 
     if (user_conn->ev_rebinding_p1) {
-        event_del(user_conn->ev_rebinding_p1);
+        event_free(user_conn->ev_rebinding_p1);
         user_conn->ev_rebinding_p1 =  NULL;
     }
 
@@ -1004,14 +1004,14 @@ xqc_demo_cli_path_removed(const xqc_cid_t *scid, uint64_t path_id,
             user_conn->active_path_cnt--;
             /* remove event handle */
             if (user_conn->paths[i].ev_socket) {
-                event_del(user_conn->paths[i].ev_socket);
+                event_free(user_conn->paths[i].ev_socket);
             }
-            event_del(user_conn->paths[i].ev_timeout);
+            event_free(user_conn->paths[i].ev_timeout);
             /* close socket */
             close(user_conn->paths[i].fd);
 
             if (user_conn->paths[i].ev_rebind_socket) {
-                event_del(user_conn->paths[i].ev_rebind_socket);
+                event_free(user_conn->paths[i].ev_rebind_socket);
             }
 
             if (user_conn->paths[i].rebind_fd != -1) {
@@ -1367,6 +1367,10 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         {
             if (user_conn->ctx->args->req_cfg.idle_gap) {
 
+                /* each response starts a gap: free the event of the last */
+                if (user_conn->ev_idle_restart) {
+                    event_free(user_conn->ev_idle_restart);
+                }
                 user_conn->ev_idle_restart = event_new(user_conn->ctx->eb, -1, 0, 
                                                        xqc_demo_cli_delayed_idle_restart, 
                                                        user_conn);
@@ -1575,27 +1579,27 @@ xqc_demo_cli_idle_callback(int fd, short what, void *arg)
             }
 
             if (user_conn->ev_delay_req) {
-                event_del(user_conn->ev_delay_req);
+                event_free(user_conn->ev_delay_req);
                 user_conn->ev_delay_req = NULL;
             }
 
             if (user_conn->ev_idle_restart) {
-                event_del(user_conn->ev_idle_restart);
+                event_free(user_conn->ev_idle_restart);
                 user_conn->ev_idle_restart = NULL;
             }
 
             if (user_conn->ev_close_path) {
-                event_del(user_conn->ev_close_path);
+                event_free(user_conn->ev_close_path);
                 user_conn->ev_close_path = NULL;
             }
 
             if (user_conn->ev_rebinding_p0) {
-                event_del(user_conn->ev_rebinding_p0);
+                event_free(user_conn->ev_rebinding_p0);
                 user_conn->ev_rebinding_p0 =  NULL;
             }
 
             if (user_conn->ev_rebinding_p1) {
-                event_del(user_conn->ev_rebinding_p1);
+                event_free(user_conn->ev_rebinding_p1);
                 user_conn->ev_rebinding_p1 =  NULL;
             }
 
@@ -1673,7 +1677,7 @@ xqc_demo_cli_rebind_path0(int fd, short what, void *arg)
 
         //stop read from the old socket
         if (!user_conn->ctx->args->quic_cfg.read_old_sockets) {
-            event_del(user_conn->paths[0].ev_socket);
+            event_free(user_conn->paths[0].ev_socket);
             user_conn->paths[0].ev_socket = NULL;
         }
 
@@ -1692,7 +1696,7 @@ xqc_demo_cli_rebind_path1(int fd, short what, void *arg)
         user_conn->paths[1].rebind_fd = temp;
 
         if (!user_conn->ctx->args->quic_cfg.read_old_sockets) {
-            event_del(user_conn->paths[1].ev_socket);
+            event_free(user_conn->paths[1].ev_socket);
             user_conn->paths[1].ev_socket = NULL;
         }
 
@@ -3503,6 +3507,29 @@ xqc_demo_cli_free_ctx(xqc_demo_cli_ctx_t *ctx)
         event_free(ctx->ev_wt_datagram);
     }
 #endif
+    if (ctx->ev_engine) {
+        event_free(ctx->ev_engine);
+    }
+
+    if (ctx->ev_task) {
+        event_free(ctx->ev_task);
+    }
+
+    if (ctx->ev_kill) {
+        event_free(ctx->ev_kill);
+    }
+
+    /*
+     * after every event: xqc_engine_destroy() has closed the connections,
+     * and xqc_demo_cli_close_task() has freed their events
+     */
+    if (ctx->eb) {
+        event_base_free(ctx->eb);
+    }
+
+    free(ctx->task_ctx.tasks);
+    free(ctx->task_ctx.schedule.schedule_info);
+
     xqc_demo_cli_close_keylog_file(ctx);
     xqc_demo_cli_close_log_file(ctx);
 

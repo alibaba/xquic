@@ -462,9 +462,8 @@ xqc_qpack_test_robust()
 
     xqc_bool_t blocked = XQC_FALSE;
 
-    static const size_t header_in_cnt = 128;
-
-    xqc_http_header_t header_in[header_in_cnt];
+    xqc_http_header_t header_in[128];
+    const size_t header_in_cnt = sizeof(header_in) / sizeof(header_in[0]);
     for (size_t i = 0; i < header_in_cnt; i++) {
         xqc_http_header_t *hdr = header_in + i;
         memset(hdr, 0, sizeof(*hdr));

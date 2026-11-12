@@ -78,7 +78,7 @@ common_configures="-DSSL_TYPE=${ssl_type}
 if [ x"$platform" == xios ] ; then
     if [ x"$IOS_CMAKE_TOOLCHAIN" == x ] ; then
         echo "IOS_CMAKE_TOOLCHAIN MUST be defined"
-        exit 0
+        exit 1
     fi
 
     archs=${ios_archs[@]}
@@ -90,7 +90,7 @@ if [ x"$platform" == xios ] ; then
 elif [ x"$platform" == xandroid ] ; then
     if [ x"$ANDROID_NDK" == x ] ; then
         echo "ANDROID_NDK MUST be defined"
-        exit 0
+        exit 1
     fi
 
     archs=${android_archs[@]}
@@ -102,13 +102,13 @@ elif [ x"$platform" == xandroid ] ; then
 elif [ x"$platform" == xharmony ] ; then
     if [ x"$HMOS_CMAKE_TOOLCHAIN" == x ] ; then
         echo "HMOS_CMAKE_TOOLCHAIN MUST be defined"
-        exit 0
+        exit 1
     fi
     echo "HMOS_CMAKE_TOOLCHAIN: ${HMOS_CMAKE_TOOLCHAIN}"
 
     if [ x"$HMOS_CMAKE_PATH" == x ] ; then
         echo "HMOS_CMAKE_PATH MUST be defined"
-        exit 0
+        exit 1
     fi
     echo "HMOS_CMAKE_PATH: ${HMOS_CMAKE_PATH}"
     CMAKE_CMD=${HMOS_CMAKE_PATH}
@@ -119,7 +119,7 @@ elif [ x"$platform" == xharmony ] ; then
                 -DDISABLE_WARNINGS=ON"
 else
     echo "no support platform"
-    exit 0
+    exit 1
 fi
 
 
@@ -167,7 +167,7 @@ do
         -DLIBRARY_OUTPUT_PATH=`pwd`/outputs/ ..
     make -j 4
     if [ $? != 0 ] ; then
-        exit 0
+        exit 1
     fi
 
     if [ ! -d  ${artifact_dir}/$i ] ; then

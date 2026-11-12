@@ -1,0 +1,114 @@
+# The warnings of the Compilers workflow's GCC job "with warnings": a Release
+# build of the library, its tests and its examples with -Werror, the
+# hardening flags and the flags below, which come after the -Wno-* flags of
+# CMakeLists.txt. Main builds without any of these warnings.
+
+# -Wextra, but for the warnings of -Wextra listed at the end.
+-Wabsolute-value
+-Walloc-size
+-Wcalloc-transposed-args
+-Wcast-function-type
+-Wclobbered
+-Wempty-body
+-Wenum-conversion
+-Wexpansion-to-defined
+-Wignored-qualifiers
+-Wmaybe-uninitialized
+-Wmissing-parameter-type
+-Woverride-init
+-Wshift-negative-value
+-Wstring-compare
+-Wuninitialized
+-Wunused-but-set-parameter
+
+# Format strings: -Wformat=2 adds -Wformat-security and -Wformat-y2k.
+-Wformat=2
+-Wno-format-nonliteral
+-Wformat-overflow=2
+
+# Memory, objects and pointers.
+-Walloc-zero
+-Walloca
+-Wdangling-pointer=2
+-Wflex-array-member-not-at-end
+-Wpacked
+-Wpointer-arith
+-Wshift-overflow=2
+-Wstringop-overflow=4
+-Wuse-after-free=3
+
+# Conditions, declarations and the rest.
+-Wdate-time
+-Wduplicate-decl-specifier
+-Wduplicated-cond
+-Wenum-int-mismatch
+-Winit-self
+-Wmissing-format-attribute
+-Wmissing-include-dirs
+-Wtrampolines
+-Wunused-local-typedefs
+-Wdisabled-optimization
+-Wvector-operation-performance
+
+# Not turned on yet, each with its findings on main under GCC 15: distinct
+# locations in all, and in the library (src/ and include/). A warning comes
+# here when its count reaches zero.
+#
+#   -Wextra's own                    2    0  fopen() results compared with 0
+#                                           in mini/mini_client_cb.c
+#   -Wunused-parameter             788  249
+#   -Wsign-compare                 218  127
+#   -Wmissing-field-initializers   121   97
+#   -Wimplicit-fallthrough          23   23
+#   -Wtype-limits                    9    9
+#   -Wold-style-declaration          1    1
+#   -Wformat-nonliteral             16    0
+#   -Wformat-signedness             35    8
+#   -Wformat-truncation=2            8    4
+#   -Wpedantic                      27    9  with its constant overflows and
+#                                           its %p arguments
+#   -Wconversion                   521  331
+#   -Wsign-conversion             1141  776
+#   -Warith-conversion              57   45
+#   -Wfloat-conversion              42   40
+#   -Wshadow                        48   10
+#   -Wnull-dereference              72    2  in xqc_try_process_fec_decode()
+#                                           and xqc_wt_h3_init_settings()
+#   -Wduplicated-branches            3    1
+#   -Wlogical-op                     2    2  a size test that can never be
+#                                           true in xqc_fec_cc_decoder(), and
+#                                           a certificate error tested twice
+#                                           in xqc_tls.c
+#   -Wcast-align=strict             62   53
+#   -Wcast-qual                    182   61
+#   -Wwrite-strings                542  220  as -Wdiscarded-qualifiers
+#   -Wstrict-prototypes            545   22
+#   -Wmissing-prototypes           641  304  -Wmissing-declarations: the
+#                                           same functions
+#   -Wold-style-definition         321   19
+#   -Wmissing-variable-declarations 191  46
+#   -Wredundant-decls               20   18
+#   -Wnested-externs                 1    0
+#   -Wbad-function-cast             16    2
+#   -Wdouble-promotion              14   10
+#   -Wfloat-equal                   10   10
+#   -Wjump-misses-init              20    8
+#   -Wswitch-enum                   54   51
+#   -Wswitch-default                33   33
+#   -Wundef                          3    3
+#   -Wvla                            7    1
+#   -Wstack-protector               11    4  functions with a variable-length
+#                                           array
+#   -Wstrict-aliasing=2             15    4
+#   -Warray-bounds=2                 1    1  in glibc's memset(), for
+#                                           xqc_cid_set_inner_init() clearing
+#                                           a set reached through its list
+#   -Wsuggest-attribute=noreturn     1    0
+#   -Wpointer-sign                 227   64  -Wno-pointer-sign of CMakeLists.txt
+#   -Wunused-variable              219  132  these seven: off by default or
+#   -Wunused-macros                 36    9  by -Wno-unused of CMakeLists.txt
+#   -Wunused-but-set-variable       32   23
+#   -Wunused-const-variable=2       14   13
+#   -Wunused-label                  12    7
+#   -Wunused-function                7    3
+#   -Wunused-value                   5    1

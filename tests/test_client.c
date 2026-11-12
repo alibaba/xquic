@@ -7126,7 +7126,9 @@ int main(int argc, char *argv[]) {
                 user_stream->recv_log_bytes = 0;
                 if (user_conn->h3 == 0 || user_conn->h3 == 2) {
                     if (g_test_case == 11) { /* create stream fail */
+                        /* a CID of no connection */
                         xqc_cid_t tmp;
+                        memset(&tmp, 0, sizeof(tmp));
                         xqc_h3_request_create(ctx.engine, &tmp, NULL, user_stream);
                         continue;
                     }

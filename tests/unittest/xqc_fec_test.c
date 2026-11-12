@@ -312,3 +312,46 @@ xqc_test_fec()
     xqc_test_fec_symbol_index_bounds();
     xqc_test_reed_solomon_symbol_index_bound();
 }
+
+/* the first local scheme the peer supports too */
+void
+xqc_test_fec_final_scheme(void)
+{
+    xqc_fec_schemes_e local[] = {XQC_XOR_CODE, XQC_REED_SOLOMON_CODE};
+    xqc_fec_schemes_e remote[] = {XQC_REED_SOLOMON_CODE, XQC_XOR_CODE};
+    xqc_fec_schemes_e rs_only[] = {XQC_REED_SOLOMON_CODE};
+    xqc_int_t local_num = 2;
+    xqc_connection_t *conn = test_engine_connect_fec();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_EQUAL(xqc_set_final_scheme(conn, local, &local_num, remote, 2),
+                    XQC_XOR_CODE);
+    CU_ASSERT_EQUAL(xqc_set_final_scheme(conn, local, &local_num, rs_only, 1),
+                    XQC_REED_SOLOMON_CODE);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* scheme values with no bit in the 32-bit scheme sets match nothing */
+void
+xqc_test_fec_final_scheme_out_of_range(void)
+{
+    xqc_fec_schemes_e local[] = {XQC_XOR_CODE};
+    xqc_fec_schemes_e remote[] = {31, 32, 63, XQC_XOR_CODE};
+    xqc_fec_schemes_e unknown[] = {32, 33, 64};
+    xqc_fec_schemes_e local_unknown[] = {33, XQC_XOR_CODE};
+    xqc_int_t local_num = 1;
+    xqc_int_t local_unknown_num = 2;
+    xqc_connection_t *conn = test_engine_connect_fec();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_EQUAL(xqc_set_final_scheme(conn, local, &local_num, remote, 4),
+                    XQC_XOR_CODE);
+    CU_ASSERT_EQUAL(xqc_set_final_scheme(conn, local, &local_num, unknown, 3),
+                    0);
+    CU_ASSERT_EQUAL(xqc_set_final_scheme(conn, local_unknown,
+                                         &local_unknown_num, remote, 4),
+                    XQC_XOR_CODE);
+
+    xqc_engine_destroy(conn->engine);
+}

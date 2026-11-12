@@ -832,6 +832,14 @@ main(int argc, char *argv[])
 #ifdef XQC_ENABLE_FEC
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)
+        || !CU_add_test(pSuite, "xqc_test_fec_final_scheme",
+                        xqc_test_fec_final_scheme)
+        || !CU_add_test(pSuite, "xqc_test_fec_final_scheme_out_of_range",
+                        xqc_test_fec_final_scheme_out_of_range)
+        || !CU_add_test(pSuite, "xqc_test_fec_cc_decoder_symbol_size",
+                        xqc_test_fec_cc_decoder_symbol_size)
+        || !CU_add_test(pSuite, "xqc_test_fec_cc_decoder_max_symbol_size",
+                        xqc_test_fec_cc_decoder_max_symbol_size)
         || !CU_add_test(pSuite, "xqc_test_fec", xqc_test_fec)
 #endif
         || !CU_add_test(pSuite, "xqc_test_ack_with_timestamp", xqc_test_ack_with_timestamp)

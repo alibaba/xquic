@@ -417,3 +417,63 @@ void xqc_test_fec_scheme()
     xqc_test_fec_xor_decode();
     xqc_test_fec_pm_decode();
 }
+
+static int xqc_test_fec_decode_one_calls;
+
+/* a scheme decoder that only counts its calls */
+static xqc_int_t
+xqc_test_fec_decode_one(xqc_connection_t *conn,
+                        unsigned char *recovered_symbols_buff,
+                        xqc_int_t block_id, xqc_int_t symbol_idx)
+{
+    xqc_test_fec_decode_one_calls++;
+    return -XQC_EPARAM;
+}
+
+/* a repair symbol with no payload, or more than a symbol holds */
+void
+xqc_test_fec_cc_decoder_symbol_size(void)
+{
+    xqc_connection_t *conn = test_engine_connect_fec();
+    xqc_fec_rpr_syb_t symbol;
+    size_t sizes[] = {0, XQC_MAX_SYMBOL_SIZE + 1};
+    size_t i;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_settings.fec_callback.xqc_fec_decode_one
+        = xqc_test_fec_decode_one;
+    xqc_test_fec_decode_one_calls = 0;
+
+    for (i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+        xqc_test_init_repair_syb(&symbol);
+        symbol.payload = XQC_TEST_RPR_FRAME;
+        symbol.payload_size = sizes[i];
+        CU_ASSERT_EQUAL(xqc_fec_cc_decoder(conn, &symbol, 0),
+                        -XQC_EFEC_SYMBOL_ERROR);
+    }
+    CU_ASSERT_EQUAL(xqc_test_fec_decode_one_calls, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* a repair symbol of the largest size gets past the size check */
+void
+xqc_test_fec_cc_decoder_max_symbol_size(void)
+{
+    xqc_connection_t *conn = test_engine_connect_fec();
+    xqc_fec_rpr_syb_t symbol;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_settings.fec_callback.xqc_fec_decode_one
+        = xqc_test_fec_decode_one;
+    xqc_test_fec_decode_one_calls = 0;
+
+    xqc_test_init_repair_syb(&symbol);
+    symbol.payload = XQC_TEST_RPR_FRAME;
+    symbol.payload_size = XQC_MAX_SYMBOL_SIZE;
+    /* the symbol reaches the scheme's decoder, whose error comes back */
+    CU_ASSERT_EQUAL(xqc_fec_cc_decoder(conn, &symbol, 0), -XQC_EPARAM);
+    CU_ASSERT_EQUAL(xqc_test_fec_decode_one_calls, 1);
+
+    xqc_engine_destroy(conn->engine);
+}

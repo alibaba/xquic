@@ -30,6 +30,7 @@
 /* version definitions */
 #define XQC_VERSION_V1_VALUE            0x00000001
 #define XQC_IDRAFT_VER_29_VALUE         0xFF00001D
+#define XQC_VERSION_V2_VALUE            0x6b3343cf
 
 #define XQC_PROTO_VERSION_LEN           4
 
@@ -78,7 +79,8 @@ extern const unsigned char  xqc_proto_version_field[][XQC_PROTO_VERSION_LEN];
 
 
 #define xqc_check_proto_version_valid(ver) \
-        ((ver) > XQC_IDRAFT_INIT_VER && (ver) < XQC_IDRAFT_VER_NEGOTIATION)
+        ((ver) > XQC_IDRAFT_INIT_VER && (ver) < XQC_VERSION_MAX \
+         && (ver) != XQC_IDRAFT_VER_NEGOTIATION)
 
 
 /* max alpn length */

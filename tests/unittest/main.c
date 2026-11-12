@@ -35,6 +35,7 @@
 #include "xqc_tp_test.h"
 #include "xqc_tls_test.h"
 #include "xqc_crypto_test.h"
+#include "xqc_quic_v2_test.h"
 #include "xqc_h3_test.h"
 #include "xqc_hq_test.h"
 #include "xqc_stable_test.h"
@@ -919,6 +920,27 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_rfc9001_derive_initial_secrets", xqc_test_rfc9001_derive_initial_secrets)
         || !CU_add_test(pSuite, "xqc_test_rfc9001_client_initial_keys", xqc_test_rfc9001_client_initial_keys)
         || !CU_add_test(pSuite, "xqc_test_rfc9001_server_initial_keys", xqc_test_rfc9001_server_initial_keys)
+        /* RFC 9369: QUIC version 2 */
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_version",
+                        xqc_test_quic_v2_version)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_packet_types",
+                        xqc_test_quic_v2_packet_types)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_initial_keys",
+                        xqc_test_quic_v2_initial_keys)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_server_initial",
+                        xqc_test_quic_v2_server_initial)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_retry_tag",
+                        xqc_test_quic_v2_retry_tag)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_chacha20",
+                        xqc_test_quic_v2_chacha20)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_version_info_codec",
+                        xqc_test_quic_v2_version_info_codec)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_version_info_malformed",
+                        xqc_test_quic_v2_version_info_malformed)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_version_info_conn",
+                        xqc_test_quic_v2_version_info_conn)
+        || !CU_add_test(pSuite, "xqc_test_quic_v2_token_version",
+                        xqc_test_quic_v2_token_version)
         /* issue #695: initial salt strlen fix */
         || !CU_add_test(pSuite, "xqc_test_initial_salt_length", xqc_test_initial_salt_length)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_v1_value", xqc_test_initial_salt_v1_value)

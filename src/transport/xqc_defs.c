@@ -11,6 +11,7 @@ const uint32_t xqc_proto_version_value[XQC_VERSION_MAX] = {
     0x00000001,
     0xFF00001D,
     0x00000000,
+    0x6b3343cf,
 };
 
 
@@ -19,4 +20,5 @@ const unsigned char xqc_proto_version_field[XQC_VERSION_MAX][XQC_PROTO_VERSION_L
     [XQC_VERSION_V1]             = { 0x00, 0x00, 0x00, 0x01, },
     [XQC_IDRAFT_VER_29]          = { 0xFF, 0x00, 0x00, 0x1D, },
     [XQC_IDRAFT_VER_NEGOTIATION] = { 0x00, 0x00, 0x00, 0x00, },
+    [XQC_VERSION_V2]             = { 0x6b, 0x33, 0x43, 0xcf, },
 };

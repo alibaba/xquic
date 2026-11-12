@@ -539,6 +539,8 @@ xqc_tls_derive_and_install_initial_keys(xqc_tls_t *tls, const xqc_cid_t *odcid)
     xqc_int_t ret;
     xqc_crypto_t *init_crypto = tls->crypto[XQC_ENC_LEV_INIT];
 
+    init_crypto->quic_v2 = tls->version == XQC_VERSION_V2;
+
     /* initial secret for packet protection client/server */
     uint8_t cli_initial_secret[INITIAL_SECRET_MAX_LEN] = {0};
     uint8_t svr_initial_secret[INITIAL_SECRET_MAX_LEN] = {0};
@@ -618,7 +620,25 @@ xqc_tls_init(xqc_tls_t *tls, xqc_proto_version_t version, const xqc_cid_t *odcid
     tls->version = version;
 
     /* set the quic_transport_parameters extension codepoint */
-    SSL_set_quic_use_legacy_codepoint(tls->ssl, tls->version != XQC_VERSION_V1);
+    SSL_set_quic_use_legacy_codepoint(tls->ssl,
+                                      tls->version == XQC_IDRAFT_VER_29);
+
+    /*
+     * RFC 9369 Section 5: session tickets are specific to the QUIC version
+     * of the connection that issued them. A server resumes a session only
+     * in the context it was created in: the tickets of QUIC version 2
+     * connections are given their own, so that the server makes a full
+     * handshake, without 0-RTT, for a ticket of another version.
+     */
+    if (tls->type == XQC_TLS_TYPE_SERVER && version == XQC_VERSION_V2) {
+        static const uint8_t v2_ctx[] = {0x6b, 0x33, 0x43, 0xcf};
+        if (SSL_set_session_id_context(tls->ssl, v2_ctx, sizeof(v2_ctx))
+            != XQC_SSL_SUCCESS)
+        {
+            xqc_log(tls->log, XQC_LOG_ERROR, "|set session id context error|");
+            return -XQC_TLS_INTERNAL;
+        }
+    }
 
     /* create init level crypto */
     tls->crypto[XQC_ENC_LEV_INIT] = xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256, tls->log);
@@ -1369,6 +1389,7 @@ xqc_tls_set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
 
     /* derive and install read key */
     xqc_crypto_t *crypto = tls->crypto[level];
+    crypto->quic_v2 = tls->version == XQC_VERSION_V2;
     ret = xqc_crypto_derive_keys(crypto, secret, secret_len, XQC_KEY_TYPE_RX_READ);
     if (ret != XQC_OK) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|install read key error|level:%d|ret:%d", level, ret);
@@ -1412,6 +1433,7 @@ xqc_tls_set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
 
     /* derive and install write key */
     xqc_crypto_t *crypto = tls->crypto[level];
+    crypto->quic_v2 = tls->version == XQC_VERSION_V2;
     ret = xqc_crypto_derive_keys(crypto, secret, secret_len, XQC_KEY_TYPE_TX_WRITE);
     if (ret != XQC_OK) {
         xqc_log(tls->log, XQC_LOG_ERROR, "|install write key error|level:%d|ret:%d", level, ret);

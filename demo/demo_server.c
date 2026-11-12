@@ -44,6 +44,8 @@
 
 #define XQC_PACKET_TMP_BUF_LEN 1500
 #define MAX_BUF_SIZE (100*1024*1024)
+/* datagrams read from a socket at a time, then the other sockets (-X) */
+#define XQC_DEMO_SVR_RECV_BATCH 16
 
 
 /**
@@ -74,6 +76,9 @@ typedef struct xqc_demo_svr_net_config_s {
 
     /* idle persist timeout */
     int     conn_timeout;
+
+    /* the preferred addresses offered, and listened on (RFC 9000 9.6) */
+    xqc_server_preferred_address_t preferred_addr;
 } xqc_demo_svr_net_config_t;
 
 
@@ -204,6 +209,10 @@ typedef struct xqc_demo_svr_ctx_s {
     socklen_t           local_addrlen6;
     struct event        *ev_socket6;
 
+    /* the sockets of the IPv4 and the IPv6 preferred addresses, or -1 */
+    int                 pa_fd[2];
+    struct event        *ev_pa_socket[2];
+
     /* used to remember fd type to send stateless reset */
     int                 current_fd;
 
@@ -220,6 +229,8 @@ typedef struct xqc_demo_svr_user_conn_s {
     socklen_t               peer_addrlen;
     xqc_cid_t               cid;
     xqc_demo_svr_ctx_t     *ctx;
+    /* the connection, of which user_conn is the transport user_data */
+    xqc_connection_t       *conn;
 } xqc_demo_svr_user_conn_t;
 
 typedef struct xqc_demo_svr_resource_s {
@@ -476,6 +487,12 @@ xqc_demo_svr_hq_conn_create_notify(xqc_hq_conn_t *hqc, const xqc_cid_t *cid, voi
     xqc_hq_conn_get_peer_addr(hqc, (struct sockaddr *)&user_conn->peer_addr, 
                               sizeof(user_conn->peer_addr), &user_conn->peer_addrlen);
 
+    /* the write callbacks find the connection, as with http/3 */
+    user_conn->conn = xqc_engine_get_conn_by_scid(svr_ctx.engine, cid);
+    if (user_conn->conn != NULL) {
+        xqc_conn_set_transport_user_data(user_conn->conn, user_conn);
+    }
+
     return 0;
 }
 
@@ -725,6 +742,8 @@ xqc_demo_svr_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid,
                               sizeof(user_conn->peer_addr), &user_conn->peer_addrlen);
 
     memcpy(&user_conn->cid, cid, sizeof(*cid));
+    /* user_conn is also the transport user_data of the connection */
+    user_conn->conn = xqc_h3_conn_get_xqc_conn(h3_conn);
     return 0;
 }
 
@@ -1047,6 +1066,49 @@ xqc_demo_svr_h3_request_write_notify(xqc_h3_request_t *h3_request, void *strm_us
  *                     start of socket operation function                     *
  ******************************************************************************/
 
+/*
+ * With preferred addresses, a datagram goes from the socket of the local
+ * address of its connection, which xquic sets to a preferred address for
+ * what it sends from there (RFC 9000 Section 9.6.2), or else from the
+ * socket of the family of the peer; without, from the socket that received
+ * last.
+ */
+static int
+xqc_demo_svr_send_fd(void *conn_user_data, const struct sockaddr *peer_addr)
+{
+    xqc_demo_svr_ctx_t             *ctx = &svr_ctx;
+    xqc_demo_svr_user_conn_t       *user_conn = conn_user_data;
+    xqc_server_preferred_address_t *pa;
+    struct sockaddr_in6             local;
+    socklen_t                       local_len;
+
+    if (ctx->pa_fd[0] < 0 && ctx->pa_fd[1] < 0) {
+        return ctx->current_fd;
+    }
+
+    /* before the connection is created, the user_data is ctx */
+    pa = &ctx->args->net_cfg.preferred_addr;
+    if (conn_user_data != NULL && conn_user_data != ctx
+        && user_conn->conn != NULL
+        && xqc_conn_get_local_addr(user_conn->conn, (struct sockaddr *)&local,
+                                   sizeof(local), &local_len) == XQC_OK)
+    {
+        if (ctx->pa_fd[0] >= 0 && local_len == sizeof(pa->ipv4)
+            && memcmp(&local, &pa->ipv4, sizeof(pa->ipv4)) == 0)
+        {
+            return ctx->pa_fd[0];
+        }
+
+        if (ctx->pa_fd[1] >= 0 && local_len == sizeof(pa->ipv6)
+            && memcmp(&local, &pa->ipv6, sizeof(pa->ipv6)) == 0)
+        {
+            return ctx->pa_fd[1];
+        }
+    }
+
+    return peer_addr->sa_family == AF_INET6 ? ctx->fd6 : ctx->fd;
+}
+
 ssize_t
 xqc_demo_svr_write_socket(const unsigned char *buf, size_t size, const struct sockaddr *peer_addr,
     socklen_t peer_addrlen, void *conn_user_data)
@@ -1055,7 +1117,7 @@ xqc_demo_svr_write_socket(const unsigned char *buf, size_t size, const struct so
 
     xqc_demo_svr_user_conn_t *user_conn = (xqc_demo_svr_user_conn_t *)conn_user_data;
 
-    int fd = svr_ctx.current_fd;
+    int fd = xqc_demo_svr_send_fd(conn_user_data, peer_addr);
 
     do {
         set_sys_errno(0);
@@ -1094,6 +1156,7 @@ xqc_demo_svr_socket_read_handler(xqc_demo_svr_ctx_t *ctx, int fd)
     socklen_t peer_addrlen = sizeof(peer_addr);
     ssize_t recv_size = 0;
     unsigned char packet_buf[XQC_PACKET_TMP_BUF_LEN];
+    int recv_cnt = 0;
 
     ctx->current_fd = fd;
 
@@ -1119,7 +1182,7 @@ xqc_demo_svr_socket_read_handler(xqc_demo_svr_ctx_t *ctx, int fd)
             printf("server_read_handler: packet process err, ret: %d\n", ret);
             return;
         }
-    } while (recv_size > 0);
+    } while (recv_size > 0 && ++recv_cnt < XQC_DEMO_SVR_RECV_BATCH);
 
 finish_recv:
     // printf("recvfrom size:%zu\n", recv_sum);
@@ -1142,6 +1205,49 @@ xqc_demo_svr_socket_event_callback(int fd, short what, void *arg)
         printf("event callback: fd=%d, what=%d\n", fd, what);
         exit(1);
     }
+}
+
+/*
+ * The datagrams that reach a preferred address, given to xquic with that
+ * local address (RFC 9000 Section 9.6.2)
+ */
+static void
+xqc_demo_svr_pa_socket_event_callback(int fd, short what, void *arg)
+{
+    xqc_demo_svr_ctx_t             *ctx = (xqc_demo_svr_ctx_t *)arg;
+    xqc_server_preferred_address_t *pa = &ctx->args->net_cfg.preferred_addr;
+    struct sockaddr                *local_addr = (struct sockaddr *)&pa->ipv4;
+    socklen_t                       local_addrlen = sizeof(pa->ipv4);
+    struct sockaddr_in6             peer_addr;
+    socklen_t                       peer_addrlen;
+    unsigned char                   buf[XQC_PACKET_TMP_BUF_LEN];
+    ssize_t                         size;
+    int                             i;
+
+    if (!(what & EV_READ)) {
+        return;
+    }
+
+    if (fd == ctx->pa_fd[1]) {
+        local_addr = (struct sockaddr *)&pa->ipv6;
+        local_addrlen = sizeof(pa->ipv6);
+    }
+
+    for (i = 0; i < XQC_DEMO_SVR_RECV_BATCH; i++) {
+        peer_addrlen = sizeof(peer_addr);
+        size = recvfrom(fd, buf, sizeof(buf), 0,
+                        (struct sockaddr *)&peer_addr, &peer_addrlen);
+        if (size < 0) {
+            break;
+        }
+
+        xqc_engine_packet_process(ctx->engine, buf, size, local_addr,
+                                  local_addrlen,
+                                  (struct sockaddr *)&peer_addr,
+                                  peer_addrlen, xqc_now(), ctx);
+    }
+
+    xqc_engine_finish_recv(ctx->engine);
 }
 
 /* create socket and bind port */
@@ -1232,6 +1338,39 @@ xqc_demo_svr_create_socket(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_net_config_t* c
     return 0;
 }
 
+/* a socket bound to each preferred address of -X */
+static int
+xqc_demo_svr_create_pa_sockets(xqc_demo_svr_ctx_t *ctx, struct event_base *eb)
+{
+    xqc_server_preferred_address_t *pa = &ctx->args->net_cfg.preferred_addr;
+    struct sockaddr *addr[2] = {(struct sockaddr *)&pa->ipv4,
+                                (struct sockaddr *)&pa->ipv6};
+    socklen_t        addrlen[2] = {sizeof(pa->ipv4), sizeof(pa->ipv6)};
+    int              family[2] = {AF_INET, AF_INET6};
+    int              i;
+
+    for (i = 0; i < 2; i++) {
+        if (addr[i]->sa_family != family[i]) {
+            continue;
+        }
+
+        ctx->pa_fd[i] = xqc_demo_svr_init_socket(family[i], 0, addr[i],
+                                                 addrlen[i]);
+        if (ctx->pa_fd[i] < 0) {
+            return -1;
+        }
+
+        ctx->ev_pa_socket[i] = event_new(eb, ctx->pa_fd[i],
+                                         EV_READ | EV_PERSIST,
+                                         xqc_demo_svr_pa_socket_event_callback,
+                                         ctx);
+        event_add(ctx->ev_pa_socket[i], NULL);
+        printf("create preferred address socket fd: %d\n", ctx->pa_fd[i]);
+    }
+
+    return 0;
+}
+
 
 static void
 xqc_demo_svr_engine_callback(int fd, short what, void *arg)
@@ -1284,6 +1423,8 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -r    retry\n"
             "   -d    do not read responses from files\n"
             "   -i    use interop mode\n"
+            "   -X    Preferred address to offer and listen on, a.b.c.d:port\n"
+            "         or [x:y::z]:port; one per family (RFC 9000 9.6)\n"
             "   -M    enable MPQUIC.\n"
             "   -P    enable MPQUIC to return ACK_MPs on any paths.\n"
             "   -s    multipath scheduler (interop, minrtt, backup), default: interop\n"
@@ -1334,6 +1475,55 @@ xqc_demo_svr_init_args(xqc_demo_svr_args_t *args)
 #endif
 }
 
+/*
+ * -X: a preferred address a.b.c.d:port or [x:y::z]:port, of a family not
+ * given yet
+ */
+static int
+xqc_demo_svr_parse_preferred_addr(const char *arg,
+    xqc_server_preferred_address_t *pa)
+{
+    char        host[INET6_ADDRSTRLEN];
+    const char *port = strrchr(arg, ':');
+    size_t      len;
+    int         port_num;
+
+    if (port == NULL || port == arg) {
+        return -1;
+    }
+
+    len = port - arg;
+    if (arg[0] == '[' && port[-1] == ']') {
+        arg++;
+        len -= 2;
+    }
+
+    port_num = atoi(port + 1);
+    if (len >= sizeof(host) || port_num <= 0 || port_num > 65535) {
+        return -1;
+    }
+    memcpy(host, arg, len);
+    host[len] = '\0';
+
+    if (pa->ipv4.sin_family == 0
+        && inet_pton(AF_INET, host, &pa->ipv4.sin_addr) == 1)
+    {
+        pa->ipv4.sin_family = AF_INET;
+        pa->ipv4.sin_port = htons(port_num);
+        return 0;
+    }
+
+    if (pa->ipv6.sin6_family == 0
+        && inet_pton(AF_INET6, host, &pa->ipv6.sin6_addr) == 1)
+    {
+        pa->ipv6.sin6_family = AF_INET6;
+        pa->ipv6.sin6_port = htons(port_num);
+        return 0;
+    }
+
+    return -1;
+}
+
 void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
@@ -1345,6 +1535,7 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
                         "v:K:T:"
 #endif
 #endif
+                        "X:"
                         )) != -1)
     {
         switch (ch) {
@@ -1497,6 +1688,16 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             args->quic_cfg.max_initial_paths = atoi(optarg);
             break;
 
+        case 'X':
+            printf("preferred address: %s\n", optarg);
+            if (xqc_demo_svr_parse_preferred_addr(optarg,
+                    &args->net_cfg.preferred_addr) != 0)
+            {
+                printf("invalid preferred address: %s\n", optarg);
+                exit(1);
+            }
+            break;
+
         default:
             printf("other option :%c\n", ch);
             xqc_demo_svr_usage(argc, argv);
@@ -1557,6 +1758,8 @@ xqc_demo_svr_init_ctx(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_args_t *args)
 {
     memset(ctx, 0, sizeof(xqc_demo_svr_ctx_t));
     ctx->current_fd = -1;
+    ctx->pa_fd[0] = -1;
+    ctx->pa_fd[1] = -1;
     ctx->args = args;
     xqc_demo_svr_open_log_file(ctx);
     xqc_demo_svr_open_keylog_file(ctx);
@@ -1629,6 +1832,7 @@ xqc_demo_svr_init_conn_settings(xqc_engine_t *engine, xqc_demo_svr_args_t *args)
             .bbr_enable_lt_bw = 1,
         },
         .spurious_loss_detect_on = 1,
+        .preferred_address = args->net_cfg.preferred_addr,
         .init_idle_time_out = 60000,
         .enable_multipath = args->quic_cfg.multipath,
         .init_max_path_id = args->quic_cfg.max_initial_paths,
@@ -1873,6 +2077,11 @@ main(int argc, char *argv[])
     ctx->ev_socket6 = event_new(eb, ctx->fd6, EV_READ | EV_PERSIST,
         xqc_demo_svr_socket_event_callback, ctx);
     event_add(ctx->ev_socket6, NULL);
+
+    if (xqc_demo_svr_create_pa_sockets(ctx, eb) < 0) {
+        printf("preferred address socket error\n");
+        return 0;
+    }
 
     event_base_dispatch(eb);
 

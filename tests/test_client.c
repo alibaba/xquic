@@ -1900,6 +1900,11 @@ xqc_client_create_bound_socket(int type,
         goto err;
     }
 
+    /* cases 761 and 762: the server sends from its preferred address too */
+    if (g_test_case == 761 || g_test_case == 762) {
+        return fd;
+    }
+
     /* connect to peer addr */
 #if !defined(__APPLE__)
     if (connect(fd, (struct sockaddr *)saddr, saddr_len) < 0) {
@@ -6555,6 +6560,11 @@ int main(int argc, char *argv[]) {
 
     /* the server offers a preferred address (RFC 9000 Section 9.6) */
     if (g_test_case == 756 || g_test_case == 757) {
+        conn_settings.enable_preferred_address_migration = 1;
+    }
+
+    /* and answers from there, which an unconnected socket receives */
+    if (g_test_case == 761 || g_test_case == 762) {
         conn_settings.enable_preferred_address_migration = 1;
     }
 

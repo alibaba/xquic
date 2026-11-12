@@ -401,6 +401,27 @@ main(int argc, char *argv[])
                         xqc_test_preferred_addr_response_and_challenge)
         || !CU_add_test(pSuite, "xqc_test_preferred_addr_transport_params",
                         xqc_test_preferred_addr_transport_params)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_offer",
+                        xqc_test_server_preferred_addr_offer)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_not_offered",
+                        xqc_test_server_preferred_addr_not_offered)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_migrate",
+                        xqc_test_server_preferred_addr_migrate)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_order",
+                        xqc_test_server_preferred_addr_order)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_no_cid",
+                        xqc_test_server_preferred_addr_no_cid)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_give_up",
+                        xqc_test_server_preferred_addr_give_up)
+        || !CU_add_test(pSuite,
+                        "xqc_test_server_preferred_addr_new_client_addr",
+                        xqc_test_server_preferred_addr_new_client_addr)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_spoofed",
+                        xqc_test_server_preferred_addr_spoofed)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_padding",
+                        xqc_test_server_preferred_addr_padding)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_multipath",
+                        xqc_test_server_preferred_addr_multipath)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
         || !CU_add_test(pSuite, "xqc_test_datagram_transport_param_65536",
                         xqc_test_datagram_transport_param_65536)

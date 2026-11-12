@@ -283,6 +283,7 @@ xqc_test_fec_symbol_index_bounds(void)
 static void
 xqc_test_reed_solomon_symbol_index_bound(void)
 {
+#ifdef XQC_ENABLE_RSC
     xqc_int_t ret;
     unsigned char input[1] = {0};
     unsigned char output[1] = {0};
@@ -296,6 +297,7 @@ xqc_test_reed_solomon_symbol_index_bound(void)
     ret = xqc_rs_code_one_symbol(gm, input, outputs, 1, sizeof(input),
                                  XQC_FEC_MAX_SYMBOL_NUM_PBLOCK);
     CU_ASSERT_EQUAL(ret, -XQC_EFEC_SCHEME_ERROR);
+#endif
 }
 
 void

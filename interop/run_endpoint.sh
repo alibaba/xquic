@@ -7,6 +7,9 @@ case $TESTCASE in
     versionnegotiation|handshake|longrtt|transfer|zerortt|multiconnect|chacha20|resumption|http3|retry|keyupdate|mphandshake|mptransfer|mppathabandon|mppathstatus)
         :
         ;;
+    connectionmigration)
+        :
+        ;;
     *)
         exit 127
         ;;
@@ -75,11 +78,12 @@ if [ "$ROLE" == "client" ]; then
         echo "./demo_client $ARGS -U $REQUESTS -M -i eth0 -i eth0 -w 3000 -b"
         ./demo_client $ARGS -U "$REQUESTS" -M -i eth0 -i eth0 -w 3000 -b
     
-    # common testcase
+    # common testcase; -X: connectionmigration runs the client as for
+    # transfer, and expects it to move to the server's preferred address
     else
-        echo -e "./demo_client $ARGS -U \"$REQUESTS\"\n"
+        echo -e "./demo_client $ARGS -X -U \"$REQUESTS\"\n"
 
-        ./demo_client $ARGS -U "$REQUESTS"
+        ./demo_client $ARGS -X -U "$REQUESTS"
     fi
 
     #cp -r /downloads /logs/
@@ -90,6 +94,12 @@ elif [ "$ROLE" == "server" ]; then
     cp /certs/cert.pem server.crt
 
     ARGS="-l d -L "$LOG_DIR/server.log" -p 443 -D "/www" -k $SSLKEYLOGFILE -i -M"
+
+    # the server's addresses (server4, server6) at another port are its
+    # preferred addresses (RFC 9000 Section 9.6)
+    if [ "$TESTCASE" = "connectionmigration" ]; then
+        ARGS="$ARGS -X 193.167.100.100:4433 -X [fd00:cafe:cafe:100::100]:4433"
+    fi
 
     if [ "$TESTCASE" = "retry" ]; then
         ARGS="$ARGS -r"

@@ -588,6 +588,148 @@ fi
 
 }
 
+case_transport_core_preferred_address_migration()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "client migrates to the server's preferred address ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 756 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024000 -l d -t 2 -E -x 756 > stdlog 2>&1
+advertised=`grep "\[preferred-address-test\]|advertise|" svr_stdlog`
+blocked=`grep "\[preferred-address-test\]|no client cid|" svr_stdlog`
+migrated=`grep -a "|migrated to the preferred address|.* p-127\.0\.0\.2-" clog`
+probe=`grep -a "size:1200|.*|frame:PADDING PATH_CHALLENGE |.*|dcid_seq:1|" slog`
+moved=`grep -a "|xqc_conn_on_pkt_processed|.*STREAM .*|dcid_seq:1|" slog`
+retired=`grep -a "|frame:RETIRE_CONNECTION_ID |.*|dcid_seq:1|" slog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$advertised" ] && [ -z "$blocked" ] \
+    && [ -n "$migrated" ] && [ -n "$probe" ] && [ -n "$moved" ] \
+    && [ -n "$retired" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "preferred_address_migration" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "preferred_address_migration" "fail"
+    echo "[preferred-address]|advertised:${advertised:+1}|" \
+        "blocked:${blocked:+1}|migrated:${migrated:+1}|probe:${probe:+1}|" \
+        "moved:${moved:+1}|retired:${retired:+1}|"
+    echo "$errlog"
+fi
+
+}
+
+case_transport_core_preferred_address_unreachable()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "client stays when the preferred address does not answer ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 757 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024000 -l d -t 5 -E -x 757 > stdlog 2>&1
+advertised=`grep "\[preferred-address-test\]|advertise|" svr_stdlog`
+dropped=`grep "\[preferred-address-test\]|drop|size:1200|" svr_stdlog`
+retried=`grep -a "|preferred address PATH_CHALLENGE|ret:0|count:2|" clog`
+failed=`grep -a "|preferred address validation failed|" clog`
+migrated=`grep -a "|migrated to the preferred address|" clog`
+reached=`grep -a "|xqc_conn_on_pkt_processed|.*|dcid_seq:1|" slog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$advertised" ] && [ -n "$dropped" ] \
+    && [ -n "$retried" ] && [ -n "$failed" ] && [ -z "$migrated" ] \
+    && [ -z "$reached" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "preferred_address_unreachable" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "preferred_address_unreachable" "fail"
+    echo "[preferred-address]|advertised:${advertised:+1}|" \
+        "dropped:${dropped:+1}|retried:${retried:+1}|failed:${failed:+1}|" \
+        "migrated:${migrated:+1}|reached:${reached:+1}|"
+    echo "$errlog"
+fi
+
+}
+
+case_transport_core_server_preferred_address()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "server moves to its preferred address ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 761 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1024000 -l d -t 2 -E -x 761 > stdlog 2>&1
+offered=`grep -a "|server preferred address offered|.*|seq:1|" slog`
+probe=`grep -a "address probe|ret:0|response:1|challenges:1|" slog`
+probes=`grep -a -c "|server preferred address probe|ret:0|" slog`
+validated=`grep -a "|server preferred address validated|" slog`
+moved=`grep -a "|server migrated to the preferred address|" slog`
+migrated=`grep -a "|migrated to the preferred address|" clog`
+sent=`grep -c "\[server-preferred-address-test\]|send|" svr_stdlog`
+result=`grep ">>>>>>>> pass:1" stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$offered" ] && [ -n "$probe" ] \
+    && [ -n "$validated" ] && [ -n "$moved" ] && [ -n "$migrated" ] \
+    && [ "$sent" -gt "$probes" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_preferred_address" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_preferred_address" "fail"
+    echo "[server-preferred-address]|offered:${offered:+1}|probe:${probe:+1}|" \
+        "validated:${validated:+1}|moved:${moved:+1}|" \
+        "migrated:${migrated:+1}|sent:${sent}|probes:${probes}|"
+    echo "$errlog"
+fi
+
+}
+
+case_transport_core_server_preferred_address_unvalidated()
+{
+
+clear_log
+rm -rf tp_localhost test_session xqc_token
+echo -e "server stays until its preferred address is validated ...\c"
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -x 762 > svr_stdlog
+sleep 1
+${CLIENT_BIN} -s 1 -l d -t 3 -x 762 > stdlog 2>&1
+probe=`grep -a "address probe|ret:0|response:1|challenges:1|" slog`
+probes=`grep -a -c "|server preferred address probe|ret:0|" slog`
+dropped=`grep "\[server-preferred-address-test\]|drop|" svr_stdlog`
+reached=`grep -a "|server preferred address non-probing packet|" slog`
+validated=`grep -a "|server preferred address validated|" slog`
+moved=`grep -a "|server migrated to the preferred address|" slog`
+migrated=`grep -a "|migrated to the preferred address|" clog`
+sent=`grep -c "\[server-preferred-address-test\]|send|" svr_stdlog`
+received=`grep "recv_body_size:1048576, .*recv_fin:1, err:0," stdlog`
+errlog=`grep_err_log`
+if [ -z "$errlog" ] && [ -n "$probe" ] && [ -n "$dropped" ] \
+    && [ -n "$reached" ] && [ -z "$validated" ] && [ -z "$moved" ] \
+    && [ -n "$migrated" ] && [ "$sent" -eq "$probes" ] \
+    && [ -n "$received" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_preferred_address_unvalidated" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_preferred_address_unvalidated" "fail"
+    echo "[server-preferred-address]|probe:${probe:+1}|" \
+        "dropped:${dropped:+1}|reached:${reached:+1}|" \
+        "validated:${validated:+1}|moved:${moved:+1}|" \
+        "migrated:${migrated:+1}|sent:${sent}|probes:${probes}|" \
+        "received:${received:+1}|"
+    echo "$errlog"
+fi
+
+}
+
 case_transport_core_server_amplification_limit()
 {
 case_test_start_server ${SERVER_BIN} -l d -e -S "server_id_0" > /dev/null
@@ -1153,6 +1295,15 @@ case_test_case "crypto_previous_level_extension" --id native --mode self-reporti
 case_test_case "new_client_29_&_new_server" --id native --mode self-reporting --run case_transport_core_new_client_29_new_server
 case_test_case "load_balancer_cid_generate_with_encryption" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate_with_encryption
 case_test_case "load_balancer_cid_generate" --id native --mode self-reporting --run case_transport_core_load_balancer_cid_generate
+case_test_case "preferred_address_migration" --id 756 --mode self-reporting \
+    --run case_transport_core_preferred_address_migration
+case_test_case "preferred_address_unreachable" --id 757 --mode self-reporting \
+    --run case_transport_core_preferred_address_unreachable
+case_test_case "server_preferred_address" --id 761 --mode self-reporting \
+    --run case_transport_core_server_preferred_address
+case_test_case "server_preferred_address_unvalidated" --id 762 \
+    --mode self-reporting \
+    --run case_transport_core_server_preferred_address_unvalidated
 case_test_case "server_amplification_limit" --id native --mode self-reporting --run case_transport_core_server_amplification_limit
 case_test_case "version_negotiation" --id native --mode self-reporting --run case_transport_core_version_negotiation
 case_test_case "version_negotiation_abort_path" --id native --mode self-reporting --run case_transport_core_version_negotiation_abort_path

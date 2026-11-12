@@ -231,6 +231,9 @@ typedef struct xqc_demo_cli_quic_config_s {
     xqc_msec_t path1_rebind_time;
     uint8_t read_old_sockets;
 
+    /* migrate to the server's preferred address */
+    uint8_t preferred_address;
+
 } xqc_demo_cli_quic_config_t;
 
 
@@ -1831,6 +1834,8 @@ xqc_demo_cli_init_conneciton_settings(xqc_conn_settings_t* settings,
     settings->max_udp_payload_size = args->quic_cfg.max_pkt_sz;
     settings->adaptive_ack_frequency = 1;
     settings->init_max_path_id = args->quic_cfg.init_max_path_id;
+    settings->enable_preferred_address_migration =
+        args->quic_cfg.preferred_address;
     if (args->req_cfg.throttled_req != -1) {
         settings->enable_stream_rate_limit = 1;
         settings->recv_rate_bytes_per_sec = 0;
@@ -2055,6 +2060,7 @@ xqc_demo_cli_usage(int argc, char *argv[])
         "   -e    NAT rebinding on path 0 after x ms\n"
         "   -E    NAT rebinding on path 1 after x ms\n"
         "   -O    Also read packets from old sockets after rebinding\n"
+        "   -X    Migrate to the server's preferred address (RFC 9000 9.6)\n"
         "   -F    MTU size (default: 1200)\n"
         "   -G    Google connection options (e.g. CBBR,TBBR)\n"
         "   -x    Extend the number of requests to X\n"
@@ -2073,7 +2079,7 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
     int ch = 0;
     while ((ch = getopt(argc, argv,
                         "a:p:c:Ct:S:0m:A:D:l:L:k:K:U:u:dMoi:w:Ps:b:Z:NQT:"
-                        "R:V:B:I:n:e:E:F:G:r:x:y:Y:f:z:q65O"
+                        "R:V:B:I:n:e:E:F:G:r:x:y:Y:f:z:q65OX"
 #ifdef XQC_ENABLE_WEBTRANSPORT
                         "WH:j:"
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
@@ -2381,6 +2387,11 @@ xqc_demo_cli_parse_args(int argc, char *argv[],
         case 'O':
             printf("also read from old sockets after rebinding\n");
             args->quic_cfg.read_old_sockets = 1;
+            break;
+
+        case 'X':
+            printf("migrate to the server's preferred address\n");
+            args->quic_cfg.preferred_address = 1;
             break;
 
         case 'F':

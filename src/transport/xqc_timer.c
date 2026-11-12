@@ -28,7 +28,8 @@ static const char * const timer_type_2_str[XQC_TIMER_N] = {
     [XQC_TIMER_LINGER_CLOSE]    = "LINGER_CLOSE",
     [XQC_TIMER_KEY_UPDATE]      = "KEY_UPDATE",
     [XQC_TIMER_PMTUD_PROBING]   = "PMTUD_PROBING",
-    [XQC_TIMER_QUEUE_FIN]       = "CONN_QUEUE_FINISH"
+    [XQC_TIMER_QUEUE_FIN]       = "CONN_QUEUE_FINISH",
+    [XQC_TIMER_PREFERRED_ADDR]  = "PREFERRED_ADDR",
 };
 
 const char *
@@ -359,6 +360,15 @@ xqc_timer_pmtud_probing_timeout(xqc_timer_type_t type, xqc_usec_t now, void *use
 }
 
 
+void
+xqc_timer_preferred_addr_timeout(xqc_timer_type_t type, xqc_usec_t now,
+    void *user_data)
+{
+    xqc_connection_t *conn = (xqc_connection_t *)user_data;
+
+    xqc_conn_preferred_addr_on_timeout(conn, now);
+}
+
 /* timer callbacks end */
 
 void
@@ -427,6 +437,10 @@ xqc_timer_init(xqc_timer_manager_t *manager, xqc_log_t *log, void *user_data)
             timer->user_data = user_data;
         } else if (type == XQC_TIMER_QUEUE_FIN) {
             timer->timeout_cb = xqc_timer_fec_conn_queue_rpr_timeout;
+            timer->user_data = user_data;
+
+        } else if (type == XQC_TIMER_PREFERRED_ADDR) {
+            timer->timeout_cb = xqc_timer_preferred_addr_timeout;
             timer->user_data = user_data;
         }
     }

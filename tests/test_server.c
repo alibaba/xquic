@@ -28,6 +28,9 @@
 #include "src/transport/xqc_packet_parser.h"
 #include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_stream.h"
+#include "src/transport/xqc_engine.h"
+#include "src/transport/xqc_packet.h"
+#include "src/transport/xqc_utils.h"
 
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
@@ -58,6 +61,27 @@ printf_null(const char *format, ...)
 {
     return 0;
 }
+
+/* cases 756 and 757: the preferred address, the same port on 127.0.0.2 */
+#define XQC_TEST_CASE_PREFERRED_ADDRESS 756
+#define XQC_TEST_CASE_PREFERRED_ADDRESS_LOST 757
+static const uint8_t g_preferred_ipv4[4] = {127, 0, 0, 2};
+static xqc_cid_t g_preferred_cid;
+static void xqc_server_advertise_preferred_address(xqc_connection_t *conn);
+
+/*
+ * cases 761 and 762: the server offers the next port of 127.0.0.1 with
+ * preferred_address and receives there on a socket of its own; 762 drops
+ * there what the client sends padded, its PATH_RESPONSE frames, once the
+ * server sent from there
+ */
+#define XQC_TEST_CASE_SERVER_PREFERRED_ADDRESS 761
+#define XQC_TEST_CASE_SERVER_PREFERRED_ADDRESS_UNVALIDATED 762
+static int g_spa_fd = -1;
+static struct sockaddr_in g_spa_addr;
+/* the datagrams sent from the preferred address */
+static uint64_t g_spa_sent;
+static int xqc_server_preferred_address_fd(void *user_data, int fd);
 
 
 #define DEBUG printf("%s:%d (%s)\n", __FILE__, __LINE__, __FUNCTION__);
@@ -1166,6 +1190,13 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
         }
     }
 
+    if (g_test_case == XQC_TEST_CASE_PREFERRED_ADDRESS
+        || g_test_case == XQC_TEST_CASE_PREFERRED_ADDRESS_LOST)
+    {
+        xqc_server_advertise_preferred_address(
+            xqc_h3_conn_get_xqc_conn(h3_conn));
+    }
+
     /* RFC 9000 Section 18.2: max_ack_delay must be less than 2^14. */
     if (g_test_case == 713 || g_test_case == 714) {
         xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
@@ -2166,6 +2197,10 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
         return size;
     }
 
+    if (g_spa_fd >= 0) {
+        fd = xqc_server_preferred_address_fd(user_data, fd);
+    }
+
     do {
         set_sys_errno(0);
         res = sendto(fd, send_buf, send_buf_size, 0, peer_addr, peer_addrlen);
@@ -2240,6 +2275,193 @@ xqc_server_socket_write_handler(xqc_server_ctx_t *ctx)
     DEBUG
 }
 
+/*
+ * Cases 756 and 757: offer the client a preferred address (RFC 9000 Section
+ * 9.6) on 127.0.0.2, which the socket bound to the wildcard address
+ * receives as well, with a connection ID of sequence number 1 (Section
+ * 5.1.1). The local transport parameters are encoded again after the
+ * callback, as for case 709.
+ */
+static void
+xqc_server_advertise_preferred_address(xqc_connection_t *conn)
+{
+    xqc_preferred_addr_t   *preferred;
+    xqc_cid_t               cid;
+    xqc_int_t               ret;
+
+    if (conn == NULL || g_ipv6) {
+        printf("[preferred-address-test]|conn unavailable|\n");
+        return;
+    }
+
+    ret = xqc_generate_cid(conn->engine, &conn->scid_set.user_scid, &cid, 1);
+    if (ret == XQC_OK) {
+        ret = xqc_cid_set_insert_cid(&conn->scid_set, &cid, XQC_CID_UNUSED,
+                                     XQC_MAX_UINT64_VALUE, XQC_INITIAL_PATH_ID);
+    }
+    if (ret == XQC_OK) {
+        ret = xqc_insert_conns_hash(conn->engine->conns_hash, conn,
+                                    cid.cid_buf, cid.cid_len);
+    }
+    if (ret != XQC_OK) {
+        printf("[preferred-address-test]|cid error|ret:%d|\n", ret);
+        return;
+    }
+
+    /* NEW_CONNECTION_ID frames go on from sequence number 2 */
+    xqc_cid_set_set_largest_seq_or_rpt(&conn->scid_set, XQC_INITIAL_PATH_ID, 1);
+
+    preferred = &conn->local_settings.preferred_address;
+    xqc_memzero(preferred, sizeof(*preferred));
+    xqc_memcpy(preferred->ipv4, g_preferred_ipv4, sizeof(preferred->ipv4));
+    preferred->ipv4_port =
+        ntohs(((struct sockaddr_in *)&ctx.local_addr)->sin_port);
+    xqc_cid_copy(&preferred->cid, &cid);
+    xqc_gen_reset_token(&cid, preferred->stateless_reset_token,
+                        XQC_STATELESS_RESET_TOKENLEN,
+                        conn->engine->config->reset_token_key,
+                        conn->engine->config->reset_token_keylen);
+    conn->conn_flag |= XQC_CONN_FLAG_LOCAL_TP_UPDATED;
+
+    xqc_cid_copy(&g_preferred_cid, &cid);
+    printf("[preferred-address-test]|advertise|port:%u|cid:%s|\n",
+           (unsigned int)preferred->ipv4_port,
+           xqc_scid_str(conn->engine, &cid));
+}
+
+/*
+ * Case 756: answering from the preferred address takes a connection ID of
+ * the client's that is not in use (RFC 9000 Section 9.5); as ngtcp2 does,
+ * drop what comes there before the server has one.
+ * Case 757: the preferred address does not answer.
+ */
+static const char *
+xqc_server_drop_preferred_address_packet(const unsigned char *buf,
+    size_t size)
+{
+    static xqc_bool_t   cid_received = XQC_FALSE;
+    xqc_connection_t   *conn;
+
+    if (g_preferred_cid.cid_len == 0
+        || size <= g_preferred_cid.cid_len
+        || !XQC_PACKET_IS_SHORT_HEADER(buf)
+        || memcmp(buf + 1, g_preferred_cid.cid_buf,
+                  g_preferred_cid.cid_len) != 0)
+    {
+        return NULL;
+    }
+
+    if (g_test_case == XQC_TEST_CASE_PREFERRED_ADDRESS_LOST) {
+        return "drop";
+    }
+
+    if (g_test_case == XQC_TEST_CASE_PREFERRED_ADDRESS && !cid_received) {
+        conn = xqc_find_conns_hash(ctx.engine->conns_hash, NULL,
+                                   g_preferred_cid.cid_buf,
+                                   g_preferred_cid.cid_len);
+        cid_received = conn == NULL
+                       || xqc_cid_set_get_unused_cnt(&conn->dcid_set,
+                                                     XQC_INITIAL_PATH_ID) > 0;
+        return cid_received ? NULL : "no client cid";
+    }
+
+    return NULL;
+}
+
+/*
+ * Cases 761 and 762: a datagram goes from the socket of the local address
+ * that xqc_conn_get_local_addr() gives meanwhile, the preferred address for
+ * what the server sends from there; the first ones from there are counted
+ */
+static int
+xqc_server_preferred_address_fd(void *user_data, int fd)
+{
+    user_conn_t        *user_conn = user_data;
+    xqc_connection_t   *conn = NULL;
+    struct sockaddr_in  local;
+    socklen_t           local_len = 0;
+
+    if (user_conn != NULL) {
+        conn = user_conn->quic_conn != NULL ? user_conn->quic_conn
+               : user_conn->h3_conn != NULL
+                 ? xqc_h3_conn_get_xqc_conn(user_conn->h3_conn) : NULL;
+    }
+
+    if (conn == NULL
+        || xqc_conn_get_local_addr(conn, (struct sockaddr *)&local,
+                                   sizeof(local), &local_len) != XQC_OK
+        || local_len != sizeof(g_spa_addr)
+        || memcmp(&local, &g_spa_addr, sizeof(g_spa_addr)) != 0)
+    {
+        return fd;
+    }
+
+    if (++g_spa_sent <= 20) {
+        printf("[server-preferred-address-test]|send|n:%"PRIu64"|\n",
+               g_spa_sent);
+    }
+    return g_spa_fd;
+}
+
+/* cases 761 and 762: what reaches the preferred address is given with it */
+static void
+xqc_server_preferred_address_read(int fd, short what, void *arg)
+{
+    unsigned char       buf[XQC_PACKET_TMP_BUF_LEN];
+    struct sockaddr_in6 peer_addr;
+    socklen_t           peer_addrlen;
+    ssize_t             size;
+
+    for (;;) {
+        peer_addrlen = sizeof(peer_addr);
+        size = recvfrom(fd, buf, sizeof(buf), 0,
+                        (struct sockaddr *)&peer_addr, &peer_addrlen);
+        if (size < 0) {
+            break;
+        }
+
+        if (g_test_case == XQC_TEST_CASE_SERVER_PREFERRED_ADDRESS_UNVALIDATED
+            && g_spa_sent > 0 && size >= 1200)
+        {
+            printf("[server-preferred-address-test]|drop|size:%zd|\n", size);
+            continue;
+        }
+
+        xqc_engine_packet_process(ctx.engine, buf, size,
+                                  (struct sockaddr *)&g_spa_addr,
+                                  sizeof(g_spa_addr),
+                                  (struct sockaddr *)&peer_addr,
+                                  peer_addrlen, xqc_now(), NULL);
+    }
+
+    xqc_engine_finish_recv(ctx.engine);
+}
+
+/* cases 761 and 762: the socket of the preferred address */
+static int
+xqc_server_preferred_address_listen(struct event_base *eb)
+{
+    struct event *ev;
+
+    g_spa_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (g_spa_fd < 0
+        || fcntl(g_spa_fd, F_SETFL, O_NONBLOCK) == -1
+        || bind(g_spa_fd, (struct sockaddr *)&g_spa_addr,
+                sizeof(g_spa_addr)) < 0)
+    {
+        printf("[server-preferred-address-test]|socket error|errno:%d|\n",
+               get_sys_errno());
+        return -1;
+    }
+
+    ev = event_new(eb, g_spa_fd, EV_READ | EV_PERSIST,
+                   xqc_server_preferred_address_read, NULL);
+    event_add(ev, NULL);
+    printf("[server-preferred-address-test]|listen|port:%u|\n",
+           (unsigned int)ntohs(g_spa_addr.sin_port));
+    return 0;
+}
+
 int g_recv_total = 0;
 void
 xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
@@ -2252,6 +2474,7 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
     unsigned char packet_buf[XQC_PACKET_TMP_BUF_LEN];
     uint64_t recv_time;
     xqc_int_t ret;
+    const char *drop;
 
 #ifdef __linux__
     int batch = 0; /* packets are not necessarily on the same connection */
@@ -2312,6 +2535,14 @@ xqc_server_socket_read_handler(xqc_server_ctx_t *ctx)
         if (recv_size < 0) {
             printf("!!!!!!!!!recvfrom: recvmsg = %zd err=%s\n", recv_size, strerror(get_sys_errno()));
             break;
+        }
+
+        drop = xqc_server_drop_preferred_address_packet(packet_buf,
+                                                        recv_size);
+        if (drop != NULL) {
+            printf("[preferred-address-test]|%s|size:%zd|\n", drop,
+                   recv_size);
+            continue;
         }
 
         /* amplification limit */
@@ -3346,6 +3577,16 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
+    /* RFC 9000 Section 9.6: the next port of 127.0.0.1 is preferred */
+    if (g_test_case == XQC_TEST_CASE_SERVER_PREFERRED_ADDRESS
+        || g_test_case == XQC_TEST_CASE_SERVER_PREFERRED_ADDRESS_UNVALIDATED)
+    {
+        g_spa_addr.sin_family = AF_INET;
+        g_spa_addr.sin_port = htons(server_port + 1);
+        g_spa_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        conn_settings.preferred_address.ipv4 = g_spa_addr;
+    }
+
     g_conn_settings = conn_settings;
     xqc_server_set_conn_settings(ctx.engine, &conn_settings);
 
@@ -3469,6 +3710,11 @@ int main(int argc, char *argv[]) {
     ctx.ev_socket = event_new(eb, ctx.fd, EV_READ | EV_PERSIST, xqc_server_socket_event_callback, &ctx);
 
     event_add(ctx.ev_socket, NULL);
+    if (g_spa_addr.sin_port != 0
+        && xqc_server_preferred_address_listen(eb) < 0)
+    {
+        return 0;
+    }
     last_snd_ts = 0;
     event_base_dispatch(eb);
 

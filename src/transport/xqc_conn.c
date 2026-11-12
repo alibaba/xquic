@@ -14,6 +14,7 @@
 #include "src/common/xqc_priority_q.h"
 #include "src/common/xqc_memory_pool.h"
 #include "src/common/xqc_id_hash.h"
+#include "src/common/xqc_random.h"
 #include "src/transport/xqc_defs.h"
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_send_ctl.h"
@@ -276,6 +277,8 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     }
 
     engine->default_conn_settings.close_dgram_redundancy = settings->close_dgram_redundancy;
+    engine->default_conn_settings.preferred_address =
+        settings->preferred_address;
 
 #ifdef XQC_ENABLE_FEC
     engine->default_conn_settings.enable_encode_fec = settings->enable_encode_fec;
@@ -1256,6 +1259,11 @@ xqc_conn_server_create(xqc_engine_t *engine, const struct sockaddr *local_addr,
     ret = xqc_conn_server_init_path_addr(conn, XQC_INITIAL_PATH_ID,
                                          local_addr, local_addrlen,
                                          peer_addr, peer_addrlen);
+    if (ret != XQC_OK) {
+        goto fail;
+    }
+
+    ret = xqc_conn_server_preferred_addr_init(conn);
     if (ret != XQC_OK) {
         goto fail;
     }
@@ -4376,6 +4384,11 @@ xqc_conn_handshake_confirmed(xqc_connection_t *conn)
         xqc_log(conn->log, XQC_LOG_INFO, "|handshake confirmed|conn:%p|", conn);
         conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
         xqc_send_queue_drop_handshake_packets(conn);
+
+        /* RFC 9000 Section 9.6.1: "Once the handshake is confirmed" */
+        if (conn->conn_type == XQC_CONN_TYPE_CLIENT) {
+            xqc_conn_preferred_addr_start(conn, xqc_monotonic_timestamp());
+        }
     }
 
     return XQC_OK;
@@ -5099,6 +5112,9 @@ xqc_conn_on_pkt_processed(xqc_connection_t *c, xqc_packet_in_t *pi, xqc_usec_t n
     if (!(c->conn_flag & XQC_CONN_FLAG_ADDR_VALIDATED)) {
         xqc_conn_validate_address(c, pi);
     }
+
+    /* a server notes a non-probing packet at its preferred address */
+    xqc_conn_server_preferred_addr_on_packet(c, pi);
 
     /* record packet */
     xqc_conn_record_single(c, pi);
@@ -6026,6 +6042,10 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->disable_active_migration = settings->disable_active_migration;
     params->max_ack_delay = settings->max_ack_delay;
     params->preferred_address = settings->preferred_address;
+    /* RFC 9000 Section 18.2: only a server sends preferred_address */
+    params->preferred_address_present =
+        conn->conn_type == XQC_CONN_TYPE_SERVER
+        && settings->preferred_address.cid.cid_len > 0;
     params->active_connection_id_limit = settings->active_connection_id_limit;
     params->no_crypto = settings->no_crypto;
     params->enable_multipath = settings->enable_multipath;
@@ -6195,6 +6215,16 @@ xqc_conn_check_transport_params(xqc_connection_t *conn, const xqc_transport_para
             }
 
         } else if (params->retry_source_connection_id_present) {
+            return -XQC_TLS_TRANSPORT_PARAM;
+        }
+
+        /*
+         * RFC 9000 Section 18.2: "A server that chooses a zero-length
+         * connection ID MUST NOT provide a preferred address."
+         */
+        if (params->preferred_address_present
+            && params->initial_source_connection_id.cid_len == 0)
+        {
             return -XQC_TLS_TRANSPORT_PARAM;
         }
     }
@@ -6466,6 +6496,18 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
             /* it's weired if sr token present while cid not confirmed */
             xqc_log(conn->log, XQC_LOG_ERROR,
                     "|cid not confirmed while sr token present");
+        }
+    }
+
+    if (conn->conn_type == XQC_CONN_TYPE_CLIENT
+        && params.preferred_address_present)
+    {
+        ret = xqc_conn_on_preferred_address(conn, &params.preferred_address);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|store preferred address error|ret:%d|", ret);
+            XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+            return;
         }
     }
 
@@ -7167,33 +7209,38 @@ xqc_conn_closing_notify(xqc_connection_t *conn)
     }
 }
 
-/* Write one rebinding PATH_CHALLENGE without changing rebinding state. */
-xqc_int_t
-xqc_conn_send_rebinding_path_challenge(xqc_connection_t *conn,
-    xqc_path_ctx_t *path, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
-    unsigned char *challenge_data, xqc_bool_t min_padding, uint64_t max_send_bytes,
-    size_t *sent_bytes)
+/*
+ * Write one packet of a PATH_RESPONSE with response_data and a
+ * PATH_CHALLENGE with challenge_data, either NULL, and padding, to
+ * peer_addr with dcid, the path's connection ID if NULL. The packet skips
+ * the send queue: it is not retransmitted, and its loss does not count in
+ * congestion control (RFC 9000 Section 9.4).
+ */
+static xqc_int_t
+xqc_conn_send_path_probe(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    const xqc_cid_t *dcid, unsigned char *response_data,
+    unsigned char *challenge_data, xqc_bool_t min_padding,
+    uint64_t max_send_bytes, size_t *sent_bytes)
 {
     xqc_int_t           ret = XQC_OK;
     xqc_packet_out_t   *packet_out;
+    xqc_cid_t           path_dcid;
     xqc_usec_t          now;
     ssize_t             sent;
 
-    if (sent_bytes == NULL) {
-        return XQC_ERROR;
-    }
     *sent_bytes = 0;
 
-    if (conn->conn_type == XQC_CONN_TYPE_SERVER
-        && !xqc_conn_is_handshake_confirmed(conn))
-    {
-        return -XQC_EAGAIN;
-    }
-
-    if (peer_addr == NULL || peer_addrlen == 0 || challenge_data == NULL
-        || conn->transport_cbs.write_socket_ex == NULL)
+    if (conn->transport_cbs.write_socket_ex == NULL
+        && conn->transport_cbs.write_socket == NULL)
     {
         return XQC_ERROR;
+    }
+
+    if (!xqc_tls_is_key_ready(conn->tls, XQC_ENC_LEV_1RTT,
+                              XQC_KEY_TYPE_TX_WRITE))
+    {
+        return -XQC_EAGAIN;
     }
 
     packet_out = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
@@ -7202,12 +7249,23 @@ xqc_conn_send_rebinding_path_challenge(xqc_connection_t *conn,
         return -XQC_EWRITE_PKT;
     }
 
-    ret = xqc_gen_path_challenge_frame(packet_out, challenge_data);
+    if (response_data != NULL) {
+        ret = xqc_gen_path_response_frame(packet_out, response_data);
+        if (ret >= 0) {
+            packet_out->po_used_size += ret;
+        }
+    }
+    if (ret >= 0 && challenge_data != NULL) {
+        ret = xqc_gen_path_challenge_frame(packet_out, challenge_data);
+        if (ret >= 0) {
+            packet_out->po_used_size += ret;
+        }
+    }
     if (ret < 0) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_gen_path_challenge_frame error|%d|", ret);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|gen path probe frame error|%d|",
+                ret);
         goto end;
     }
-    packet_out->po_used_size += ret;
 
     if (min_padding) {
         packet_out->po_flag |= XQC_POF_PATH_MIN_PADDING;
@@ -7217,7 +7275,15 @@ xqc_conn_send_rebinding_path_challenge(xqc_connection_t *conn,
     packet_out->po_path_flag |= XQC_PATH_SPECIFIED_BY_PCPR;
     packet_out->po_path_id = path->path_id;
 
+    /* the packet carries the path's connection ID unless dcid is given */
+    if (dcid != NULL) {
+        path_dcid = path->path_dcid;
+        path->path_dcid = *dcid;
+    }
     ret = xqc_enc_packet_with_pn(conn, path, packet_out);
+    if (dcid != NULL) {
+        path->path_dcid = path_dcid;
+    }
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_enc_packet_with_pn error|%d|", ret);
         goto end;
@@ -7230,10 +7296,17 @@ xqc_conn_send_rebinding_path_challenge(xqc_connection_t *conn,
 
     now = xqc_monotonic_timestamp();
     packet_out->po_sent_time = now;
-    sent = conn->transport_cbs.write_socket_ex(path->path_id, conn->enc_pkt,
-                                               conn->enc_pkt_len, peer_addr,
-                                               peer_addrlen,
-                                               xqc_conn_get_user_data(conn));
+    if (conn->transport_cbs.write_socket_ex) {
+        sent = conn->transport_cbs.write_socket_ex(path->path_id,
+                   conn->enc_pkt, conn->enc_pkt_len, peer_addr, peer_addrlen,
+                   xqc_conn_get_user_data(conn));
+
+    } else {
+        sent = conn->transport_cbs.write_socket(conn->enc_pkt,
+                                                conn->enc_pkt_len, peer_addr,
+                                                peer_addrlen,
+                                                xqc_conn_get_user_data(conn));
+    }
     if (sent != conn->enc_pkt_len) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|write_socket error|conn:%p|pkt_num:%ui|size:%ud|sent:%z|pkt_type:%s|frame:%s|now:%ui|",
@@ -7258,6 +7331,1185 @@ end:
                                &conn->conn_send_queue->sndq_free_packets,
                                conn->conn_send_queue);
     return ret;
+}
+
+/* Write one rebinding PATH_CHALLENGE without changing rebinding state. */
+xqc_int_t
+xqc_conn_send_rebinding_path_challenge(xqc_connection_t *conn,
+    xqc_path_ctx_t *path, const struct sockaddr *peer_addr,
+    socklen_t peer_addrlen, unsigned char *challenge_data,
+    xqc_bool_t min_padding, uint64_t max_send_bytes, size_t *sent_bytes)
+{
+    if (sent_bytes == NULL) {
+        return XQC_ERROR;
+    }
+    *sent_bytes = 0;
+
+    if (conn->conn_type == XQC_CONN_TYPE_SERVER
+        && !xqc_conn_is_handshake_confirmed(conn))
+    {
+        return -XQC_EAGAIN;
+    }
+
+    if (peer_addr == NULL || peer_addrlen == 0 || challenge_data == NULL
+        || conn->transport_cbs.write_socket_ex == NULL)
+    {
+        return XQC_ERROR;
+    }
+
+    return xqc_conn_send_path_probe(conn, path, peer_addr, peer_addrlen, NULL,
+                                    NULL, challenge_data, min_padding,
+                                    max_send_bytes, sent_bytes);
+}
+
+
+/*
+ * RFC 9000 Section 9.6: a client migrates to the server's preferred address,
+ * once the handshake is confirmed, after validating the path to it.
+ */
+
+/* the connection ID of preferred_address (RFC 9000 Section 5.1.1) */
+#define XQC_PREFERRED_ADDR_CID_SEQ  1
+
+
+/* RFC 9000 Section 9.4: whether two addresses differ in their port only */
+static xqc_bool_t
+xqc_conn_is_same_ip(const struct sockaddr *sa1, const struct sockaddr *sa2)
+{
+    if (sa1->sa_family != sa2->sa_family) {
+        return XQC_FALSE;
+    }
+
+    if (sa1->sa_family == AF_INET6) {
+        return memcmp(&((const struct sockaddr_in6 *)sa1)->sin6_addr,
+                      &((const struct sockaddr_in6 *)sa2)->sin6_addr,
+                      sizeof(struct in6_addr)) == 0;
+    }
+
+    return ((const struct sockaddr_in *)sa1)->sin_addr.s_addr
+           == ((const struct sockaddr_in *)sa2)->sin_addr.s_addr;
+}
+
+
+/*
+ * The preferred address of the family of the server's address in use;
+ * XQC_FALSE if the server gave none: "an all-zero address and port" stands
+ * for none (RFC 9000 Section 18.2).
+ */
+static xqc_bool_t
+xqc_conn_preferred_addr_select(xqc_connection_t *conn,
+    const xqc_preferred_addr_t *preferred, xqc_preferred_addr_ctx_t *pa)
+{
+    static const uint8_t    zero[16] = {0};
+    const struct sockaddr  *peer_addr = (struct sockaddr *)conn->peer_addr;
+    struct sockaddr_in     *sin;
+    struct sockaddr_in6    *sin6;
+
+    xqc_memzero(pa->addr, sizeof(pa->addr));
+
+    if (conn->peer_addrlen == 0) {
+        return XQC_FALSE;
+
+    } else if (peer_addr->sa_family == AF_INET) {
+        if (preferred->ipv4_port == 0
+            || memcmp(preferred->ipv4, zero, sizeof(preferred->ipv4)) == 0)
+        {
+            return XQC_FALSE;
+        }
+        sin = (struct sockaddr_in *)pa->addr;
+        sin->sin_family = AF_INET;
+        sin->sin_port = htons(preferred->ipv4_port);
+        xqc_memcpy(&sin->sin_addr, preferred->ipv4, sizeof(preferred->ipv4));
+        pa->addrlen = sizeof(struct sockaddr_in);
+
+    } else if (peer_addr->sa_family == AF_INET6) {
+        if (preferred->ipv6_port == 0
+            || memcmp(preferred->ipv6, zero, sizeof(preferred->ipv6)) == 0)
+        {
+            return XQC_FALSE;
+        }
+        sin6 = (struct sockaddr_in6 *)pa->addr;
+        sin6->sin6_family = AF_INET6;
+        sin6->sin6_port = htons(preferred->ipv6_port);
+        xqc_memcpy(&sin6->sin6_addr, preferred->ipv6, sizeof(preferred->ipv6));
+        pa->addrlen = sizeof(struct sockaddr_in6);
+
+    } else {
+        return XQC_FALSE;
+    }
+
+    return !xqc_is_same_addr((struct sockaddr *)pa->addr, peer_addr);
+}
+
+
+xqc_int_t
+xqc_conn_on_preferred_address(xqc_connection_t *conn,
+    const xqc_preferred_addr_t *preferred)
+{
+    xqc_preferred_addr_ctx_t   *pa = &conn->preferred_addr;
+    xqc_bool_t                  sr_token_inserted = XQC_FALSE;
+    xqc_cid_t                   cid;
+    xqc_int_t                   ret;
+
+    /*
+     * RFC 9000 Section 18.2: the connection ID and stateless reset token
+     * are those of a NEW_CONNECTION_ID frame, with sequence number 1
+     */
+    cid = preferred->cid;
+    cid.cid_seq_num = XQC_PREFERRED_ADDR_CID_SEQ;
+    xqc_memcpy(cid.sr_token, preferred->stateless_reset_token,
+               XQC_STATELESS_RESET_TOKENLEN);
+
+    if (xqc_cid_in_cid_set(&conn->dcid_set, &cid, XQC_INITIAL_PATH_ID)
+        != NULL)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|preferred address with a connection ID in use|cid:%s|",
+                xqc_dcid_str(conn->engine, &cid));
+        return XQC_OK;
+    }
+
+    ret = xqc_insert_conns_hash(conn->engine->conns_hash_dcid, conn,
+                                cid.cid_buf, cid.cid_len);
+    if (ret < 0) {
+        return ret;
+    }
+
+    if (xqc_find_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                            cid.sr_token, XQC_STATELESS_RESET_TOKENLEN) == NULL)
+    {
+        ret = xqc_insert_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                                    cid.sr_token, XQC_STATELESS_RESET_TOKENLEN);
+        if (ret < 0) {
+            xqc_rollback_new_conn_id_hash_entries(conn, &cid, XQC_FALSE);
+            return ret;
+        }
+        sr_token_inserted = XQC_TRUE;
+    }
+
+    ret = xqc_cid_set_insert_cid(&conn->dcid_set, &cid, XQC_CID_UNUSED,
+              conn->local_settings.active_connection_id_limit,
+              XQC_INITIAL_PATH_ID);
+    if (ret != XQC_OK) {
+        xqc_rollback_new_conn_id_hash_entries(conn, &cid, sr_token_inserted);
+        return ret;
+    }
+
+    if (xqc_conn_preferred_addr_select(conn, preferred, pa)) {
+        xqc_cid_copy(&pa->dcid, &cid);
+        pa->state = XQC_PREFERRED_ADDR_OFFERED;
+    }
+
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|preferred address|state:%d|cid:%s|",
+            pa->state, xqc_dcid_str(conn->engine, &cid));
+    return XQC_OK;
+}
+
+
+/*
+ * RFC 9000 Section 9.5: the connection ID of the probes is not used toward
+ * the server's original address; retire it with the validation
+ */
+static void
+xqc_conn_preferred_addr_fail(xqc_connection_t *conn)
+{
+    xqc_preferred_addr_ctx_t   *pa = &conn->preferred_addr;
+    xqc_cid_inner_t            *inner_cid;
+    xqc_int_t                   ret;
+
+    pa->state = XQC_PREFERRED_ADDR_FAILED;
+    xqc_timer_unset(&conn->conn_timer_manager, XQC_TIMER_PREFERRED_ADDR);
+
+    inner_cid = xqc_cid_in_cid_set(&conn->dcid_set, &pa->dcid,
+                                   XQC_INITIAL_PATH_ID);
+    if (inner_cid != NULL && inner_cid->state == XQC_CID_USED
+        && conn->conn_state < XQC_CONN_STATE_CLOSING)
+    {
+        xqc_cid_switch_to_next_state(&conn->dcid_set, inner_cid,
+                                     XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
+        ret = xqc_write_retire_conn_id_frame_to_packet(conn,
+                                                       pa->dcid.cid_seq_num);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|retire preferred address cid error|ret:%d|", ret);
+        }
+    }
+
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|preferred address validation failed|challenges:%ud|",
+            pa->challenge_cnt);
+}
+
+
+/*
+ * RFC 9000 Section 8.2.4: abandon a path validation after "three times the
+ * larger of the current PTO or the PTO for the new path (using
+ * kInitialRtt)"
+ */
+static xqc_usec_t
+xqc_conn_path_validation_timeout(xqc_connection_t *conn)
+{
+    xqc_usec_t  initial_rtt = conn->conn_settings.initial_rtt;
+    xqc_usec_t  initial_pto;
+
+    initial_pto = initial_rtt
+                  + xqc_max(2 * initial_rtt, XQC_kGranularity * 1000)
+                  + conn->remote_settings.max_ack_delay * 1000;
+    return 3 * xqc_max(xqc_conn_get_max_pto(conn), initial_pto);
+}
+
+
+/*
+ * One more PATH_CHALLENGE to the preferred address, with new unpredictable
+ * data (RFC 9000 Section 8.2.1), and the timer for the next one.
+ */
+static void
+xqc_conn_preferred_addr_challenge(xqc_connection_t *conn, xqc_usec_t now)
+{
+    xqc_preferred_addr_ctx_t   *pa = &conn->preferred_addr;
+    unsigned char              *data;
+    xqc_usec_t                  interval;
+    size_t                      sent;
+    xqc_int_t                   ret;
+
+    if (pa->challenge_cnt == 0) {
+        pa->deadline = now + xqc_conn_path_validation_timeout(conn);
+    }
+
+    if (pa->challenge_cnt < XQC_PREFERRED_ADDR_MAX_CHALLENGES) {
+        data = pa->challenge_data[pa->challenge_cnt];
+        ret = xqc_get_random(conn->engine->rand_generator, data,
+                             XQC_PATH_CHALLENGE_DATA_LEN);
+        if (ret == XQC_OK) {
+            ret = xqc_conn_send_path_probe(conn, conn->conn_initial_path,
+                                           (struct sockaddr *)pa->addr,
+                                           pa->addrlen, &pa->dcid, NULL,
+                                           data, XQC_TRUE, XQC_MAX_UINT64_VALUE,
+                                           &sent);
+        }
+
+        xqc_log(conn->log, XQC_LOG_INFO,
+                "|preferred address PATH_CHALLENGE|ret:%d|count:%ud|"
+                "addr:%s|dcid:%s|",
+                ret, pa->challenge_cnt + 1,
+                xqc_peer_addr_str(conn->engine, (struct sockaddr *)pa->addr,
+                                  pa->addrlen),
+                xqc_dcid_str(conn->engine, &pa->dcid));
+
+        if (ret != XQC_OK && ret != -XQC_EAGAIN) {
+            xqc_conn_preferred_addr_fail(conn);
+            return;
+        }
+        pa->challenge_cnt++;
+    }
+
+    /*
+     * RFC 9000 Section 9.4: no more aggressively than a PTO, backing off
+     * each time, until the validation is abandoned
+     */
+    interval = xqc_conn_get_max_pto(conn) << (pa->challenge_cnt - 1);
+    if (pa->challenge_cnt >= XQC_PREFERRED_ADDR_MAX_CHALLENGES
+        || now + interval > pa->deadline)
+    {
+        interval = pa->deadline > now ? pa->deadline - now : 0;
+    }
+    xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_PREFERRED_ADDR, now,
+                  interval);
+}
+
+
+/*
+ * RFC 9000 Section 9.5: "An endpoint MUST NOT reuse a connection ID when
+ * sending from more than one local address": the server answers from its
+ * preferred address with a connection ID of the client's that it has not
+ * used yet, and cannot answer without one (ngtcp2 drops the challenge).
+ */
+static xqc_bool_t
+xqc_conn_preferred_addr_peer_has_cid(xqc_connection_t *conn)
+{
+    xqc_cid_set_inner_t *inner_set;
+
+    if (conn->scid_set.user_scid.cid_len == 0) {
+        return XQC_TRUE;
+    }
+
+    inner_set = xqc_get_path_cid_set(&conn->scid_set, XQC_INITIAL_PATH_ID);
+    return inner_set != NULL && inner_set->acked_unused > 0;
+}
+
+
+void
+xqc_conn_preferred_addr_start(xqc_connection_t *conn, xqc_usec_t now)
+{
+    xqc_preferred_addr_ctx_t   *pa = &conn->preferred_addr;
+    xqc_cid_inner_t            *inner_cid;
+
+    if (pa->state != XQC_PREFERRED_ADDR_OFFERED) {
+        return;
+    }
+
+    if (!conn->conn_settings.enable_preferred_address_migration
+        || conn->enable_multipath
+        || conn->conn_state >= XQC_CONN_STATE_CLOSING)
+    {
+        pa->state = XQC_PREFERRED_ADDR_NONE;
+        return;
+    }
+
+    /*
+     * RFC 9000 Section 9.6.1: "any previously unused active connection ID",
+     * the one of preferred_address unless already in use. A connection ID
+     * keeps the length of the one in use, which the packet headers have.
+     */
+    inner_cid = xqc_cid_in_cid_set(&conn->dcid_set, &pa->dcid,
+                                   XQC_INITIAL_PATH_ID);
+    if (inner_cid == NULL || inner_cid->state != XQC_CID_UNUSED) {
+        inner_cid = NULL;
+        if (xqc_get_unused_cid(&conn->dcid_set, &pa->dcid,
+                               XQC_INITIAL_PATH_ID) == XQC_OK)
+        {
+            inner_cid = xqc_cid_in_cid_set(&conn->dcid_set, &pa->dcid,
+                                           XQC_INITIAL_PATH_ID);
+        }
+
+    } else {
+        xqc_cid_switch_to_next_state(&conn->dcid_set, inner_cid, XQC_CID_USED,
+                                     XQC_INITIAL_PATH_ID);
+    }
+
+    if (inner_cid == NULL) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|no unused connection ID for the preferred address|");
+        pa->state = XQC_PREFERRED_ADDR_FAILED;
+        return;
+    }
+    xqc_cid_copy(&pa->dcid, &inner_cid->cid);
+
+    pa->state = XQC_PREFERRED_ADDR_VALIDATING;
+    if (inner_cid->cid.cid_len != conn->dcid_set.current_dcid.cid_len) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|preferred address cid length differs|len:%ud|in use:%ud|",
+                (unsigned int)inner_cid->cid.cid_len,
+                (unsigned int)conn->dcid_set.current_dcid.cid_len);
+        xqc_conn_preferred_addr_fail(conn);
+        return;
+    }
+    pa->challenge_cnt = 0;
+
+    /*
+     * The client issues its connection IDs now that the handshake is
+     * confirmed: as before a new path of multipath (see
+     * xqc_conn_get_available_path_id), wait until the server acknowledges
+     * one, but no longer than a PTO.
+     */
+    if (!xqc_conn_preferred_addr_peer_has_cid(conn)) {
+        xqc_log(conn->log, XQC_LOG_INFO,
+                "|preferred address waits for a connection ID ack|");
+        xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_PREFERRED_ADDR,
+                      now, xqc_conn_get_max_pto(conn));
+        return;
+    }
+
+    xqc_conn_preferred_addr_challenge(conn, now);
+}
+
+
+void
+xqc_conn_preferred_addr_on_cid_acked(xqc_connection_t *conn, xqc_usec_t now)
+{
+    xqc_preferred_addr_ctx_t *pa = &conn->preferred_addr;
+
+    /* the first challenge, from the timer rather than amid the ACK frame */
+    if (pa->state == XQC_PREFERRED_ADDR_VALIDATING && pa->challenge_cnt == 0
+        && xqc_conn_preferred_addr_peer_has_cid(conn))
+    {
+        xqc_timer_set(&conn->conn_timer_manager, XQC_TIMER_PREFERRED_ADDR,
+                      now, 0);
+    }
+}
+
+
+void
+xqc_conn_preferred_addr_on_datagram(xqc_connection_t *conn,
+    const struct sockaddr *peer_addr)
+{
+    xqc_preferred_addr_ctx_t *pa = &conn->preferred_addr;
+
+    pa->recv_from_addr = pa->state == XQC_PREFERRED_ADDR_VALIDATING
+                         && peer_addr != NULL
+                         && xqc_is_same_addr(peer_addr,
+                                             (struct sockaddr *)pa->addr);
+}
+
+
+xqc_bool_t
+xqc_conn_preferred_addr_on_challenge(xqc_connection_t *conn,
+    unsigned char *challenge_data)
+{
+    xqc_preferred_addr_ctx_t   *pa = &conn->preferred_addr;
+    size_t                      sent;
+    xqc_int_t                   ret;
+
+    if (conn->conn_type != XQC_CONN_TYPE_CLIENT
+        || pa->state != XQC_PREFERRED_ADDR_VALIDATING
+        || !pa->recv_from_addr)
+    {
+        return XQC_FALSE;
+    }
+
+    /*
+     * RFC 9000 Section 8.2.2: "A PATH_RESPONSE frame MUST be sent on the
+     * network path where the PATH_CHALLENGE frame was received."
+     */
+    ret = xqc_conn_send_path_probe(conn, conn->conn_initial_path,
+                                   (struct sockaddr *)pa->addr, pa->addrlen,
+                                   &pa->dcid, challenge_data, NULL,
+                                   XQC_TRUE, XQC_MAX_UINT64_VALUE, &sent);
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|preferred address PATH_RESPONSE|ret:%d|", ret);
+    return XQC_TRUE;
+}
+
+
+xqc_int_t
+xqc_conn_preferred_addr_on_response(xqc_connection_t *conn,
+    const unsigned char *response_data)
+{
+    xqc_preferred_addr_ctx_t   *pa = &conn->preferred_addr;
+    xqc_path_ctx_t             *path = conn->conn_initial_path;
+    xqc_cid_inner_t            *inner_cid;
+    xqc_cid_t                   old_dcid;
+    xqc_bool_t                  same_ip;
+    uint32_t                    i;
+    xqc_int_t                   ret;
+
+    if (conn->conn_type != XQC_CONN_TYPE_CLIENT) {
+        return -XQC_EIGNORE_PKT;
+    }
+
+    /* RFC 9000 Section 8.2.3: a response to any of the challenges sent */
+    for (i = 0; i < pa->challenge_cnt; i++) {
+        if (memcmp(pa->challenge_data[i], response_data,
+                   XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+        {
+            break;
+        }
+    }
+    if (i == pa->challenge_cnt) {
+        return -XQC_EIGNORE_PKT;
+    }
+
+    /* the response to another challenge, once the validation is over */
+    if (pa->state != XQC_PREFERRED_ADDR_VALIDATING) {
+        xqc_log(conn->log, XQC_LOG_DEBUG,
+                "|late preferred address PATH_RESPONSE|state:%d|", pa->state);
+        return XQC_OK;
+    }
+
+    xqc_timer_unset(&conn->conn_timer_manager, XQC_TIMER_PREFERRED_ADDR);
+
+    /* the server might have retired the connection ID in the meantime */
+    inner_cid = xqc_cid_in_cid_set(&conn->dcid_set, &pa->dcid,
+                                   XQC_INITIAL_PATH_ID);
+    if (inner_cid == NULL || inner_cid->state != XQC_CID_USED) {
+        xqc_conn_preferred_addr_fail(conn);
+        return XQC_OK;
+    }
+
+    /*
+     * RFC 9000 Section 9.6.1: "the client SHOULD begin sending all future
+     * packets to the new server address using the new connection ID and
+     * discontinue use of the old server address"
+     */
+    same_ip = xqc_conn_is_same_ip((struct sockaddr *)pa->addr,
+                                  (struct sockaddr *)path->peer_addr);
+    xqc_cid_copy(&old_dcid, &path->path_dcid);
+    xqc_cid_copy(&path->path_dcid, &pa->dcid);
+    if (conn->dcid_set.current_dcid.cid_seq_num == old_dcid.cid_seq_num) {
+        xqc_cid_copy(&conn->dcid_set.current_dcid, &pa->dcid);
+    }
+    xqc_datagram_record_mss(conn);
+
+    xqc_memcpy(path->peer_addr, pa->addr, pa->addrlen);
+    path->peer_addrlen = pa->addrlen;
+    path->addr_str_len = 0;
+    xqc_memcpy(conn->peer_addr, pa->addr, pa->addrlen);
+    conn->peer_addrlen = pa->addrlen;
+    conn->addr_str_len = 0;
+    pa->state = XQC_PREFERRED_ADDR_MIGRATED;
+
+    /*
+     * RFC 9000 Section 9.4: reset the congestion controller and the RTT
+     * estimator "unless the only change in the peer's address is its port
+     * number"
+     */
+    if (!same_ip) {
+        xqc_send_ctl_reset_for_new_path(path->path_send_ctl);
+    }
+
+    inner_cid = xqc_cid_in_cid_set(&conn->dcid_set, &old_dcid,
+                                   XQC_INITIAL_PATH_ID);
+    if (inner_cid != NULL && inner_cid->state == XQC_CID_USED) {
+        xqc_cid_switch_to_next_state(&conn->dcid_set, inner_cid,
+                                     XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
+        ret = xqc_write_retire_conn_id_frame_to_packet(conn,
+                                                       old_dcid.cid_seq_num);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|retire the original cid error|ret:%d|", ret);
+        }
+    }
+
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|migrated to the preferred address|addr:%s|dcid:%s|reset_cc:%d|",
+            xqc_conn_addr_str(conn), xqc_dcid_str(conn->engine, &pa->dcid),
+            !same_ip);
+
+    if (conn->transport_cbs.conn_peer_addr_changed_notify) {
+        conn->transport_cbs.conn_peer_addr_changed_notify(
+            conn, xqc_conn_get_user_data(conn));
+    }
+
+    return XQC_OK;
+}
+
+
+void
+xqc_conn_preferred_addr_on_timeout(xqc_connection_t *conn, xqc_usec_t now)
+{
+    xqc_preferred_addr_ctx_t *pa = &conn->preferred_addr;
+
+    if (pa->state != XQC_PREFERRED_ADDR_VALIDATING) {
+        return;
+    }
+
+    if (conn->conn_state >= XQC_CONN_STATE_CLOSING
+        || (pa->challenge_cnt > 0 && now >= pa->deadline))
+    {
+        xqc_conn_preferred_addr_fail(conn);
+        return;
+    }
+
+    xqc_conn_preferred_addr_challenge(conn, now);
+}
+
+
+/*
+ * RFC 9000 Section 9.6.2: a server answers from its preferred address what
+ * reaches it there, and sends everything from there once the client sent
+ * a non-probing packet there and the path from there is validated.
+ */
+
+/* RFC 9000 Section 9.1: the frames of a probing packet */
+#define XQC_PROBING_FRAME_BITS  (XQC_FRAME_BIT_PATH_CHALLENGE \
+                                 | XQC_FRAME_BIT_PATH_RESPONSE \
+                                 | XQC_FRAME_BIT_NEW_CONNECTION_ID \
+                                 | XQC_FRAME_BIT_PADDING)
+
+
+/* the preferred address of the family that the server offers, or NULL */
+static const struct sockaddr *
+xqc_conn_server_preferred_addr_of(xqc_connection_t *conn, int family)
+{
+    xqc_server_preferred_address_t *cfg =
+        &conn->conn_settings.preferred_address;
+
+    if (family == AF_INET && cfg->ipv4.sin_family == AF_INET
+        && cfg->ipv4.sin_port != 0)
+    {
+        return (const struct sockaddr *)&cfg->ipv4;
+    }
+
+    if (family == AF_INET6 && cfg->ipv6.sin6_family == AF_INET6
+        && cfg->ipv6.sin6_port != 0)
+    {
+        return (const struct sockaddr *)&cfg->ipv6;
+    }
+
+    return NULL;
+}
+
+
+xqc_int_t
+xqc_conn_server_preferred_addr_init(xqc_connection_t *conn)
+{
+    xqc_preferred_addr_t       *tp = &conn->local_settings.preferred_address;
+    const struct sockaddr_in   *sin;
+    const struct sockaddr_in6  *sin6;
+    xqc_cid_t                   cid;
+    xqc_int_t                   ret;
+
+    sin = (const struct sockaddr_in *)
+          xqc_conn_server_preferred_addr_of(conn, AF_INET);
+    sin6 = (const struct sockaddr_in6 *)
+           xqc_conn_server_preferred_addr_of(conn, AF_INET6);
+    if (sin == NULL && sin6 == NULL) {
+        return XQC_OK;
+    }
+
+    /*
+     * RFC 9000 Section 18.2: "A server that chooses a zero-length
+     * connection ID MUST NOT provide a preferred address."
+     */
+    if (conn->scid_set.user_scid.cid_len == 0) {
+        xqc_log(conn->log, XQC_LOG_WARN,
+                "|no preferred address with zero-length connection IDs|");
+        return XQC_OK;
+    }
+
+    /* RFC 9000 Section 5.1.1: the connection ID of sequence number 1 */
+    ret = xqc_generate_cid(conn->engine, &conn->scid_set.user_scid, &cid,
+                           XQC_PREFERRED_ADDR_CID_SEQ);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_cid_set_insert_cid(&conn->scid_set, &cid, XQC_CID_UNUSED,
+              conn->remote_settings.active_connection_id_limit,
+              XQC_INITIAL_PATH_ID);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    if (xqc_insert_conns_hash(conn->engine->conns_hash, conn, cid.cid_buf,
+                              cid.cid_len) != XQC_OK)
+    {
+        xqc_cid_set_delete_cid(&conn->scid_set, &cid, XQC_INITIAL_PATH_ID);
+        return -XQC_EMALLOC;
+    }
+
+    /* NEW_CONNECTION_ID frames go on from sequence number 2 */
+    xqc_cid_set_set_largest_seq_or_rpt(&conn->scid_set, XQC_INITIAL_PATH_ID,
+                                       XQC_PREFERRED_ADDR_CID_SEQ);
+
+    /* an all-zero address and port stand for a family not offered */
+    xqc_memzero(tp, sizeof(*tp));
+    if (sin != NULL) {
+        xqc_memcpy(tp->ipv4, &sin->sin_addr, sizeof(tp->ipv4));
+        tp->ipv4_port = ntohs(sin->sin_port);
+    }
+    if (sin6 != NULL) {
+        xqc_memcpy(tp->ipv6, &sin6->sin6_addr, sizeof(tp->ipv6));
+        tp->ipv6_port = ntohs(sin6->sin6_port);
+    }
+    xqc_cid_copy(&tp->cid, &cid);
+    xqc_gen_reset_token(&cid, tp->stateless_reset_token,
+                        XQC_STATELESS_RESET_TOKENLEN,
+                        conn->engine->config->reset_token_key,
+                        conn->engine->config->reset_token_keylen);
+    conn->server_preferred_addr.state = XQC_PREFERRED_ADDR_OFFERED;
+
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|server preferred address offered|cid:%s|seq:%ui|ipv4_port:%ud|"
+            "ipv6_port:%ud|", xqc_scid_str(conn->engine, &cid),
+            cid.cid_seq_num, (unsigned int)tp->ipv4_port,
+            (unsigned int)tp->ipv6_port);
+    return XQC_OK;
+}
+
+
+void
+xqc_conn_server_preferred_addr_on_datagram(xqc_connection_t *conn,
+    const struct sockaddr *local_addr, const struct sockaddr *peer_addr,
+    socklen_t peer_addrlen, size_t size)
+{
+    xqc_server_preferred_addr_ctx_t    *spa = &conn->server_preferred_addr;
+    const struct sockaddr              *preferred;
+
+    spa->recv_at_addr = XQC_FALSE;
+    if (spa->state == XQC_PREFERRED_ADDR_NONE
+        || spa->state == XQC_PREFERRED_ADDR_MIGRATED
+        || conn->enable_multipath || local_addr == NULL || peer_addr == NULL
+        || peer_addrlen == 0 || peer_addrlen > sizeof(spa->dgram_peer))
+    {
+        return;
+    }
+
+    /*
+     * the first preferred address reached is the one validated, unless the
+     * connection uses it already
+     */
+    preferred = xqc_conn_server_preferred_addr_of(conn,
+                                                  local_addr->sa_family);
+    if (preferred == NULL || !xqc_is_same_addr(local_addr, preferred)
+        || (spa->local_addrlen != 0
+            && !xqc_is_same_addr(local_addr,
+                                 (struct sockaddr *)spa->local_addr))
+        || (conn->local_addrlen != 0
+            && xqc_is_same_addr(local_addr,
+                                (struct sockaddr *)conn->local_addr)))
+    {
+        return;
+    }
+
+    spa->dgram_local = preferred;
+    xqc_memcpy(spa->dgram_peer, peer_addr, peer_addrlen);
+    spa->dgram_peerlen = peer_addrlen;
+    spa->dgram_size = size;
+    spa->dgram_counted = XQC_FALSE;
+    spa->recv_at_addr = XQC_TRUE;
+    spa->authenticated_pkts = conn->rcv_pkt_stats.conn_authenticated_pkts;
+}
+
+
+/*
+ * A packet of the datagram that reached the preferred address is
+ * authenticated: the addresses of the datagram and its size count, only
+ * now against spoofed datagrams (RFC 9000 Section 9.3.2). A client address
+ * seen there is validated there, as a new one would be (Sections 9.3.1 and
+ * 9.6.3).
+ */
+static void
+xqc_conn_server_preferred_addr_count_datagram(xqc_connection_t *conn)
+{
+    xqc_server_preferred_addr_ctx_t *spa = &conn->server_preferred_addr;
+    const struct sockaddr           *peer;
+
+    if (spa->dgram_counted) {
+        return;
+    }
+    spa->dgram_counted = XQC_TRUE;
+
+    if (spa->local_addrlen == 0) {
+        spa->local_addrlen = spa->dgram_local->sa_family == AF_INET6
+                             ? sizeof(struct sockaddr_in6)
+                             : sizeof(struct sockaddr_in);
+        xqc_memcpy(spa->local_addr, spa->dgram_local, spa->local_addrlen);
+    }
+
+    peer = (const struct sockaddr *)spa->dgram_peer;
+    if (spa->peer_addrlen == 0
+        || !xqc_is_same_addr(peer, (struct sockaddr *)spa->peer_addr))
+    {
+        xqc_memcpy(spa->peer_addr, spa->dgram_peer, spa->dgram_peerlen);
+        spa->peer_addrlen = spa->dgram_peerlen;
+        spa->challenge_cnt = 0;
+        spa->recv_bytes = 0;
+        spa->sent_bytes = 0;
+        spa->validated = XQC_FALSE;
+        spa->non_probing_recvd = XQC_FALSE;
+        if (spa->state == XQC_PREFERRED_ADDR_VALIDATING
+            || spa->state == XQC_PREFERRED_ADDR_FAILED)
+        {
+            spa->state = XQC_PREFERRED_ADDR_OFFERED;
+        }
+    }
+
+    spa->recv_bytes += xqc_min(spa->dgram_size,
+                               XQC_MAX_UINT64_VALUE - spa->recv_bytes);
+}
+
+
+/*
+ * Whether to send a new PATH_CHALLENGE from the preferred address: until
+ * the path is validated, no sooner than a PTO after the last one, backing
+ * off (RFC 9000 Section 9.4)
+ */
+static xqc_bool_t
+xqc_conn_server_preferred_addr_may_challenge(xqc_connection_t *conn,
+    xqc_usec_t now)
+{
+    xqc_server_preferred_addr_ctx_t *spa = &conn->server_preferred_addr;
+
+    if (spa->validated || spa->state == XQC_PREFERRED_ADDR_FAILED
+        || spa->challenge_cnt >= XQC_PREFERRED_ADDR_MAX_CHALLENGES)
+    {
+        return XQC_FALSE;
+    }
+
+    return spa->challenge_cnt == 0
+           || now >= spa->challenge_time
+                     + (xqc_conn_get_max_pto(conn)
+                        << (spa->challenge_cnt - 1));
+}
+
+
+/*
+ * One packet from the preferred address to the client: a PATH_RESPONSE
+ * with response_data unless NULL, and a new PATH_CHALLENGE if one is due.
+ * RFC 9000 Section 9.6.2: "The server MUST probe on the path toward the
+ * client from its preferred address."
+ */
+static void
+xqc_conn_server_preferred_addr_probe(xqc_connection_t *conn,
+    unsigned char *response_data, xqc_usec_t now)
+{
+    xqc_server_preferred_addr_ctx_t    *spa = &conn->server_preferred_addr;
+    xqc_path_ctx_t                     *path = conn->conn_initial_path;
+    unsigned char                       path_local[sizeof(path->local_addr)];
+    unsigned char                       conn_local[sizeof(conn->local_addr)];
+    socklen_t                           path_local_len, conn_local_len;
+    unsigned char                      *challenge = NULL;
+    xqc_cid_t                          *dcid = NULL;
+    uint64_t                            budget = XQC_MAX_UINT64_VALUE;
+    size_t                              sent = 0;
+    xqc_int_t                           ret;
+
+    /*
+     * RFC 9000 Section 9.5: "An endpoint MUST NOT reuse a connection ID
+     * when sending from more than one local address"
+     */
+    if (conn->dcid_set.current_dcid.cid_len > 0) {
+        if (spa->dcid.cid_len == 0
+            && xqc_get_unused_cid(&conn->dcid_set, &spa->dcid,
+                                  XQC_INITIAL_PATH_ID) != XQC_OK)
+        {
+            xqc_log(conn->log, XQC_LOG_INFO,
+                    "|server preferred address probe dropped|no unused cid|");
+            return;
+        }
+        dcid = &spa->dcid;
+    }
+
+    /* Section 8.2.1: the anti-amplification limit of a new client address */
+    if (!xqc_is_same_addr((struct sockaddr *)spa->peer_addr,
+                          (struct sockaddr *)conn->peer_addr))
+    {
+        budget = spa->recv_bytes > XQC_MAX_UINT64_VALUE / 3
+                 ? XQC_MAX_UINT64_VALUE : 3 * spa->recv_bytes;
+        budget = budget > spa->sent_bytes ? budget - spa->sent_bytes : 0;
+    }
+
+    /*
+     * A PATH_CHALLENGE waits until the limit permits a datagram of 1200
+     * bytes: the path MTU is then validated with the path, without the
+     * second path validation of Section 8.2.1
+     */
+    if (budget >= XQC_PACKET_INITIAL_MIN_LENGTH
+        && xqc_conn_server_preferred_addr_may_challenge(conn, now)
+        && xqc_get_random(conn->engine->rand_generator,
+                          spa->challenge_data[spa->challenge_cnt],
+                          XQC_PATH_CHALLENGE_DATA_LEN) == XQC_OK)
+    {
+        challenge = spa->challenge_data[spa->challenge_cnt];
+    }
+
+    if (response_data == NULL && challenge == NULL) {
+        return;
+    }
+
+    /*
+     * The application sends the packet from the address that
+     * xqc_path_get_local_addr() and xqc_conn_get_local_addr() return.
+     */
+    path_local_len = path->local_addrlen;
+    conn_local_len = conn->local_addrlen;
+    xqc_memcpy(path_local, path->local_addr, sizeof(path_local));
+    xqc_memcpy(conn_local, conn->local_addr, sizeof(conn_local));
+    xqc_memcpy(path->local_addr, spa->local_addr, spa->local_addrlen);
+    path->local_addrlen = spa->local_addrlen;
+    xqc_memcpy(conn->local_addr, spa->local_addr, spa->local_addrlen);
+    conn->local_addrlen = spa->local_addrlen;
+
+    ret = xqc_conn_send_path_probe(conn, path,
+                                   (struct sockaddr *)spa->peer_addr,
+                                   spa->peer_addrlen, dcid, response_data,
+                                   challenge,
+                                   budget >= XQC_PACKET_INITIAL_MIN_LENGTH,
+                                   budget, &sent);
+
+    xqc_memcpy(path->local_addr, path_local, sizeof(path_local));
+    path->local_addrlen = path_local_len;
+    xqc_memcpy(conn->local_addr, conn_local, sizeof(conn_local));
+    conn->local_addrlen = conn_local_len;
+
+    spa->sent_bytes += sent;
+    if (challenge != NULL && (ret == XQC_OK || ret == -XQC_EAGAIN)) {
+        if (spa->challenge_cnt == 0) {
+            spa->deadline = now + xqc_conn_path_validation_timeout(conn);
+        }
+        spa->challenge_cnt++;
+        spa->challenge_time = now;
+        spa->state = XQC_PREFERRED_ADDR_VALIDATING;
+    }
+
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|server preferred address probe|ret:%d|response:%d|challenges:%ud|"
+            "local:%s|peer:%s|dcid:%s|", ret, response_data != NULL,
+            spa->challenge_cnt,
+            xqc_local_addr_str(conn->engine,
+                               (struct sockaddr *)spa->local_addr,
+                               spa->local_addrlen),
+            xqc_peer_addr_str(conn->engine,
+                              (struct sockaddr *)spa->peer_addr,
+                              spa->peer_addrlen),
+            xqc_dcid_str(conn->engine, dcid ? dcid : &path->path_dcid));
+}
+
+
+xqc_bool_t
+xqc_conn_server_preferred_addr_on_challenge(xqc_connection_t *conn,
+    unsigned char *challenge_data)
+{
+    if (conn->conn_type != XQC_CONN_TYPE_SERVER
+        || !conn->server_preferred_addr.recv_at_addr)
+    {
+        return XQC_FALSE;
+    }
+
+    /*
+     * RFC 9000 Section 8.2.2: "A PATH_RESPONSE frame MUST be sent on the
+     * network path where the PATH_CHALLENGE frame was received."
+     */
+    xqc_conn_server_preferred_addr_count_datagram(conn);
+    xqc_conn_server_preferred_addr_probe(conn, challenge_data,
+                                         xqc_monotonic_timestamp());
+    return XQC_TRUE;
+}
+
+
+xqc_int_t
+xqc_conn_server_preferred_addr_on_response(xqc_connection_t *conn,
+    const unsigned char *response_data)
+{
+    xqc_server_preferred_addr_ctx_t *spa = &conn->server_preferred_addr;
+    uint32_t                         i;
+
+    if (conn->conn_type != XQC_CONN_TYPE_SERVER) {
+        return -XQC_EIGNORE_PKT;
+    }
+
+    /*
+     * RFC 9000 Section 8.2.3: a response to any of the challenges sent;
+     * those to the others come later, maybe once the server moved
+     */
+    for (i = 0; i < spa->challenge_cnt; i++) {
+        if (memcmp(spa->challenge_data[i], response_data,
+                   XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+        {
+            if (spa->state == XQC_PREFERRED_ADDR_VALIDATING
+                && !spa->validated)
+            {
+                spa->validated = XQC_TRUE;
+                xqc_log(conn->log, XQC_LOG_INFO,
+                        "|server preferred address validated|challenges:%ud|",
+                        spa->challenge_cnt);
+            }
+            return XQC_OK;
+        }
+    }
+
+    return -XQC_EIGNORE_PKT;
+}
+
+
+void
+xqc_conn_server_preferred_addr_on_packet(xqc_connection_t *conn,
+    xqc_packet_in_t *packet_in)
+{
+    xqc_server_preferred_addr_ctx_t    *spa = &conn->server_preferred_addr;
+    xqc_recv_record_t                  *record;
+
+    if (!spa->recv_at_addr) {
+        return;
+    }
+
+    xqc_conn_server_preferred_addr_count_datagram(conn);
+    if (spa->non_probing_recvd
+        || packet_in->pi_pkt.pkt_type != XQC_PTYPE_SHORT_HEADER
+        || (packet_in->pi_frame_types & ~XQC_PROBING_FRAME_BITS) == 0)
+    {
+        return;
+    }
+
+    /* "a non-probing packet with a new largest packet number" (9.6.2) */
+    record = &xqc_get_pn_ctl(conn, conn->conn_initial_path)
+                  ->ctl_recv_record[XQC_PNS_APP_DATA];
+    if (!xqc_list_empty(&record->list_head)
+        && packet_in->pi_pkt.pkt_num <= xqc_recv_record_largest(record))
+    {
+        return;
+    }
+
+    spa->non_probing_recvd = XQC_TRUE;
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|server preferred address non-probing packet|pkt_num:%ui|",
+            packet_in->pi_pkt.pkt_num);
+}
+
+
+/*
+ * RFC 9000 Section 8.2.4: the validation is abandoned, and the server
+ * stays; the client's connection ID of the probes, used from no other
+ * address, is retired (Section 9.5)
+ */
+static void
+xqc_conn_server_preferred_addr_fail(xqc_connection_t *conn)
+{
+    xqc_server_preferred_addr_ctx_t    *spa = &conn->server_preferred_addr;
+    xqc_cid_inner_t                    *inner_cid;
+    xqc_int_t                           ret;
+
+    spa->state = XQC_PREFERRED_ADDR_FAILED;
+    if (spa->dcid.cid_len > 0) {
+        inner_cid = xqc_cid_in_cid_set(&conn->dcid_set, &spa->dcid,
+                                       XQC_INITIAL_PATH_ID);
+        if (inner_cid != NULL && inner_cid->state == XQC_CID_USED
+            && xqc_cid_is_equal(&spa->dcid,
+                                &conn->conn_initial_path->path_dcid)
+               != XQC_OK)
+        {
+            xqc_cid_switch_to_next_state(&conn->dcid_set, inner_cid,
+                                         XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
+            ret = xqc_write_retire_conn_id_frame_to_packet(conn,
+                      spa->dcid.cid_seq_num);
+            if (ret != XQC_OK) {
+                xqc_log(conn->log, XQC_LOG_ERROR,
+                        "|retire the preferred address cid error|ret:%d|",
+                        ret);
+            }
+        }
+        xqc_memzero(&spa->dcid, sizeof(spa->dcid));
+    }
+
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|server preferred address validation failed|challenges:%ud|",
+            spa->challenge_cnt);
+}
+
+
+/* 0.0.0.0 or ::, as given for a socket bound to any address, or none */
+static xqc_bool_t
+xqc_conn_is_unspecified_addr(const unsigned char *addr, socklen_t addrlen)
+{
+    static const unsigned char  zero[16] = {0};
+    const struct sockaddr      *sa = (const struct sockaddr *)addr;
+
+    if (addrlen == 0) {
+        return XQC_TRUE;
+    }
+
+    if (sa->sa_family == AF_INET6) {
+        return memcmp(&((const struct sockaddr_in6 *)sa)->sin6_addr, zero,
+                      sizeof(zero)) == 0;
+    }
+
+    return ((const struct sockaddr_in *)sa)->sin_addr.s_addr == 0;
+}
+
+
+/*
+ * RFC 9000 Section 9.6.2: "the server begins sending non-probing packets to
+ * the client exclusively from its preferred IP address"
+ */
+static void
+xqc_conn_server_preferred_addr_migrate(xqc_connection_t *conn)
+{
+    xqc_server_preferred_addr_ctx_t    *spa = &conn->server_preferred_addr;
+    xqc_path_ctx_t                     *path = conn->conn_initial_path;
+    xqc_cid_inner_t                    *inner_cid;
+    xqc_cid_t                           old_dcid;
+    xqc_bool_t                          new_peer, new_ip;
+    xqc_int_t                           ret;
+
+    /* Section 9.5: the client's connection ID of the probes, if any */
+    if (spa->dcid.cid_len > 0) {
+        inner_cid = xqc_cid_in_cid_set(&conn->dcid_set, &spa->dcid,
+                                       XQC_INITIAL_PATH_ID);
+        if (inner_cid == NULL || inner_cid->state != XQC_CID_USED) {
+            xqc_conn_server_preferred_addr_fail(conn);
+            return;
+        }
+
+        xqc_cid_copy(&old_dcid, &path->path_dcid);
+        xqc_cid_copy(&path->path_dcid, &spa->dcid);
+        if (conn->dcid_set.current_dcid.cid_seq_num == old_dcid.cid_seq_num) {
+            xqc_cid_copy(&conn->dcid_set.current_dcid, &spa->dcid);
+        }
+
+        inner_cid = xqc_cid_in_cid_set(&conn->dcid_set, &old_dcid,
+                                       XQC_INITIAL_PATH_ID);
+        if (inner_cid != NULL && inner_cid->state == XQC_CID_USED) {
+            xqc_cid_switch_to_next_state(&conn->dcid_set, inner_cid,
+                                         XQC_CID_RETIRED, XQC_INITIAL_PATH_ID);
+            ret = xqc_write_retire_conn_id_frame_to_packet(conn,
+                      old_dcid.cid_seq_num);
+            if (ret != XQC_OK) {
+                xqc_log(conn->log, XQC_LOG_ERROR,
+                        "|retire the original cid error|ret:%d|", ret);
+            }
+        }
+    }
+
+    /*
+     * Section 9.4: the congestion controller and the RTT estimator restart
+     * on a new path, unless only ports changed; an unspecified local
+     * address tells nothing of the IP address that the server used
+     */
+    new_ip = !xqc_is_same_ip((struct sockaddr *)spa->peer_addr,
+                             (struct sockaddr *)path->peer_addr)
+             || (!xqc_conn_is_unspecified_addr(path->local_addr,
+                                               path->local_addrlen)
+                 && !xqc_is_same_ip((struct sockaddr *)spa->local_addr,
+                                    (struct sockaddr *)path->local_addr));
+    new_peer = !xqc_is_same_addr((struct sockaddr *)spa->peer_addr,
+                                 (struct sockaddr *)path->peer_addr);
+
+    xqc_memcpy(path->local_addr, spa->local_addr, spa->local_addrlen);
+    path->local_addrlen = spa->local_addrlen;
+    xqc_memcpy(conn->local_addr, spa->local_addr, spa->local_addrlen);
+    conn->local_addrlen = spa->local_addrlen;
+    if (new_peer) {
+        xqc_memcpy(path->peer_addr, spa->peer_addr, spa->peer_addrlen);
+        path->peer_addrlen = spa->peer_addrlen;
+        xqc_memcpy(conn->peer_addr, spa->peer_addr, spa->peer_addrlen);
+        conn->peer_addrlen = spa->peer_addrlen;
+    }
+    path->addr_str_len = 0;
+    conn->addr_str_len = 0;
+
+    if (new_ip) {
+        xqc_send_ctl_reset_for_new_path(path->path_send_ctl);
+    }
+    spa->state = XQC_PREFERRED_ADDR_MIGRATED;
+
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|server migrated to the preferred address|addr:%s|dcid:%s|"
+            "reset_cc:%d|", xqc_conn_addr_str(conn),
+            xqc_dcid_str(conn->engine, &path->path_dcid), new_ip);
+
+    if (new_peer && conn->transport_cbs.conn_peer_addr_changed_notify) {
+        conn->transport_cbs.conn_peer_addr_changed_notify(
+            conn, xqc_conn_get_user_data(conn));
+    }
+}
+
+
+void
+xqc_conn_server_preferred_addr_on_processed(xqc_connection_t *conn,
+    xqc_usec_t now)
+{
+    xqc_server_preferred_addr_ctx_t    *spa = &conn->server_preferred_addr;
+
+    if ((spa->state != XQC_PREFERRED_ADDR_OFFERED
+         && spa->state != XQC_PREFERRED_ADDR_VALIDATING)
+        || conn->conn_err != 0 || conn->conn_state >= XQC_CONN_STATE_CLOSING)
+    {
+        return;
+    }
+
+    /*
+     * An authenticated datagram there, on a path not validated: challenge
+     * again if due, or give up after the time of RFC 9000 Section 8.2.4
+     */
+    if (spa->recv_at_addr && !spa->validated
+        && conn->rcv_pkt_stats.conn_authenticated_pkts
+           != spa->authenticated_pkts)
+    {
+        if (spa->challenge_cnt > 0 && now >= spa->deadline) {
+            xqc_conn_server_preferred_addr_fail(conn);
+            return;
+        }
+
+        xqc_conn_server_preferred_addr_probe(conn, NULL, now);
+    }
+
+    if (spa->validated && spa->non_probing_recvd
+        && xqc_conn_is_handshake_confirmed(conn))
+    {
+        xqc_conn_server_preferred_addr_migrate(conn);
+    }
 }
 
 uint64_t 

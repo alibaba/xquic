@@ -1338,6 +1338,17 @@ typedef enum {
     XQC_FEC_02                  = 0x02,
 } xqc_fec_version_t;
 
+/**
+ * @brief the preferred addresses that a server offers in its
+ * preferred_address transport parameter (RFC 9000 Sections 9.6 and 18.2)
+ */
+typedef struct xqc_server_preferred_address_s {
+    /** offered if sin_family is AF_INET and sin_port is not 0 */
+    struct sockaddr_in          ipv4;
+    /** offered if sin6_family is AF_INET6 and sin6_port is not 0 */
+    struct sockaddr_in6         ipv6;
+} xqc_server_preferred_address_t;
+
 
 /**
  * @brief structures of connection settings
@@ -1591,6 +1602,32 @@ typedef struct xqc_conn_settings_s {
 
     /* draft-ietf-quic-reliable-stream-reset-09 Section 3; default off. */
     xqc_bool_t                  enable_reset_stream_at;
+
+    /**
+     * Client only: once the handshake is confirmed, validate the server's
+     * preferred address of the address family in use and move the
+     * connection to it (RFC 9000 Section 9.6), unless multipath is used.
+     * The application must then accept the server's packets from that
+     * address, and send to the address that write_socket or
+     * write_socket_ex is given, as conn_peer_addr_changed_notify tells.
+     * Default: off.
+     */
+    xqc_bool_t                  enable_preferred_address_migration;
+
+    /**
+     * Server only: the preferred addresses offered to the client, with a
+     * connection ID of sequence number 1 (RFC 9000 Sections 5.1.1 and
+     * 9.6), unless the server's connection IDs are zero-length. The
+     * application passes the datagrams that reach a preferred address to
+     * xqc_engine_packet_process with that address as local_addr, and
+     * sends each datagram that write_socket_ex or write_socket is given
+     * from the address that xqc_path_get_local_addr or
+     * xqc_conn_get_local_addr returns meanwhile. The server answers there
+     * the PATH_CHALLENGE frames received there, and moves there once the
+     * client sent a non-probing packet there and the path is validated
+     * (Section 9.6.2). Not used with multipath. Default: none.
+     */
+    xqc_server_preferred_address_t  preferred_address;
 } xqc_conn_settings_t;
 
 

@@ -81,7 +81,7 @@ if [ x"$platform" == xios ] ; then
         exit 1
     fi
 
-    archs=${ios_archs[@]}
+    archs=("${ios_archs[@]}")
     configures="${common_configures}
                 -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
                 -DDEPLOYMENT_TARGET=10.0
@@ -93,7 +93,7 @@ elif [ x"$platform" == xandroid ] ; then
         exit 1
     fi
 
-    archs=${android_archs[@]}
+    archs=("${android_archs[@]}")
     configures="${common_configures}
                 -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake
                 -DANDROID_STL=c++_shared
@@ -113,7 +113,7 @@ elif [ x"$platform" == xharmony ] ; then
     echo "HMOS_CMAKE_PATH: ${HMOS_CMAKE_PATH}"
     CMAKE_CMD=${HMOS_CMAKE_PATH}
 
-    archs=${hmos_archs[@]}
+    archs=("${hmos_archs[@]}")
     configures="${common_configures}
                 -DCMAKE_TOOLCHAIN_FILE=${HMOS_CMAKE_TOOLCHAIN}
                 -DDISABLE_WARNINGS=ON"
@@ -149,7 +149,7 @@ artifact_dir=$cur_dir/$artifact_dir
 
 cd $build_dir 
 
-for i in ${archs[@]} ;
+for i in "${archs[@]}" ;
 do
     rm -f  CMakeCache.txt
     rm -rf CMakeFiles
@@ -187,7 +187,7 @@ done
 make_fat() {
     lib_name=$1
     lipo_args=
-    for i in ${archs[@]} ;
+    for i in "${archs[@]}" ;
     do
         lipo_args="$lipo_args -arch $i $artifact_dir/$i/$lib_name"
     done

@@ -61,6 +61,9 @@ typedef struct xqc_pn_ctl_s {
     /* record received pkt number range in a list */
     xqc_recv_record_t           ctl_recv_record[XQC_PNS_N];
 
+    /* ECN codepoints of the received packets, RFC 9000 Section 13.4.1 */
+    xqc_ecn_counts_t            ctl_ecn_recv[XQC_PNS_N];
+
     /* record ack sent */
     xqc_ack_sent_record_t       ack_sent_record[XQC_PNS_N];
 
@@ -72,6 +75,18 @@ typedef struct xqc_pn_ctl_s {
     xqc_usec_t                  ctl_next_skip_chance;
 
 } xqc_pn_ctl_t;
+
+/* ECN validation of a path, RFC 9000 Section 13.4.2 and Appendix A.4 */
+typedef enum {
+    XQC_ECN_STATE_NONE      = 0,    /* not used, or no packet sent yet */
+    XQC_ECN_STATE_TESTING,          /* marking the first packets */
+    XQC_ECN_STATE_UNKNOWN,          /* not marking until they are acked */
+    XQC_ECN_STATE_CAPABLE,          /* validated, marking */
+    XQC_ECN_STATE_FAILED,           /* validation failed, not marking */
+} xqc_ecn_state_t;
+
+/* packets marked ECT(0) on a path before its validation */
+#define XQC_ECN_TESTING_PACKETS 10
 
 typedef struct xqc_send_ctl_s {
     xqc_connection_t            *ctl_conn;
@@ -171,6 +186,19 @@ typedef struct xqc_send_ctl_s {
 
     uint64_t                    ctl_ack_sent_cnt;
 
+    /* ECN: the validation state of the path */
+    xqc_ecn_state_t             ctl_ecn_state;
+    /* the codepoint of the last datagram written on the path */
+    uint8_t                     ctl_ecn_last_write;
+    /* packets sent with ECT(0) while testing */
+    uint32_t                    ctl_ecn_testing_sent;
+    /* the packets sent with ECT(0) while testing that were lost */
+    uint32_t                    ctl_ecn_testing_lost;
+    /* the datagrams of the last burst written with ECT(0), from its start */
+    uint32_t                    ctl_ecn_burst_marked;
+    /* the ECN counts of the last ACK frame validated, per space */
+    xqc_ecn_counts_t            ctl_ecn_acked[XQC_PNS_N];
+
 } xqc_send_ctl_t;
 
 
@@ -244,6 +272,14 @@ void xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_q
 xqc_bool_t xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *largest_lost, xqc_usec_t now);
 
 void xqc_send_ctl_congestion_event(xqc_send_ctl_t *send_ctl, xqc_usec_t sent_time);
+
+uint8_t xqc_send_ctl_ecn_on_write(xqc_send_ctl_t *send_ctl);
+uint32_t xqc_send_ctl_ecn_burst_marks(xqc_send_ctl_t *send_ctl, uint32_t cnt);
+void xqc_send_ctl_ecn_on_lost(xqc_send_ctl_t *send_ctl);
+
+void xqc_send_ctl_ecn_on_ack(xqc_send_ctl_t *send_ctl,
+    const xqc_ack_info_t *ack_info, uint64_t acked_ect0,
+    xqc_bool_t largest_acked_increased);
 
 int xqc_send_ctl_in_recovery(xqc_send_ctl_t *send_ctl, xqc_usec_t sent_time);
 

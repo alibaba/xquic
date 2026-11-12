@@ -32,6 +32,11 @@
 
 #include "common.h"
 #include "xqc_hq.h"
+
+#if defined(__linux__)
+/* ECN codepoints of datagrams, with IP_TOS and IPV6_TCLASS messages */
+#define XQC_DEMO_SVR_ECN 1
+#endif
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
 #include "xqc_webtrans_interop.h"
 #endif
@@ -119,6 +124,9 @@ typedef struct xqc_demo_svr_quic_config_s {
     int  max_initial_paths;
     /* support interop test */
     int is_interop_mode;
+
+    /* ECN: mark datagrams and report the codepoints received */
+    int ecn;
 
     /* ack on any path */
     int  mp_ack_on_any_path;
@@ -1079,6 +1087,121 @@ xqc_demo_svr_write_socket_ex(uint64_t path_id, const unsigned char *buf, size_t 
     return xqc_demo_svr_write_socket(buf, size, peer_addr, peer_addrlen, conn_user_data);
 }
 
+#ifdef XQC_DEMO_SVR_ECN
+/* report the ECN codepoints of the datagrams received on the socket */
+static int
+xqc_demo_svr_ecn_recv_on(int fd, int family)
+{
+    int on = 1;
+
+    if (family == AF_INET6) {
+        return setsockopt(fd, IPPROTO_IPV6, IPV6_RECVTCLASS, &on, sizeof(on));
+    }
+
+    return setsockopt(fd, IPPROTO_IP, IP_RECVTOS, &on, sizeof(on));
+}
+
+/* recvfrom, and the ECN codepoint of the datagram */
+static ssize_t
+xqc_demo_svr_recv_ecn(int fd, unsigned char *buf, size_t len,
+    struct sockaddr *addr, socklen_t *addrlen, xqc_ecn_codepoint_t *ecn)
+{
+    struct iovec iov = {buf, len};
+    union {
+        char            buf[2 * CMSG_SPACE(sizeof(int))];
+        struct cmsghdr  align;
+    } ctrl;
+    struct msghdr msg;
+    struct cmsghdr *cm;
+    ssize_t n;
+    int tclass;
+
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_name = addr;
+    msg.msg_namelen = *addrlen;
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = ctrl.buf;
+    msg.msg_controllen = sizeof(ctrl.buf);
+
+    *ecn = XQC_ECN_NOT_ECT;
+    n = recvmsg(fd, &msg, 0);
+    if (n < 0) {
+        return n;
+    }
+
+    *addrlen = msg.msg_namelen;
+    for (cm = CMSG_FIRSTHDR(&msg); cm != NULL; cm = CMSG_NXTHDR(&msg, cm)) {
+        if (cm->cmsg_level == IPPROTO_IP && cm->cmsg_type == IP_TOS
+            && cm->cmsg_len >= CMSG_LEN(1))
+        {
+            *ecn = *(unsigned char *)CMSG_DATA(cm) & 0x03;
+
+        } else if (cm->cmsg_level == IPPROTO_IPV6
+                   && cm->cmsg_type == IPV6_TCLASS
+                   && cm->cmsg_len >= CMSG_LEN(sizeof(int)))
+        {
+            memcpy(&tclass, CMSG_DATA(cm), sizeof(int));
+            *ecn = tclass & 0x03;
+        }
+    }
+
+    return n;
+}
+#endif
+
+ssize_t
+xqc_demo_svr_write_socket_ecn(uint64_t path_id, const unsigned char *buf,
+    size_t size, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    xqc_ecn_codepoint_t ecn, void *conn_user_data)
+{
+#ifdef XQC_DEMO_SVR_ECN
+    struct iovec iov = {(void *)buf, size};
+    union {
+        char            buf[CMSG_SPACE(sizeof(int))];
+        struct cmsghdr  align;
+    } ctrl;
+    struct msghdr msg;
+    struct cmsghdr *cm;
+    int tos = ecn;
+    ssize_t res;
+
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_name = (void *)peer_addr;
+    msg.msg_namelen = peer_addrlen;
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    if (ecn != XQC_ECN_NOT_ECT) {
+        memset(&ctrl, 0, sizeof(ctrl));
+        msg.msg_control = ctrl.buf;
+        msg.msg_controllen = sizeof(ctrl.buf);
+        cm = CMSG_FIRSTHDR(&msg);
+        cm->cmsg_level = peer_addr->sa_family == AF_INET6
+                         ? IPPROTO_IPV6 : IPPROTO_IP;
+        cm->cmsg_type = peer_addr->sa_family == AF_INET6 ? IPV6_TCLASS : IP_TOS;
+        cm->cmsg_len = CMSG_LEN(sizeof(int));
+        memcpy(CMSG_DATA(cm), &tos, sizeof(int));
+    }
+
+    do {
+        set_sys_errno(0);
+        res = sendmsg(svr_ctx.current_fd, &msg, 0);
+        if (res < 0) {
+            printf("xqc_demo_svr_write_socket_ecn err %zd %s, fd: %d\n",
+                   res, strerror(get_sys_errno()), svr_ctx.current_fd);
+            if (get_sys_errno() == EAGAIN) {
+                res = XQC_SOCKET_EAGAIN;
+            }
+        }
+    } while ((res < 0) && (get_sys_errno() == EINTR));
+
+    return res;
+#else
+    return xqc_demo_svr_write_socket(buf, size, peer_addr, peer_addrlen,
+                                     conn_user_data);
+#endif
+}
+
 void
 xqc_demo_svr_socket_write_handler(xqc_demo_svr_ctx_t *ctx, int fd)
 {
@@ -1098,6 +1221,15 @@ xqc_demo_svr_socket_read_handler(xqc_demo_svr_ctx_t *ctx, int fd)
     ctx->current_fd = fd;
 
     do {
+        xqc_ecn_codepoint_t ecn = XQC_ECN_NOT_ECT;
+#ifdef XQC_DEMO_SVR_ECN
+        if (ctx->args->quic_cfg.ecn) {
+            recv_size = xqc_demo_svr_recv_ecn(fd, packet_buf,
+                                              sizeof(packet_buf),
+                                              (struct sockaddr *) &peer_addr,
+                                              &peer_addrlen, &ecn);
+        } else
+#endif
         recv_size = recvfrom(fd, packet_buf, sizeof(packet_buf), 0,
                              (struct sockaddr *) &peer_addr, &peer_addrlen);
         if (recv_size < 0 && get_sys_errno() == EAGAIN) {
@@ -1111,10 +1243,11 @@ xqc_demo_svr_socket_read_handler(xqc_demo_svr_ctx_t *ctx, int fd)
         recv_sum += recv_size;
 
         uint64_t recv_time = xqc_now();
-        xqc_int_t ret = xqc_engine_packet_process(ctx->engine, packet_buf, recv_size,
-                                      (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
-                                      (struct sockaddr *)(&peer_addr), peer_addrlen,
-                                      (xqc_usec_t)recv_time, ctx);
+        xqc_int_t ret = xqc_engine_packet_process_ecn(ctx->engine,
+                packet_buf, recv_size,
+                (struct sockaddr *)(&ctx->local_addr), ctx->local_addrlen,
+                (struct sockaddr *)(&peer_addr), peer_addrlen,
+                (xqc_usec_t)recv_time, ecn, ctx);
         if (ret != XQC_OK) {
             printf("server_read_handler: packet process err, ret: %d\n", ret);
             return;
@@ -1214,6 +1347,13 @@ xqc_demo_svr_create_socket(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_net_config_t* c
     ctx->fd = xqc_demo_svr_init_socket(AF_INET, cfg->port, (struct sockaddr*)&ctx->local_addr, 
         ctx->local_addrlen);
     printf("create ipv4 socket fd: %d\n", ctx->fd);
+#ifdef XQC_DEMO_SVR_ECN
+    if (ctx->args->quic_cfg.ecn && ctx->fd > 0
+        && xqc_demo_svr_ecn_recv_on(ctx->fd, AF_INET) != 0)
+    {
+        printf("IP_RECVTOS failed, errno: %d\n", get_sys_errno());
+    }
+#endif
 
     /* ipv6 socket */
     memset(&ctx->local_addr6, 0, sizeof(ctx->local_addr6));
@@ -1224,6 +1364,13 @@ xqc_demo_svr_create_socket(xqc_demo_svr_ctx_t *ctx, xqc_demo_svr_net_config_t* c
     ctx->fd6 = xqc_demo_svr_init_socket(AF_INET6, cfg->port, (struct sockaddr*)&ctx->local_addr6, 
         ctx->local_addrlen6);
     printf("create ipv6 socket fd: %d\n", ctx->fd6);
+#ifdef XQC_DEMO_SVR_ECN
+    if (ctx->args->quic_cfg.ecn && ctx->fd6 > 0
+        && xqc_demo_svr_ecn_recv_on(ctx->fd6, AF_INET6) != 0)
+    {
+        printf("IPV6_RECVTCLASS failed, errno: %d\n", get_sys_errno());
+    }
+#endif
 
     if (!ctx->fd && !ctx->fd6) {
         return -1;
@@ -1290,6 +1437,7 @@ xqc_demo_svr_usage(int argc, char *argv[])
             "   -R    Reinjection (1,2,4) \n"
             "   -u    Keyupdate packet threshold\n"
             "   -F    MTU size (default: 1200)\n"
+            "   -3    ECN: mark datagrams ECT(0) and report the codepoints\n"
             , prog);
 }
 
@@ -1338,7 +1486,7 @@ void
 xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
 {
     int ch = 0;
-    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:"
+    while ((ch = getopt(argc, argv, "p:c:CD:l:L:6k:rdMiPs:R:u:a:F:f:3"
 #ifdef XQC_ENABLE_WEBTRANSPORT
                         "W"
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
@@ -1461,6 +1609,11 @@ xqc_demo_svr_parse_args(int argc, char *argv[], xqc_demo_svr_args_t *args)
             args->quic_cfg.multipath = 1;
             break;
 
+        case '3':
+            printf("option ECN enabled\n");
+            args->quic_cfg.ecn = 1;
+            break;
+
         case 'P':
             printf("option ACK_MP on any path enabled\n");
             args->quic_cfg.mp_ack_on_any_path = 1;
@@ -1545,6 +1698,7 @@ xqc_demo_svr_init_callback(xqc_engine_callback_t *cb, xqc_transport_callbacks_t 
         .conn_update_cid_notify = xqc_demo_svr_conn_update_cid_notify,
         .conn_send_packet_before_accept = xqc_demo_svr_write_socket,
         .conn_retry_packet_condition_check = xqc_demo_svr_retry_packet_condition_check,
+        .write_socket_ecn = xqc_demo_svr_write_socket_ecn,
     };
 
     *cb = callback;
@@ -1642,6 +1796,7 @@ xqc_demo_svr_init_conn_settings(xqc_engine_t *engine, xqc_demo_svr_args_t *args)
         .is_interop_mode = args->quic_cfg.is_interop_mode,
         .max_pkt_out_size = args->quic_cfg.max_pkt_sz,
         .adaptive_ack_frequency = 1,
+        .enable_ecn = args->quic_cfg.ecn,
     };
 
     xqc_server_set_conn_settings(engine, &conn_settings);

@@ -345,6 +345,67 @@ typedef void (*xqc_path_peer_addr_changed_nofity_pt)(xqc_connection_t *conn, uin
 
 
 /**
+ * @brief ECN codepoints of the IP header (RFC 3168 Section 5)
+ */
+typedef enum xqc_ecn_codepoint_e {
+    XQC_ECN_NOT_ECT     = 0,
+    XQC_ECN_ECT_1       = 1,
+    XQC_ECN_ECT_0       = 2,
+    XQC_ECN_CE          = 3,
+} xqc_ecn_codepoint_t;
+
+/**
+ * @brief write socket callback function with an ECN codepoint
+ *
+ * with enable_ecn set in xqc_conn_settings_t, xquic writes the datagrams of
+ * the connection with this callback instead of write_socket_ex and
+ * write_socket. It marks the datagrams of a path ECT(0) while it tests and
+ * validates ECN on the path, and stops when the validation fails
+ * (RFC 9000 Section 13.4.2). The application sets the codepoint in the IP
+ * header of the datagram, e.g. with an IP_TOS or IPV6_TCLASS control
+ * message.
+ *
+ * @param path_id path identifier
+ * @param buf packet buffer
+ * @param size packet size
+ * @param peer_addr peer address
+ * @param peer_addrlen peer address length
+ * @param ecn the codepoint, XQC_ECN_ECT_0 or XQC_ECN_NOT_ECT
+ * @param conn_user_data user_data of connection
+ * @return as xqc_socket_write_ex_pt
+ */
+typedef ssize_t (*xqc_socket_write_ecn_pt)(uint64_t path_id,
+    const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    xqc_ecn_codepoint_t ecn, void *conn_user_data);
+
+/**
+ * @brief batch write socket callback with an ECN codepoint
+ *
+ * with enable_ecn set and sendmmsg_on, xquic writes the bursts of datagrams
+ * of the connection with this callback instead of write_mmsg_ex and
+ * write_mmsg. All the datagrams of one call are written with the same
+ * codepoint: a burst whose datagrams need different codepoints is written
+ * with one call per codepoint, the marked ones first.
+ *
+ * @param path_id path identifier
+ * @param msg_iov vector of messages
+ * @param vlen count of messages
+ * @param peer_addr peer address
+ * @param peer_addrlen peer address length
+ * @param ecn the codepoint of all the messages, XQC_ECN_ECT_0 or
+ * XQC_ECN_NOT_ECT
+ * @param conn_user_data user_data of connection
+ * @return as xqc_send_mmsg_ex_pt: the count of messages written,
+ * XQC_SOCKET_ERROR or XQC_SOCKET_EAGAIN
+ */
+typedef ssize_t (*xqc_send_mmsg_ecn_pt)(uint64_t path_id,
+    const struct iovec *msg_iov, unsigned int vlen,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    xqc_ecn_codepoint_t ecn, void *conn_user_data);
+
+
+/**
  * @brief return value of xqc_socket_write_pt and xqc_send_mmsg_pt callback function
  */
 #define XQC_SOCKET_ERROR                -1
@@ -734,6 +795,21 @@ typedef struct xqc_transport_callbacks_s {
      * for example, retry packet is sent when the application layer connection has not been established, 
      */
     xqc_socket_write_pt                     conn_send_packet_before_accept;
+
+    /**
+     * @brief write socket callback with the ECN codepoint of the datagram,
+     * used instead of write_socket_ex and write_socket for the connections
+     * with enable_ecn set. OPTIONAL: without it, no datagram is marked
+     */
+    xqc_socket_write_ecn_pt                 write_socket_ecn;
+
+    /**
+     * @brief batch write socket callback with the ECN codepoint of the
+     * datagrams, used instead of write_mmsg_ex and write_mmsg for the
+     * connections with enable_ecn set when sendmmsg_on is set. OPTIONAL:
+     * without it, the datagrams of a burst are not marked
+     */
+    xqc_send_mmsg_ecn_pt                    write_mmsg_ecn;
 
 } xqc_transport_callbacks_t;
 
@@ -1576,6 +1652,15 @@ typedef struct xqc_conn_settings_s {
     uint8_t                     simulate_ecn;
 
     /**
+     * @brief mark the datagrams ECT(0) and validate ECN on each path
+     * (RFC 9000 Section 13.4.2), with the write_socket_ecn callback, and
+     * write_mmsg_ecn for bursts. default: 0, not marked. The ECN counts of
+     * received packets are reported whenever the application passes the
+     * codepoints of the datagrams with xqc_engine_packet_process_ecn.
+     */
+    uint8_t                     enable_ecn;
+
+    /**
      * Maximum blocked buffer size per stream (bytes) for QPACK decode blocking.
      * This limits memory usage when QPACK decoding is blocked waiting for
      * dynamic table updates. Default: 0 (use internal default: 1MB)
@@ -1797,6 +1882,22 @@ xqc_int_t xqc_engine_packet_process(xqc_engine_t *engine,
     const struct sockaddr *local_addr, socklen_t local_addrlen,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     xqc_usec_t recv_time, void *user_data);
+
+/**
+ * Pass received UDP packet payload into xquic engine, with the ECN codepoint
+ * of the IP header that carried it. xquic reports the codepoints of the
+ * packets it receives in its ACK frames (RFC 9000 Section 13.4.1).
+ * @param recv_time   UDP packet received time in microsecond
+ * @param ecn         the ECN codepoint, e.g. from the IP_TOS or IPV6_TCLASS
+ *                    control message of recvmsg
+ * @param user_data   connection user_data, server is NULL
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_engine_packet_process_ecn(xqc_engine_t *engine,
+    const unsigned char *packet_in_buf, size_t packet_in_size,
+    const struct sockaddr *local_addr, socklen_t local_addrlen,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    xqc_usec_t recv_time, xqc_ecn_codepoint_t ecn, void *user_data);
 
 
 /**

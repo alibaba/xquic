@@ -537,6 +537,9 @@ xqc_test_engine_packet_process()
     struct sockaddr peer_addr;
     socklen_t peer_addrlen = 0;
 
+    memset(&local_addr, 0, sizeof(local_addr));
+    memset(&peer_addr, 0, sizeof(peer_addr));
+
     xqc_engine_t *engine = test_create_engine_server();
     CU_ASSERT(engine != NULL);
     if (engine == NULL) {

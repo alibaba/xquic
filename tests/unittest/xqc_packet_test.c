@@ -330,9 +330,11 @@ xqc_test_packet_encrypt_hp_sample_boundary()
 
     struct sockaddr_in6 peer_addr;
     socklen_t peer_addrlen = sizeof(peer_addr);
+    memset(&peer_addr, 0, sizeof(peer_addr));
 
     struct sockaddr_in6 local_addr;
     socklen_t local_addrlen = sizeof(local_addr);
+    memset(&local_addr, 0, sizeof(local_addr));
 
     xqc_engine_packet_process(svr_tctx.engine, cli_tctx.buf, cli_tctx.buf_len,
                               (struct sockaddr *)&local_addr, local_addrlen,
@@ -404,9 +406,11 @@ xqc_test_empty_pkt()
 
     struct sockaddr_in6 peer_addr;
     socklen_t peer_addrlen = sizeof(peer_addr);
+    memset(&peer_addr, 0, sizeof(peer_addr));
 
     struct sockaddr_in6 local_addr;
     socklen_t local_addrlen = sizeof(local_addr);
+    memset(&local_addr, 0, sizeof(local_addr));
 
     /* server will process the initial packet and get the secret of initial pns */
     xqc_engine_packet_process(svr_tctx.engine, cli_tctx.buf, cli_tctx.buf_len,

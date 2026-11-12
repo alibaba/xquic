@@ -721,10 +721,12 @@ xqc_interop_request(xqc_interop_peer_t *p, uint64_t type,
 static int
 xqc_interop_run(xqc_interop_app_t *app, const char *name)
 {
-    int data = !xqc_interop_fixture_case(name,
-                                         &(xqc_interop_fixture_t){0});
+    int fixture = !xqc_interop_fixture_case(name,
+                                            &(xqc_interop_fixture_t){0});
+    int pub_data = !strcmp(name, "publish-track-subscribe");
+    int data = fixture || pub_data;
     int basic = !strcmp(name, "data-subgroup-basic");
-    int vectors = data && !basic;
+    int vectors = fixture && !basic;
     int publish = !strncmp(name, "publish-track-", 14);
     int pair = vectors || basic || !strcmp(name, "announce-subscribe")
         || !strcmp(name, "subscribe-before-announce")
@@ -762,7 +764,8 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
     xqc_interop_name(&ns, "moq-test", basic ? name : "interop", run);
     char fields[15][24];
     if (data) {
-        xqc_interop_fixture_case(name, &p->fixture);
+        xqc_interop_fixture_case(pub_data ? "data-subgroup-basic" : name,
+                                  &p->fixture);
         p->basic = basic;
         if (vectors) {
             xqc_interop_tuple(&ns, &p->fixture, fields);
@@ -807,6 +810,7 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
                                  &ns, "test-track", timeout ? 2 : 0, 0)
             || xqc_interop_wait(app, &p->response, 1, 6000)
             || p->response_type != XQC_MOQT_MSG_REQUEST_ERROR
+            || p->response_error == XQC_MOQT_REQUEST_INTERNAL_ERROR
             || (timeout && p->response_error != XQC_MOQT_REQUEST_TIMEOUT))
         {
             return -1;
@@ -855,7 +859,8 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
         if (before && !vectors
             && s->response_type == XQC_MOQT_MSG_REQUEST_ERROR)
         {
-            return 0;
+            return s->response_error == XQC_MOQT_REQUEST_INTERNAL_ERROR
+                ? -1 : 0;
         }
         if (s->response_type != XQC_MOQT_MSG_SUBSCRIBE_OK) {
             return -1;
@@ -863,7 +868,12 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
     }
     if (vectors || publish) {
         p->sending = p->request;
-        if (vectors) {
+        if (vectors || pub_data) {
+            if (pub_data && xqc_interop_wait(app, &p->forward, 1,
+                                              XQC_INTEROP_PHASE_MS))
+            {
+                return -1;
+            }
             p->group = p->fixture.first_group;
             p->object = p->fixture.first_object;
             p->generating = 1;

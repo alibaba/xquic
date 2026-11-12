@@ -205,6 +205,7 @@ int g_spec_url;
 /* 99 pure fin, 7XX for transport, 9XX for QUIC-TLS */
 int g_test_case;
 int g_server_conn_cnt;
+int g_server_accept_cnt;
 xqc_conn_settings_t g_conn_settings;
 int g_ipv6;
 int g_batch=0;
@@ -1303,16 +1304,6 @@ xqc_server_h3_conn_close_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, vo
         fflush(stdout);
     }
 
-    /*
-     * test 701: after the first connection closes, reduce max_streams_bidi
-     * to exercise client validation under RFC 9000 Section 7.4.1.
-     */
-    if (g_test_case == 701 && g_server_conn_cnt == 1) {
-        g_conn_settings.max_streams_bidi = 1;
-        xqc_server_set_conn_settings(ctx.engine, &g_conn_settings);
-        printf("test_701: reduced max_streams_bidi to 1 for next conn\n");
-    }
-
     if (g_mpshell) {
         event_base_loopbreak(eb);
         printf("xqc_server_h3_conn_close_notify\n");
@@ -2383,6 +2374,19 @@ xqc_server_accept(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_cid_t 
     printf("-- server_accept user_conn: %p\n", user_conn);
 
     memcpy(&user_conn->cid, cid, sizeof(*cid));
+
+    /*
+     * test 701: reduce max_streams_bidi for the connections after the first
+     * one, to exercise client validation under RFC 9000 Section 7.4.1. The
+     * first connection keeps the limit it was created with. Reduced when it
+     * is accepted, not when it is destroyed: the next client may connect
+     * before this server ends its draining period.
+     */
+    if (g_test_case == 701 && ++g_server_accept_cnt == 1) {
+        g_conn_settings.max_streams_bidi = 1;
+        xqc_server_set_conn_settings(engine, &g_conn_settings);
+        printf("test_701: reduced max_streams_bidi to 1 for next conn\n");
+    }
 
     if (g_test_case == 11) {
         g_test_case = -1;

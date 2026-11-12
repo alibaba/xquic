@@ -26,6 +26,7 @@
 #include "src/transport/xqc_engine.h"
 #include "xqc_alloc_wrap.h"
 #include "xqc_alloc_fail_test.h"
+#include "src/transport/xqc_frame.h"
 
 #ifdef XQC_TEST_ALLOC_WRAP
 
@@ -118,11 +119,13 @@ xqc_test_af_engine(xqc_engine_type_t type)
 }
 
 static const xqc_cid_t *
-xqc_test_af_connect(xqc_engine_t *engine)
+xqc_test_af_connect_ack_ext(xqc_engine_t *engine,
+                            uint64_t extended_ack_features)
 {
     xqc_conn_settings_t cs;
     memset(&cs, 0, sizeof(cs));
     cs.proto_version = XQC_VERSION_V1;
+    cs.extended_ack_features = extended_ack_features;
     xqc_conn_ssl_config_t ssl;
     memset(&ssl, 0, sizeof(ssl));
     struct sockaddr_in peer;
@@ -132,6 +135,12 @@ xqc_test_af_connect(xqc_engine_t *engine)
     peer.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     return xqc_connect(engine, &cs, NULL, 0, "", 0, &ssl, (struct sockaddr *)&peer,
                        sizeof(peer), "transport", NULL);
+}
+
+static const xqc_cid_t *
+xqc_test_af_connect(xqc_engine_t *engine)
+{
+    return xqc_test_af_connect_ack_ext(engine, 0);
 }
 
 #ifdef XQC_TEST_ALLOC_SWEEP
@@ -250,6 +259,41 @@ xqc_test_engine_create_alloc_failures(void)
         if (!xqc_test_alloc_failed) {
             /* nothing failed: the engine was created */
             CU_ASSERT(engine != NULL);
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+}
+
+/*
+ * The same for a client connection with receive timestamps, whose path
+ * allocates their state: each allocation of xqc_connect() fails in turn,
+ * and the sweep ends with a run in which nothing fails.
+ */
+void
+xqc_test_conn_create_recv_ts_alloc_failures(void)
+{
+    long n;
+
+    /* let BoringSSL set up its per-thread state before anything fails */
+    xqc_engine_t *warm = xqc_test_af_engine(XQC_ENGINE_CLIENT);
+    CU_ASSERT_FATAL(warm != NULL);
+    CU_ASSERT_FATAL(xqc_test_af_connect(warm) != NULL);
+    xqc_engine_destroy(warm);
+
+    for (n = 1; n < 100000; n++) {
+        xqc_engine_t *engine = xqc_test_af_engine(XQC_ENGINE_CLIENT);
+        CU_ASSERT_FATAL(engine != NULL);
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        const xqc_cid_t *cid = xqc_test_af_connect_ack_ext(
+            engine, XQC_ACK_EXT_FEATURE_BIT_RECV_TS);
+        xqc_test_alloc_count = -1;
+        xqc_engine_destroy(engine);
+        if (!xqc_test_alloc_failed) {
+            /* nothing failed: the connection was created */
+            CU_ASSERT(cid != NULL);
             break;
         }
     }
@@ -488,6 +532,12 @@ xqc_test_conn_create_alloc_failures(void)
 
 void
 xqc_test_engine_create_alloc_failures(void)
+{
+    /* needs BoringSSL and the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_conn_create_recv_ts_alloc_failures(void)
 {
     /* needs BoringSSL and the linker's --wrap (see tests/CMakeLists.txt) */
 }

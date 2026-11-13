@@ -103,11 +103,14 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
 end:
     if (conn->dgram_mss > old_mss) {
         conn->conn_flag |= XQC_CONN_FLAG_DGRAM_MSS_NOTIFY;
+        /* an MSS of zero after this one is reported again */
+        conn->conn_flag &= ~XQC_CONN_FLAG_NO_DGRAM_NOTIFIED;
 
     } else {
+        /* an MSS of zero is reported once, not on each computation */
         if ((conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT)
             && (conn->dgram_mss == 0)
-            && ~(conn->conn_flag & XQC_CONN_FLAG_NO_DGRAM_NOTIFIED)) 
+            && !(conn->conn_flag & XQC_CONN_FLAG_NO_DGRAM_NOTIFIED))
         {
             conn->conn_flag |= XQC_CONN_FLAG_DGRAM_MSS_NOTIFY;
             conn->conn_flag |= XQC_CONN_FLAG_NO_DGRAM_NOTIFIED;

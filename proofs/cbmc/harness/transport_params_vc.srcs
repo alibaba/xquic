@@ -1,0 +1,3 @@
+@HERE@/stubs/vint_contract.c
+@HERE@/stubs/transport_stubs.c
+@HERE@/stubs/tp_copies.c

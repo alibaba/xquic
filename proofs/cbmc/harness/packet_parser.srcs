@@ -1,0 +1,5 @@
+@XQUIC@/src/transport/xqc_packet_parser.c
+@XQUIC@/src/common/utils/vint/xqc_variable_len_int.c
+@HERE@/stubs/transport_stubs.c
+@HERE@/stubs/packet_stubs.c
+@HERE@/stubs/tp_copies.c

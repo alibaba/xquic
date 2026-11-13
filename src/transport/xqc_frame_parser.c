@@ -3513,6 +3513,8 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
                 cur_range_delta_count_pos = NULL;
                 is_first_pkt_in_cur_range = 1;
                 timestamp_range_count += 1;
+                /* closing a range reports no timestamp: count this packet once, in its new range */
+                total_report_num -= 1;
                 continue;
             }
             cur_timestamp_delta = ((last_pkt_recv_time - cur_pkt_recv_time) / 1000) >> timestamp_exponent;

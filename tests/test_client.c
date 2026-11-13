@@ -1816,7 +1816,7 @@ xqc_client_bind_to_interface(int fd, const char *interface_name)
     memset(&ifr, 0x00, sizeof(ifr));
     strncpy(ifr.ifr_name, interface_name, sizeof(ifr.ifr_name) - 1);
     ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';
-#if !defined(__APPLE__)
+#ifdef SO_BINDTODEVICE
     printf("fd: %d. bind to nic: %s\n", fd, interface_name);
     if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (char *)&ifr, sizeof(ifr)) < 0) {
         printf("bind to nic error: %d, try use sudo\n", errno);
@@ -1865,7 +1865,7 @@ xqc_client_create_socket(int type,
         goto err;
     }
 
-#if !defined(__APPLE__)
+#if defined(IP_MTU_DISCOVER) && defined(IP_PMTUDISC_DO)
     int val = IP_PMTUDISC_DO;
     setsockopt(fd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
 #endif

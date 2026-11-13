@@ -22,6 +22,7 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #include <unistd.h>
 #include <netdb.h>
 #endif

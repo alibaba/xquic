@@ -432,7 +432,7 @@ xqc_mini_cli_init_socket(xqc_mini_cli_user_conn_t *user_conn)
         goto err;
     }
 
-#if !defined(__APPLE__)
+#if defined(IP_MTU_DISCOVER) && defined(IP_PMTUDISC_DO)
     int val = IP_PMTUDISC_DO;
     setsockopt(fd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
 #endif

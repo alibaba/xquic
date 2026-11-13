@@ -123,12 +123,13 @@ case_test_kill_tree()
 {
     local signal="$1"
     local root_pid="$2"
+    local skip_pid="${3:-}"
     local child_pid
 
     if command -v pgrep > /dev/null 2>&1; then
         while read -r child_pid; do
-            if [[ -n "${child_pid}" ]]; then
-                case_test_kill_tree "${signal}" "${child_pid}"
+            if [[ -n "${child_pid}" && "${child_pid}" != "${skip_pid}" ]]; then
+                case_test_kill_tree "${signal}" "${child_pid}" "${skip_pid}"
             fi
         done < <(pgrep -P "${root_pid}" 2> /dev/null || true)
     fi
@@ -161,10 +162,15 @@ case_test_case_watchdog_start()
             if [[ -n "${CASE_TEST_EVENT_FILE:-}" ]]; then
                 printf '%s\t%s\n' "${name}" "fail" >> "${CASE_TEST_EVENT_FILE}"
             fi
-            case_test_kill_tree TERM "${owner_pid}"
+            # This subshell is itself a child of the case shell, whose PID
+            # $$ still holds here: left in the tree, it would signal itself
+            # before the case. sh, exec'd in place of the command
+            # substitution, reports this subshell as its parent.
+            watchdog_pid="$(exec sh -c 'echo "${PPID}"')"
+            case_test_kill_tree TERM "${owner_pid}" "${watchdog_pid}"
             sleep 2
             if kill -0 "${owner_pid}" 2> /dev/null; then
-                case_test_kill_tree KILL "${owner_pid}"
+                case_test_kill_tree KILL "${owner_pid}" "${watchdog_pid}"
             fi
         fi
     ) &

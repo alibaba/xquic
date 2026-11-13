@@ -249,6 +249,21 @@ backends, optional modules, and platform matrices remain additional checks.
 They should be selected by change risk or CI policy rather than hidden inside
 an issue-specific build.
 
+### Performance
+
+`bash scripts/perf_bench.sh <build-dir>`
+
+Runs each scenario of `tests/bench/baseline.txt` through `xqc_bench`
+(`tests/bench/xqc_bench.c`), a client and a server in one process on a
+simulated link with a virtual clock, under valgrind's cachegrind, and compares
+the instructions executed in `src/`
+and `include/` with the recorded counts. The counts repeat, to a few
+instructions, for a given compiler and flags; the baseline holds those of the
+Performance workflow, a `Release` build with the GCC of its Ubuntu 24.04
+runner. A change that moves a count by more than the tolerance (1% by default)
+records the new counts with `--update` from such a build in the same pull
+request.
+
 ## Mandatory Local Pre-PR Gate
 
 Before creating or moving a production code pull request to review:

@@ -3,6 +3,7 @@
 #include <string.h>
 #include "xqc_moqt_interop_test.h"
 #include "interop/moqt/fixture.h"
+#include "interop/moqt/media.h"
 
 void
 xqc_test_moqt_interop_fixture(void)
@@ -211,4 +212,126 @@ xqc_test_moqt_interop_properties_errors(void)
         xqc_interop_oracle_object(&oracle, &object);
         CU_ASSERT_TRUE(oracle.failed);
     }
+}
+
+void
+xqc_test_moqt_interop_catalog(void)
+{
+    uint8_t bytes[1024];
+    int n = xqc_interop_media_catalog(bytes, sizeof(bytes));
+    CU_ASSERT(n > 0);
+    xqc_interop_media_t m = {.kind = XQC_INTEROP_MEDIA_CATALOG};
+    xqc_moqt_object_t object = {.priority = 128, .payload_length = n,
+        .payload = {bytes, n / 2}};
+    xqc_interop_media_receive(&m, &object);
+    CU_ASSERT_EQUAL(m.count, 0);
+    object.payload_offset = n / 2;
+    object.payload = (struct iovec){bytes + n / 2, n - n / 2};
+    xqc_interop_media_receive(&m, &object);
+    CU_ASSERT_EQUAL(m.count, 1);
+    CU_ASSERT_EQUAL(m.error, 0);
+    char name[32];
+    CU_ASSERT_EQUAL(xqc_interop_media_track(&m, name, sizeof(name)), 0);
+    CU_ASSERT_STRING_EQUAL(name, "video");
+}
+
+void
+xqc_test_moqt_interop_catalog_errors(void)
+{
+    char name[32];
+    xqc_interop_media_t m = {.kind = XQC_INTEROP_MEDIA_CATALOG};
+    CU_ASSERT_NOT_EQUAL(xqc_interop_media_track(&m, name, sizeof(name)), 0);
+    const char *invalid[] = {
+        "{\"msfVersion\":\"draft-99\",\"tracks\":[]}",
+        "{\"msfVersion\":\"draft-01\",\"tracks\":[]}",
+        "{\"msfVersion\":\"draft-01\",\"tracks\":[{\"name\":\"video\","
+        "\"isLive\":true,\"packaging\":\"cmaf\"}]}",
+        "{\"msfVersion\":\"draft-01\",\"tracks\":["
+    };
+    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        m = (xqc_interop_media_t){.kind = XQC_INTEROP_MEDIA_CATALOG};
+        xqc_moqt_object_t object = {.priority = 128,
+            .payload = {(void *)invalid[i], strlen(invalid[i])},
+            .payload_length = strlen(invalid[i])};
+        xqc_interop_media_receive(&m, &object);
+        CU_ASSERT_NOT_EQUAL(xqc_interop_media_track(&m, name, sizeof(name)), 0);
+    }
+    uint8_t bytes[1024];
+    int n = xqc_interop_media_catalog(bytes, sizeof(bytes));
+    /* MSF-01 5: independent catalog is Object 0 of Subgroup 0. */
+    for (unsigned i = 0; i < 3; i++) {
+        m = (xqc_interop_media_t){.kind = XQC_INTEROP_MEDIA_CATALOG};
+        xqc_moqt_object_t object = {.priority = 128, .payload_length = n,
+            .payload = {bytes, n}, .object_id = i == 0,
+            .subgroup_id = i == 1, .group_id = i == 2};
+        xqc_interop_media_receive(&m, &object);
+        CU_ASSERT_NOT_EQUAL(m.error, 0);
+    }
+}
+
+void
+xqc_test_moqt_interop_media(void)
+{
+    xqc_interop_media_t m = {.kind = XQC_INTEROP_MEDIA_VIDEO};
+    /* Independent streams can deliver Groups out of order. */
+    for (int i = XQC_INTEROP_MEDIA_FRAMES - 1; i >= 0; i--) {
+        uint8_t properties[32];
+        xqc_moqt_object_t object;
+        CU_ASSERT_EQUAL(xqc_interop_media_sample(i, &object,
+                            properties, sizeof(properties)), 0);
+        size_t n = object.payload.iov_len / 2;
+        object.payload.iov_len = n;
+        xqc_interop_media_receive(&m, &object);
+        CU_ASSERT_EQUAL(m.count, XQC_INTEROP_MEDIA_FRAMES - 1 - i);
+        object.payload_offset = n;
+        object.payload.iov_base = (uint8_t *)object.payload.iov_base + n;
+        object.payload.iov_len = object.payload_length - n;
+        object.properties = (struct iovec){0};
+        xqc_interop_media_receive(&m, &object);
+        CU_ASSERT_EQUAL(m.error, 0);
+    }
+    CU_ASSERT_EQUAL(m.count, XQC_INTEROP_MEDIA_FRAMES);
+}
+
+void
+xqc_test_moqt_interop_media_errors(void)
+{
+    for (unsigned i = 0; i < 10; i++) {
+        xqc_interop_media_t m = {.kind = XQC_INTEROP_MEDIA_VIDEO};
+        uint8_t properties[32], bad[1024];
+        xqc_moqt_object_t object;
+        CU_ASSERT_EQUAL(xqc_interop_media_sample(0, &object,
+                            properties, sizeof(properties)), 0);
+        switch (i) {
+        case 0: object.object_id = 1; break;
+        case 1: object.group_id = XQC_INTEROP_MEDIA_FRAMES; break;
+        case 2: object.payload_offset = 1; break;
+        case 3: object.properties.iov_len--; break;
+        case 4:
+            properties[0] = 8;
+            properties[1] = 0;
+            object.properties.iov_len = 2;
+            break;
+        case 5: object.datagram = 1; break;
+        case 6:
+            memcpy(bad, object.payload.iov_base, object.payload.iov_len);
+            bad[0] ^= 1;
+            object.payload.iov_base = bad;
+            break;
+        case 7:
+            xqc_interop_media_receive(&m, &object);
+            break;
+        case 8: object.payload.iov_len = object.payload_length + 1; break;
+        case 9: object.payload.iov_base = NULL; break;
+        }
+        xqc_interop_media_receive(&m, &object);
+        CU_ASSERT_NOT_EQUAL(m.error, 0);
+        CU_ASSERT_NOT_EQUAL(xqc_interop_media_render(&m), 0);
+    }
+    xqc_interop_media_t m = {.kind = XQC_INTEROP_MEDIA_VIDEO};
+    CU_ASSERT_NOT_EQUAL(xqc_interop_media_render(&m), 0);
+    xqc_moqt_object_t object;
+    uint8_t properties[32];
+    CU_ASSERT_NOT_EQUAL(xqc_interop_media_sample(XQC_INTEROP_MEDIA_FRAMES,
+                            &object, properties, sizeof(properties)), 0);
 }

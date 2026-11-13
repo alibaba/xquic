@@ -5,6 +5,8 @@ from pathlib import Path
 import select
 import socket
 import subprocess
+import sys
+import tempfile
 import unittest
 
 import test_cli
@@ -121,6 +123,47 @@ class InteropEndpoint(unittest.TestCase):
                                      "setup-only")
                 self.assertEqual(result.returncode, 0, result.stderr)
             result = self.client(f"moqt://127.0.0.1:{port}/", "subscribe-error")
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_media_catalog_decode_render_and_recovery(self):
+        for transport, scheme in (("quic", "moqt"),
+                                  ("webtransport", "https")):
+            with self.subTest(transport=transport), \
+                    self.server(transport, relay=True) as port:
+                for case, rejected in (
+                    ("publish-subscribe-media", None),
+                    ("media-catalog-error", "rejected unsupported MSF catalog"),
+                    ("media-loc-error", "rejected invalid LOC Timescale"),
+                ):
+                    result = self.client(f"{scheme}://127.0.0.1:{port}/", case)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("MSF catalog selected Track video", result.stderr)
+                    self.assertIn("displayed 3 frames", result.stderr)
+                    self.assertEqual(result.stderr.count("media rendered frame"), 3)
+                    if rejected:
+                        self.assertIn(rejected, result.stderr)
+
+    def test_media_decoder_failure_cannot_pass(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                self.server("quic", relay=True) as port:
+            abnormal = Path(directory) / "abnormal-decoder"
+            abnormal.write_text(f"#!{sys.executable}\nimport os\n"
+                                "os.write(1, b'\\x00' * 768)\n"
+                                "raise SystemExit(1)\n")
+            abnormal.chmod(0o755)
+            for decoder, message in (
+                ("/bin/false", "media decoder failed"),
+                ("/nonexistent/xquic-ffmpeg", "media decoder failed"),
+                ("/usr/bin/true", "media decoder returned incomplete frames"),
+                (str(abnormal), "media decoder failed"),
+            ):
+                result = self.client(f"moqt://127.0.0.1:{port}/",
+                    "publish-subscribe-media", XQC_INTEROP_FFMPEG=decoder)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("not ok 1 - publish-subscribe-media", result.stdout)
+                self.assertIn(message, result.stderr)
+                self.assertNotIn("displayed 3 frames", result.stderr)
+            result = self.client(f"moqt://127.0.0.1:{port}/", "setup-only")
             self.assertEqual(result.returncode, 0, result.stderr)
 
 

@@ -27,7 +27,10 @@ class InteropCLI(unittest.TestCase):
         for name in ("publish-namespace-multi-publisher-retention",
                      "fetch", "join", "namespace-discovery"):
             self.assertIn(name, result.stdout.splitlines())
-        self.assertEqual(len(result.stdout.splitlines()), 23)
+        for name in ("publish-subscribe-media", "media-catalog-error",
+                     "media-loc-error"):
+            self.assertIn(name, result.stdout.splitlines())
+        self.assertEqual(len(result.stdout.splitlines()), 26)
 
     def test_origin_capabilities(self):
         result = self.run_cli("--list", "--origin")

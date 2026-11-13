@@ -50,10 +50,48 @@ discovery lifecycle, direct PUBLISH and PUBLISH/subscription,
 `data-subgroup-basic`, eight `moq-test-*` scenarios, multi-publisher namespace
 retention, standalone `fetch`, and `join` with draft-22 Fill. Case definitions
 come from runner `2afe7b428e9ebf7277fef0d6b9701af4aefe60b0`; deterministic vectors
-follow aiomoqt 0.14.1. `--list` exposes 23 implemented cases, including
+follow aiomoqt 0.14.1. `--list` exposes 26 implemented cases: C01–C22,
+FETCH/Join and two media rejection/recovery extensions, including
 SUBSCRIBE_TRACKS-based `namespace-discovery`. It publishes a namespace and
 Track, discovers the namespace, then verifies the complete Track name offered
-on an independent PUBLISH. Media decoding remains unsupported.
+on an independent PUBLISH.
+
+`publish-subscribe-media` adds a bounded C22 VP8 profile. Independent
+publisher/subscriber Sessions first exchange an MSF-01 independent catalog
+on `catalog` (Group 0, Subgroup 0, Object 0). The subscriber decodes it using
+`xqc_msf_catalog_decode`, selects its inherited-namespace `video` Track,
+then subscribes to that name. Each of three 16×16 VP8 keyframes is its own
+GOP/Group, with Object 0 on a new Subgroup 0 stream (MSF-01 §§4.1, 5, 6).
+LOC-05 §2.3 public properties carry `vp8`, Timescale 1000 and timestamps
+0/40/80; payloads are clear elementary samples without legacy prefixes.
+The oracle assembles fragments, validates identities/properties and exact
+fixture bytes, and requires PUBLISH_DONE plus every stream FIN.
+
+After reception, an independent FFmpeg process decodes the received samples
+as IVF into grayscale pixels. The client renders all three decoded frames
+as terminal luma art on stderr. Success requires three complete frames,
+normal decoder exit within five seconds, and normal transport completion.
+Decoder absence, zero/partial output, failure or timeout fails the case.
+Install FFmpeg for native media runs; `XQC_INTEROP_FFMPEG` optionally selects
+its executable. The runner's client image includes FFmpeg. Old cases and
+the relay require no decoder. This is a headless terminal renderer, not
+moqy/WebCodecs player interoperability or complete MSF workflow coverage.
+
+The encoded frame in `media.c` was generated independently with FFmpeg
+8.1.1/libvpx using `-f lavfi -i color=c=red:s=16x16:r=25 -frames:v 3
+-c:v libvpx -g 1 -threads 1 -deadline best -f ivf`. The resulting IVF SHA256
+is `050ec4966ac00baed45ec7e266ae6e2fb2a6f1d10e18bbd3cf7d7db11c15ac92`.
+The fixture repeats one keyframe with distinct Group identities/timestamps;
+it is synthesized test content and contains no third-party media.
+
+`media-catalog-error` rejects an unsupported MSF version before selecting
+media. `media-loc-error` rejects a zero Timescale whose MoQT KVP framing is
+valid. Both then deliver the valid catalog/media and decode/render on the
+same two Sessions, proving application rejection does not poison transport
+state. Recovery uses a fresh namespace so completed Tracks remain ended.
+These are named interop extensions, not numeric native case selectors.
+Audio, encryption/private properties, ABR, delta catalogs, Joining FETCH of
+live snapshots and general-purpose player integration remain separate work.
 
 The retention case uses two publishers, a synchronization namespace and three
 observers. It checks complete names, rejects premature withdrawal and requires

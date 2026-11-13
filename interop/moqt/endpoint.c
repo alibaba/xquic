@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "tests/complex_case/complex_case_common.h"
 #include "fixture.h"
+#include "media.h"
 #include <moq/xqc_moqt_relay.h>
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #ifdef XQC_ENABLE_WEBTRANSPORT
@@ -44,6 +45,9 @@ struct xqc_interop_peer_s {
     xqc_interop_oracle_t oracle;
     xqc_interop_oracle_t fetch_oracle;
     xqc_interop_retention_t retention;
+    xqc_interop_media_t media;
+    unsigned media_corrupt;
+    char media_track[32];
     xqc_moqt_fetch_t *fetch_sending;
     xqc_moqt_stream_t *fetch_stream;
     xqc_moqt_fetch_info_t fetched;
@@ -85,7 +89,8 @@ static const char *xqc_interop_cases[] = {
     "moq-test-datagram", "moq-test-datagram-eog", "moq-test-extensions",
     "moq-test-increments", "moq-test-forward-zero",
     "publish-namespace-multi-publisher-retention", "fetch", "join",
-    "namespace-discovery"
+    "namespace-discovery", "publish-subscribe-media",
+    "media-catalog-error", "media-loc-error"
 };
 
 static void xqc_interop_generate(xqc_interop_peer_t *p);
@@ -162,6 +167,13 @@ static xqc_int_t xqc_interop_relay_forward(xqc_moqt_relay_peer_t *peer,
 static int xqc_interop_discovery(xqc_interop_app_t *app, const char *run);
 static int xqc_interop_origin_case(const char *name);
 static int xqc_interop_origin(xqc_interop_app_t *app, const char *name);
+static void xqc_interop_media_generate(xqc_interop_peer_t *p);
+static int xqc_interop_media_exchange(xqc_interop_peer_t *pub,
+    xqc_interop_peer_t *sub, const xqc_moqt_namespace_t *ns,
+    const char *track, unsigned kind, unsigned corrupt);
+static int xqc_interop_media_run(xqc_interop_app_t *app, const char *name);
+static int xqc_interop_media_recover(xqc_interop_peer_t *pub,
+    xqc_moqt_namespace_t *ns);
 #ifdef XQC_ENABLE_WEBTRANSPORT
 static xqc_int_t xqc_interop_h3_created(xqc_h3_conn_t *h3,
     const xqc_cid_t *cid, void *data);
@@ -372,7 +384,14 @@ xqc_interop_message(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
             p->offered += matches;
         }
     } else if (m->type == XQC_MOQT_MSG_SUBSCRIBE) {
-        if (joining && p->join_sending) {
+        if (p->media.kind
+            && (m->track_name.iov_len != strlen(p->media_track)
+                || memcmp(m->track_name.iov_base, p->media_track,
+                          m->track_name.iov_len)))
+        {
+            reply.type = XQC_MOQT_MSG_REQUEST_ERROR;
+            reply.error.code = XQC_MOQT_REQUEST_DOES_NOT_EXIST;
+        } else if (joining && p->join_sending) {
             reply.type = XQC_MOQT_MSG_REQUEST_ERROR;
             reply.error.code = XQC_MOQT_REQUEST_EXCESSIVE_LOAD;
         } else if (!p->history
@@ -444,7 +463,7 @@ xqc_interop_message(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
         } else {
             p->subscription = xqc_moqt_request_subscription(r);
         }
-        if (p->basic || p->app->server || p->history) {
+        if (p->basic || p->app->server || p->history || p->media.kind) {
             p->generating = 1;
         }
     }
@@ -491,6 +510,10 @@ xqc_interop_object(xqc_moqt_subscription_t *sub,
     xqc_moqt_stream_t *stream, const xqc_moqt_object_t *object, void *data)
 {
     xqc_interop_peer_t *p = data;
+    if (p->media.kind) {
+        xqc_interop_media_receive(&p->media, object);
+        return;
+    }
     xqc_interop_oracle_t *oracle = stream && xqc_moqt_stream_fetch(stream)
         ? &p->fetch_oracle : &p->oracle;
     xqc_interop_oracle_object(oracle, object);
@@ -1018,6 +1041,10 @@ xqc_interop_fetch_end(xqc_interop_peer_t *p, const xqc_moqt_message_t *m,
 static void
 xqc_interop_generate(xqc_interop_peer_t *p)
 {
+    if (p->media.kind) {
+        xqc_interop_media_generate(p);
+        return;
+    }
     xqc_interop_fixture_t *f = &p->fixture;
     if (!p->generating || !p->subscription || !p->sending || p->paused
         || xqc_complex_case_now_us() < p->next_send)
@@ -1648,9 +1675,205 @@ xqc_interop_discovery(xqc_interop_app_t *app, const char *run)
     return sub->error || pub->error ? -1 : 0;
 }
 
+static void
+xqc_interop_media_generate(xqc_interop_peer_t *p)
+{
+    if (!p->generating || !p->subscription || !p->sending || !p->forward
+        || xqc_complex_case_now_us() < p->next_send)
+    {
+        return;
+    }
+    unsigned count = p->media.kind == XQC_INTEROP_MEDIA_CATALOG
+        ? 1 : XQC_INTEROP_MEDIA_FRAMES;
+    if (p->group == count) {
+        xqc_moqt_message_t done = {.type = XQC_MOQT_MSG_PUBLISH_DONE,
+            .error.code = XQC_MOQT_PUBLISH_TRACK_ENDED,
+            .stream_count = p->sent_streams};
+        p->error |= xqc_moqt_request_send(p->sending, &done) != XQC_OK;
+        p->generating = 0;
+        return;
+    }
+    uint8_t bytes[XQC_INTEROP_MEDIA_BYTES], properties[32];
+    xqc_moqt_object_t object = {.priority = 128};
+    if (p->media.kind == XQC_INTEROP_MEDIA_CATALOG) {
+        int n = xqc_interop_media_catalog(bytes, sizeof(bytes));
+        if (n < 0) {
+            p->error = 1;
+            return;
+        }
+        if (p->media_corrupt) {
+            const char bad[] = "{\"msfVersion\":\"draft-99\",\"tracks\":[]}";
+            n = sizeof(bad) - 1;
+            memcpy(bytes, bad, n);
+        }
+        object.payload = (struct iovec){bytes, n};
+        object.payload_length = n;
+    } else {
+        if (xqc_interop_media_sample(p->group, &object,
+                                     properties, sizeof(properties)))
+        {
+            p->error = 1;
+            return;
+        }
+        if (p->media_corrupt) {
+            /* Valid MoQT KVP framing, invalid LOC-05 2.3.1.2 Timescale. */
+            properties[0] = 8;
+            properties[1] = 0;
+            object.properties = (struct iovec){properties, 2};
+        }
+    }
+    if (!p->streams[0]) {
+        p->streams[0] = xqc_moqt_subgroup_open(p->subscription,
+            object.group_id, 0, object.priority, 0, 0);
+        if (!p->streams[0]) {
+            p->error = 1;
+            return;
+        }
+        p->sent_streams++;
+    }
+    xqc_int_t rc = xqc_moqt_stream_send_object(p->streams[0], &object);
+    if (rc == -XQC_EAGAIN) {
+        return;
+    }
+    if (rc != XQC_OK) {
+        p->error = 1;
+        return;
+    }
+    xqc_moqt_stream_t *stream = p->streams[0];
+    p->streams[0] = NULL;
+    p->error |= xqc_moqt_stream_finish(stream) != XQC_OK;
+    p->group++;
+    p->next_send = xqc_complex_case_now_us() + 40000;
+}
+
+static int
+xqc_interop_media_exchange(xqc_interop_peer_t *pub, xqc_interop_peer_t *sub,
+    const xqc_moqt_namespace_t *ns, const char *track,
+    unsigned kind, unsigned corrupt)
+{
+    xqc_interop_app_t *app = pub->app;
+    pub->media = (xqc_interop_media_t){.kind = kind};
+    sub->media = (xqc_interop_media_t){.kind = kind};
+    pub->media_corrupt = corrupt;
+    snprintf(pub->media_track, sizeof(pub->media_track), "%s", track);
+    pub->generating = 0;
+    pub->group = pub->sent_streams = 0;
+    sub->done = sub->streams_closed = sub->streams_reset = 0;
+    unsigned incoming = pub->incoming + 1;
+    if (xqc_interop_request(sub, XQC_MOQT_MSG_SUBSCRIBE, ns, track, 0, 0)
+        || xqc_interop_wait(app, &sub->response, 1, XQC_INTEROP_PHASE_MS)
+        || sub->response_type != XQC_MOQT_MSG_SUBSCRIBE_OK
+        || xqc_interop_wait(app, &pub->incoming, incoming,
+                            XQC_INTEROP_PHASE_MS))
+    {
+        return -1;
+    }
+    fprintf(stderr, "media Track %s subscribed through namespace\n", track);
+    unsigned count = kind == XQC_INTEROP_MEDIA_CATALOG
+        ? 1 : XQC_INTEROP_MEDIA_FRAMES;
+    if (xqc_interop_wait(app, &sub->done, 1, XQC_INTEROP_DELIVERY_MS)
+        || xqc_interop_wait(app, &sub->streams_closed, count,
+                            XQC_INTEROP_DELIVERY_MS))
+    {
+        return -1;
+    }
+    xqc_interop_pump(app, 100);
+    if (pub->error || sub->error || sub->streams_reset
+        || sub->done_code != XQC_MOQT_PUBLISH_TRACK_ENDED
+        || sub->streams_closed != count
+        || (sub->stream_count != UINT64_MAX && sub->stream_count != count))
+    {
+        return -1;
+    }
+    return 0;
+}
+
+static int
+xqc_interop_media_recover(xqc_interop_peer_t *pub, xqc_moqt_namespace_t *ns)
+{
+    /* Completed Tracks stay ended; recovery uses fresh names, same Sessions. */
+    ns->fields[1] = (struct iovec){"media-recovery", 14};
+    if (xqc_interop_request(pub, XQC_MOQT_MSG_PUBLISH_NAMESPACE,
+                             ns, NULL, 0, 0)
+        || xqc_interop_wait(pub->app, &pub->response, 1, XQC_INTEROP_PHASE_MS)
+        || pub->response_type != XQC_MOQT_MSG_REQUEST_OK)
+    {
+        return -1;
+    }
+    pub->publications[1] = pub->request;
+    return 0;
+}
+
+static int
+xqc_interop_media_run(xqc_interop_app_t *app, const char *name)
+{
+    char run[33], track[32];
+    if (xqc_interop_run_id(run)) {
+        return -1;
+    }
+    xqc_moqt_namespace_t ns;
+    xqc_interop_name(&ns, "moq-test", "media", run);
+    xqc_interop_peer_t *pub = xqc_interop_connect(app, "publisher");
+    xqc_interop_peer_t *sub = xqc_interop_connect(app, "subscriber");
+    if (!pub || !sub
+        || xqc_interop_request(pub, XQC_MOQT_MSG_PUBLISH_NAMESPACE,
+                               &ns, NULL, 0, 0)
+        || xqc_interop_wait(app, &pub->response, 1, XQC_INTEROP_PHASE_MS)
+        || pub->response_type != XQC_MOQT_MSG_REQUEST_OK)
+    {
+        return -1;
+    }
+    pub->publications[0] = pub->request;
+    if (!strcmp(name, "media-catalog-error")) {
+        if (xqc_interop_media_exchange(pub, sub, &ns, "catalog",
+                                        XQC_INTEROP_MEDIA_CATALOG, 1)
+            || xqc_interop_media_track(&sub->media, track, sizeof(track))
+                != -XQC_EPROTO)
+        {
+            return -1;
+        }
+        fprintf(stderr, "rejected unsupported MSF catalog; recovering\n");
+        if (xqc_interop_media_recover(pub, &ns)) {
+            return -1;
+        }
+    }
+    if (xqc_interop_media_exchange(pub, sub, &ns, XQC_MSF_CATALOG_NAME,
+                                    XQC_INTEROP_MEDIA_CATALOG, 0)
+        || xqc_interop_media_track(&sub->media, track, sizeof(track)))
+    {
+        return -1;
+    }
+    fprintf(stderr, "MSF catalog selected Track %s (LOC VP8)\n", track);
+    if (!strcmp(name, "media-loc-error")) {
+        if (xqc_interop_media_exchange(pub, sub, &ns, track,
+                                        XQC_INTEROP_MEDIA_VIDEO, 1)
+            || sub->media.error != -XQC_EILLEGAL_FRAME)
+        {
+            return -1;
+        }
+        fprintf(stderr, "rejected invalid LOC Timescale; recovering\n");
+        if (xqc_interop_media_recover(pub, &ns)
+            || xqc_interop_media_exchange(pub, sub, &ns, XQC_MSF_CATALOG_NAME,
+                                            XQC_INTEROP_MEDIA_CATALOG, 0)
+            || xqc_interop_media_track(&sub->media, track, sizeof(track)))
+        {
+            return -1;
+        }
+    }
+    return xqc_interop_media_exchange(pub, sub, &ns, track,
+                                      XQC_INTEROP_MEDIA_VIDEO, 0)
+        || xqc_interop_media_render(&sub->media) ? -1 : 0;
+}
+
 static int
 xqc_interop_run(xqc_interop_app_t *app, const char *name)
 {
+    if (!strcmp(name, "publish-subscribe-media")
+        || !strcmp(name, "media-catalog-error")
+        || !strcmp(name, "media-loc-error"))
+    {
+        return xqc_interop_media_run(app, name);
+    }
     if (!strcmp(name, "namespace-discovery")) {
         char run[33];
         return xqc_interop_run_id(run) ? -1 : xqc_interop_discovery(app, run);

@@ -2004,8 +2004,8 @@ not repository endpoint case IDs.
 | C22 | publish-subscribe-media | Catalog→media Track→decode/display and normal exit |
 
 There are 22 target cases; extra nondefault cases are separate extensions.
-Unimplemented WT is gap/skip, never filled by Native QUIC results. C22 remains
-skipped without media tooling/images. FETCH/Fill, full updates/migration,
+Unimplemented WT is gap/skip, never filled by Native QUIC results. C22 requires
+an installed decoder and real rendered frames. FETCH/Fill, full updates/migration,
 0-RTT, dynamic Groups, renewal, complete filters, padding, congestion, and
 security require separate scenarios; these 22 do not replace this specification.
 
@@ -2028,8 +2028,12 @@ environment, capability discovery, bounded fixtures, and unsupported cases.
 The relay entrypoint shares the library's cross-Session routing, fanout,
 namespace observer propagation, and rendezvous. Both transports use the same
 scenario drivers; a separate direct-origin mode checks deterministic object
-delivery without assuming cross-connection routing. Media decoding remains
-outside this adapter.
+delivery without assuming cross-connection routing. Its bounded C22 profile
+uses public LOC/MSF codecs, catalog-driven Track selection, elementary VP8
+samples and independent FFmpeg decoding with terminal rendering. Missing or
+failed decoding cannot satisfy C22. Named catalog/LOC rejection extensions
+verify subsequent valid delivery on the same Sessions. See the adapter
+documentation for fixture provenance and the restricted media profile.
 
 Native QUIC and WT share the same scenario drivers and object oracles. HTTPS
 selects WT, or explicit transport selection uses a canonical moqt URI. The
@@ -2069,8 +2073,10 @@ Pin media fixture/catalog/profile/decoder and provenance. Validate
 “publish catalog → choose Track → receive Objects → decode/display,” without
 media repackaging in the protocol library. The
 [LOC/MSF format subset](../../harness/spec/loc-msf/spec.md) supplies public
-properties and independent plaintext LOC catalogs. Fixture/profile/decoder,
-catalog subscription/state and display integration remain the F44 gap.
+properties and independent plaintext LOC catalogs. The adapter pins a
+three-frame VP8/LOC public-properties profile, an independent MSF-01 catalog
+and FFmpeg decoding with terminal rendering. Full live catalog workflow and
+general player interoperability remain outside this subset.
 The [pinned script][interop-media] requires actual displayed≥2, subscriber
 exit zero, and no observed abnormal publisher exit; it has no audio-blocks>0
 threshold. Zero-frame normal exit and enough-frame abnormal exit both fail.
@@ -2144,9 +2150,9 @@ padding probes.
 | F39 [Relay FETCH/Fill forwarding, source switch, total budget](#rendezvous-and-relay-contract) | Complete | Core complete; single-source FETCH/Fill mappings and total budgets; automatic source switching deferred | No; no historical retrieval |
 | F40 [Relay property fidelity and malformed/auth/slow-peer isolation](#properties-cache-and-malformed) | Complete | Core complete; property fidelity, malformed/authorization/slow-subscriber isolation, and cancellation propagation | No; C18 ordinary properties counted in F18/F35, not these abnormal cases |
 | F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Core complete; overlapping sources and subscription replacement; application-selected URI/credentials, no automatic reconnection | No; no migration case |
-| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Complete for Native/WT endpoint CLI and role boundaries | Partial; Native/WT client, direct-origin and relay adapters with local role matrices; shared-runner publication and media coverage deferred | Yes; prerequisite of C01–C22 |
+| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Complete for Native/WT endpoint CLI and role boundaries | Partial; Native/WT client, direct-origin and relay adapters with local role matrices and bounded media profile; shared-runner publication deferred | Yes; prerequisite of C01–C22 |
 | F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Partial; bounded C08/eight moq-test generator and identity/payload oracle in interop/moqt; broader delivery conformance remains separate | Yes; C08/C13–C20 |
-| F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; minimum format profile defined; full workflow/decoder pending | Partial; LOC properties and independent MSF LOC catalog codecs with paired units; application workflow and decoder/display remain gaps, legacy APIs unchanged | Yes; C22, no inferred pass |
+| F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; bounded VP8/LOC catalog, decoder and terminal rendering profile defined; full media workflow separate | Partial; public LOC/MSF codecs plus catalog-driven bounded C22 adapter, paired rejection/recovery and real FFmpeg rendering; general player/live snapshot workflows remain gaps, legacy APIs unchanged | Yes; C22 requires real peer results |
 
 ### Completeness Counts
 

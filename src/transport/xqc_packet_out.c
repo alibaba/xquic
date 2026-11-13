@@ -144,6 +144,25 @@ xqc_packet_out_remove_ack_frame(xqc_packet_out_t *po)
     }
 }
 
+/*
+ * A copy of po, which leaves out its ACK frame, would not fit the current
+ * packet size of the connection, plus the room of an ACK frame
+ * (xqc_conn_get_mss()): the path MTU went down since po was built. RFC 9000
+ * Section 14.2: packets that are not PMTU probes SHOULD fit within the
+ * maximum datagram size.
+ */
+xqc_bool_t
+xqc_packet_out_exceeds_mss(xqc_connection_t *conn, const xqc_packet_out_t *po)
+{
+    size_t size = po->po_used_size;
+
+    if (po->po_frame_types & (XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP)) {
+        size = po->po_ack_offset;
+    }
+
+    return size > xqc_conn_get_mss(conn);
+}
+
 void
 xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
 {

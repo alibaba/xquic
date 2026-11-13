@@ -715,6 +715,8 @@ void xqc_conn_confirm_peer_key_update(xqc_connection_t *conn);
 
 /* from send_ctl */
 void xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
+void xqc_conn_release_unacked_stream_ref(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out);
 void xqc_conn_increase_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 void xqc_conn_update_stream_stats_on_sent(xqc_connection_t *conn, xqc_send_ctl_t *ctl, 
     xqc_packet_out_t *packet_out, xqc_usec_t now);

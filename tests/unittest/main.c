@@ -815,6 +815,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_prefixed_str", xqc_test_prefixed_str)
         || !CU_add_test(pSuite, "xqc_test_id_hash", xqc_test_id_hash)
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
+        || !CU_add_test(pSuite, "xqc_test_retry_pseudo_packet_size",
+                        xqc_test_retry_pseudo_packet_size)
         || !CU_add_test(pSuite, "xqc_test_retry_same_length_dcid",
                         xqc_test_retry_same_length_dcid)
         || !CU_add_test(pSuite, "xqc_test_retry_invalid_token_close",

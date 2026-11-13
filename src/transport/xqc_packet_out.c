@@ -157,6 +157,9 @@ xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
 
     /* pointers should carefully assigned in xqc_packet_out_copy */
     dst->po_buf = po_buf;
+    /* the buffer stays dst's, with its capacity and packet size */
+    dst->po_buf_cap = cap;
+    dst->po_buf_size = size;
     xqc_memcpy(dst->po_buf, src->po_buf, src->po_used_size);
     if (src->po_ppktno) {
         dst->po_ppktno = dst->po_buf + (src->po_ppktno - src->po_buf);

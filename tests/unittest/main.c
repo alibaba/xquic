@@ -501,6 +501,8 @@ main(int argc, char *argv[])
                         xqc_test_server_buffers_received_zero_rtt)
         || !CU_add_test(pSuite, "xqc_test_packet_out_remained_size",
                         xqc_test_packet_out_remained_size)
+        || !CU_add_test(pSuite, "xqc_test_packet_out_copy_buffer_fields",
+                        xqc_test_packet_out_copy_buffer_fields)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_flood", xqc_test_crypto_frame_flood)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_bytes_limit", xqc_test_crypto_frame_bytes_limit)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_recycle", xqc_test_crypto_frame_recycle)

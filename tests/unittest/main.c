@@ -483,6 +483,12 @@ main(int argc, char *argv[])
                         xqc_test_cubic_persistent_congestion_reset)
         || !CU_add_test(pSuite, "xqc_test_cubic_reordered_ack_in_recovery",
                         xqc_test_cubic_reordered_ack_in_recovery)
+        || !CU_add_test(pSuite, "xqc_test_cubic_slow_start_cwnd_limited",
+                        xqc_test_cubic_slow_start_cwnd_limited)
+        || !CU_add_test(pSuite, "xqc_test_cubic_slow_start_app_limited",
+                        xqc_test_cubic_slow_start_app_limited)
+        || !CU_add_test(pSuite, "xqc_test_cubic_epoch_skips_app_limited_time",
+                        xqc_test_cubic_epoch_skips_app_limited_time)
         || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd",
                         xqc_test_bbr_init_cwnd)
         || !CU_add_test(pSuite, "xqc_test_bbr_init_cwnd_override",

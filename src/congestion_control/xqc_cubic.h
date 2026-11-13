@@ -23,6 +23,8 @@ typedef struct {
     xqc_usec_t      epoch_start;        /* the moment when congestion switchover begins, in microseconds */
     xqc_usec_t      min_rtt;
     xqc_usec_t      congestion_recovery_start_time;
+    xqc_send_ctl_t *ctl_ctx;
+    xqc_usec_t      app_limited_since;  /* first ACK the window was not used at, or 0 */
 } xqc_cubic_t;
 
 extern const xqc_cong_ctrl_callback_t xqc_cubic_cb;

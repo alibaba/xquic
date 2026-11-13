@@ -4,4 +4,6 @@ void xqc_test_moqt_webtransport(void);
 void xqc_test_moqt_webtransport_errors(void);
 void xqc_test_moqt_webtransport_streams(void);
 void xqc_test_moqt_webtransport_setup_errors(void);
+void xqc_test_moqt_webtransport_relay(void);
+void xqc_test_moqt_webtransport_relay_errors(void);
 #endif

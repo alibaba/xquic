@@ -5,6 +5,7 @@
 #include "xqc_common_test.h"
 #include "xqc_moqt_webtransport_test.h"
 #include "include/moq/xqc_moqt_webtransport.h"
+#include "include/moq/xqc_moqt_relay.h"
 #include "moq/moqt/xqc_moqt_session.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
@@ -346,4 +347,116 @@ xqc_test_moqt_webtransport_setup_errors(void)
         CU_ASSERT_EQUAL(xqc_conn_get_errno(f.conn), 0);
         moqt_wt_destroy(&f);
     }
+}
+
+static uint64_t
+moqt_wt_relay_setup(xqc_moqt_relay_peer_t *peer,
+    const xqc_moqt_setup_t *setup, void *data)
+{
+    return 0;
+}
+
+static xqc_int_t
+moqt_wt_relay_authorize(xqc_moqt_relay_peer_t *peer,
+    const xqc_moqt_message_t *message, const xqc_moqt_message_t *candidate,
+    uint64_t *error, void *data)
+{
+    return XQC_OK;
+}
+
+static xqc_int_t
+moqt_wt_relay_forward(xqc_moqt_relay_peer_t *peer,
+    xqc_moqt_message_t *message, void *data)
+{
+    return XQC_OK;
+}
+
+static const xqc_moqt_relay_callbacks_t moqt_wt_relay_callbacks = {
+    .on_setup = moqt_wt_relay_setup,
+    .on_authorize = moqt_wt_relay_authorize,
+    .on_forward = moqt_wt_relay_forward,
+};
+
+void
+xqc_test_moqt_webtransport_relay(void)
+{
+    moqt_wt_fixture_t f;
+    moqt_wt_init(&f);
+    xqc_moqt_relay_config_t config;
+    xqc_moqt_relay_config_init(&config);
+    xqc_moqt_relay_t *r = xqc_moqt_relay_create(&config,
+                                                 &moqt_wt_relay_callbacks);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(r);
+    size_t baseline = xqc_moqt_relay_stats(r)->bytes;
+    struct iovec scope = {"test", 4};
+    xqc_moqt_relay_peer_t *peers[2];
+    for (unsigned i = 0; i < 2; i++) {
+        peers[i] = xqc_moqt_relay_peer_create_webtransport(r, &f.wt[i],
+                                                            &f.config,
+                                                            &scope, &f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(peers[i]);
+        CU_ASSERT_PTR_EQUAL(f.wt[i].binding_data,
+                            xqc_moqt_relay_peer_session(peers[i]));
+        CU_ASSERT_EQUAL(xqc_moqt_relay_stats(r)->peers, i + 1);
+    }
+    for (unsigned i = 0; i < 2; i++) {
+        f.wt[i].closed = XQC_TRUE;
+        xqc_wt_session_close_streams(&f.wt[i]);
+        xqc_moqt_relay_peer_destroy(peers[i]);
+        xqc_moqt_relay_process(r, xqc_monotonic_timestamp());
+        CU_ASSERT_EQUAL(xqc_moqt_relay_stats(r)->peers, 1 - i);
+        CU_ASSERT_PTR_NULL(f.wt[i].binding);
+        if (!i) {
+            CU_ASSERT_PTR_NOT_NULL(f.wt[1].binding);
+            CU_ASSERT_EQUAL(xqc_conn_get_errno(f.conn), 0);
+        }
+    }
+    CU_ASSERT_EQUAL(xqc_moqt_relay_stats(r)->bytes, baseline);
+    xqc_moqt_relay_destroy(r);
+    moqt_wt_destroy(&f);
+}
+
+void
+xqc_test_moqt_webtransport_relay_errors(void)
+{
+    moqt_wt_fixture_t f;
+    moqt_wt_init(&f);
+    xqc_moqt_relay_config_t config;
+    xqc_moqt_relay_config_init(&config);
+    config.max_peers = 1;
+    xqc_moqt_relay_t *r = xqc_moqt_relay_create(&config,
+                                                 &moqt_wt_relay_callbacks);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(r);
+    size_t baseline = xqc_moqt_relay_stats(r)->bytes;
+    struct iovec scope = {"test", 4};
+    CU_ASSERT_PTR_NULL(xqc_moqt_relay_peer_create_webtransport(r, NULL,
+        &f.config, &scope, &f));
+    for (unsigned i = 0; i < 3; i++) {
+        xqc_moqt_kv_t option = {.type = XQC_MOQT_OPT_PATH,
+            .value.bytes = {"/", 1}};
+        f.config.setup_options = i == 1 ? &option : NULL;
+        f.config.setup_option_count = i == 1;
+        f.wt[0].application_protocol = i == 0 ? (char *)"moqt-18"
+                                              : (char *)"moqt-22";
+        CU_ASSERT_PTR_NULL(xqc_moqt_relay_peer_create_webtransport(r, &f.wt[0],
+            &f.config, i == 2 ? NULL : &scope, &f));
+        CU_ASSERT_EQUAL(xqc_moqt_relay_stats(r)->peers, 0);
+        CU_ASSERT_EQUAL(xqc_moqt_relay_stats(r)->bytes, baseline);
+        CU_ASSERT_PTR_NULL(f.wt[0].binding);
+    }
+    xqc_moqt_relay_peer_t *peer = xqc_moqt_relay_peer_create_webtransport(r,
+        &f.wt[0], &f.config, &scope, &f);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(peer);
+    size_t bytes = xqc_moqt_relay_stats(r)->bytes;
+    CU_ASSERT_PTR_NULL(xqc_moqt_relay_peer_create_webtransport(r, &f.wt[1],
+        &f.config, &scope, &f));
+    CU_ASSERT_EQUAL(xqc_moqt_relay_stats(r)->peers, 1);
+    CU_ASSERT_EQUAL(xqc_moqt_relay_stats(r)->bytes, bytes);
+    f.wt[0].closed = XQC_TRUE;
+    xqc_wt_session_close_streams(&f.wt[0]);
+    xqc_moqt_relay_peer_destroy(peer);
+    xqc_moqt_relay_process(r, xqc_monotonic_timestamp());
+    CU_ASSERT_EQUAL(xqc_moqt_relay_stats(r)->bytes, baseline);
+    xqc_moqt_relay_destroy(r);
+    moqt_wt_destroy(&f);
 }

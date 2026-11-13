@@ -6,6 +6,7 @@
 #include <string.h>
 #include "complex_case_common.h"
 #include "include/moq/xqc_moqt_webtransport.h"
+#include "include/moq/xqc_moqt_relay.h"
 #include "moq/moqt/xqc_moqt_codec.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/transport/xqc_engine.h"
@@ -24,6 +25,7 @@ typedef struct {
     moqt_wt_endpoint_t *endpoint;
     xqc_wt_session_t *wt;
     xqc_moqt_session_t *session;
+    xqc_moqt_relay_peer_t *peer;
     xqc_moqt_request_t *request;
     xqc_moqt_subscription_t *subscription;
     unsigned ready, ok, objects, datagrams, bytes, history, history_bytes;
@@ -34,8 +36,9 @@ typedef struct {
 struct moqt_wt_endpoint_s {
     xqc_complex_case_engine_t base;
     xqc_h3_conn_t *h3;
+    xqc_moqt_relay_t *relay;
     moqt_wt_channel_t channel[2];
-    unsigned server, bad_setup, failed, conn_closed;
+    unsigned server, bad_setup, failed, conn_closed, relay_mode;
 };
 
 static uint64_t
@@ -72,7 +75,11 @@ moqt_message(xqc_moqt_request_t *request, const xqc_moqt_message_t *message,
     void *data)
 {
     moqt_wt_channel_t *c = data;
-    if (!c->endpoint->server) {
+    if (message->type == XQC_MOQT_MSG_SUBSCRIBE_OK
+        || message->type == XQC_MOQT_MSG_FETCH_OK
+        || message->type == XQC_MOQT_MSG_REQUEST_OK
+        || message->type == XQC_MOQT_MSG_PUBLISH_DONE)
+    {
         c->ok += message->type == XQC_MOQT_MSG_SUBSCRIBE_OK
             || message->type == XQC_MOQT_MSG_FETCH_OK
             || message->type == XQC_MOQT_MSG_REQUEST_OK;
@@ -85,7 +92,9 @@ moqt_message(xqc_moqt_request_t *request, const xqc_moqt_message_t *message,
         reply.type = XQC_MOQT_MSG_SUBSCRIBE_OK;
     } else if (message->type == XQC_MOQT_MSG_FETCH) {
         reply.type = XQC_MOQT_MSG_FETCH_OK;
-    } else if (message->type == XQC_MOQT_MSG_PUBLISH_NAMESPACE) {
+    } else if (message->type == XQC_MOQT_MSG_PUBLISH_NAMESPACE
+               || message->type == XQC_MOQT_MSG_SUBSCRIBE_TRACKS)
+    {
         reply.type = XQC_MOQT_MSG_REQUEST_OK;
     } else {
         return;
@@ -160,7 +169,9 @@ moqt_fetch_ready(xqc_moqt_fetch_t *fetch, xqc_moqt_subscription_t *subscription,
     void *data)
 {
     moqt_wt_channel_t *c = data;
-    if (!c->endpoint->server) {
+    if (!c->endpoint->server
+        && (!c->endpoint->relay_mode || c != &c->endpoint->channel[0]))
+    {
         return;
     }
     char payload[MOQT_WT_PAYLOAD];
@@ -202,6 +213,33 @@ wt_accept(xqc_http_headers_t *headers, xqc_http_headers_t *response, void *data)
     return 1;
 }
 
+static uint64_t
+relay_setup(xqc_moqt_relay_peer_t *peer, const xqc_moqt_setup_t *setup,
+    void *data)
+{
+    return 0;
+}
+
+static xqc_int_t
+relay_authorize(xqc_moqt_relay_peer_t *peer, const xqc_moqt_message_t *message,
+    const xqc_moqt_message_t *candidate, uint64_t *error, void *data)
+{
+    if (candidate->track_name.iov_len == 7
+        && !memcmp(candidate->track_name.iov_base, "private", 7))
+    {
+        *error = XQC_MOQT_REQUEST_UNAUTHORIZED;
+        return XQC_ERROR;
+    }
+    return XQC_OK;
+}
+
+static xqc_int_t
+relay_forward(xqc_moqt_relay_peer_t *peer, xqc_moqt_message_t *message,
+    void *data)
+{
+    return XQC_OK;
+}
+
 static int
 wt_ready(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
     const xqc_cid_t *cid, void *data)
@@ -233,7 +271,14 @@ wt_ready(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
     };
     void *protocol_data = ep->h3->conn->proto_data;
     void *datagram_data = ep->h3->conn->dgram_data;
-    c->session = xqc_moqt_session_create_webtransport(wt, &config, &cbs, c);
+    if (ep->relay) {
+        struct iovec scope = {"wt-test", 7};
+        c->peer = xqc_moqt_relay_peer_create_webtransport(ep->relay, wt,
+                                                          &config, &scope, c);
+        c->session = xqc_moqt_relay_peer_session(c->peer);
+    } else {
+        c->session = xqc_moqt_session_create_webtransport(wt, &config, &cbs, c);
+    }
     if (!c->session || xqc_moqt_session_start(c->session) != XQC_OK
         || protocol_data != ep->h3->conn->proto_data
         || datagram_data != ep->h3->conn->dgram_data)
@@ -254,7 +299,12 @@ wt_closed(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
         moqt_wt_channel_t *c = &ep->channel[index];
         c->wt_closed++;
         c->error = xqc_wt_session_get_close_error_code(wt);
-        xqc_moqt_session_destroy(c->session);
+        if (c->peer) {
+            xqc_moqt_relay_peer_destroy(c->peer);
+            c->peer = NULL;
+        } else {
+            xqc_moqt_session_destroy(c->session);
+        }
         c->session = NULL;
         c->wt = NULL;
     }
@@ -291,6 +341,16 @@ engine_init(moqt_wt_endpoint_t *ep, int server, unsigned bad)
     memset(ep, 0, sizeof(*ep));
     ep->server = server;
     ep->bad_setup = bad;
+    if (server == 2) {
+        xqc_moqt_relay_config_t relay_config;
+        xqc_moqt_relay_config_init(&relay_config);
+        const xqc_moqt_relay_callbacks_t cbs = {.on_setup = relay_setup,
+            .on_authorize = relay_authorize, .on_forward = relay_forward};
+        ep->relay = xqc_moqt_relay_create(&relay_config, &cbs);
+        if (!ep->relay) {
+            return -1;
+        }
+    }
     ep->base.socket.fd = -1;
     ep->base.user_data = ep;
     for (unsigned i = 0; i < 2; i++) {
@@ -350,6 +410,9 @@ wait_for(moqt_wt_endpoint_t *client, moqt_wt_endpoint_t *server,
            && !client->conn_closed && !server->conn_closed)
     {
         xqc_complex_case_pump(engines, 2, 2);
+        if (server->relay) {
+            xqc_moqt_relay_process(server->relay, xqc_complex_case_now_us());
+        }
     }
     if (*value < target || client->failed || server->failed) {
         fprintf(stderr, "wait got=%u target=%u failed=%u/%u H3_closed=%u/%u\n",
@@ -379,10 +442,11 @@ static int
 exercise(moqt_wt_endpoint_t *client, moqt_wt_endpoint_t *server, unsigned index)
 {
     moqt_wt_channel_t *c = &client->channel[index];
-    moqt_wt_channel_t *s = &server->channel[index];
+    moqt_wt_channel_t *s = server->relay ? &client->channel[0]
+                                         : &server->channel[index];
     unsigned ok = c->ok;
     xqc_moqt_request_t *request = request_open(c, XQC_MOQT_MSG_SUBSCRIBE, "track");
-    CHECK(request && xqc_moqt_request_id(request) == 0);
+    CHECK(request && (server->relay || xqc_moqt_request_id(request) == 0));
     CHECK(!wait_for(client, server, &c->ok, ok + 1));
     CHECK(s->subscription && s->request);
     xqc_moqt_request_t *source = s->request;
@@ -421,6 +485,58 @@ exercise(moqt_wt_endpoint_t *client, moqt_wt_endpoint_t *server, unsigned index)
     return 0;
 fail:
     return -1;
+}
+
+static int
+run_relay(unsigned bad)
+{
+    moqt_wt_endpoint_t client = {.base.socket.fd = -1};
+    moqt_wt_endpoint_t server = {.base.socket.fd = -1};
+    int rc = 1, error;
+    CHECK(!engine_init(&server, 2, 0));
+    CHECK(!engine_init(&client, 0, 0));
+    client.relay_mode = 1;
+    xqc_conn_ssl_config_t ssl = {0};
+    CHECK(xqc_webtransport_connect(client.base.engine,
+        &client.base.engine->default_conn_settings, NULL, 0,
+        "localhost", 0, &ssl, (struct sockaddr *)&server.base.local,
+        server.base.locallen, &client) != NULL);
+    const char *protocols[] = {"moqt-22"};
+    for (unsigned i = 0; i < 2; i++) {
+        CHECK(xqc_wt_client_open_session_with_protocols(client.h3,
+            "localhost", "/moqt", NULL, protocols, 1, &error) != NULL);
+        CHECK(!wait_for(&client, &server, &client.channel[i].ready, 1));
+    }
+    CHECK(xqc_moqt_relay_stats(server.relay)->peers == 2);
+    CHECK(request_open(&client.channel[0], XQC_MOQT_MSG_PUBLISH_NAMESPACE,
+                          NULL) != NULL);
+    CHECK(!wait_for(&client, &server, &client.channel[0].ok, 1));
+    if (bad) {
+        CHECK(request_open(&client.channel[1], XQC_MOQT_MSG_SUBSCRIBE,
+                              "private") != NULL);
+        CHECK(!wait_for(&client, &server, &client.channel[1].errors, 1));
+        CHECK(client.channel[1].request_error == XQC_MOQT_REQUEST_UNAUTHORIZED);
+    }
+    CHECK(!exercise(&client, &server, 1));
+    CHECK(xqc_moqt_relay_stats(server.relay)->forwarded > 0);
+    xqc_moqt_session_close(client.channel[0].session, XQC_MOQT_NO_ERROR);
+    CHECK(!wait_for(&client, &server, &server.channel[0].wt_closed, 1));
+    xqc_moqt_relay_process(server.relay, xqc_complex_case_now_us());
+    CHECK(xqc_moqt_relay_stats(server.relay)->peers == 1);
+    unsigned ok = client.channel[1].ok;
+    CHECK(request_open(&client.channel[1], XQC_MOQT_MSG_PUBLISH_NAMESPACE,
+                          NULL) != NULL);
+    CHECK(!wait_for(&client, &server, &client.channel[1].ok, ok + 1));
+    CHECK(client.h3 && server.h3 && !client.conn_closed && !server.conn_closed);
+    printf("MoQT WT relay mode=%u passed: route/object/datagram/FETCH, "
+           "same-H3 peer isolation\n", bad);
+    rc = 0;
+fail:
+    xqc_complex_case_engine_release(&client.base);
+    xqc_complex_case_engine_release(&server.base);
+    xqc_moqt_relay_process(server.relay, xqc_complex_case_now_us());
+    xqc_moqt_relay_destroy(server.relay);
+    return rc;
 }
 
 static int
@@ -501,6 +617,12 @@ fail:
 int
 main(int argc, char **argv)
 {
+    if (argc == 2 && !strcmp(argv[1], "relay")) {
+        return run_relay(0);
+    }
+    if (argc == 2 && !strcmp(argv[1], "relay-errors")) {
+        return run_relay(1);
+    }
     if (argc == 2 && !strcmp(argv[1], "errors")) {
         for (unsigned i = 1; i <= 4; i++) {
             if (run(i)) {

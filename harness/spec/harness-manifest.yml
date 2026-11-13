@@ -366,6 +366,8 @@ modules:
             - xqc_test_moqt_webtransport_errors
             - xqc_test_moqt_webtransport_streams
             - xqc_test_moqt_webtransport_setup_errors
+            - xqc_test_moqt_webtransport_relay
+            - xqc_test_moqt_webtransport_relay_errors
       moqt:
         paths:
           - include/moq/xqc_moqt.h

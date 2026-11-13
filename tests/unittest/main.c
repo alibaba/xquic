@@ -618,6 +618,10 @@ main(int argc, char *argv[])
                         xqc_test_moqt_webtransport_streams)
         || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_setup_errors",
                         xqc_test_moqt_webtransport_setup_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay",
+                        xqc_test_moqt_webtransport_relay)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay_errors",
+                        xqc_test_moqt_webtransport_relay_errors)
 #endif
         || !CU_add_test(pSuite, "xqc_test_moqt_padding_and_goaway_errors",
                         xqc_test_moqt_padding_and_goaway_errors)

@@ -545,6 +545,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_transport_params", xqc_test_transport_params)
         || !CU_add_test(pSuite, "xqc_test_retry_scid_decode_role",
                         xqc_test_retry_scid_decode_role)
+        || !CU_add_test(pSuite, "xqc_test_tp_close_dgram_redundancy",
+                        xqc_test_tp_close_dgram_redundancy)
         || !CU_add_test(pSuite, "xqc_test_max_ack_delay_default_when_absent",
                         xqc_test_max_ack_delay_default_when_absent)
         || !CU_add_test(pSuite, "xqc_test_max_ack_delay_valid_boundary",

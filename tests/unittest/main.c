@@ -882,6 +882,17 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_packet_cc_reaction",
                         xqc_test_send_ctl_lost_packet_cc_reaction)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_rtt_sample",
+                        xqc_test_send_ctl_rtt_sample)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_rtt_clock_backwards",
+                        xqc_test_send_ctl_rtt_clock_backwards)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_persistent_congestion_clock_backwards",
+                        xqc_test_send_ctl_persistent_congestion_clock_backwards)
+        || !CU_add_test(pSuite, "xqc_test_ack_delay", xqc_test_ack_delay)
+        || !CU_add_test(pSuite, "xqc_test_ack_delay_clock_backwards",
+                        xqc_test_ack_delay_clock_backwards)
+        || !CU_add_test(pSuite, "xqc_test_cubic_clock_backwards",
+                        xqc_test_cubic_clock_backwards)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

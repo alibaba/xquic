@@ -20,6 +20,9 @@ unsigned xqc_long_packet_header_size(unsigned char dcid_len, unsigned char scid_
 
 int xqc_write_packet_number(unsigned char *buf, xqc_packet_number_t packet_number, unsigned char packet_number_bits);
 
+xqc_packet_number_t xqc_packet_decode_packet_number(xqc_packet_number_t largest_pn,
+    xqc_packet_number_t truncated_pn, unsigned pn_nbits);
+
 int xqc_gen_short_packet_header(xqc_packet_out_t *packet_out, unsigned char *dcid, unsigned int dcid_len,
     unsigned char packet_number_bits, xqc_packet_number_t packet_number, xqc_uint_t key_phase);
 

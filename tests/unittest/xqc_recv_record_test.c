@@ -6,6 +6,7 @@
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_recv_timestamps_info.h"
+#include "src/transport/xqc_packet_parser.h"
 #include <string.h>
 #include <CUnit/CUnit.h>
 #include <stdio.h>
@@ -38,6 +39,45 @@ xqc_test_recv_record()
         pnode = xqc_list_entry(pos, xqc_pktno_range_node_t, list);
         //printf("low:%llu, high=%llu\n", pnode->pktno_range.low, pnode->pktno_range.high);
     }
+
+    xqc_recv_record_destroy(&record);
+}
+
+
+/*
+ * Once the peer has acknowledged an ACK frame, the ranges that it covered
+ * are deleted, but the largest packet number received stays recorded:
+ * later packet numbers are decoded against it (RFC 9000 Appendix A.3).
+ */
+void
+xqc_test_recv_record_del_keeps_largest()
+{
+    xqc_recv_record_t record;
+    memset(&record, 0, sizeof(xqc_recv_record_t));
+    xqc_init_list_head(&record.list_head);
+
+    for (xqc_packet_number_t pn = 0; pn <= 300; pn++) {
+        xqc_recv_record_add(&record, pn);
+    }
+    xqc_recv_record_add(&record, 310);
+    CU_ASSERT(record.node_count == 2);
+
+    /* an acknowledged ACK frame up to 300: only [310, 310] stays */
+    xqc_recv_record_del(&record, 301);
+    CU_ASSERT(record.node_count == 1);
+    CU_ASSERT(xqc_recv_record_largest(&record) == 310);
+
+    /* an acknowledged ACK frame that covered every packet received */
+    xqc_recv_record_del(&record, 311);
+    CU_ASSERT(record.node_count == 1);
+    CU_ASSERT(xqc_recv_record_largest(&record) == 310);
+
+    /* packet 311 comes with a 1-byte packet number */
+    CU_ASSERT(xqc_packet_decode_packet_number(xqc_recv_record_largest(&record),
+                                              311 & 0xff, 8) == 311);
+    CU_ASSERT(xqc_recv_record_add(&record, 311) == XQC_PKTRANGE_OK);
+    CU_ASSERT(xqc_recv_record_largest(&record) == 311);
+    CU_ASSERT(record.node_count == 1);
 
     xqc_recv_record_destroy(&record);
 }

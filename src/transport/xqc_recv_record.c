@@ -159,6 +159,18 @@ xqc_recv_record_add(xqc_recv_record_t *recv_record, xqc_packet_number_t packet_n
 void
 xqc_recv_record_del(xqc_recv_record_t *recv_record, xqc_packet_number_t del_from)
 {
+    /*
+     * Keep the largest packet number received: the packet numbers of later
+     * packets are decoded against it (RFC 9000 Appendix A.3). The peer can
+     * acknowledge an ACK frame that covers every packet received in the
+     * space, and with multipath the MP_ACK frame that does so can arrive
+     * on another path than the packets of the space.
+     */
+    xqc_packet_number_t largest = xqc_recv_record_largest(recv_record);
+    if (del_from > largest) {
+        del_from = largest;
+    }
+
     if (del_from < recv_record->rr_del_from) {
         return;
     }

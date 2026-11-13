@@ -1105,7 +1105,8 @@ xqc_interop_retention(xqc_interop_app_t *app, const char *run)
     xqc_moqt_request_cancel(first->publications[0], XQC_MOQT_RESET_CANCELLED);
     for (unsigned i = 0; i < 3; i++) {
         if (xqc_interop_wait(app, &observers[i]->retention.removes[0], 1, 5000)
-            || observers[i]->retention.failed)
+            || observers[i]->retention.failed
+            || (i && observers[i]->retention.adds[1]))
         {
             return -1;
         }

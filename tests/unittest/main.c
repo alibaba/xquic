@@ -55,6 +55,9 @@
 #include "xqc_galois_test.h"
 #include "xqc_fec_scheme_test.h"
 #include "xqc_fec_test.h"
+#ifdef XQC_TEST_MOQ
+#include "xqc_moq_test.h"
+#endif
 #include "xqc_ack_with_timestamp_test.h"
 #include "xqc_crypto_frame_test.h"
 #include "xqc_send_ctl_test.h"
@@ -829,6 +832,20 @@ main(int argc, char *argv[])
                         "xqc_test_reject_dgram_at_invalid_encryption_level",
                         xqc_test_reject_dgram_at_invalid_encryption_level)
         || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
+#ifdef XQC_TEST_MOQ
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_params_decoded",
+                        xqc_test_moq_msg_params_decoded)
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_params_over_limit",
+                        xqc_test_moq_msg_params_over_limit)
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_strings_split",
+                        xqc_test_moq_msg_strings_split)
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_empty_string_split",
+                        xqc_test_moq_msg_empty_string_split)
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_track_object_payload",
+                        xqc_test_moq_msg_track_object_payload)
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_track_object_over_limit",
+                        xqc_test_moq_msg_track_object_over_limit)
+#endif
 #ifdef XQC_ENABLE_FEC
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)
         || !CU_add_test(pSuite, "xqc_test_fec_scheme", xqc_test_fec_scheme)

@@ -153,6 +153,10 @@ if(HAVE_CUNIT)
         )
     endif()
 
+    if(XQC_ENABLE_MOQ)
+        list(APPEND test_SOURCES ${UNIT_TEST_DIR}/xqc_moq_test.c)
+    endif()
+
     if(XQC_ENABLE_FEC)
         set(
             test_SOURCES
@@ -174,6 +178,10 @@ if(HAVE_CUNIT)
         target_compile_definitions(run_tests PRIVATE XQC_TEST_ALLOC_WRAP)
         target_link_libraries(run_tests
             "-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free")
+    endif()
+
+    if(XQC_ENABLE_MOQ)
+        target_compile_definitions(run_tests PRIVATE XQC_TEST_MOQ)
     endif()
 
     target_include_directories(run_tests

@@ -2152,9 +2152,7 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
      * a PATH_CHALLENGE frame previously sent by the endpoint, the endpoint
      * MAY generate a connection error of type PROTOCOL_VIOLATION.
      */
-    if (memcmp(path->path_challenge_data, path_response_data,
-               (size_t)XQC_PATH_CHALLENGE_DATA_LEN) != 0)
-    {
+    if (!xqc_path_challenge_data_match(path, path_response_data)) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|path:%ui|ignore|no match path challenge data|", path->path_id);
         return XQC_OK;

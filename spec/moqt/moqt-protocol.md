@@ -2035,7 +2035,10 @@ oracle, or infer runtime failure from the difference alone.
 
 Pin media fixture/catalog/profile/decoder and provenance. Validate
 “publish catalog → choose Track → receive Objects → decode/display,” without
-media repackaging in the protocol library. Choices remain the F44 gap.
+media repackaging in the protocol library. The
+[LOC/MSF format subset](../../harness/spec/loc-msf/spec.md) supplies public
+properties and independent plaintext LOC catalogs. Fixture/profile/decoder,
+catalog subscription/state and display integration remain the F44 gap.
 The [pinned script][interop-media] requires actual displayed≥2, subscriber
 exit zero, and no observed abnormal publisher exit; it has no audio-blocks>0
 threshold. Zero-frame normal exit and enough-frame abnormal exit both fail.
@@ -2111,7 +2114,7 @@ padding probes.
 | F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Core complete; overlapping sources and subscription replacement; application-selected URI/credentials, no automatic reconnection | No; no migration case |
 | F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Partial; version/result definitions ready; image entrypoint/runner contract pending | Not implemented; old draft-18 matrix excluded | Yes; prerequisite of C01–C22 |
 | F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Not implemented; separate C08/eight moq-test integration | Yes; C08/C13–C20 |
-| F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; pass criteria ready; fixture/profile/decoder choice pending | Not implemented; application integration, legacy APIs unchanged | Yes; C22 |
+| F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; minimum format profile defined; full workflow/decoder pending | Partial; LOC properties and independent MSF LOC catalog codecs with paired units; application workflow and decoder/display remain gaps, legacy APIs unchanged | Yes; C22, no inferred pass |
 
 ### Completeness Counts
 
@@ -2126,10 +2129,10 @@ Partial retains combinations or extensions that are still incomplete.
 
 | Scope | Complete SPEC | Complete implementation |
 | --- | --- | --- |
-| All targets F01–F44 | 38/44 (86.4%); 6 partial, 0 missing | 19/44 (43.2%); 6 core complete, 11 partial, 8 not implemented |
-| Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 1 partial, 3 not implemented |
-| WebTransport interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 1 partial, 3 not implemented |
-| Union of both transports | 21/24 (87.5%); 3 partial, 0 missing | 17/24 (70.8%); 3 core complete, 1 partial, 3 not implemented |
+| All targets F01–F44 | 38/44 (86.4%); 6 partial, 0 missing | 19/44 (43.2%); 6 core complete, 12 partial, 7 not implemented |
+| Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 2 partial, 2 not implemented |
+| WebTransport interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 2 partial, 2 not implemented |
+| Union of both transports | 21/24 (87.5%); 3 partial, 0 missing | 17/24 (70.8%); 3 core complete, 2 partial, 2 not implemented |
 
 These measure **dependency completeness**, not a 22-case pass rate.
 Partial-capability gaps may exceed a case's assertions. Reports independently

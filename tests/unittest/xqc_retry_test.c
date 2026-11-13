@@ -139,3 +139,68 @@ xqc_test_retry_invalid_token_ignore_original_dcid()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * The Retry of XQC_TEST_RETRY_PACKET, as the client receives it, with its
+ * integrity tag intact or broken: return what parsing it returned.
+ */
+static xqc_int_t
+xqc_test_retry_parse(xqc_connection_t *conn, xqc_bool_t break_tag)
+{
+    unsigned char retry[sizeof(XQC_TEST_RETRY_PACKET) - 1];
+    xqc_packet_in_t packet_in;
+
+    memcpy(retry, XQC_TEST_RETRY_PACKET, sizeof(retry));
+    if (break_tag) {
+        retry[sizeof(retry) - 1] ^= 0x01;
+    }
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    xqc_packet_in_init(&packet_in, retry, sizeof(retry), NULL,
+                       XQC_MAX_PACKET_LEN, xqc_monotonic_timestamp());
+    xqc_cid_set(&conn->original_dcid, XQC_TEST_RETRY_ODCID,
+                sizeof(XQC_TEST_RETRY_ODCID) - 1);
+
+    return xqc_packet_parse_long_header(conn, &packet_in);
+}
+
+/* the token of a Retry with a valid integrity tag is kept for the Initial */
+void
+xqc_test_retry_valid_tag_token(void)
+{
+    /* flags, version, DCID length and DCID, SCID length and SCID */
+    size_t token_off = 1 + 4 + 1 + 8 + 1 + 4;
+    size_t token_len = sizeof(XQC_TEST_RETRY_PACKET) - 1 - token_off
+                       - XQC_RETRY_INTEGRITY_TAG_LEN;
+    xqc_connection_t *conn = test_engine_connect();
+
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT(xqc_test_retry_parse(conn, XQC_FALSE) == XQC_OK);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_RETRY_RECVD);
+    CU_ASSERT(conn->conn_token_len == token_len);
+    CU_ASSERT(
+        memcmp(conn->conn_token, &XQC_TEST_RETRY_PACKET[token_off], token_len)
+        == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * RFC 9000 Section 17.2.5.2: a client discards a Retry whose integrity tag
+ * cannot be validated, and keeps the token that it had.
+ */
+void
+xqc_test_retry_invalid_tag_token(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+
+    CU_ASSERT_FATAL(conn != NULL);
+    conn->conn_token_len = 0;
+
+    CU_ASSERT(xqc_test_retry_parse(conn, XQC_TRUE) == XQC_OK);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_RETRY_RECVD));
+    CU_ASSERT(conn->conn_token_len == 0);
+
+    xqc_engine_destroy(conn->engine);
+}

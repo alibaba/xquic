@@ -460,6 +460,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_uni_stream_credit_exhausted", xqc_test_uni_stream_credit_exhausted)
         || !CU_add_test(pSuite, "xqc_test_uni_stream_credit_not_exhausted", xqc_test_uni_stream_credit_not_exhausted)
         || !CU_add_test(pSuite, "xqc_test_recv_record", xqc_test_recv_record)
+        || !CU_add_test(pSuite, "xqc_test_recv_record_del_keeps_largest",
+                        xqc_test_recv_record_del_keeps_largest)
         || !CU_add_test(pSuite, "xqc_test_recv_timestamps_range_flag",
                         xqc_test_recv_timestamps_range_flag)
         || !CU_add_test(pSuite, "xqc_test_reno", xqc_test_reno)

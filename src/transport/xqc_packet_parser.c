@@ -1164,9 +1164,7 @@ xqc_packet_parse_retry(xqc_connection_t *c, xqc_packet_in_t *packet_in)
         return -XQC_EILLPKT;
     }
 
-    memcpy(c->conn_token, pos, retry_token_len);
-    c->conn_token_len = retry_token_len;
-
+    const unsigned char *retry_token = pos;
     pos += retry_token_len;
     xqc_log(c->log, XQC_LOG_DEBUG, "|retry token|length:%d|", retry_token_len);
 
@@ -1198,6 +1196,10 @@ xqc_packet_parse_retry(xqc_connection_t *c, xqc_packet_in_t *packet_in)
         xqc_log(c->log, XQC_LOG_ERROR, "|illegal pkt with wrong length");
         return -XQC_EILLPKT;
     }
+
+    /* the token of a Retry is kept only once its integrity tag is valid */
+    memcpy(c->conn_token, retry_token, retry_token_len);
+    c->conn_token_len = retry_token_len;
 
     xqc_log(c->log, XQC_LOG_DEBUG, "|packet_parse_retry|success|");
 

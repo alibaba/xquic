@@ -62,9 +62,89 @@ hq_request_delayed_fin()
     hq_request_transfer 1703 hq_request_delayed_fin 0
 }
 
+# demo_client fetches /<file> from demo_server over <alpn>, within a
+# 10-second life time. It returns 0 when the client exits with status 0
+# after its request ended, with an empty response and, over h3, the
+# <status> given.
+demo_server_no_content_run()
+{
+    local alpn="$1"
+    local file="$2"
+    local status="$3"
+    local build_dir
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    rm -rf demo-no-content-dl
+    mkdir -p demo-no-content-dl
+    rm -f session_ticket transport_params token
+    clear_log
+
+    "${build_dir}/demo/demo_client" -l d -L clog -D demo-no-content-dl \
+        -K 10 -A "${alpn}" \
+        -U "https://127.0.0.1:${CASE_TEST_PORT:-8443}/${file}" \
+        > stdlog 2>&1 || return 1
+    grep -q 'all tasks are finished' stdlog || return 1
+    ! grep -q 'kill it anyway' stdlog || return 1
+    [[ -f "demo-no-content-dl/${file}" ]] || return 1
+    [[ ! -s "demo-no-content-dl/${file}" ]] || return 1
+    if [[ "${alpn}" = h3 ]]; then
+        grep -q "^:status = ${status}$" stdlog || return 1
+    fi
+}
+
+demo_server_no_content_start()
+{
+    local build_dir
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    rm -rf demo-no-content-www
+    mkdir -p demo-no-content-www
+    : > demo-no-content-www/empty
+    case_test_start_server \
+        "${CASE_TEST_SERVER_BIN:-${build_dir}/demo/demo_server}" \
+        -p "${CASE_TEST_PORT:-8443}" \
+        -D "${CASE_TEST_WORK_DIR}/demo-no-content-www" \
+        -l d -L slog > /dev/null 2>&1
+}
+
+# 1715 happy path: demo_server ends the response of an empty file, over h3
+# with the headers, status 200, and over hq-interop with a FIN.
+demo_server_empty_file()
+{
+    local status=0
+
+    demo_server_no_content_start
+    demo_server_no_content_run h3 empty 200 || status=1
+    demo_server_no_content_run hq-interop empty || status=1
+    case_test_stop_server
+    case_test_snapshot_case_logs demo_server_empty_file
+    rm -f session_ticket transport_params token
+    return "${status}"
+}
+
+# 1716 abnormal path: demo_server answers a request for a missing file over
+# h3 with status 404, and over hq-interop, which has no status, with an
+# empty response.
+demo_server_missing_file()
+{
+    local status=0
+
+    demo_server_no_content_start
+    demo_server_no_content_run h3 missing 404 || status=1
+    demo_server_no_content_run hq-interop missing || status=1
+    case_test_stop_server
+    case_test_snapshot_case_logs demo_server_missing_file
+    rm -f session_ticket transport_params token
+    return "${status}"
+}
+
 case_test_case "hq_request_fin" --id 1702 --run hq_request_fin --timeout 12
 case_test_case "hq_request_delayed_fin" --id 1703 \
     --run hq_request_delayed_fin --timeout 12
+case_test_case "demo_server_empty_file" --id 1715 \
+    --run demo_server_empty_file --timeout 40
+case_test_case "demo_server_missing_file" --id 1716 \
+    --run demo_server_missing_file --timeout 40
 
 if case_test_is_discovery; then
     case_test_run

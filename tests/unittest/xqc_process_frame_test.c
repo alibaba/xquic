@@ -572,6 +572,103 @@ xqc_test_frame_length_past_packet(void)
 }
 
 
+static int      xqc_test_saved_token_cnt;
+static uint32_t xqc_test_saved_token_len;
+
+static void
+xqc_test_save_token(const unsigned char *token, uint32_t token_len,
+    void *conn_user_data)
+{
+    xqc_test_saved_token_cnt++;
+    xqc_test_saved_token_len = token_len;
+}
+
+
+/* Write a NEW_TOKEN frame with a token of token_len bytes. */
+static unsigned char *
+xqc_test_put_new_token(unsigned char *p, size_t token_len)
+{
+    p = xqc_put_varint(p, 0x07);
+    p = xqc_put_varint(p, token_len);   /* Token Length */
+    memset(p, 't', token_len);          /* Token */
+
+    return p + token_len;
+}
+
+
+/*
+ * RFC 9000 Section 19.7 sets no maximum Token Length. A token longer than
+ * XQC_MAX_TOKEN_LEN is not kept, and the connection processes the frame and
+ * the frames after it.
+ */
+void
+xqc_test_new_token_longer_than_buffer(void)
+{
+    unsigned char frame[XQC_MAX_TOKEN_LEN + 128];
+    /*
+     * a token buffer of XQC_MAX_TOKEN_LEN bytes, as in a connection, and a
+     * zero after it: the qlog event of the frame prints the token as a string
+     */
+    unsigned char token[XQC_MAX_TOKEN_LEN + 1];
+    unsigned char zero[XQC_MAX_TOKEN_LEN + 1] = {0};
+    unsigned char *end;
+    unsigned token_len;
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->transport_cbs.save_token = xqc_test_save_token;
+    xqc_test_saved_token_cnt = 0;
+    xqc_test_saved_token_len = 0;
+
+    /* the longest token that the buffer takes is kept */
+    memset(token, 0, sizeof(token));
+    token_len = XQC_MAX_TOKEN_LEN;
+    end = xqc_test_put_new_token(frame, XQC_MAX_TOKEN_LEN);
+    xqc_test_frame_packet_in(&packet_in, frame, end);
+    CU_ASSERT_EQUAL(xqc_parse_new_token_frame(&packet_in, token, &token_len,
+                                              conn), XQC_OK);
+    CU_ASSERT_EQUAL(token_len, XQC_MAX_TOKEN_LEN);
+    CU_ASSERT(token[0] == 't' && token[XQC_MAX_TOKEN_LEN - 1] == 't');
+    CU_ASSERT(packet_in.pos == end);
+
+    /* one byte more: the frame is consumed, the buffer left as it was */
+    memset(token, 0, sizeof(token));
+    token_len = XQC_MAX_TOKEN_LEN;
+    end = xqc_test_put_new_token(frame, XQC_MAX_TOKEN_LEN + 1);
+    xqc_test_frame_packet_in(&packet_in, frame, end);
+    CU_ASSERT_EQUAL(xqc_parse_new_token_frame(&packet_in, token, &token_len,
+                                              conn), XQC_OK);
+    CU_ASSERT_EQUAL(token_len, 0);
+    CU_ASSERT(memcmp(token, zero, sizeof(token)) == 0);
+    CU_ASSERT(packet_in.pos == end);
+    CU_ASSERT(packet_in.pi_frame_types & XQC_FRAME_BIT_NEW_TOKEN);
+
+    /* a long token is not saved, and the PING after it is processed */
+    end = xqc_test_put_new_token(frame, XQC_MAX_TOKEN_LEN + 64);
+    *end++ = 0x01;  /* PING */
+    xqc_test_frame_packet_in(&packet_in, frame, end);
+    CU_ASSERT_EQUAL(xqc_process_frames(conn, &packet_in), XQC_OK);
+    CU_ASSERT(packet_in.pos == end);
+    CU_ASSERT(packet_in.pi_frame_types & XQC_FRAME_BIT_PING);
+    CU_ASSERT_EQUAL(xqc_test_saved_token_cnt, 0);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT_FALSE(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+
+    /* a token that fits is saved */
+    end = xqc_test_put_new_token(frame, 2);
+    xqc_test_frame_packet_in(&packet_in, frame, end);
+    CU_ASSERT_EQUAL(xqc_process_frames(conn, &packet_in), XQC_OK);
+    CU_ASSERT_EQUAL(xqc_test_saved_token_cnt, 1);
+    CU_ASSERT_EQUAL(xqc_test_saved_token_len, 2);
+    CU_ASSERT_EQUAL(conn->conn_token_len, 2);
+    CU_ASSERT(memcmp(conn->conn_token, "tt", 2) == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 static void
 xqc_test_conn_close_frame_accepted(unsigned char *frame, size_t frame_len,
     xqc_pkt_type_t pkt_type, xqc_conn_type_t conn_type,

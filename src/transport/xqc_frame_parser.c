@@ -2144,15 +2144,26 @@ xqc_parse_new_token_frame(xqc_packet_in_t *packet_in, unsigned char *token, unsi
         return -XQC_EPROTO;
     }
 
-    if (recv_token.len > *token_len) {
-        return -XQC_ENOBUF;
-    }
-    xqc_memcpy(token, recv_token.data, recv_token.len);
-    *token_len = recv_token.len;
-
     packet_in->pos = (unsigned char *) p;
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_NEW_TOKEN;
+
+    /*
+     * RFC 9000 Section 19.7 sets no maximum Token Length, and a client may
+     * discard the tokens of NEW_TOKEN frames (Section 8.1.3): a token longer
+     * than the buffer is not kept, *token_len is 0, and the frame is
+     * processed.
+     */
+    if (recv_token.len > *token_len) {
+        xqc_log(conn->log, XQC_LOG_INFO,
+                "|NEW_TOKEN token not kept|token_len:%uz|max:%ud|",
+                recv_token.len, *token_len);
+        *token_len = 0;
+        return XQC_OK;
+    }
+
+    xqc_memcpy(token, recv_token.data, recv_token.len);
+    *token_len = recv_token.len;
 
     xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_NEW_TOKEN,
                   (uint64_t) recv_token.len, token);

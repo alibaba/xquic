@@ -1027,3 +1027,10 @@ request, subscription, incremental Object, FETCH/Fill, and discovery APIs,
 borrowed-view lifetimes, and current capability gaps. Existing `xqc_moq_*`
 interfaces retain their draft-05 behavior. Relay and draft-22 resumption are
 separate planned capabilities.
+
+For an accepted incoming `SUBSCRIBE_TRACKS`, enumerate authorized publication
+instances with `xqc_moqt_request_publish()` or explicitly skip one with
+`xqc_moqt_request_skip()`. Use stable instance IDs and full binary names;
+generated PUBLISH requests have independent lifetimes. The
+`on_publish_skipped` callback receives a borrowed complete name. Enumeration
+retains bounded offered/skipped state until the prefix request closes.

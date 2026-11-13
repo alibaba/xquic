@@ -157,6 +157,7 @@ struct xqc_moqt_request_s {
     xqc_list_head_t             sent_updates;
     xqc_list_head_t             received_updates;
     xqc_list_head_t             namespaces;
+    xqc_list_head_t             publications;
     xqc_usec_t                  response_deadline;
     xqc_usec_t                  goaway_deadline;
     xqc_moqt_error_t            error;

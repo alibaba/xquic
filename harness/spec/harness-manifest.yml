@@ -371,6 +371,13 @@ modules:
             - xqc_test_moqt_fill_snapshots
             - xqc_test_moqt_fill_suppressed
             - xqc_test_moqt_fill_lifecycle
+            - xqc_test_moqt_tracks_codec
+            - xqc_test_moqt_tracks_overlap
+            - xqc_test_moqt_tracks_publish
+            - xqc_test_moqt_tracks_skipped
+            - xqc_test_moqt_tracks_skipped_receive
+            - xqc_test_moqt_tracks_exclusion
+            - xqc_test_moqt_tracks_budget
             - xqc_test_moqt_namespace_update_races
             - xqc_test_moqt_namespace_codec
             - xqc_test_moqt_namespace_codec_errors

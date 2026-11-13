@@ -13,7 +13,7 @@ completion percentages, historical steps, review conclusions, nor run results.
 | Session/Request | SETUP, directional credit, ID/response FIFO, authorization, updates, closure, budgets |
 | Subscription/live delivery | Track/Subscription/Alias, Location/FORWARD, Datagram/Subgroup, shared summaries, completion |
 | Historical delivery | Standalone FETCH, Fill snapshots/live concurrency; application Objects/existence |
-| Discovery/query | Namespace publish/discover, suffix/DONE, prefix updates, TRACK_STATUS |
+| Discovery/query | Namespace publish/discover, suffix/DONE, prefix updates, Track enumeration/independent PUBLISH/SKIPPED, TRACK_STATUS |
 
 This is implementation structure, not completion of every related rule.
 Timeout-property overrides, full historical consistency, and TRACK_STATUS
@@ -30,7 +30,7 @@ without speculative placeholder frameworks.
 | 13 | Native QUIC pipelining/0-RTT | [Resumption][resumption]; accept/reject/no-cache, one retransmission owner, authorization timing, no resurrection |
 | 14 | Nonzero Range Filters | [Filters][filters]; SetID AND/OR, replace/delete/limits, Fill snapshots, FETCH gaps |
 | 15 | Token Aliases | [Cache][tokens]; directional accounting, same/cross-stream response dependencies, expiry/delete, reauthorization |
-| 16 | SUBSCRIBE_TRACKS/PUBLISH_SKIPPED | [Prefix subscriptions][tracks]; application enumeration, independent PUBLISH, Sns/St/Pc lifetimes, inheritance conflicts |
+| 16 | Remaining prefix Track combinations | [Prefix subscriptions][tracks]; C10 endpoint prerequisites are implemented; independent-peer confirmation of disputed Location/Fill inheritance remains; nonzero filters follow item 14 |
 | 17 | Protocol-rule validation gaps | Scope/query/restart, property-set replacement/Mandatory phases, original Subgroup first-Object overrides, Prior Gap/history, parameter allowlists/conflicts |
 | 18 | Dynamic Groups/EXPIRES renewal | [Groups][groups], [parameters][parameters]; application creation, boundaries/delay, independent clocks; Relay aggregation separate |
 | 19 | Padding, overload, deployment security | [Deployment][security]; independent cancellation, short-prefix/slow-peer budgets, hop authorization, safe logs |
@@ -42,8 +42,13 @@ without speculative placeholder frameworks.
   fanout/mixed pause, total FETCH/Fill budget, malformed/slow-peer isolation,
   overlapping migration; positive/negative three-node tests with two
   publishers and two subscribers.
+- [ ] C10 Relay integration: reuse endpoint St enumeration, source-instance
+  identity, and independent Pc mappings. Verify three-node discovery when
+  only the Namespace is known, including cancellation/authorization/skipping
+  boundaries; record pinned runner results separately from local two-endpoint
+  evidence.
 - [ ] Relay extensions: cache keys/deadlines/replacement transactions, nonzero
-  filters/prefix subscriptions, dynamic-Group outstanding aggregation, each
+  filters, dynamic-Group outstanding aggregation, each
   following endpoint dependencies and relay scope.
 - [ ] WebTransport: CONNECT selection, URI, WT binding, MOQT SETUP, DATAGRAM,
   and isolation within one H3 connection; no inherited Native QUIC 0-RTT claim.

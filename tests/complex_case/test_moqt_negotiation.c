@@ -48,6 +48,7 @@ typedef enum {
     XQC_MOQT_TEST_FETCH,
     XQC_MOQT_TEST_FILL,
     XQC_MOQT_TEST_NAMESPACES,
+    XQC_MOQT_TEST_TRACKS,
 } moqt_test_mode_t;
 
 typedef struct {
@@ -100,6 +101,11 @@ typedef struct {
     size_t                      namespace_fields;
     xqc_moqt_fetch_t           *fill;
     xqc_int_t                   drop_packets;
+    xqc_moqt_request_t         *tracks;
+    xqc_moqt_request_t         *camera;
+    unsigned                    publications;
+    unsigned                    skips;
+    xqc_int_t                   tracks_errors;
 } moqt_endpoint_t;
 
 static xqc_int_t
@@ -1602,6 +1608,256 @@ done:
     return result;
 }
 
+static xqc_moqt_message_t
+moqt_track_publication(const char *track)
+{
+    xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_PUBLISH};
+    m.track_namespace.count = 2;
+    m.track_namespace.fields[0] = (struct iovec){"live", 4};
+    m.track_namespace.fields[1] = (struct iovec){"room42", 6};
+    m.track_name = (struct iovec){(void *)track, strlen(track)};
+    return m;
+}
+
+static void
+moqt_tracks_message(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
+    void *data)
+{
+    moqt_endpoint_t *ep = data;
+    if (m->type == XQC_MOQT_MSG_PUBLISH_SKIPPED) {
+        return;
+    }
+    if (m->type == XQC_MOQT_MSG_PUBLISH) {
+        ep->publications++;
+        if (m->track_name.iov_len == 6
+            && !xqc_memcmp(m->track_name.iov_base, "camera", 6))
+        {
+            ep->camera = r;
+        }
+        if (ep->tracks_errors
+            && m->track_name.iov_len == 5
+            && !xqc_memcmp(m->track_name.iov_base, "audio", 5))
+        {
+            xqc_moqt_message_t error = {.type = XQC_MOQT_MSG_REQUEST_ERROR};
+            error.error.code = XQC_MOQT_REQUEST_UNAUTHORIZED;
+            if (xqc_moqt_request_send(r, &error) != XQC_OK) {
+                ep->invalid_handshakes++;
+            }
+            return;
+        }
+    }
+    if (!r->local && r->initial_type == XQC_MOQT_MSG_SUBSCRIBE_TRACKS) {
+        ep->tracks = r;
+        if (ep->defer_response) {
+            return;
+        }
+    }
+    moqt_message(r, m, data);
+    if (!r->local
+        && r->initial_type == XQC_MOQT_MSG_SUBSCRIBE_TRACKS
+        && r->established
+        && !r->failed)
+    {
+        const char *names[] = {"camera", "audio"};
+        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+            xqc_moqt_message_t pub = moqt_track_publication(names[i]);
+            xqc_moqt_request_t *pc = NULL;
+            if (xqc_moqt_request_publish(r, i, &pub, &pc) != XQC_OK) {
+                ep->invalid_handshakes++;
+            }
+            if (i == 0 && pc != NULL) {
+                ep->camera = pc;
+            }
+        }
+    }
+}
+
+static void
+moqt_tracks_namespace(xqc_moqt_request_t *r, const xqc_moqt_namespace_t *name,
+    xqc_bool_t available, void *data)
+{
+    moqt_endpoint_t *ep = data;
+    moqt_namespace_event(r, name, available, data);
+    if (available && ep->tracks == NULL) {
+        xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_SUBSCRIBE_TRACKS};
+        m.track_namespace = *name;
+        ep->tracks = xqc_moqt_request_open(ep->session, &m);
+        if (ep->tracks == NULL) {
+            ep->invalid_handshakes++;
+        }
+    }
+}
+
+static void
+moqt_tracks_skipped(xqc_moqt_request_t *r, const xqc_moqt_namespace_t *name,
+    const struct iovec *track, void *data)
+{
+    moqt_endpoint_t *ep = data;
+    ep->skips++;
+    if (name->count != 2
+        || name->fields[1].iov_len != 6
+        || xqc_memcmp(name->fields[1].iov_base, "room42", 6)
+        || track->iov_len != 7
+        || xqc_memcmp(track->iov_base, "blocked", 7))
+    {
+        ep->invalid_handshakes++;
+    }
+}
+
+static void
+moqt_tracks_closed(xqc_moqt_request_t *r, const xqc_moqt_error_t *error,
+    void *data)
+{
+    moqt_endpoint_t *ep = data;
+    moqt_request_closed(r, error, data);
+    if (ep->tracks == r) {
+        ep->tracks = NULL;
+    }
+    if (ep->camera == r) {
+        ep->camera = NULL;
+    }
+}
+
+static xqc_int_t
+moqt_tracks(moqt_endpoint_t *client, moqt_endpoint_t *server,
+    xqc_int_t errors)
+{
+    xqc_complex_case_engine_t *peers[] = {&client->base, &server->base};
+    xqc_int_t result = -1;
+    client->tracks_errors = errors;
+    client->session->callbacks.on_namespace = moqt_tracks_namespace;
+    client->session->callbacks.on_publish_skipped = moqt_tracks_skipped;
+    client->session->callbacks.on_message = moqt_tracks_message;
+    server->session->callbacks.on_message = moqt_tracks_message;
+    client->session->callbacks.on_request_closed = moqt_tracks_closed;
+    server->session->callbacks.on_request_closed = moqt_tracks_closed;
+    xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE};
+    m.track_namespace.count = 1;
+    m.track_namespace.fields[0] = (struct iovec){"live", 4};
+    xqc_moqt_request_t *sns = xqc_moqt_request_open(client->session, &m);
+    xqc_moqt_check(sns != NULL);
+    xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+    xqc_moqt_check(sns->established);
+    xqc_memzero(&m, sizeof(m));
+    m.type = XQC_MOQT_MSG_NAMESPACE;
+    m.track_namespace.count = 1;
+    m.track_namespace.fields[0] = (struct iovec){"room42", 6};
+    xqc_moqt_check(xqc_moqt_request_send(server->request, &m) == XQC_OK);
+    xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+    xqc_moqt_check(client->namespace_adds == 1
+                   && client->namespace_fields == 2);
+    xqc_moqt_check(client->tracks != NULL && client->tracks->established);
+    xqc_moqt_check(server->tracks != NULL && server->tracks->established);
+    xqc_moqt_check(client->publications == 2);
+    xqc_moqt_check(client->camera != NULL && client->camera->established);
+    xqc_moqt_check(server->camera != NULL && server->camera->established);
+    xqc_moqt_subscription_t *camera = server->camera->subscription;
+    xqc_moqt_object_t object = {.group_id = 7, .object_id = 0, .datagram = 1,
+        .priority = XQC_MOQT_DEFAULT_PRIORITY, .payload_length = 1,
+        .payload = {"x", 1}};
+    xqc_moqt_check(xqc_moqt_datagram_send(camera, &object) == XQC_OK);
+    xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+    xqc_moqt_check(client->objects == 1);
+    xqc_moqt_request_cancel(sns, XQC_MOQT_RESET_CANCELLED);
+    xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+    xqc_moqt_check(client->tracks != NULL && !client->tracks->failed);
+    xqc_moqt_check(!camera->stopped);
+
+    xqc_moqt_request_t *pc = NULL;
+    if (!errors) {
+        uint8_t paused = 0;
+        xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+            .parameter_count = 1};
+        update.parameters[0] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_FORWARD, 1, &paused};
+        xqc_moqt_check(xqc_moqt_request_send(client->tracks, &update)
+                       == XQC_OK);
+        xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+        xqc_moqt_check(client->publications == 2);
+        m = moqt_track_publication("screen");
+        xqc_moqt_check(xqc_moqt_request_publish(server->tracks, 2, &m, &pc)
+                       == XQC_OK && pc != NULL);
+        xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+        xqc_moqt_check(pc->established && !pc->subscription->forward);
+        xqc_moqt_check(camera->forward && client->publications == 3);
+        xqc_moqt_request_cancel(client->tracks, XQC_MOQT_RESET_CANCELLED);
+        xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+        xqc_moqt_check(server->tracks == NULL);
+        xqc_moqt_check(!pc->subscription->stopped && !camera->stopped);
+    } else {
+        /* Audio rejection and overlapping St cannot end camera. */
+        xqc_moqt_check(server->request_errors == 1);
+        xqc_moqt_check(server->last_error == XQC_MOQT_REQUEST_UNAUTHORIZED);
+        m = moqt_track_publication("camera");
+        m.type = XQC_MOQT_MSG_SUBSCRIBE_TRACKS;
+        xqc_moqt_check(xqc_moqt_request_open(client->session, &m) != NULL);
+        xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+        xqc_moqt_check(client->request_errors == 1);
+        xqc_moqt_check(client->last_error == XQC_MOQT_REQUEST_PREFIX_OVERLAP);
+        xqc_connection_t *conn = server->session->conn;
+        uint64_t credit = conn->conn_flow_ctl.fc_max_streams_bidi_can_send;
+        conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 0;
+        m = moqt_track_publication("blocked");
+        xqc_moqt_check(xqc_moqt_request_publish(server->tracks, 9, &m, &pc)
+                       == XQC_OK && pc == NULL);
+        conn->conn_flow_ctl.fc_max_streams_bidi_can_send = credit;
+        xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+        xqc_moqt_check(client->skips == 1);
+        xqc_moqt_check(xqc_moqt_request_publish(server->tracks, 9, &m, &pc)
+                       == XQC_OK && pc == NULL);
+        xqc_moqt_check(xqc_moqt_request_publish(server->tracks, 10, &m, &pc)
+                       == XQC_OK && pc != NULL);
+        xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+        xqc_moqt_check(client->publications == 3 && pc->established);
+        uint8_t denied[] = {1, 1, '!'};
+        xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+            .parameter_count = 1};
+        update.parameters[0] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX, sizeof(denied), denied};
+        xqc_moqt_check(xqc_moqt_request_send(client->tracks, &update)
+                       == XQC_OK);
+        xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+        xqc_moqt_check(client->request_errors == 2);
+        xqc_moqt_check(client->last_error == XQC_MOQT_REQUEST_UNAUTHORIZED);
+        xqc_moqt_check(server->candidate_prefix == '!');
+    }
+    object.object_id = 1;
+    xqc_moqt_check(xqc_moqt_datagram_send(camera, &object) == XQC_OK);
+    xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+    xqc_moqt_check(client->objects == 2);
+    xqc_moqt_check(!client->invalid_handshakes && !server->invalid_handshakes);
+    xqc_moqt_check(!client->error && !server->error);
+    if (errors) {
+        server->defer_response = 1;
+        m = moqt_track_publication("camera");
+        m.type = XQC_MOQT_MSG_SUBSCRIBE_TRACKS;
+        xqc_moqt_check(xqc_moqt_request_open(client->session, &m) != NULL);
+        xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+        xqc_moqt_check(server->tracks != NULL);
+        xqc_memzero(&m, sizeof(m));
+        m.type = XQC_MOQT_MSG_PUBLISH_SKIPPED;
+        m.track_name = (struct iovec){"bad", 3};
+        xqc_moqt_check(xqc_moqt_request_send(server->tracks, &m) < 0);
+        uint8_t wire[16];
+        xqc_int_t n = xqc_moqt_message_encode(&m,
+            XQC_MOQT_MSG_SUBSCRIBE_TRACKS, wire, sizeof(wire));
+        xqc_moqt_check(n > 0);
+        xqc_moqt_check(xqc_stream_send(server->tracks->stream->transport_stream,
+                                       wire, n, 0) == n);
+        xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+        xqc_moqt_check(client->error == XQC_MOQT_PROTOCOL_VIOLATION);
+        xqc_moqt_check(server->error == XQC_MOQT_PROTOCOL_VIOLATION);
+    }
+    printf("tracks discovered=%u publish=%u skipped=%u objects=%u "
+           "errors=%u/%u session=%d/%d\n", client->namespace_adds,
+           client->publications, client->skips, client->objects,
+           client->request_errors, server->request_errors,
+           client->error, server->error);
+    result = 0;
+done:
+    return result;
+}
+
 static xqc_int_t
 moqt_requests(xqc_int_t errors, moqt_test_mode_t mode)
 {
@@ -1630,6 +1886,10 @@ moqt_requests(xqc_int_t errors, moqt_test_mode_t mode)
     xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
     xqc_moqt_check(client.ready == 1 && server.ready == 1);
     xqc_moqt_check(client.handshakes == 1 && server.handshakes == 1);
+    if (mode == XQC_MOQT_TEST_TRACKS) {
+        result = moqt_tracks(&client, &server, errors);
+        goto done;
+    }
     if (mode == XQC_MOQT_TEST_NAMESPACES) {
         result = moqt_namespaces(&client, &server, errors);
         goto done;
@@ -1763,6 +2023,12 @@ done:
 int
 main(int argc, char **argv)
 {
+    if (argc == 2 && strcmp(argv[1], "tracks") == 0) {
+        return moqt_requests(0, XQC_MOQT_TEST_TRACKS);
+    }
+    if (argc == 2 && strcmp(argv[1], "tracks-errors") == 0) {
+        return moqt_requests(1, XQC_MOQT_TEST_TRACKS);
+    }
     if (argc == 2 && strcmp(argv[1], "namespaces") == 0) {
         return moqt_requests(0, XQC_MOQT_TEST_NAMESPACES);
     }
@@ -1862,7 +2128,7 @@ main(int argc, char **argv)
             "subscriptions|subscription-errors|datagrams|datagram-errors "
             "subgroups|subgroup-errors|delivery|delivery-cancel|"
             "delivery-timeout|fetch|fetch-errors|fill|fill-errors "
-            "namespaces|namespace-errors "
+            "namespaces|namespace-errors|tracks|tracks-errors "
             "[demo-port]\n",
             argv[0]);
     return 1;

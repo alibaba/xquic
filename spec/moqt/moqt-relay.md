@@ -24,13 +24,14 @@ provide cross-version bridging.
 | PUBLISH_NAMESPACE and direct PUBLISH | Required; authorize Namespace and specific Track independently |
 | SUBSCRIBE routing, upstream establishment, downstream fanout | Required; multiple publishers/subscribers, Session-local IDs |
 | Namespace discovery / TRACK_STATUS | Required; authorized registrations and upstream state |
+| SUBSCRIBE_TRACKS / independent PUBLISH / PUBLISH_SKIPPED | Required for C10; reuse endpoint enumeration to create independent Pc from current sources and downstream authorization |
 | Multiple publishers per Track, pause/resume, withdrawal | Required; §7.2–7.6 obligations |
 | FETCH and subscription Fill | Required; retrieve from matching publishers without a history cache |
 | Object/property/order/Delivery Mode fidelity | Required; permitted reencoding preserves Object semantics |
 | Authorization, limits, slow-subscriber/error isolation | Required |
 | Upstream subscription aggregation | Bounded compatible aggregation permitted; otherwise independent upstream requests |
 | History cache, persistence, cache-only FETCH | Deferred; only bounded temporary queues needed for transport |
-| SUBSCRIBE_TRACKS, Range Filters, dynamic Groups | Deferred; retain endpoint rejection/negotiation boundaries |
+| Nonzero Range Filters, dynamic Groups | Deferred; retain endpoint rejection/negotiation boundaries |
 | Relay cascading, routing protocol, loop discovery, cross-node state | Out of first-version scope; §7 defines no relay-to-relay interconnection mechanism |
 | Automatic failover/GOAWAY migration, operational control plane | Deferred; expose standard messages/state and application policy |
 
@@ -68,6 +69,18 @@ Existing subscription termination depends on its own valid upstream state.
 Authorize discovery and subscription separately. TRACK_STATUS must not disclose
 unauthorized Track existence/properties. Unknown sources/denied Namespaces
 never enter the discoverable set.
+
+After NAMESPACE, C10 uses St to request Tracks. Once Relay accepts St, it
+supplies matching, authorized, established publication sources to
+`xqc_moqt_request_publish`. A source-instance ID is stable for the lifetime of
+one publication; a new publication after reconnection uses a new ID. Reusable
+pointer addresses must not serve as instance IDs. Repeated enumeration when
+sources appear lets the endpoint suppress previously offered/skipped entries.
+Map each downstream Pc independently to its source and Object delivery; Pc
+must not have St's lifetime. Never copy upstream credentials into downstream
+PUBLISH. Relay owns downstream-origin exclusion, cross-Scope isolation, and
+specific Track authorization; endpoint APIs provide neither cross-Session
+routing nor authorization policy.
 
 ### Requirement: Routing, Fanout, Multiple Publishers, and Pause
 
@@ -201,6 +214,7 @@ errors, and reclamation, not just process exit.
 | --- | --- | --- |
 | ID/Scope isolation | Equal numeric IDs across downstreams associate correctly; independent cancellation | Same names in different Scopes do not share; .session never forwarded |
 | Registration/discovery | OK/NAMESPACE, DONE only after last source; independent subscriptions continue | Single-Track rights cannot register Namespace; denied state pollutes neither routing nor discovery |
+| Prefix Track subscriptions | B knows only the Namespace, discovers Tracks via Sns→St→Pc, and receives Objects; newly added Tracks are discovered | Existing Pc survives St cancellation; no echo to its publisher; no retry of a skipped publication, but a new publication after reconnection can be enumerated; no new Pc without interest and authorization |
 | Sources/fanout | Complementary two-publisher Objects, two subscriber filters, mixed/all pause then resume | No OK before Established; timeout/cancel prevents late revival; reject excess sources |
 | Objects/properties | Binary payload, Subgroup/Datagram, unknown properties, duplicate fidelity | Conflicts malformed; FIN cannot conceal gaps; no forwarding starts after TTL |
 | FETCH/Fill | Upstream history without cache, concurrent live, correct End Location/mode/order | Total-budget timeout/unknown/reset; cancellation stops only unreferenced operations |

@@ -114,6 +114,19 @@ case_moqt_namespace_errors()
 case_test_case "moqt_namespaces" --id 1468 --run case_moqt_namespaces
 case_test_case "moqt_namespace_errors" --id 1469 --run case_moqt_namespace_errors
 
+case_moqt_tracks()
+{
+    "$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_negotiation" tracks
+}
+
+case_moqt_tracks_errors()
+{
+    "$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_negotiation" tracks-errors
+}
+
+case_test_case "moqt_tracks" --id 1473 --run case_moqt_tracks
+case_test_case "moqt_tracks_errors" --id 1474 --run case_moqt_tracks_errors
+
 if case_test_is_discovery; then
     case_test_run
     exit 0

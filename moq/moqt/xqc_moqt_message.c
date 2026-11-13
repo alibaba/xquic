@@ -456,10 +456,16 @@ xqc_moqt_message_body_decode(xqc_moqt_message_t *m, uint64_t context)
             break;
         case XQC_MOQT_MSG_NAMESPACE:
         case XQC_MOQT_MSG_NAMESPACE_DONE:
-            if (context != XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE) {
+        case XQC_MOQT_MSG_PUBLISH_SKIPPED:
+            if (context != (m->type == XQC_MOQT_MSG_PUBLISH_SKIPPED
+                            ? XQC_MOQT_MSG_SUBSCRIBE_TRACKS
+                            : XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE))
+            {
                 return XQC_ERROR;
             }
-            n = xqc_moqt_name_decode(p, end - p, &m->track_namespace, NULL);
+            n = xqc_moqt_name_decode(p, end - p, &m->track_namespace,
+                m->type == XQC_MOQT_MSG_PUBLISH_SKIPPED ? &m->track_name
+                                                       : NULL);
             if (n < 0) {
                 return XQC_ERROR;
             }
@@ -585,12 +591,17 @@ xqc_moqt_message_body_encode(const xqc_moqt_message_t *m, uint64_t context,
             break;
         case XQC_MOQT_MSG_NAMESPACE:
         case XQC_MOQT_MSG_NAMESPACE_DONE:
-            if (context != XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE) {
+        case XQC_MOQT_MSG_PUBLISH_SKIPPED:
+            if (context != (m->type == XQC_MOQT_MSG_PUBLISH_SKIPPED
+                            ? XQC_MOQT_MSG_SUBSCRIBE_TRACKS
+                            : XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE))
+            {
                 return XQC_ERROR;
             }
-            n = xqc_moqt_name_encode(&m->track_namespace, NULL,
-                                     buf ? buf + pos : NULL,
-                                     buf ? cap - pos : 0);
+            n = xqc_moqt_name_encode(&m->track_namespace,
+                m->type == XQC_MOQT_MSG_PUBLISH_SKIPPED ? &m->track_name
+                                                       : NULL,
+                buf ? buf + pos : NULL, buf ? cap - pos : 0);
             if (n < 0) {
                 return XQC_ERROR;
             }

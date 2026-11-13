@@ -891,6 +891,7 @@ table does not add private interface families absent from the public baseline.
 | `xqc_moqt_session_create/start` | Validate configuration/ALPN/handlers and copy configuration at creation; start after handshake, verify peer DATAGRAM, send SETUP; notify ready once after both SETUPs |
 | `xqc_moqt_message_encode/decode` | Full-frame syntax/codecs; original request type supplies response context, REQUEST_UPDATE supplies update-response context |
 | `xqc_moqt_request_open/send/finish/cancel` | One bidi per initial request, updates on that stream; connection-wide parity/deduplication, cross-stream reordering, credit, FIFO responses, half-close/cancel; application callbacks supply business behavior |
+| `xqc_moqt_request_publish/skip` | Enumerate authorized Tracks for an accepted St; suppress duplicates by publication instance and Full Track Name, create independent Pc or send SKIPPED; resource exhaustion must not forget skipped records and allow retry |
 | `xqc_moqt_datagram_send` | One complete Object for an established local-publisher subscription; check location/pause; MSS overflow EDGRAM_TOO_LARGE, expiry EEXPIRED; AGAIN retains no caller bytes |
 | `xqc_moqt_request_subscription` | Session-owned SUBSCRIBE/PUBLISH delivery handle; control-message views own no long-lived delivery state |
 | `xqc_moqt_session_goaway/close/destroy` | Session/request GOAWAY, finite waiting, reclamation; no version setter, version changes require a new connection |
@@ -935,7 +936,7 @@ required and may coexist in one Session.
 | PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE, NAMESPACE/DONE | Required | [§4][s4], [§9.14–9.17][s9.14]; Session-local messages and application callbacks |
 | Priority, Group Order, timeouts, EXPIRES | Required | [§5][s5], [§9.20][s9.20], [§10][s10] |
 | Raw tokens, authorization, resource limits | Required | [§8.9][s8.9], [§9.1.3–9.1.4][s9.1.3], [§15][s15] |
-| SUBSCRIBE_TRACKS / PUBLISH_SKIPPED | Follow-up | Valid baseline rejection; later independent prefix-triggered PUBLISH/skipped notifications |
+| SUBSCRIBE_TRACKS / PUBLISH_SKIPPED | Required | Independent prefix-triggered PUBLISH, skipped notifications, and bounded enumeration; nonzero filters and disputed inheritance combinations remain separate |
 | Range Filters, Token Alias cache | Follow-up | Baseline/default credit zero; later explicit nonzero credit and complete state handling |
 | Dynamic Groups | Later opt-in | Do not advertise before implementation; application chooses IDs/timing, Relay aggregation separate |
 | Automatic migration/redirect following | Deferred | Standard messages/overlap constraints; application chooses migration |
@@ -1687,6 +1688,19 @@ This is neither a global catalog nor Relay routing table. Zero-field prefix
 may match every name, subject to authorization and enumeration/message/time
 budgets. [§3.6][s3.6], [§9.18][s9.18]
 
+After accepting the SUBSCRIBE_TRACKS request (St), the application calls
+`xqc_moqt_request_publish` with an authorized Full Track Name, PUBLISH metadata,
+and stable `publication_id`.
+A new publication of the same Full Track Name must use a new instance ID.
+Each St retains offered/skipped keys until request closure, charged to the
+Session byte budget. The library matches the committed prefix and excludes
+Tracks currently published by that subscriber; it creates no cross-Session
+directory. Success with a non-NULL Pc means a new request was created. A NULL
+output means no prefix match, self-origin exclusion, a duplicate, or SKIPPED
+sent. Call `xqc_moqt_request_skip` to explicitly forgo a publication. Neither
+API assumes Track-authorization responsibility; Relay still authorizes each
+Track separately.
+
 First answer St (SUBSCRIBE_TRACKS stream) with REQUEST_OK/ERROR. After success,
 send PUBLISH for each matching authorized Track on a new bidi. St OK only
 accepts prefix interest; Pc PUBLISH starts the camera subscription, and B
@@ -1709,6 +1723,15 @@ disputed combination in this phase. Use the explicit Pc REQUEST_UPDATE
 (LOCATION_FILTER/FILL_PARAMETERS) after PUBLISH_OK. Retain vectors and agree
 interpretation before implementation; do not claim every combination tested.
 
+The current sending subset inherits FORWARD and GROUP_ORDER from the St
+snapshot and uses INCLUDE_PROPERTIES to control Track Properties. St
+credentials and parameters valid only on St are not copied into PUBLISH.
+Nonzero Range Filters follow F11; until implemented, zero-credit rejection
+remains mandatory rather than pretending to apply filters. The disputed
+direct LOCATION_FILTER/FILL_PARAMETERS combinations remain rejected by strict
+allowlists. Independent-peer agreement belongs to protocol-rule validation;
+C10 does not use these combinations.
+
 St REQUEST_UPDATE permits only its context's parameters. Prefix/FORWARD
 changes affect future PUBLISH, not established Pc. SUBSCRIBE_NAMESPACE and
 SUBSCRIBE_TRACKS check overlaps independently; identical prefixes across
@@ -1725,6 +1748,16 @@ retrying PUBLISH for it on the same St. A new upstream-reconnection
 publication is distinct. Pending lists are bounded, and reclaiming state
 must not replay the same skipped publication.
 [§3.6.3][s3.6.3], [§9.19][s9.19]
+
+When QUIC bidi credit or the local active-stream limit is exhausted, the
+enumeration API sends SKIPPED on St. If it cannot retain the publication key
+or queue the notification, it cancels St with EXCESSIVE_LOAD; existing Pc
+remains independent. `on_publish_skipped` reports the reconstructed complete
+binary name; `on_message` still exposes the original suffix. Notifications
+before/after the prefix-update OK use the old/new prefix respectively, without
+consuming Request IDs or update credit. Applications must stop retaining or
+using St handles before `on_request_closed` returns; asynchronous tasks after
+cancellation must not use expired pointers.
 
 Test local publisher A/subscriber B knowing only prefix: discover namespace,
 request Tracks on St, accept camera on Pc, receive Objects; audio denial
@@ -1789,7 +1822,7 @@ messages requiring Session closure.
 
 | Capability | Minimum endpoint behavior |
 | --- | --- |
-| SUBSCRIBE_TRACKS | Before support: validate, then REQUEST_ERROR(NOT_SUPPORTED)+FIN without PUBLISH_SKIPPED; afterward follow prefix contract |
+| SUBSCRIBE_TRACKS | After authorization/overlap checks, the application accepts or rejects; acceptance permits Track enumeration and independent Pc, with failures following SKIPPED/resource-budget rules |
 | Range Filters | Before support/at zero: advertise MAX_FILTER_RANGES=0 and reject prohibited filters with INVALID_FILTER; TX permission follows peer allowance, not local RX allowance |
 | Token Alias cache | Before support/at zero: MAX_AUTH_TOKEN_CACHE_SIZE=0; excess SETUP REGISTER acts as USE_VALUE, outside SETUP gives AUTH_TOKEN_CACHE_OVERFLOW; peer allowance controls TX, baseline sends only USE_VALUE |
 | Dynamic Groups | No DYNAMIC_GROUPS=1 before completion; ignore initial request under §9.20.19, require known support for updates |
@@ -1940,6 +1973,16 @@ skipped without media tooling/images. FETCH/Fill, full updates/migration,
 0-RTT, dynamic Groups, renewal, complete filters, padding, congestion, and
 security require separate scenarios; these 22 do not replace this specification.
 
+The [pinned aiomoqt client][interop-validator] for C10 reconstructs the
+Namespace from NAMESPACE notifications, sends SUBSCRIBE_TRACKS, and accepts
+PUBLISH for matching Tracks. Its pass
+criterion is discovery of the expected Track name, not the complete Object
+set. Endpoints must separately verify Object delivery on Pc and independence
+after Sns/St closure. These endpoint prerequisites require neither 0-RTT,
+nonzero Range Filters, nor Token Aliases. Three-node execution still depends
+on the separate Relay's authorized enumeration/source routing and runner
+integration; two-endpoint success cannot substitute for it.
+
 #### Data and Media Boundaries
 
 Deterministic sources/oracles are independent of the protocol library.
@@ -2019,7 +2062,7 @@ padding probes.
 | F22 [Fill/live concurrency, trigger IDs, cancellation](#fill-design) | Complete | Complete; scope/snapshot/cancel/scheduling tests | No; catalog has no Fill |
 | F23 [Namespace publication/withdrawal](#namespace-state-boundaries) | Complete | Complete; registration/withdrawal and request isolation tests | Yes; C02/C03/C06–C10/C13–C22 |
 | F24 [Namespace discovery, suffix/DONE, prefix updates](#namespace-state-boundaries) | Complete | Complete; suffix/DONE, races/auth, FIN/reset, budgets/reentrancy | Yes; C09/C10/C21 |
-| F25 [SUBSCRIBE_TRACKS, independent PUBLISH, SKIPPED](#subscribe-tracks-design) | Partial; Location/Fill inheritance receive policy/peer agreement unresolved | Not implemented; NOT_SUPPORTED is not support | Yes; C10 does not cover disputed combinations |
+| F25 [SUBSCRIBE_TRACKS, independent PUBLISH, SKIPPED](#subscribe-tracks-design) | Partial; explicit sending/rejection subset, Location/Fill inheritance still needs peer agreement | Partial; C10 endpoint prerequisites and positive/negative tests present: bounded enumeration, independent Pc, SKIPPED, inheritance, updates, authorization, lifetimes; nonzero filters depend on F11, disputed combinations need validation | Yes; C10 endpoint subset ready; three-node execution depends on F35/F42, no inferred case pass |
 | F26 [TRACK_STATUS query](#namespace-state-boundaries) | Partial; TRACK_STATUS_OK/EXPIRES conflict unresolved | Partial; queries/properties/FIN/errors present; disputed EXPIRES checks/peer agreement pending | No; no TRACK_STATUS case |
 | F27 [Rendezvous, late PUBLISH matching, termination](#rendezvous-and-relay-contract) | Complete | Partial; publish/discovery/withdrawal events ready; waiting/matching/termination need Relay | Yes; C05/C07/C13–C20 |
 | F28 [Directional Token Alias caches and ordering](#token-alias-design) | Complete | Not implemented; zero-cache fallback is not support | No; REGISTER/USE_ALIAS/DELETE not required |
@@ -2049,10 +2092,10 @@ union, not a sum.
 
 | Scope | Complete SPEC | Complete implementation |
 | --- | --- | --- |
-| All targets F01–F44 | 37/44 (84.1%); 7 partial, 0 missing | 18/44 (40.9%); 9 partial, 17 not implemented |
-| Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 1 partial, 6 not implemented |
-| WebTransport interop dependencies | 19/23 (82.6%); 4 partial, 0 missing | 15/23 (65.2%); 1 partial, 7 not implemented |
-| Union of both transports | 20/24 (83.3%); 4 partial, 0 missing | 16/24 (66.7%); 1 partial, 7 not implemented |
+| All targets F01–F44 | 37/44 (84.1%); 7 partial, 0 missing | 18/44 (40.9%); 10 partial, 16 not implemented |
+| Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 2 partial, 5 not implemented |
+| WebTransport interop dependencies | 19/23 (82.6%); 4 partial, 0 missing | 15/23 (65.2%); 2 partial, 6 not implemented |
+| Union of both transports | 20/24 (83.3%); 4 partial, 0 missing | 16/24 (66.7%); 2 partial, 6 not implemented |
 
 These measure **dependency completeness**, not a 22-case pass rate.
 Partial-capability gaps may exceed a case's assertions. Reports independently

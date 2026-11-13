@@ -53,6 +53,18 @@ belong to application testing, outside protocol state machines.
 
 ## Canonical Design Entry Points
 
+Prefix Track subscriptions reuse the Request update FIFO, authorization, and
+budgets. Applications enumerate existing and new Tracks by Full Track Name
+and a stable publication-instance ID. Each publication is processed once per
+St; offered and skipped records remain until St closes. Exhaustion closes St
+rather than forgetting records and retrying. Generated Pc inherits only the
+delivery parameters allowed by its message and the INCLUDE_PROPERTIES choice,
+never St credentials. Pc does not reference St: updates, FIN/reset, or
+cancellation of St cannot revoke generated subscriptions. The library reports
+complete names for skipped publications; the separate Relay implementation
+binds source instances to authorized interests. This supports the C10 endpoint
+prerequisites; nonzero Range Filters, 0-RTT, and Token Aliases remain separate.
+
 | Design | Single maintained location |
 | --- | --- |
 | Layers and bounded defaults | [Implementation outline](../../../spec/moqt/moqt-protocol.md#rebuild-review) |

@@ -11,16 +11,16 @@ constant change.
 ## What Changes
 
 - Add Native QUIC endpoints: codec, Session/Request, publish/subscribe,
-  Object delivery, FETCH/Fill, namespace discovery/query, and error,
-  authorization, and resource boundaries.
+  Object delivery, FETCH/Fill, namespace discovery/query, prefix Track
+  enumeration, and error, authorization, and resource boundaries.
 - Use separate `xqc_moqt_*` APIs. Clients select one ALPN explicitly;
   servers register old/new protocols independently. Preserve public
   connect/TLS interfaces and legacy API/ABI.
 - Reuse Stream, Request, Subscription, Fetch, and common utilities.
   Group/Subgroup retain only bounded shared summaries, without Object history.
-- Plan resumption, nonzero filters/Token Aliases, prefix subscriptions, and
-  deployment separately. The [capability table][completeness] owns current
-  status and unresolved designs.
+- Plan resumption, nonzero filters/Token Aliases, disputed inheritance
+  combinations, and deployment separately. The [capability table][completeness]
+  owns current status and unresolved designs.
 - Implement Relay separately through public endpoint APIs. Keep cross-session
   routing, aggregation, fanout, and caching outside the protocol library.
   Integrate WebTransport, media adapters, and independent interop separately.

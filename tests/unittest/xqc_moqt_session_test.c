@@ -4374,3 +4374,392 @@ xqc_test_moqt_namespace_update_races(void)
     CU_ASSERT_EQUAL(xqc_moqt_stream_flush(b->stream), XQC_OK);
     xqc_test_moqt_destroy(&f);
 }
+
+static xqc_moqt_message_t
+xqc_test_moqt_publication(const char *prefix, const char *track)
+{
+    xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_PUBLISH};
+    m.track_namespace.count = 1;
+    m.track_namespace.fields[0] = (struct iovec){(void *)prefix,
+                                                strlen(prefix)};
+    m.track_name = (struct iovec){(void *)track, strlen(track)};
+    return m;
+}
+
+static void
+xqc_test_moqt_skipped_event(xqc_moqt_request_t *r,
+    const xqc_moqt_namespace_t *name, const struct iovec *track, void *data)
+{
+    moqt_fixture_t *f = data;
+    f->namespace_adds++;
+    f->namespace_fields = name->count;
+    f->namespace_first = name->count ? *(char *)name->fields[0].iov_base : 0;
+    CU_ASSERT_EQUAL(track->iov_len, 2);
+    CU_ASSERT_EQUAL(xqc_memcmp(track->iov_base, "\0x", 2), 0);
+    if (f->cancel_in_namespace) {
+        xqc_moqt_request_cancel(r, XQC_MOQT_RESET_CANCELLED);
+        CU_ASSERT_EQUAL(xqc_memcmp(track->iov_base, "\0x", 2), 0);
+    }
+}
+
+void
+xqc_test_moqt_tracks_codec(void)
+{
+    /* Draft-22 section 9.19: suffix + binary name, no ID/parameters. */
+    const uint8_t wire[] = {15, 0, 6, 1, 1, 'a', 2, 0, 0xff};
+    uint8_t encoded[sizeof(wire)];
+    xqc_moqt_message_t m;
+    uint64_t context = XQC_MOQT_MSG_SUBSCRIBE_TRACKS;
+    CU_ASSERT_EQUAL(xqc_moqt_message_decode(wire, sizeof(wire), context, &m),
+                    sizeof(wire));
+    CU_ASSERT_EQUAL(m.type, XQC_MOQT_MSG_PUBLISH_SKIPPED);
+    CU_ASSERT_EQUAL(m.request_id, 0);
+    CU_ASSERT_EQUAL(m.parameter_count, 0);
+    CU_ASSERT_EQUAL(m.track_name.iov_len, 2);
+    CU_ASSERT_EQUAL(xqc_moqt_message_encode(&m, context, encoded,
+                                            sizeof(encoded)), sizeof(wire));
+    CU_ASSERT_EQUAL(xqc_memcmp(encoded, wire, sizeof(wire)), 0);
+    for (size_t i = 0; i < sizeof(wire); i++) {
+        CU_ASSERT(xqc_moqt_message_decode(wire, i, context, &m) < 0);
+    }
+    CU_ASSERT(xqc_moqt_message_decode(wire, sizeof(wire),
+                XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE, &m) < 0);
+    CU_ASSERT(xqc_moqt_message_encode(&m, XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE,
+                                      NULL, 0) < 0);
+    m.type = XQC_MOQT_MSG_PUBLISH_SKIPPED;
+    m.track_namespace.count = 1;
+    m.track_namespace.fields[0] = (struct iovec){NULL, 0};
+    CU_ASSERT(xqc_moqt_message_encode(&m, context, NULL, 0) < 0);
+    uint8_t malformed[] = {15, 0, 3, 0, 2, 'x'};
+    CU_ASSERT(xqc_moqt_message_decode(malformed, sizeof(malformed), context,
+                                      &m) < 0);
+}
+
+void
+xqc_test_moqt_tracks_overlap(void)
+{
+    moqt_fixture_t f;
+    xqc_test_moqt_request_init(&f, 1);
+    xqc_moqt_request_t *a = xqc_test_moqt_namespace_request(&f, XQC_FALSE,
+        XQC_MOQT_MSG_SUBSCRIBE_TRACKS, "a");
+    xqc_moqt_request_t *pending = xqc_test_moqt_namespace_request(&f, XQC_FALSE,
+        XQC_MOQT_MSG_SUBSCRIBE_TRACKS, "a");
+    xqc_test_moqt_namespace_ok(a);
+    xqc_test_moqt_namespace_ok(pending);
+    CU_ASSERT_TRUE(a->established);
+    CU_ASSERT_TRUE(pending->failed);
+    CU_ASSERT_EQUAL(pending->error.code, XQC_MOQT_REQUEST_PREFIX_OVERLAP);
+    xqc_moqt_request_t *other = xqc_test_moqt_namespace_request(&f, XQC_FALSE,
+        XQC_MOQT_MSG_SUBSCRIBE_TRACKS, NULL);
+    CU_ASSERT_TRUE(other->failed);
+    CU_ASSERT_EQUAL(other->error.code, XQC_MOQT_REQUEST_PREFIX_OVERLAP);
+    /* Same prefix across types and directions is permitted (3.6/4.2). */
+    other = xqc_test_moqt_namespace_request(&f, XQC_FALSE,
+        XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE, "a");
+    xqc_test_moqt_namespace_ok(other);
+    CU_ASSERT_TRUE(other->established);
+    other = xqc_test_moqt_namespace_request(&f, XQC_TRUE,
+        XQC_MOQT_MSG_SUBSCRIBE_TRACKS, "a");
+    xqc_test_moqt_namespace_ok(other);
+    CU_ASSERT_TRUE(other->established);
+    other = xqc_test_moqt_namespace_request(&f, XQC_FALSE,
+        XQC_MOQT_MSG_SUBSCRIBE_TRACKS, "b");
+    xqc_test_moqt_namespace_ok(other);
+    uint8_t prefix[] = {1, 1, 'a'};
+    xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+        .request_id = 100, .parameter_count = 1};
+    update.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX, sizeof(prefix), prefix};
+    CU_ASSERT_EQUAL(xqc_test_moqt_request_input(other->stream, &update,
+                    other->initial_type, 0), XQC_OK);
+    CU_ASSERT_TRUE(other->failed);
+    CU_ASSERT_EQUAL(other->error.code, XQC_MOQT_REQUEST_PREFIX_OVERLAP);
+    CU_ASSERT_FALSE(a->failed);
+    xqc_moqt_request_cancel(a, XQC_MOQT_RESET_CANCELLED);
+    other = xqc_test_moqt_namespace_request(&f, XQC_FALSE,
+        XQC_MOQT_MSG_SUBSCRIBE_TRACKS, "a");
+    xqc_test_moqt_namespace_ok(other);
+    CU_ASSERT_TRUE(other->established);
+    f.request_reject = XQC_MOQT_REQUEST_UNAUTHORIZED;
+    prefix[2] = 'p';
+    update.request_id += 2;
+    CU_ASSERT_EQUAL(xqc_test_moqt_request_input(other->stream, &update,
+                    other->initial_type, 0), XQC_OK);
+    CU_ASSERT_EQUAL(f.candidate_prefix, 'p');
+    CU_ASSERT_EQUAL(other->error.code, XQC_MOQT_REQUEST_UNAUTHORIZED);
+    CU_ASSERT_TRUE(other->stream->tx_fin);
+    xqc_test_moqt_destroy(&f);
+}
+
+void
+xqc_test_moqt_tracks_publish(void)
+{
+    moqt_fixture_t f;
+    xqc_test_moqt_request_init(&f, 1);
+    uint8_t token[] = {3, 3, 0, 'x'}, paused = 0, order = 2;
+    xqc_moqt_message_t interest = {.type = XQC_MOQT_MSG_SUBSCRIBE_TRACKS,
+        .parameter_count = 4};
+    interest.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_AUTHORIZATION_TOKEN, sizeof(token), token};
+    interest.parameters[1] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_FORWARD, 1, &paused};
+    interest.parameters[2] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_GROUP_ORDER, 1, &order};
+    interest.parameters[3] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_INCLUDE_PROPERTIES, 1, &paused};
+    xqc_moqt_stream_t *st = xqc_test_moqt_request_stream(&f);
+    CU_ASSERT_EQUAL(xqc_test_moqt_request_input(st, &interest,
+                                                interest.type, 0), XQC_OK);
+    xqc_moqt_request_t *r = &st->state.request, *pc = NULL, *duplicate = NULL;
+    xqc_moqt_message_t pub = xqc_test_moqt_publication("a", "camera");
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 7, &pub, &pc), -XQC_EPARAM);
+    xqc_test_moqt_namespace_ok(r);
+    uint8_t priority[] = {0x0e, 7}, active = 1;
+    pub.properties = (struct iovec){priority, sizeof(priority)};
+    pub.parameter_count = 1;
+    pub.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_FORWARD, 1, &active};
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 7, &pub, &pc), XQC_OK);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(pc);
+    CU_ASSERT_NOT_EQUAL(pc->initial_request_id, r->initial_request_id);
+    const xqc_moqt_message_t *state = (void *)pc->state->data;
+    CU_ASSERT_EQUAL(state->parameter_count, 2);
+    CU_ASSERT_EQUAL(state->parameters[0].type, XQC_MOQT_PARAM_FORWARD);
+    CU_ASSERT_EQUAL(state->parameters[1].type, XQC_MOQT_PARAM_GROUP_ORDER);
+    CU_ASSERT_EQUAL(state->properties.iov_len, 0);
+    xqc_test_moqt_namespace_ok(pc);
+    CU_ASSERT_FALSE(pc->subscription->forward);
+    CU_ASSERT_EQUAL(pc->subscription->group_order, XQC_MOQT_GROUP_DESCENDING);
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 7, &pub, &duplicate), XQC_OK);
+    CU_ASSERT_PTR_NULL(duplicate);
+    CU_ASSERT_EQUAL(xqc_moqt_request_skip(r, 7, &pub), XQC_OK);
+
+    /* Only subsequent publications see committed St updates (9.5.2). */
+    uint8_t prefix[] = {1, 1, 'b'};
+    xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+        .request_id = 2, .parameter_count = 2};
+    update.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_FORWARD, 1, &active};
+    update.parameters[1] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX, sizeof(prefix), prefix};
+    CU_ASSERT_EQUAL(xqc_test_moqt_request_input(st, &update, interest.type, 0),
+                    XQC_OK);
+    pub.track_name = (struct iovec){"audio", 5};
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 8, &pub, &duplicate), XQC_OK);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(duplicate);
+    CU_ASSERT_FALSE(duplicate->subscription->forward);
+    xqc_test_moqt_namespace_ok(r);
+    pub.track_name = (struct iovec){"screen", 6};
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 9, &pub, &duplicate), XQC_OK);
+    CU_ASSERT_PTR_NULL(duplicate);
+    pub.track_namespace.fields[0].iov_base = "b";
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 9, &pub, &duplicate), XQC_OK);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(duplicate);
+    CU_ASSERT_TRUE(duplicate->subscription->forward);
+    CU_ASSERT_FALSE(pc->subscription->forward);
+    xqc_moqt_request_fin(r);
+    CU_ASSERT_FALSE(r->failed);
+    pub.track_name = (struct iovec){"later", 5};
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 10, &pub, &duplicate), XQC_OK);
+    CU_ASSERT_PTR_NOT_NULL(duplicate);
+    CU_ASSERT_EQUAL(xqc_moqt_request_finish(r), XQC_OK);
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 11, &pub, &duplicate),
+                    -XQC_EPARAM);
+    xqc_moqt_request_cancel(r, XQC_MOQT_RESET_CANCELLED);
+    CU_ASSERT_FALSE(pc->failed);
+    CU_ASSERT_FALSE(pc->subscription->stopped);
+    xqc_test_moqt_destroy(&f);
+}
+
+void
+xqc_test_moqt_tracks_skipped(void)
+{
+    moqt_fixture_t f;
+    xqc_test_moqt_request_init(&f, 1);
+    xqc_moqt_request_t *r = xqc_test_moqt_namespace_request(&f, XQC_FALSE,
+        XQC_MOQT_MSG_SUBSCRIBE_TRACKS, "a");
+    xqc_test_moqt_namespace_ok(r);
+    xqc_moqt_message_t pub = xqc_test_moqt_publication("a", "camera");
+    xqc_moqt_request_t *pc;
+    f.conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 0;
+    r->stream->writing = 1;
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 1, &pub, &pc), XQC_OK);
+    CU_ASSERT_PTR_NULL(pc);
+    CU_ASSERT_FALSE(xqc_list_empty(&r->stream->tx));
+    xqc_list_buf_t *entry = xqc_list_entry(r->stream->tx.prev,
+                                            xqc_list_buf_t, list_head);
+    xqc_moqt_message_t skipped;
+    CU_ASSERT(xqc_moqt_message_decode(entry->buf->data, entry->buf->data_len,
+                                       r->initial_type, &skipped) > 0);
+    CU_ASSERT_EQUAL(skipped.type, XQC_MOQT_MSG_PUBLISH_SKIPPED);
+    CU_ASSERT_EQUAL(skipped.track_namespace.count, 0);
+    CU_ASSERT_EQUAL(skipped.track_name.iov_len, 6);
+    CU_ASSERT_EQUAL(r->pending_sent_updates, 0);
+    uint64_t next_id = f.session->next_request_id;
+    size_t used = f.session->buffered_bytes;
+    f.conn->conn_flow_ctl.fc_max_streams_bidi_can_send
+        = XQC_MOQT_DEFAULT_STREAMS;
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 1, &pub, &pc), XQC_OK);
+    CU_ASSERT_PTR_NULL(pc);
+    CU_ASSERT_EQUAL(f.session->next_request_id, next_id);
+    CU_ASSERT_EQUAL(f.session->buffered_bytes, used);
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 2, &pub, &pc), XQC_OK);
+    CU_ASSERT_PTR_NOT_NULL(pc);
+    pub.track_name = (struct iovec){"audio", 5};
+    next_id = f.session->next_request_id;
+    CU_ASSERT_EQUAL(xqc_moqt_request_skip(r, 1, &pub), XQC_OK);
+    CU_ASSERT_EQUAL(f.session->next_request_id, next_id);
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 1, &pub, &pc), XQC_OK);
+    CU_ASSERT_PTR_NULL(pc);
+    pub.track_name = (struct iovec){"capacity", 8};
+    f.session->config.max_streams = f.session->stream_count;
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 3, &pub, &pc), XQC_OK);
+    CU_ASSERT_PTR_NULL(pc);
+    CU_ASSERT_FALSE(f.session->closed);
+    f.session->config.max_streams = XQC_MOQT_DEFAULT_STREAMS;
+    uint8_t active = 1, token[] = {3, 3, 0, 'x'};
+    xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+        .request_id = 100, .parameter_count = 1};
+    update.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_FORWARD, 1, &active};
+    CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &update,
+                    r->initial_type, 0), XQC_OK);
+    xqc_test_moqt_namespace_ok(r);
+    pub.track_name = (struct iovec){"parameters", 10};
+    pub.parameter_count = XQC_MOQT_MAX_PARAMETERS;
+    for (size_t i = 0; i < pub.parameter_count; i++) {
+        pub.parameters[i] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_AUTHORIZATION_TOKEN, sizeof(token), token};
+    }
+    /* Inheritance exceeding the local parameter budget also sends SKIPPED. */
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 4, &pub, &pc), XQC_OK);
+    CU_ASSERT_PTR_NULL(pc);
+    CU_ASSERT_FALSE(r->failed);
+    r->stream->writing = 0;
+    xqc_test_moqt_destroy(&f);
+}
+
+void
+xqc_test_moqt_tracks_skipped_receive(void)
+{
+    for (unsigned mode = 0; mode < 5; mode++) {
+        moqt_fixture_t f;
+        xqc_test_moqt_request_init(&f, 0);
+        f.session->callbacks.on_publish_skipped = xqc_test_moqt_skipped_event;
+        xqc_moqt_request_t *r = xqc_test_moqt_namespace_request(&f, XQC_TRUE,
+            XQC_MOQT_MSG_SUBSCRIBE_TRACKS, "a");
+        if (mode != 0) {
+            xqc_test_moqt_namespace_ok(r);
+        }
+        xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_PUBLISH_SKIPPED,
+            .track_name = {"\0x", 2}};
+        if (mode == 2) {
+            m.track_namespace.count = XQC_MOQT_NAMESPACE_MAX_FIELDS;
+            for (size_t i = 0; i < m.track_namespace.count; i++) {
+                m.track_namespace.fields[i] = (struct iovec){"a", 1};
+            }
+        }
+        f.cancel_in_namespace = mode == 3;
+        if (mode == 4) {
+            uint8_t prefix[] = {1, 1, 'b'};
+            xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+                .parameter_count = 1};
+            update.parameters[0] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX, sizeof(prefix), prefix};
+            CU_ASSERT_EQUAL(xqc_moqt_request_send(r, &update), XQC_OK);
+            CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &m,
+                            r->initial_type, 0), XQC_OK);
+            CU_ASSERT_EQUAL(f.namespace_first, 'a');
+            CU_ASSERT_EQUAL(r->pending_sent_updates, 1);
+            xqc_test_moqt_namespace_ok(r);
+        }
+        xqc_int_t ret = xqc_test_moqt_request_input(r->stream, &m,
+                                                    r->initial_type, 0);
+        if (mode == 0 || mode == 2) {
+            CU_ASSERT(ret < 0);
+            CU_ASSERT_EQUAL(f.error, XQC_MOQT_PROTOCOL_VIOLATION);
+            CU_ASSERT_EQUAL(f.namespace_adds, 0);
+        } else {
+            CU_ASSERT_EQUAL(ret, XQC_OK);
+            CU_ASSERT_EQUAL(f.namespace_fields, 1);
+            CU_ASSERT_EQUAL(f.namespace_first, mode == 4 ? 'b' : 'a');
+            CU_ASSERT_EQUAL(f.namespace_adds, mode == 4 ? 2 : 1);
+            CU_ASSERT_FALSE(f.session->closed);
+        }
+        xqc_test_moqt_destroy(&f);
+    }
+}
+
+void
+xqc_test_moqt_tracks_exclusion(void)
+{
+    moqt_fixture_t f;
+    xqc_test_moqt_request_init(&f, 1);
+    xqc_moqt_request_t *r = xqc_test_moqt_namespace_request(&f, XQC_FALSE,
+        XQC_MOQT_MSG_SUBSCRIBE_TRACKS, NULL);
+    xqc_test_moqt_namespace_ok(r);
+    xqc_moqt_message_t pub = xqc_test_moqt_publication("a", "camera");
+    pub.request_id = 100;
+    xqc_moqt_stream_t *source = xqc_test_moqt_request_stream(&f);
+    CU_ASSERT_EQUAL(xqc_test_moqt_request_input(source, &pub, pub.type, 0),
+                    XQC_OK);
+    xqc_test_moqt_namespace_ok(&source->state.request);
+    xqc_moqt_request_t *pc;
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 1, &pub, &pc), XQC_OK);
+    CU_ASSERT_PTR_NULL(pc);
+    CU_ASSERT_TRUE(xqc_list_empty(&r->publications));
+    xqc_moqt_request_cancel(&source->state.request, XQC_MOQT_RESET_CANCELLED);
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 2, &pub, &pc), XQC_OK);
+    CU_ASSERT_PTR_NOT_NULL(pc);
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(NULL, 1, &pub, &pc), -XQC_EPARAM);
+    CU_ASSERT_PTR_NULL(pc);
+    CU_ASSERT_EQUAL(xqc_moqt_request_publish(r, 1, &pub, NULL), -XQC_EPARAM);
+    CU_ASSERT_EQUAL(xqc_moqt_request_skip(r, 1, NULL), -XQC_EPARAM);
+    xqc_test_moqt_destroy(&f);
+}
+
+void
+xqc_test_moqt_tracks_budget(void)
+{
+    for (unsigned mode = 0; mode < 3; mode++) {
+        moqt_fixture_t f;
+        xqc_test_moqt_request_init(&f, 1);
+        xqc_moqt_request_t *r = xqc_test_moqt_namespace_request(&f, XQC_FALSE,
+            XQC_MOQT_MSG_SUBSCRIBE_TRACKS, NULL);
+        xqc_test_moqt_namespace_ok(r);
+        xqc_moqt_message_t pub = xqc_test_moqt_publication("a", "camera");
+        size_t key_length = sizeof(uint64_t)
+            + xqc_moqt_name_encode(&pub.track_namespace, &pub.track_name,
+                                     NULL, 0);
+        f.session->config.max_buffered_bytes = f.session->buffered_bytes;
+        if (mode > 0) {
+            f.session->config.max_buffered_bytes += key_length
+                + sizeof(xqc_var_buf_t);
+        }
+        if (mode > 1) {
+            f.session->config.max_buffered_bytes += sizeof(xqc_list_buf_t);
+        }
+        CU_ASSERT_EQUAL(xqc_moqt_request_skip(r, 1, &pub), -XQC_EMALLOC);
+        CU_ASSERT_TRUE(r->failed);
+        CU_ASSERT_EQUAL(r->error.code, XQC_MOQT_RESET_EXCESSIVE_LOAD);
+        CU_ASSERT_FALSE(f.session->closed);
+        xqc_test_moqt_destroy(&f);
+    }
+    moqt_fixture_t f;
+    xqc_test_moqt_request_init(&f, 0);
+    xqc_moqt_request_t *r = xqc_test_moqt_namespace_request(&f, XQC_TRUE,
+        XQC_MOQT_MSG_SUBSCRIBE_TRACKS, NULL);
+    xqc_test_moqt_namespace_ok(r);
+    uint8_t wire[] = {15, 0, 4, 0, 2, 0, 'x'};
+    f.session->config.max_buffered_bytes = f.session->buffered_bytes;
+    CU_ASSERT_EQUAL(xqc_moqt_request_input(r->stream, wire, sizeof(wire)),
+                    XQC_MOQT_NO_ERROR);
+    CU_ASSERT_FALSE(r->failed);
+    f.session->callbacks.on_publish_skipped = xqc_test_moqt_skipped_event;
+    CU_ASSERT_EQUAL(xqc_moqt_request_input(r->stream, wire, sizeof(wire)),
+                    XQC_MOQT_NO_ERROR);
+    CU_ASSERT_TRUE(r->failed);
+    CU_ASSERT_EQUAL(r->error.code, XQC_MOQT_RESET_EXCESSIVE_LOAD);
+    CU_ASSERT_FALSE(f.session->closed);
+    xqc_test_moqt_destroy(&f);
+}

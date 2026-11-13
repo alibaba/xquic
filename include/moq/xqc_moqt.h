@@ -369,6 +369,10 @@ typedef struct {
     void        (*on_namespace)(xqc_moqt_request_t *request,
         const xqc_moqt_namespace_t *name, xqc_bool_t available,
         void *user_data);
+    /* Borrowed complete name; on_message also receives the wire suffix. */
+    void        (*on_publish_skipped)(xqc_moqt_request_t *request,
+        const xqc_moqt_namespace_t *name, const struct iovec *track_name,
+        void *user_data);
 } xqc_moqt_callbacks_t;
 
 /*
@@ -404,6 +408,27 @@ xqc_moqt_request_t *xqc_moqt_request_open(xqc_moqt_session_t *session,
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moqt_request_send(xqc_moqt_request_t *request,
     const xqc_moqt_message_t *message);
+
+/*
+ * Enumerate authorized tracks on an accepted incoming SUBSCRIBE_TRACKS.
+ * publication_id is stable for one publication, unique for new publications
+ * of the same full name, and must not be reused during this request's life.
+ * publish contains a full name and PUBLISH metadata. Bytes are copied.
+ * XQC_OK with *publication != NULL creates an independent PUBLISH request.
+ * XQC_OK with NULL means excluded, already offered, or PUBLISH_SKIPPED sent.
+ * Stream exhaustion sends SKIPPED; inability to retain/notify it cancels St.
+ * Cancel/FIN of St does not cancel Pc. The caller stops enumeration before
+ * on_request_closed returns; expired request handles must never be reused.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moqt_request_publish(xqc_moqt_request_t *request,
+    uint64_t publication_id, const xqc_moqt_message_t *publish,
+    xqc_moqt_request_t **publication);
+
+/* Same enumeration contract, explicitly skip an unavailable publication. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moqt_request_skip(xqc_moqt_request_t *request,
+    uint64_t publication_id, const xqc_moqt_message_t *publish);
 
 /* FIN closes only the sending direction; cancel closes open directions. */
 XQC_EXPORT_PUBLIC_API

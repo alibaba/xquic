@@ -469,6 +469,20 @@ main(int argc, char *argv[])
                         xqc_test_moqt_fill_suppressed)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_lifecycle",
                         xqc_test_moqt_fill_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_codec",
+                        xqc_test_moqt_tracks_codec)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_overlap",
+                        xqc_test_moqt_tracks_overlap)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_publish",
+                        xqc_test_moqt_tracks_publish)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_skipped",
+                        xqc_test_moqt_tracks_skipped)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_skipped_receive",
+                        xqc_test_moqt_tracks_skipped_receive)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_exclusion",
+                        xqc_test_moqt_tracks_exclusion)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_budget",
+                        xqc_test_moqt_tracks_budget)
         || !CU_add_test(pSuite, "xqc_test_moqt_namespace_update_races",
                         xqc_test_moqt_namespace_update_races)
         || !CU_add_test(pSuite, "xqc_test_moqt_namespace_codec",

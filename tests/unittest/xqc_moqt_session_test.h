@@ -59,4 +59,12 @@ void xqc_test_moqt_namespace_budget(void);
 void xqc_test_moqt_track_status(void);
 void xqc_test_moqt_track_status_errors(void);
 
+void xqc_test_moqt_tracks_codec(void);
+void xqc_test_moqt_tracks_overlap(void);
+void xqc_test_moqt_tracks_publish(void);
+void xqc_test_moqt_tracks_skipped(void);
+void xqc_test_moqt_tracks_skipped_receive(void);
+void xqc_test_moqt_tracks_exclusion(void);
+void xqc_test_moqt_tracks_budget(void);
+
 #endif

@@ -66,5 +66,7 @@ void xqc_test_moqt_tracks_skipped(void);
 void xqc_test_moqt_tracks_skipped_receive(void);
 void xqc_test_moqt_tracks_exclusion(void);
 void xqc_test_moqt_tracks_budget(void);
+void xqc_test_moqt_early_request(void);
+void xqc_test_moqt_early_request_errors(void);
 
 #endif

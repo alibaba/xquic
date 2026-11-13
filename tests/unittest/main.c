@@ -27,6 +27,7 @@
 #ifdef XQC_ENABLE_MOQ
 #include "xqc_loc_msf_test.h"
 #include "xqc_moqt_codec_test.h"
+#include "xqc_moqt_interop_test.h"
 #include "xqc_moqt_quic_test.h"
 #include "xqc_moqt_session_test.h"
 #include "xqc_moqt_relay_test.h"
@@ -494,6 +495,30 @@ main(int argc, char *argv[])
                         xqc_test_moqt_relay_tracks_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_fill",
                         xqc_test_moqt_relay_fill)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_fixture",
+                        xqc_test_moqt_interop_fixture)
+        || !CU_add_test(pSuite, "xqc_test_moqt_early_request",
+                        xqc_test_moqt_early_request)
+        || !CU_add_test(pSuite, "xqc_test_moqt_early_request_errors",
+                        xqc_test_moqt_early_request_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_fixture_errors",
+                        xqc_test_moqt_interop_fixture_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_oracle",
+                        xqc_test_moqt_interop_oracle)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_oracle_errors",
+                        xqc_test_moqt_interop_oracle_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_properties",
+                        xqc_test_moqt_interop_properties)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_properties_errors",
+                        xqc_test_moqt_interop_properties_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_catalog",
+                        xqc_test_moqt_interop_catalog)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_catalog_errors",
+                        xqc_test_moqt_interop_catalog_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_media",
+                        xqc_test_moqt_interop_media)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_media_errors",
+                        xqc_test_moqt_interop_media_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_errors",
                         xqc_test_moqt_fill_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_parameters",

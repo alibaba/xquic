@@ -106,13 +106,6 @@ xqc_moqt_stream_allocate(xqc_moqt_session_t *s, xqc_stream_t *transport)
         st->deadline = xqc_monotonic_timestamp() + s->config.timeout;
         xqc_moqt_timer_update(s);
     }
-    if (xqc_stream_get_direction(transport) == XQC_STREAM_BIDI && !s->ready) {
-        /* Section 6.3 permits refusing streams received before SETUP. */
-        st->discarded = 1;
-        if (!s->webtransport) {
-            xqc_stream_close(transport);
-        }
-    }
     return st;
 }
 

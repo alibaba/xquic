@@ -335,11 +335,13 @@ modules:
     paths:
       - include/moq/*
       - moq/*
+      - interop/moqt/*
       - spec/moqt/*
       - case_test/moq/*
     read:
       - spec/moqt/moqt-protocol.md
       - spec/moqt/moqt-relay.md
+      - interop/moqt/README.md
       - harness/spec/architecture.md
     update_when:
       protocol_or_public_contract_changed:
@@ -397,6 +399,7 @@ modules:
           - moq/moqt_relay/*
           - tests/complex_case/test_moqt_relay.c
           - moq/moqt/*
+          - interop/moqt/*
           - tests/unittest/xqc_moqt_*_test.*
           - tests/complex_case/test_moqt_negotiation.c
           - case_test/moq/*
@@ -420,6 +423,18 @@ modules:
             - xqc_test_moqt_relay_rendezvous_tracks
             - xqc_test_moqt_relay_tracks_errors
             - xqc_test_moqt_relay_fill
+            - xqc_test_moqt_interop_fixture
+            - xqc_test_moqt_early_request
+            - xqc_test_moqt_early_request_errors
+            - xqc_test_moqt_interop_fixture_errors
+            - xqc_test_moqt_interop_oracle
+            - xqc_test_moqt_interop_oracle_errors
+            - xqc_test_moqt_interop_properties
+            - xqc_test_moqt_interop_properties_errors
+            - xqc_test_moqt_interop_catalog
+            - xqc_test_moqt_interop_catalog_errors
+            - xqc_test_moqt_interop_media
+            - xqc_test_moqt_interop_media_errors
             - xqc_test_moqt_subgroup_codec
             - xqc_test_moqt_subgroup_codec_errors
             - xqc_test_moqt_subgroup_scheduling

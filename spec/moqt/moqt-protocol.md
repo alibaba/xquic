@@ -105,6 +105,12 @@ XQC_OK/XQC_ERROR indicate allow/deny; an output parameter supplies the error.
 The default denial is UNAUTHORIZED. A missing application handler produces
 NOT_SUPPORTED followed by FIN.
 
+Incoming bidirectional request streams that overtake SETUP are retained
+within the same Session stream/byte/time budgets. Dispatch them only after
+the handshake, local SETUP submission and peer SETUP authorization complete.
+Rejected or timed-out SETUP never dispatches buffered requests. This bounded
+policy follows draft-22 §6.3 and avoids depending on cross-stream ordering.
+
 Sending validates and copies a frame before accepting it into a bounded
 queue. Writable callbacks resume partial writes/AGAIN without committing state
 twice. Budgets include allocated capacity, queue/buffer headers, and empty FIN
@@ -1998,8 +2004,8 @@ not repository endpoint case IDs.
 | C22 | publish-subscribe-media | Catalog→media Track→decode/display and normal exit |
 
 There are 22 target cases; extra nondefault cases are separate extensions.
-Unimplemented WT is gap/skip, never filled by Native QUIC results. C22 remains
-skipped without media tooling/images. FETCH/Fill, full updates/migration,
+Unimplemented WT is gap/skip, never filled by Native QUIC results. C22 requires
+an installed decoder and real rendered frames. FETCH/Fill, full updates/migration,
 0-RTT, dynamic Groups, renewal, complete filters, padding, congestion, and
 security require separate scenarios; these 22 do not replace this specification.
 
@@ -2012,6 +2018,36 @@ after Sns/St closure. These endpoint prerequisites require neither 0-RTT,
 nonzero Range Filters, nor Token Aliases. Three-node execution still depends
 on the separate Relay's authorized enumeration/source routing and runner
 integration; two-endpoint success cannot substitute for it.
+
+#### Endpoint Runner Adapter
+
+The adapter in `interop/moqt/` exposes a TAP v14 client, direct test origin,
+and bounded relay through the public endpoint and relay APIs. Its
+[usage and role boundaries](../../interop/moqt/README.md) define CLI,
+environment, capability discovery, bounded fixtures, and unsupported cases.
+The relay entrypoint shares the library's cross-Session routing, fanout,
+namespace observer propagation, and rendezvous. Both transports use the same
+scenario drivers; a separate direct-origin mode checks deterministic object
+delivery without assuming cross-connection routing. Its bounded C22 profile
+uses public LOC/MSF codecs, catalog-driven Track selection, elementary VP8
+samples and independent FFmpeg decoding with terminal rendering. Missing or
+failed decoding cannot satisfy C22. Named catalog/LOC rejection extensions
+verify subsequent valid delivery on the same Sessions. See the adapter
+documentation for fixture provenance and the restricted media profile.
+
+Native QUIC and WT share the same scenario drivers and object oracles. HTTPS
+selects WT, or explicit transport selection uses a canonical moqt URI. The
+WT adapter authorizes the anonymous test CONNECT, selects `moqt-22`, binds
+the existing WT constructor and waits for both SETUPs. Authority/path/query
+remain in CONNECT; MoQT destruction occurs in the WT close callback. Both
+existing role images build both capabilities, with runtime transport choice.
+
+The adapter additionally covers multi-publisher namespace retention using a
+synchronization namespace and late observers. Standalone `fetch` and Fill
+`join` use bounded deterministic history, independent live/history oracles,
+complete object sets and retrieval FIN. Application history is separate from
+Relay caching. Opposite sender directions and peer Fill encodings require
+separate results; a diagnostic wire variant is not an unmodified-peer pass.
 
 #### Data and Media Boundaries
 
@@ -2037,8 +2073,10 @@ Pin media fixture/catalog/profile/decoder and provenance. Validate
 “publish catalog → choose Track → receive Objects → decode/display,” without
 media repackaging in the protocol library. The
 [LOC/MSF format subset](../../harness/spec/loc-msf/spec.md) supplies public
-properties and independent plaintext LOC catalogs. Fixture/profile/decoder,
-catalog subscription/state and display integration remain the F44 gap.
+properties and independent plaintext LOC catalogs. The adapter pins a
+three-frame VP8/LOC public-properties profile, an independent MSF-01 catalog
+and FFmpeg decoding with terminal rendering. Full live catalog workflow and
+general player interoperability remain outside this subset.
 The [pinned script][interop-media] requires actual displayed≥2, subscriber
 exit zero, and no observed abnormal publisher exit; it has no audio-blocks>0
 threshold. Zero-frame normal exit and enough-frame abnormal exit both fail.
@@ -2073,7 +2111,7 @@ padding probes.
 | --- | --- | --- | --- |
 | F01 [vi64, framing, binary names, KVP](#wire-codec) | Complete | Complete; positive/negative vi64/codec tests | Yes; C01–C22 basic wire |
 | F02 [Native QUIC, ALPN, API isolation](#transport-versions) | Complete | Complete; ALPN dispatch and legacy endpoint tests | Conditional; Native QUIC C01–C22 |
-| F03 [WT CONNECT, SETUP, Session binding](#scope-and-webtransport) | Complete | Complete; constructor, transport/session isolation units and endpoints 1471/1472 | Conditional; WebTransport C01–C22; runner glue remains separate |
+| F03 [WT CONNECT, SETUP, Session binding](#scope-and-webtransport) | Complete | Complete; constructor, transport/session isolation units and endpoints 1471/1472; runner adapter reuses the binding | Conditional; WebTransport C01–C22 |
 | F04 [SETUP, ready, directional allowances, extensions](#setup-direction-and-extensions) | Complete | Complete; setup/session tests; nonzero operations in F11/F28 | Yes; C01–C22 |
 | F05 [Scope, URI, .session isolation](#scope-and-webtransport) | Complete | Partial; URI/.session present; Scope/query/restart-collision checks pending | No; no dedicated Scope case; basic connect counted in F02/F03 |
 | F06 [Request IDs, responses, credit, notification, half-close/cancel](#request-lifecycle) | Complete | Complete; request tests | Yes; C02–C22 associations/lifetimes |
@@ -2091,8 +2129,8 @@ padding probes.
 | F18 [Ordinary Object Properties codec/fidelity](#properties-cache-and-malformed) | Complete | Complete; KVP/property tests | Yes; C18 ID set; value/byte fidelity separate |
 | F19 [Mandatory/Immutable, Track Properties, INCLUDE_PROPERTIES](#properties-cache-and-malformed) | Complete | Partial; Object validation/immutable reads present; response-phase/set-replacement checks pending | No; Mandatory/nonempty Track Properties not required |
 | F20 [Cross-delivery consistency, Prior Gap, malformed propagation](#properties-cache-and-malformed) | Partial; active-summary bounds defined, longer history policy unresolved | Partial; active Group/Subgroup and FETCH malformed handling present; complete history pending | No; sparse increments do not test Prior Gap conflict |
-| F21 [Standalone FETCH, history, ranges, cancellation](#fetch-decoding-history) | Complete | Complete; positive/negative codec/lifetime tests | No; catalog has no FETCH |
-| F22 [Fill/live concurrency, trigger IDs, cancellation](#fill-design) | Complete | Complete; scope/snapshot/cancel/scheduling tests | No; catalog has no Fill |
+| F21 [Standalone FETCH, history, ranges, cancellation](#fetch-decoding-history) | Complete | Complete; positive/negative codec/lifetime tests | Yes; extra fetch case; range/order/cancellation abnormalities remain separate |
+| F22 [Fill/live concurrency, trigger IDs, cancellation](#fill-design) | Complete | Complete; scope/snapshot/cancel/scheduling tests | Yes; extra join case; update/cancellation abnormalities remain separate |
 | F23 [Namespace publication/withdrawal](#namespace-state-boundaries) | Complete | Complete; registration/withdrawal and request isolation tests | Yes; C02/C03/C06–C10/C13–C22 |
 | F24 [Namespace discovery, suffix/DONE, prefix updates](#namespace-state-boundaries) | Complete | Complete; suffix/DONE, races/auth, FIN/reset, budgets/reentrancy | Yes; C09/C10/C21 |
 | F25 [SUBSCRIBE_TRACKS, independent PUBLISH, SKIPPED](#subscribe-tracks-design) | Partial; explicit sending/rejection subset, Location/Fill inheritance still needs peer agreement | Partial; C10 endpoint prerequisites and positive/negative tests present: bounded enumeration, independent Pc, SKIPPED, inheritance, updates, authorization, lifetimes; nonzero filters depend on F11, disputed combinations need validation | Yes; C10 endpoint subset ready; three-node execution depends on F35/F42, no inferred case pass |
@@ -2105,16 +2143,16 @@ padding probes.
 | F32 [Padding consume/cancel and context-specific Grease](#deployment-and-security) | Complete | Partial; consume/discard/unknown errors present; independent cancel/combinations pending | No; optional active probing excluded |
 | F33 [Overload, budgets, slow endpoints, idle protection](#deployment-and-security) | Complete | Partial; basic budgets/backpressure present; overload/short-prefix/deployment checks pending | No; ordinary interop is not load/security acceptance |
 | F34 [Authentication/authorization and Token/cache reauthorization](#request-errors-and-authorization) | Complete | Partial; namespace/candidate authorization present; Alias/cache cases pending | No; anonymous success is not full security acceptance |
-| F35 [Relay hop IDs, routing, upstream establishment, fanout](#rendezvous-and-relay-contract) | Complete | Core complete; independent hop IDs, Established gating, and fanout; three-node self-tests, external interop pending | Yes; Relay role in C04/C06–C08/C10/C12–C22 |
+| F35 [Relay hop IDs, routing, upstream establishment, fanout](#rendezvous-and-relay-contract) | Complete | Core complete; independent hop IDs, Established gating, and fanout; self-tests and independent-peer results reported separately | Yes; Relay role in C04/C06–C08/C10/C12–C22 |
 | F36 [Relay source retention/discovery](#rendezvous-and-relay-contract) | Complete | Core complete; multiple sources and final-source DONE, with independent discovery/delivery reclamation | Yes; C21 |
 | F37 [Relay aggregation, mixed pause, authorized filter union](#rendezvous-and-relay-contract) | Complete | Partial; mixed/all pause implemented using independent requests; aggregation and filter union deferred | No; C20 requires zero downstream delivery, not aggregation |
 | F38 [Relay cache, MAX_CACHE_DURATION, unknown gaps](#properties-cache-and-malformed) | Partial; key/deadline/gap defined; index/eviction/replacement transaction pending | Partial; enforce MAX_CACHE_DURATION before forwarding; history caching and eviction deferred | No; cache hit/eviction not required |
 | F39 [Relay FETCH/Fill forwarding, source switch, total budget](#rendezvous-and-relay-contract) | Complete | Core complete; single-source FETCH/Fill mappings and total budgets; automatic source switching deferred | No; no historical retrieval |
 | F40 [Relay property fidelity and malformed/auth/slow-peer isolation](#properties-cache-and-malformed) | Complete | Core complete; property fidelity, malformed/authorization/slow-subscriber isolation, and cancellation propagation | No; C18 ordinary properties counted in F18/F35, not these abnormal cases |
 | F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Core complete; overlapping sources and subscription replacement; application-selected URI/credentials, no automatic reconnection | No; no migration case |
-| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Partial; version/result definitions ready; image entrypoint/runner contract pending | Not implemented; old draft-18 matrix excluded | Yes; prerequisite of C01–C22 |
-| F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Not implemented; separate C08/eight moq-test integration | Yes; C08/C13–C20 |
-| F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; minimum format profile defined; full workflow/decoder pending | Partial; LOC properties and independent MSF LOC catalog codecs with paired units; application workflow and decoder/display remain gaps, legacy APIs unchanged | Yes; C22, no inferred pass |
+| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Complete for Native/WT endpoint CLI and role boundaries | Partial; Native/WT client, direct-origin and relay adapters with local role matrices and bounded media profile; shared-runner publication deferred | Yes; prerequisite of C01–C22 |
+| F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Partial; bounded C08/eight moq-test generator and identity/payload oracle in interop/moqt; broader delivery conformance remains separate | Yes; C08/C13–C20 |
+| F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; bounded VP8/LOC catalog, decoder and terminal rendering profile defined; full media workflow separate | Partial; public LOC/MSF codecs plus catalog-driven bounded C22 adapter, paired rejection/recovery and real FFmpeg rendering; general player/live snapshot workflows remain gaps, legacy APIs unchanged | Yes; C22 requires real peer results |
 
 ### Completeness Counts
 
@@ -2122,6 +2160,8 @@ Count rows equally; only Complete enters the numerator. Partial is not 0.5.
 Derive denominators from rows, not development progress/document length.
 Conditional dependencies follow chosen transport; the combined target is a
 union, not a sum.
+The transport dependency subsets cover C01–C22; the additional FETCH/Join
+scenarios and their F21/F22 capabilities are tracked separately.
 
 Core complete records the implemented first-version Relay subset. It does
 not enter the full Complete numerator or imply independent interoperability.
@@ -2129,10 +2169,10 @@ Partial retains combinations or extensions that are still incomplete.
 
 | Scope | Complete SPEC | Complete implementation |
 | --- | --- | --- |
-| All targets F01–F44 | 38/44 (86.4%); 6 partial, 0 missing | 19/44 (43.2%); 6 core complete, 12 partial, 7 not implemented |
-| Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 2 partial, 2 not implemented |
-| WebTransport interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 2 partial, 2 not implemented |
-| Union of both transports | 21/24 (87.5%); 3 partial, 0 missing | 17/24 (70.8%); 3 core complete, 2 partial, 2 not implemented |
+| All targets F01–F44 | 39/44 (88.6%); 5 partial, 0 missing | 19/44 (43.2%); 6 core complete, 14 partial, 5 not implemented |
+| Native QUIC interop dependencies | 21/23 (91.3%); 2 partial, 0 missing | 16/23 (69.6%); 3 core complete, 4 partial, 0 not implemented |
+| WebTransport interop dependencies | 21/23 (91.3%); 2 partial, 0 missing | 16/23 (69.6%); 3 core complete, 4 partial, 0 not implemented |
+| Union of both transports | 22/24 (91.7%); 2 partial, 0 missing | 17/24 (70.8%); 3 core complete, 4 partial, 0 not implemented |
 
 These measure **dependency completeness**, not a 22-case pass rate.
 Partial-capability gaps may exceed a case's assertions. Reports independently

@@ -10,6 +10,9 @@
 #include "tests/complex_case/complex_case_common.h"
 #include "fixture.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+#include "include/moq/xqc_moqt_webtransport.h"
+#endif
 
 #define XQC_INTEROP_PHASE_MS 5000
 #define XQC_INTEROP_DELIVERY_MS 10000
@@ -24,6 +27,10 @@ struct xqc_interop_peer_s {
     xqc_interop_app_t *app;
     xqc_interop_peer_t *next;
     xqc_moqt_session_t *session;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    xqc_h3_conn_t *h3;
+    xqc_wt_session_t *wt;
+#endif
     xqc_moqt_request_t *request, *sending;
     xqc_moqt_request_t *publications[2];
     xqc_moqt_subscription_t *subscription;
@@ -50,7 +57,7 @@ struct xqc_interop_peer_s {
 struct xqc_interop_app_s {
     xqc_complex_case_engine_t base;
     xqc_interop_peer_t *peers;
-    unsigned peer_count, server, verify, verbose;
+    unsigned peer_count, server, verify, verbose, webtransport;
     struct sockaddr_storage remote;
     socklen_t remote_len;
     char host[256], authority[300], path[1024];
@@ -104,6 +111,8 @@ static void xqc_interop_namespace(xqc_moqt_request_t *r,
     const xqc_moqt_namespace_t *ns, xqc_bool_t available, void *data);
 static xqc_int_t xqc_interop_created(xqc_connection_t *conn,
     const xqc_cid_t *cid, void *data, void *proto_data);
+static xqc_int_t xqc_interop_session_create(xqc_interop_peer_t *p,
+    xqc_connection_t *conn);
 static void xqc_interop_handshake(xqc_connection_t *conn,
     void *data, void *proto_data);
 static xqc_int_t xqc_interop_closed(xqc_connection_t *conn,
@@ -133,6 +142,18 @@ static void xqc_interop_fetch_generate(xqc_interop_peer_t *p);
 static int xqc_interop_fetch_end(xqc_interop_peer_t *p,
     const xqc_moqt_message_t *m, xqc_moqt_location_t *end);
 static int xqc_interop_run_id(char run[33]);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+static xqc_int_t xqc_interop_h3_created(xqc_h3_conn_t *h3,
+    const xqc_cid_t *cid, void *data);
+static xqc_int_t xqc_interop_h3_closed(xqc_h3_conn_t *h3,
+    const xqc_cid_t *cid, void *data);
+static int xqc_interop_wt_accept(xqc_http_headers_t *headers,
+    xqc_http_headers_t *response, void *data);
+static int xqc_interop_wt_ready(xqc_wt_session_t *wt,
+    xqc_http_headers_t *headers, const xqc_cid_t *cid, void *data);
+static int xqc_interop_wt_closed(xqc_wt_session_t *wt,
+    xqc_http_headers_t *headers, const xqc_cid_t *cid, void *data);
+#endif
 
 static void
 xqc_interop_signal(int signo)
@@ -198,7 +219,10 @@ xqc_interop_ready(xqc_moqt_session_t *session, void *data)
 {
     xqc_interop_peer_t *p = data;
     p->ready++;
-    fprintf(stderr, "SETUP ready alpn=moqt-22 transport=quic role=%s\n",
+    fprintf(stderr, "SETUP ready alpn=%s protocol=moqt-22 "
+            "transport=%s role=%s\n",
+            p->app->webtransport ? "h3" : "moqt-22",
+            p->app->webtransport ? "webtransport" : "quic",
             p->app->server ? "server" : p->role);
 }
 
@@ -426,14 +450,12 @@ xqc_interop_namespace(xqc_moqt_request_t *r,
 }
 
 static xqc_int_t
-xqc_interop_created(xqc_connection_t *conn, const xqc_cid_t *cid,
-    void *data, void *proto_data)
+xqc_interop_session_create(xqc_interop_peer_t *p, xqc_connection_t *conn)
 {
-    xqc_interop_peer_t *p = data;
     xqc_moqt_config_t config;
     xqc_moqt_config_init(&config, XQC_MOQT_VERSION_DRAFT_22);
     xqc_moqt_kv_t opts[2] = {0};
-    if (!p->app->server) {
+    if (!p->app->server && !p->app->webtransport) {
         opts[0].type = XQC_MOQT_OPT_PATH;
         opts[0].value.bytes = (struct iovec){p->app->path,
                                              strlen(p->app->path)};
@@ -456,8 +478,24 @@ xqc_interop_created(xqc_connection_t *conn, const xqc_cid_t *cid,
         .on_fetch_ready = xqc_interop_fetch_ready,
         .on_fetch_closed = xqc_interop_fetch_closed,
     };
-    p->session = xqc_moqt_session_create(conn, &config, &cbs, p);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (p->app->webtransport) {
+        /* Draft-22 6.2.1/9.1: CONNECT supplies authority/path for WT. */
+        p->session = xqc_moqt_session_create_webtransport(p->wt,
+            &config, &cbs, p);
+    } else
+#endif
+    {
+        p->session = xqc_moqt_session_create(conn, &config, &cbs, p);
+    }
     return p->session == NULL ? XQC_ERROR : XQC_OK;
+}
+
+static xqc_int_t
+xqc_interop_created(xqc_connection_t *conn, const xqc_cid_t *cid,
+    void *data, void *proto_data)
+{
+    return xqc_interop_session_create(data, conn);
 }
 
 static void
@@ -490,6 +528,77 @@ xqc_interop_closing(xqc_connection_t *conn, const xqc_cid_t *cid,
     p->error = error;
     return XQC_OK;
 }
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+static xqc_int_t
+xqc_interop_h3_created(xqc_h3_conn_t *h3, const xqc_cid_t *cid, void *data)
+{
+    ((xqc_interop_peer_t *)data)->h3 = h3;
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_interop_h3_closed(xqc_h3_conn_t *h3, const xqc_cid_t *cid, void *data)
+{
+    xqc_interop_peer_t *p = data;
+    p->h3 = NULL;
+    p->closed++;
+    return XQC_OK;
+}
+
+static int
+xqc_interop_wt_accept(xqc_http_headers_t *headers,
+    xqc_http_headers_t *response, void *data)
+{
+    xqc_interop_peer_t *p = data;
+    const char *protocols[] = {XQC_MOQT_ALPN_DRAFT_22}, *selected = NULL;
+    /* Anonymous bounded test endpoint, one session per scenario peer. */
+    if (p->wt || p->closed
+        || xqc_wt_select_application_protocol(headers, protocols, 1,
+                                                 &selected) != 1)
+    {
+        return 0;
+    }
+    static xqc_http_header_t fields[] = {
+        {.name = {":status", 7}, .value = {"200", 3}},
+        {.name = {"wt-protocol", 11}, .value = {"\"moqt-22\"", 9}},
+    };
+    response->headers = fields;
+    response->count = 2;
+    return 1;
+}
+
+static int
+xqc_interop_wt_ready(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
+    const xqc_cid_t *cid, void *data)
+{
+    xqc_interop_peer_t *p = data;
+    if (p->wt) {
+        return -XQC_ESTATE;
+    }
+    p->wt = wt;
+    /* Draft-22 6.3: WT establishment is followed by both MoQT SETUPs. */
+    if (xqc_interop_session_create(p, NULL) != XQC_OK
+        || xqc_moqt_session_start(p->session) != XQC_OK)
+    {
+        p->error = 1;
+        return -XQC_ESTATE;
+    }
+    return XQC_OK;
+}
+
+static int
+xqc_interop_wt_closed(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
+    const xqc_cid_t *cid, void *data)
+{
+    xqc_interop_peer_t *p = data;
+    if (p->wt && p->wt != wt) {
+        return XQC_OK;
+    }
+    p->wt = NULL;
+    return xqc_interop_closed(NULL, cid, p, NULL);
+}
+#endif
 
 static int
 xqc_interop_init(xqc_interop_app_t *app, unsigned port)
@@ -540,6 +649,27 @@ xqc_interop_init(xqc_interop_app_t *app, unsigned port)
     if (app->server) {
         xqc_server_set_conn_settings(app->base.engine, &settings);
     }
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (app->webtransport) {
+        xqc_h3_callbacks_t h3 = {.h3c_cbs = {
+            .h3_conn_create_notify = xqc_interop_h3_created,
+            .h3_conn_close_notify = xqc_interop_h3_closed}};
+        xqc_webtransport_session_callbacks_t sessions = {
+            .webtransport_will_create_session_notify = xqc_interop_wt_accept,
+            .webtransport_session_create_notify = xqc_interop_wt_ready,
+            .webtransport_session_close_notify = xqc_interop_wt_closed,
+        };
+        xqc_webtransport_conn_settings_t wt = {
+            .draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16,
+            .max_sessions_count = 1, .max_bidi_streams = 64,
+            .max_uni_streams = 128, .init_recv_window = 65536,
+            .enable_datagram = XQC_TRUE,
+        };
+        return xqc_h3_ctx_init(app->base.engine, &h3)
+            || xqc_wt_ctx_init(app->base.engine, NULL, &sessions, NULL)
+            || xqc_wt_engine_set_default_settings(app->base.engine, &wt);
+    }
+#endif
     xqc_moqt_config_t moqt;
     xqc_moqt_config_init(&moqt, XQC_MOQT_VERSION_DRAFT_22);
     return xqc_moqt_init_alpn(app->base.engine, &moqt, &conn_cbs);
@@ -559,10 +689,29 @@ xqc_interop_connect(xqc_interop_app_t *app, const char *role)
         .proto_version = XQC_VERSION_V1,
         .max_datagram_frame_size = XQC_INTEROP_DATAGRAM_SIZE,
     };
-    xqc_conn_ssl_config_t ssl = {0};
-    const xqc_cid_t *cid = xqc_moqt_connect(app->base.engine, &config,
-        &settings, NULL, 0, app->host, &ssl,
-        (struct sockaddr *)&app->remote, app->remote_len, p);
+    xqc_conn_ssl_config_t ssl = {.cert_verify_flag = app->verify
+        ? XQC_TLS_CERT_FLAG_NEED_VERIFY : 0};
+    const xqc_cid_t *cid;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (app->webtransport) {
+        cid = xqc_webtransport_connect(app->base.engine, &settings,
+            NULL, 0, app->host, 0, &ssl,
+            (struct sockaddr *)&app->remote, app->remote_len, p);
+        const char *protocols[] = {XQC_MOQT_ALPN_DRAFT_22};
+        int error;
+        if (!cid || !p->h3
+            || !xqc_wt_client_open_session_with_protocols(p->h3,
+                app->authority, app->path, NULL, protocols, 1, &error))
+        {
+            return NULL;
+        }
+    } else
+#endif
+    {
+        cid = xqc_moqt_connect(app->base.engine, &config, &settings,
+            NULL, 0, app->host, &ssl,
+            (struct sockaddr *)&app->remote, app->remote_len, p);
+    }
     if (cid == NULL || xqc_interop_wait(app, &p->ready, 1,
                                        XQC_INTEROP_PHASE_MS))
     {
@@ -897,19 +1046,33 @@ xqc_interop_release(xqc_interop_app_t *app)
 static int
 xqc_interop_url(xqc_interop_app_t *app, const char *url)
 {
-    if (strncmp(url, "moqt://", 7)) {
+    const char *start;
+    if (!strncmp(url, "moqt://", 7)) {
+        start = url + 7;
+    } else if (!strncmp(url, "https://", 8)) {
+        start = url + 8;
+        app->webtransport = 1;
+    } else {
         return -1;
     }
-    const char *path = strchr(url + 7, '/');
-    size_t length = path ? (size_t)(path - url - 7) : strlen(url + 7);
+    const char *path = strpbrk(start, "/?#");
+    const char *fragment = strchr(start, '#');
+    size_t length = path ? (size_t)(path - start) : strlen(start);
+    size_t path_len = path ? (fragment ? (size_t)(fragment - path)
+                                         : strlen(path)) : 0;
+    size_t leading = path_len && *path == '?' ? 1 : 0;
     if (!length || length >= sizeof(app->authority)
-        || (path && strlen(path) >= sizeof(app->path)))
+        || path_len + leading >= sizeof(app->path))
     {
         return -1;
     }
-    memcpy(app->authority, url + 7, length);
+    memcpy(app->authority, start, length);
     app->authority[length] = 0;
-    strcpy(app->path, path ? path : "/");
+    strcpy(app->path, "/");
+    if (path_len) {
+        memcpy(app->path + leading, path, path_len);
+        app->path[path_len + leading] = 0;
+    }
     char host[300];
     strcpy(host, app->authority);
     char *port = strrchr(host, ':');
@@ -1434,6 +1597,7 @@ main(int argc, char **argv)
     const char *flag = getenv("TLS_DISABLE_VERIFY");
     const char *verbose = getenv("VERBOSE");
     const char *port_env = getenv("MOQT_PORT");
+    const char *transport = getenv("MOQT_TRANSPORT");
     xqc_interop_app_t app = {.base.socket.fd = -1,
         .verify = !flag || strcmp(flag, "1"),
         .verbose = verbose && !strcmp(verbose, "1"),
@@ -1449,11 +1613,14 @@ main(int argc, char **argv)
         {"port", required_argument, NULL, 'p'},
         {"cert", required_argument, NULL, 'c'},
         {"key", required_argument, NULL, 'K'},
+        {"transport", required_argument, NULL, 'T'},
         {"help", no_argument, NULL, 'h'}, {0}
     };
     unsigned ncases = sizeof(xqc_interop_cases) / sizeof(xqc_interop_cases[0]);
     int c;
-    while ((c = getopt_long(argc, argv, "r:t:lvksp:c:K:h", opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "r:t:lvksp:c:K:T:h",
+                           opts, NULL)) != -1)
+    {
         switch (c) {
         case 'r': url = optarg; break;
         case 't': test = optarg; break;
@@ -1463,14 +1630,16 @@ main(int argc, char **argv)
         case 'p': port = strtoul(optarg, NULL, 10); break;
         case 'c': app.cert = optarg; break;
         case 'K': app.key = optarg; break;
+        case 'T': transport = optarg; break;
         case 'l':
             for (unsigned i = 0; i < ncases; i++) {
                 puts(xqc_interop_cases[i]);
             }
             return 0;
         case 'h':
-            puts("moqt_interop --relay moqt://host:port [--test NAME]\n"
+            puts("moqt_interop --relay URL [--test NAME]\n"
                  "  --list --tls-disable-verify --verbose\n"
+                 "  --transport quic|webtransport (HTTPS selects WT)\n"
                  "  --server [--port 4443 --cert FILE --key FILE]");
             return 0;
         default: return 1;
@@ -1478,12 +1647,27 @@ main(int argc, char **argv)
     }
     signal(SIGINT, xqc_interop_signal);
     signal(SIGTERM, xqc_interop_signal);
+    if (transport && strcmp(transport, "quic")
+        && strcmp(transport, "webtransport"))
+    {
+        fprintf(stderr, "invalid transport: %s\n", transport);
+        return 1;
+    }
+    app.webtransport = transport && !strcmp(transport, "webtransport");
     if (app.server) {
+#ifndef XQC_ENABLE_WEBTRANSPORT
+        if (app.webtransport) {
+            fprintf(stderr, "WebTransport is disabled in this build\n");
+            return 127;
+        }
+#endif
         if (!port || port > 65535 || xqc_interop_init(&app, port)) {
             xqc_interop_release(&app);
             return 1;
         }
-        fprintf(stderr, "endpoint server moqt-22 UDP/%u (no relay)\n", port);
+        fprintf(stderr, "endpoint server moqt-22 transport=%s UDP/%u "
+                "(no relay)\n", app.webtransport ? "webtransport" : "quic",
+                port);
         while (!xqc_interop_stop) {
             xqc_interop_pump(&app, 10);
         }
@@ -1505,20 +1689,28 @@ main(int argc, char **argv)
         puts("ok 1 - unsupported # SKIP test not implemented");
         return 127;
     }
-    if (!strncmp(url, "https://", 8)) {
+    if (transport && !strcmp(transport, "quic")
+        && !strncmp(url, "https://", 8))
+    {
+        puts("Bail out! HTTPS requires WebTransport");
+        return 1;
+    }
+    if (xqc_interop_url(&app, url)) {
+        puts("Bail out! invalid/unsupported URL (IPv4)");
+        return 1;
+    }
+#ifndef XQC_ENABLE_WEBTRANSPORT
+    if (app.webtransport) {
         unsigned index = 0;
         for (unsigned i = 0; i < ncases; i++) {
             if (!test || !strcmp(test, xqc_interop_cases[i])) {
-                printf("ok %u - %s # SKIP WebTransport not implemented\n",
+                printf("ok %u - %s # SKIP WebTransport disabled in build\n",
                        ++index, xqc_interop_cases[i]);
             }
         }
         return 127;
     }
-    if (xqc_interop_url(&app, url)) {
-        puts("Bail out! invalid/unsupported URL (IPv4 native QUIC)");
-        return 1;
-    }
+#endif
     unsigned failed = 0, index = 0;
     for (unsigned i = 0; i < ncases; i++) {
         const char *name = xqc_interop_cases[i];
@@ -1547,8 +1739,9 @@ main(int argc, char **argv)
             puts("  sessions:");
             for (unsigned j = 0; j < peers; j++) {
                 if (ready[j]) {
-                    printf("    %s:\n      transport: quic\n"
-                           "      moqt_version: moqt-22\n", roles[j]);
+                    printf("    %s:\n      transport: %s\n"
+                           "      moqt_version: moqt-22\n", roles[j],
+                           app.webtransport ? "webtransport" : "quic");
                 }
             }
         }

@@ -12,7 +12,8 @@ class InteropCLI(unittest.TestCase):
 
     def run_cli(self, *args, **overrides):
         env = os.environ.copy()
-        for name in ("RELAY_URL", "TESTCASE", "TLS_DISABLE_VERIFY", "VERBOSE"):
+        for name in ("RELAY_URL", "TESTCASE", "TLS_DISABLE_VERIFY", "VERBOSE",
+                     "MOQT_TRANSPORT"):
             env.pop(name, None)
         env.update(overrides)
         return subprocess.run([self.binary, *args], env=env,
@@ -42,13 +43,41 @@ class InteropCLI(unittest.TestCase):
         self.assertIn("1..1\n", result.stdout)
         self.assertIn("# SKIP", result.stdout)
 
-    def test_transport_skip_and_cli_precedence(self):
-        result = self.run_cli("--relay", "https://localhost:4443",
+    def test_cli_precedence(self):
+        result = self.run_cli("--relay", "invalid",
                               "--test", "setup-only",
-                              RELAY_URL="invalid", TESTCASE="unsupported-test")
-        self.assertEqual(result.returncode, 127)
-        self.assertIn("ok 1 - setup-only # SKIP WebTransport", result.stdout)
+                              RELAY_URL="https://localhost:4443",
+                              TESTCASE="unsupported-test")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Bail out!", result.stdout)
         self.assertNotIn("unsupported #", result.stdout)
+
+    def test_transport_help(self):
+        result = self.run_cli("--help")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--transport quic|webtransport", result.stdout)
+
+    def test_invalid_transport_is_not_a_skip(self):
+        for value in ("udp", "https", ""):
+            result = self.run_cli("--transport", value, "--test", "setup-only")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("invalid transport", result.stderr)
+            self.assertNotIn("# SKIP", result.stdout)
+
+    def test_https_cannot_select_native_quic(self):
+        result = self.run_cli("--relay", "https://localhost:4443",
+                              "--transport", "quic", "--test", "setup-only")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Bail out! HTTPS requires WebTransport", result.stdout)
+
+    def test_malformed_wt_urls_are_failures(self):
+        for url in ("https://", "https://localhost:0/",
+                    "https://localhost:65536/", "https://user@localhost/",
+                    "https://localhost:/", "http://localhost:4443/"):
+            result = self.run_cli("--relay", url, "--test", "setup-only")
+            self.assertEqual(result.returncode, 1, url)
+            self.assertIn("Bail out!", result.stdout)
+            self.assertNotIn("# SKIP", result.stdout)
 
     def test_invalid_uri_is_a_failure(self):
         result = self.run_cli("--relay", "invalid", "--test", "setup-only")

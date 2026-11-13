@@ -2021,7 +2021,7 @@ integration; two-endpoint success cannot substitute for it.
 
 #### Endpoint Runner Adapter
 
-The Native QUIC adapter in `interop/moqt/` exposes a TAP v14 client and a
+The adapter in `interop/moqt/` exposes a TAP v14 client and a
 direct test server through the public endpoint APIs. Its
 [usage and role boundaries](../../interop/moqt/README.md) define CLI,
 environment, capability discovery, bounded fixtures, and unsupported cases.
@@ -2029,6 +2029,13 @@ The server is not a Relay: cross-Session routing, fanout, namespace observer
 propagation and rendezvous remain outside it. Register only its client role
 with the runner. Client scenarios may use an independent Relay to exercise
 existing endpoint capabilities; that does not implement XQUIC Relay support.
+
+Native QUIC and WT share the same scenario drivers and object oracles. HTTPS
+selects WT, or explicit transport selection uses a canonical moqt URI. The
+WT adapter authorizes the anonymous test CONNECT, selects `moqt-22`, binds
+the existing WT constructor and waits for both SETUPs. Authority/path/query
+remain in CONNECT; MoQT destruction occurs in the WT close callback. Both
+existing role images build both capabilities, with runtime transport choice.
 
 The adapter additionally covers multi-publisher namespace retention using a
 synchronization namespace and late observers. Standalone `fetch` and Fill
@@ -2097,7 +2104,7 @@ padding probes.
 | --- | --- | --- | --- |
 | F01 [vi64, framing, binary names, KVP](#wire-codec) | Complete | Complete; positive/negative vi64/codec tests | Yes; C01–C22 basic wire |
 | F02 [Native QUIC, ALPN, API isolation](#transport-versions) | Complete | Complete; ALPN dispatch and legacy endpoint tests | Conditional; Native QUIC C01–C22 |
-| F03 [WT CONNECT, SETUP, Session binding](#scope-and-webtransport) | Complete | Complete; constructor, transport/session isolation units and endpoints 1471/1472 | Conditional; WebTransport C01–C22; runner glue remains separate |
+| F03 [WT CONNECT, SETUP, Session binding](#scope-and-webtransport) | Complete | Complete; constructor, transport/session isolation units and endpoints 1471/1472; runner adapter reuses the binding | Conditional; WebTransport C01–C22 |
 | F04 [SETUP, ready, directional allowances, extensions](#setup-direction-and-extensions) | Complete | Complete; setup/session tests; nonzero operations in F11/F28 | Yes; C01–C22 |
 | F05 [Scope, URI, .session isolation](#scope-and-webtransport) | Complete | Partial; URI/.session present; Scope/query/restart-collision checks pending | No; no dedicated Scope case; basic connect counted in F02/F03 |
 | F06 [Request IDs, responses, credit, notification, half-close/cancel](#request-lifecycle) | Complete | Complete; request tests | Yes; C02–C22 associations/lifetimes |
@@ -2136,7 +2143,7 @@ padding probes.
 | F39 [Relay FETCH/Fill forwarding, source switch, total budget](#rendezvous-and-relay-contract) | Complete | Core complete; single-source FETCH/Fill mappings and total budgets; automatic source switching deferred | No; no historical retrieval |
 | F40 [Relay property fidelity and malformed/auth/slow-peer isolation](#properties-cache-and-malformed) | Complete | Core complete; property fidelity, malformed/authorization/slow-subscriber isolation, and cancellation propagation | No; C18 ordinary properties counted in F18/F35, not these abnormal cases |
 | F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Core complete; overlapping sources and subscription replacement; application-selected URI/credentials, no automatic reconnection | No; no migration case |
-| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Complete for Native endpoint CLI/role boundary; WT remains separate | Partial; Native client/direct-server adapter and local image build; Relay/media coverage deferred | Yes; prerequisite of C01–C22 |
+| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Complete for Native/WT endpoint CLI and role boundaries | Partial; Native/WT client/direct-server adapter and local image build; Relay/media coverage deferred | Yes; prerequisite of C01–C22 |
 | F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Partial; bounded C08/eight moq-test generator and identity/payload oracle in interop/moqt; broader delivery conformance remains separate | Yes; C08/C13–C20 |
 | F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; minimum format profile defined; full workflow/decoder pending | Partial; LOC properties and independent MSF LOC catalog codecs with paired units; application workflow and decoder/display remain gaps, legacy APIs unchanged | Yes; C22, no inferred pass |
 
@@ -2146,6 +2153,8 @@ Count rows equally; only Complete enters the numerator. Partial is not 0.5.
 Derive denominators from rows, not development progress/document length.
 Conditional dependencies follow chosen transport; the combined target is a
 union, not a sum.
+The transport dependency subsets cover C01–C22; the additional FETCH/Join
+scenarios and their F21/F22 capabilities are tracked separately.
 
 Core complete records the implemented first-version Relay subset. It does
 not enter the full Complete numerator or imply independent interoperability.
@@ -2153,10 +2162,10 @@ Partial retains combinations or extensions that are still incomplete.
 
 | Scope | Complete SPEC | Complete implementation |
 | --- | --- | --- |
-| All targets F01–F44 | 38/44 (86.4%); 6 partial, 0 missing | 19/44 (43.2%); 6 core complete, 12 partial, 7 not implemented |
-| Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 2 partial, 2 not implemented |
-| WebTransport interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 2 partial, 2 not implemented |
-| Union of both transports | 21/24 (87.5%); 3 partial, 0 missing | 17/24 (70.8%); 3 core complete, 2 partial, 2 not implemented |
+| All targets F01–F44 | 39/44 (88.6%); 5 partial, 0 missing | 19/44 (43.2%); 6 core complete, 14 partial, 5 not implemented |
+| Native QUIC interop dependencies | 21/23 (91.3%); 2 partial, 0 missing | 16/23 (69.6%); 3 core complete, 4 partial, 0 not implemented |
+| WebTransport interop dependencies | 21/23 (91.3%); 2 partial, 0 missing | 16/23 (69.6%); 3 core complete, 4 partial, 0 not implemented |
+| Union of both transports | 22/24 (91.7%); 2 partial, 0 missing | 17/24 (70.8%); 3 core complete, 4 partial, 0 not implemented |
 
 These measure **dependency completeness**, not a 22-case pass rate.
 Partial-capability gaps may exceed a case's assertions. Reports independently

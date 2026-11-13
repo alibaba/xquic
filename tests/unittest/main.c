@@ -919,6 +919,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_rfc9001_derive_initial_secrets", xqc_test_rfc9001_derive_initial_secrets)
         || !CU_add_test(pSuite, "xqc_test_rfc9001_client_initial_keys", xqc_test_rfc9001_client_initial_keys)
         || !CU_add_test(pSuite, "xqc_test_rfc9001_server_initial_keys", xqc_test_rfc9001_server_initial_keys)
+        || !CU_add_test(pSuite, "xqc_test_rfc9001_aes_hp_mask",
+                        xqc_test_rfc9001_aes_hp_mask)
+        || !CU_add_test(pSuite, "xqc_test_aes_hp_mask_bounds",
+                        xqc_test_aes_hp_mask_bounds)
         /* issue #695: initial salt strlen fix */
         || !CU_add_test(pSuite, "xqc_test_initial_salt_length", xqc_test_initial_salt_length)
         || !CU_add_test(pSuite, "xqc_test_initial_salt_v1_value", xqc_test_initial_salt_v1_value)

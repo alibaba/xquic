@@ -383,3 +383,101 @@ xqc_test_dtable()
 
     xqc_test_dtable_set_capacity();
 }
+
+
+/*
+ * Give the chunks that malloc hands out next new contents, as reused memory
+ * has: memory that the table freed then no longer holds its old entries.
+ */
+static void
+xqc_test_dtable_reuse_freed(void **chunks, size_t n)
+{
+    size_t i, size;
+
+    for (i = 0; i < n; i++) {
+        size = 16 * (i + 1);
+        chunks[i] = malloc(size);
+        if (chunks[i] != NULL) {
+            memset(chunks[i], 0xbe, size);
+        }
+    }
+}
+
+/*
+ * A larger capacity moves the entries to a larger ring array: the encoder's
+ * lookups find them there, with the memory of the old array reused.
+ */
+void
+xqc_test_dtable_capacity_raise_lookup(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_dtable_t *dt = xqc_dtable_create(128, engine->log, 1);
+    uint64_t idx = XQC_INVALID_INDEX;
+    void *chunks[32];
+    size_t i;
+
+    CU_ASSERT_FATAL(dt != NULL);
+    CU_ASSERT(xqc_dtable_set_capacity(dt, 128) == XQC_OK);
+    CU_ASSERT(xqc_dtable_add(dt, "name0", 5, "value0", 6, &idx) == XQC_OK
+              && idx == 0);
+    CU_ASSERT(xqc_dtable_add(dt, "name1", 5, "value1", 6, &idx) == XQC_OK
+              && idx == 1);
+
+    CU_ASSERT(xqc_dtable_set_capacity(dt, 4096) == XQC_OK);
+    xqc_test_dtable_reuse_freed(chunks, 32);
+
+    CU_ASSERT(xqc_dtable_lookup(dt, "name0", 5, "value0", 6, &idx)
+                  == XQC_NV_REF_NAME_AND_VALUE
+              && idx == 0);
+    CU_ASSERT(xqc_dtable_lookup(dt, "name1", 5, "value1", 6, &idx)
+                  == XQC_NV_REF_NAME_AND_VALUE
+              && idx == 1);
+
+    for (i = 0; i < 32; i++) {
+        free(chunks[i]);
+    }
+    xqc_dtable_free(dt);
+    xqc_engine_destroy(engine);
+}
+
+/*
+ * Entries evicted before a larger capacity moves the others stay out of
+ * the lookups; the entries left and the ones added after are found.
+ */
+void
+xqc_test_dtable_capacity_raise_evicted(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_dtable_t *dt = xqc_dtable_create(128, engine->log, 1);
+    uint64_t idx = XQC_INVALID_INDEX;
+    void *chunks[32];
+    size_t i;
+
+    CU_ASSERT_FATAL(dt != NULL);
+    CU_ASSERT(xqc_dtable_set_capacity(dt, 128) == XQC_OK);
+    /* 43 bytes each (RFC 9204 Section 3.2.1): the third evicts the first */
+    CU_ASSERT(xqc_dtable_add(dt, "name0", 5, "value0", 6, &idx) == XQC_OK);
+    CU_ASSERT(xqc_dtable_add(dt, "name1", 5, "value1", 6, &idx) == XQC_OK);
+    CU_ASSERT(xqc_dtable_add(dt, "name2", 5, "value2", 6, &idx) == XQC_OK
+              && idx == 2);
+
+    CU_ASSERT(xqc_dtable_set_capacity(dt, 4096) == XQC_OK);
+    xqc_test_dtable_reuse_freed(chunks, 32);
+    CU_ASSERT(xqc_dtable_add(dt, "name3", 5, "value3", 6, &idx) == XQC_OK
+              && idx == 3);
+
+    CU_ASSERT(xqc_dtable_lookup(dt, "name0", 5, "value0", 6, &idx)
+              == XQC_NV_REF_NONE);
+    CU_ASSERT(xqc_dtable_lookup(dt, "name2", 5, "value2", 6, &idx)
+                  == XQC_NV_REF_NAME_AND_VALUE
+              && idx == 2);
+    CU_ASSERT(xqc_dtable_lookup(dt, "name3", 5, "value3", 6, &idx)
+                  == XQC_NV_REF_NAME_AND_VALUE
+              && idx == 3);
+
+    for (i = 0; i < 32; i++) {
+        free(chunks[i]);
+    }
+    xqc_dtable_free(dt);
+    xqc_engine_destroy(engine);
+}

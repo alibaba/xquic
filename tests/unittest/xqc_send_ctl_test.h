@@ -82,4 +82,11 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * RFC 9002 Appendix A.9: a PTO re-arms the loss detection timer, also when
+ * the deadline it computes has already passed.
+ */
+void xqc_test_send_ctl_pto_rearm(void);
+void xqc_test_send_ctl_pto_rearm_past_deadline(void);
+
 #endif

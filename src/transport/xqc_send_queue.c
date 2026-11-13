@@ -1,13 +1,17 @@
+#include <string.h>
+
 #include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_conn.h"
 #include "src/common/xqc_memory_pool.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_utils.h"
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_reinjection.h"
+#include "src/transport/xqc_frame_parser.h"
 #include "src/transport/xqc_conn.h"
 
 xqc_send_queue_t *
@@ -353,10 +357,262 @@ xqc_send_queue_move_to_high_pri(xqc_list_head_t *pos, xqc_send_queue_t *send_que
 }
 
 
+/*
+ * The data of a STREAM frame of packet_out: after the frame type, the Stream
+ * ID, and the Offset and Length fields when present (RFC 9000 Section 19.8).
+ */
+static const unsigned char *
+xqc_send_queue_stream_frame_data(const xqc_packet_out_t *packet_out,
+    const xqc_po_stream_frame_t *frame)
+{
+    const unsigned char *p = packet_out->po_buf + frame->ps_type_offset;
+    unsigned char type = *p++;
+
+    p += xqc_vint_len(*p >> 6);
+    if (type & 0x04) {      /* OFF bit */
+        p += xqc_vint_len(*p >> 6);
+    }
+    if (type & 0x02) {      /* LEN bit */
+        p += xqc_vint_len(*p >> 6);
+    }
+
+    return p;
+}
+
+/*
+ * The frames of the lost packet_out other than STREAM, in one packet of the
+ * current size: a copy of packet_out without its STREAM and ACK frames and
+ * its padding. It is no copy tied to packet_out, as packet_out and its
+ * copies are dropped once split, and it holds no stream reference.
+ */
+static xqc_int_t
+xqc_send_queue_split_rest(xqc_send_queue_t *send_queue,
+    xqc_packet_out_t *packet_out)
+{
+    xqc_connection_t *conn = send_queue->sndq_conn;
+    xqc_packet_out_t *rest;
+    xqc_po_stream_frame_t *frame;
+    unsigned int start, end, i, j, kept;
+
+    rest = xqc_packet_out_get(send_queue);
+    if (rest == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    xqc_packet_out_copy(rest, packet_out);
+    rest->po_origin->po_origin_ref_cnt--;
+    rest->po_origin = NULL;
+    rest->po_buf_size = conn->pkt_out_size;
+    xqc_packet_out_remove_ack_frame(rest);
+    if (rest->po_padding != NULL
+        && rest->po_padding < rest->po_buf + rest->po_used_size)
+    {
+        rest->po_used_size = rest->po_padding - rest->po_buf;
+    }
+    rest->po_padding = NULL;
+
+    /* cut each STREAM frame out, and move the frames after it */
+    for (i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
+        frame = &rest->po_stream_frames[i];
+        if (!frame->ps_is_used || frame->ps_is_reset || frame->ps_is_reset_at) {
+            continue;
+        }
+
+        start = frame->ps_type_offset;
+        end = xqc_send_queue_stream_frame_data(rest, frame) - rest->po_buf
+              + frame->ps_length;
+        if (start >= rest->po_used_size) {
+            continue;
+        }
+        end = xqc_min(end, rest->po_used_size);
+        memmove(rest->po_buf + start, rest->po_buf + end,
+                rest->po_used_size - end);
+        rest->po_used_size -= end - start;
+
+        for (j = 0; j < XQC_MAX_STREAM_FRAME_IN_PO; j++) {
+            if (rest->po_stream_frames[j].ps_type_offset > start) {
+                rest->po_stream_frames[j].ps_type_offset -= end - start;
+            }
+        }
+    }
+
+    /* the RESET_STREAM and RESET_STREAM_AT records stay */
+    kept = 0;
+    for (i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
+        frame = &rest->po_stream_frames[i];
+        if (frame->ps_is_used
+            && (frame->ps_is_reset || frame->ps_is_reset_at))
+        {
+            rest->po_stream_frames[kept++] = *frame;
+        }
+    }
+    for (i = kept; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
+        xqc_memzero(&rest->po_stream_frames[i], sizeof(xqc_po_stream_frame_t));
+    }
+    rest->po_stream_frames_idx = kept;
+
+    rest->po_frame_types &= ~(XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_PADDING);
+    rest->po_flag &= ~(XQC_POF_IN_FLIGHT | XQC_POF_STREAM_UNACK
+                       | XQC_POF_STREAM_NO_LEN | XQC_POF_RETRANSED
+                       | XQC_POF_SPURIOUS_LOSS);
+    rest->po_path_flag &= ~XQC_PATH_SPECIFIED_BY_PTO;
+
+    /* counted as used, whether it is resent or freed */
+    send_queue->sndq_packets_used++;
+    if (!XQC_NEED_REPAIR(rest->po_frame_types)
+        && !(rest->po_flag & XQC_POF_NOTIFY))
+    {
+        xqc_send_queue_insert_free(rest, &send_queue->sndq_free_packets,
+                                   send_queue);
+        return XQC_OK;
+    }
+
+    xqc_send_queue_insert_lost(&rest->po_list, &send_queue->sndq_lost_packets);
+    return XQC_OK;
+}
+
+/*
+ * The data of the STREAM frame of the lost packet_out, in new packets of the
+ * current size, resent before new data. Each takes its stream reference.
+ */
+static xqc_int_t
+xqc_send_queue_split_stream_frame(xqc_send_queue_t *send_queue,
+    xqc_packet_out_t *packet_out, const xqc_po_stream_frame_t *frame)
+{
+    xqc_connection_t *conn = send_queue->sndq_conn;
+    const unsigned char *data;
+    xqc_packet_out_t *piece;
+    uint64_t offset = frame->ps_offset;
+    size_t left = frame->ps_length;
+    size_t written;
+    ssize_t ret;
+
+    data = xqc_send_queue_stream_frame_data(packet_out, frame);
+    do {
+        piece = xqc_write_new_packet(conn, XQC_PTYPE_SHORT_HEADER);
+        if (piece == NULL) {
+            return -XQC_EMALLOC;
+        }
+
+        ret = xqc_gen_stream_frame(piece, frame->ps_stream_id, offset,
+                                   frame->ps_has_fin, data, left, &written);
+        if (ret < 0) {
+            xqc_maybe_recycle_packet_out(piece, conn);
+            return (xqc_int_t) ret;
+        }
+        piece->po_used_size += ret;
+        piece->po_stream_id = frame->ps_stream_id;
+        piece->po_stream_offset = offset + written;
+        xqc_conn_increase_unacked_stream_ref(conn, piece);
+
+        xqc_send_queue_remove_send(&piece->po_list);
+        xqc_send_queue_insert_lost(&piece->po_list,
+                                   &send_queue->sndq_lost_packets);
+
+        data += written;
+        offset += written;
+        left -= written;
+    } while (left > 0 && written > 0);
+
+    return left == 0 ? XQC_OK : -XQC_ENOBUF;
+}
+
+/*
+ * RFC 9000 Section 14.2: packets that are not PMTU probes SHOULD fit within
+ * the maximum datagram size. A copy of the lost packet_out would not, as the
+ * path MTU went down after packet_out was built, and would be lost again.
+ * Its information goes into new frames instead (RFC 9000 Section 13.3),
+ * whose boundaries need not be those of the lost ones (Section 2.2, RFC
+ * 10069 Section 5.6): its STREAM frames into new packets of the current
+ * size, and its other frames into one more (xqc_send_queue_split_rest()).
+ * The new packets take their stream references before packet_out gives back
+ * those of its packets, which are then marked split (XQC_POF_SPLIT):
+ * xqc_send_ctl_indirectly_ack_or_drop_po() drops packet_out and its copies
+ * without taking their frames as acknowledged, which the new packets are
+ * not. -XQC_EPARAM when a copy of packet_out fits, or when packet_out cannot
+ * be split, being no 1-RTT packet or carrying a DATAGRAM or FEC frame: it is
+ * copied then.
+ */
+xqc_int_t
+xqc_send_queue_split_lost(xqc_send_queue_t *send_queue,
+    xqc_packet_out_t *packet_out)
+{
+    xqc_connection_t *conn = send_queue->sndq_conn;
+    xqc_packet_out_t *origin = packet_out->po_origin ? packet_out->po_origin
+                                                     : packet_out;
+    xqc_po_stream_frame_t *frame;
+    xqc_int_t ret;
+    int i;
+
+    if (!xqc_packet_out_exceeds_mss(conn, packet_out)
+        || packet_out->po_pkt.pkt_type != XQC_PTYPE_SHORT_HEADER
+        || (packet_out->po_frame_types
+            & (XQC_FRAME_BIT_DATAGRAM | XQC_FRAME_BIT_SID
+               | XQC_FRAME_BIT_REPAIR_SYMBOL)))
+    {
+        return -XQC_EPARAM;
+    }
+
+    if ((packet_out->po_frame_types
+         & ~(XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_ACK | XQC_FRAME_BIT_ACK_MP
+             | XQC_FRAME_BIT_PING | XQC_FRAME_BIT_PADDING))
+        || (packet_out->po_flag & XQC_POF_NOTIFY))
+    {
+        ret = xqc_send_queue_split_rest(send_queue, packet_out);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+    }
+
+    for (i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
+        frame = &packet_out->po_stream_frames[i];
+        if (!frame->ps_is_used) {
+            break;
+        }
+
+        /* the data of a stream already gone is not resent either */
+        if (frame->ps_is_reset || frame->ps_is_reset_at
+            || xqc_find_stream_by_id(frame->ps_stream_id,
+                                     conn->streams_hash) == NULL)
+        {
+            continue;
+        }
+
+        ret = xqc_send_queue_split_stream_frame(send_queue, packet_out, frame);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+    }
+
+    xqc_conn_release_unacked_stream_ref(conn, packet_out);
+    origin->po_flag |= XQC_POF_SPLIT;
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|split lost packet|pkt_num:%ui|"
+            "size:%ud|mss:%ud|frame:%s|", packet_out->po_pkt.pkt_num,
+            packet_out->po_used_size, xqc_conn_get_mss(conn),
+            xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types));
+    return XQC_OK;
+}
+
 void
 xqc_send_queue_copy_to_lost(xqc_packet_out_t *packet_out, xqc_send_queue_t *send_queue, xqc_bool_t mark_retrans)
 {
     xqc_connection_t *conn = send_queue->sndq_conn;
+    xqc_int_t ret;
+
+    ret = xqc_send_queue_split_lost(send_queue, packet_out);
+    if (ret != -XQC_EPARAM) {
+        if (ret != XQC_OK) {
+            XQC_CONN_ERR(conn, ret == -XQC_EMALLOC ? XQC_EMALLOC
+                                                   : TRA_INTERNAL_ERROR);
+            return;
+        }
+
+        if (mark_retrans) {
+            packet_out->po_flag |= XQC_POF_RETRANSED;
+        }
+        return;
+    }
 
     xqc_packet_out_t *new_po = xqc_packet_out_get(send_queue);
     if (!new_po) {

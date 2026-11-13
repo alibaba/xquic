@@ -799,6 +799,122 @@ test_engine_connect()
     return conn;
 }
 
+#define XQC_TEST_PACKET_SIZE        1000
+#define XQC_TEST_PATH_CID_LIMIT     8
+
+/* a client connection with the congestion controller cc */
+xqc_connection_t *
+test_engine_connect_cc(const xqc_cong_ctrl_callback_t *cc)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_conn_settings_t conn_settings;
+    xqc_conn_ssl_config_t conn_ssl_config;
+    const xqc_cid_t *cid;
+
+    if (engine == NULL) {
+        return NULL;
+    }
+
+    memset(&conn_settings, 0, sizeof(conn_settings));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    conn_settings.cong_ctrl_callback = *cc;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+    cid = xqc_connect(engine, &conn_settings, NULL, 0, "", 0,
+                      &conn_ssl_config, NULL, 0, "transport", NULL);
+    if (cid == NULL) {
+        xqc_engine_destroy(engine);
+        return NULL;
+    }
+    return xqc_engine_conns_hash_find(engine, cid, 's');
+}
+
+/* multipath negotiated and the handshake confirmed */
+void
+test_enable_multipath(xqc_connection_t *conn)
+{
+    conn->enable_multipath = XQC_CONN_MP_ENABLED;
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_COMPLETED
+                       | XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+}
+
+/* a validated path, with the connection IDs that its creation takes */
+xqc_path_ctx_t *
+test_add_path(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_cid_t scid, dcid;
+    xqc_path_ctx_t *path;
+
+    xqc_memzero(&scid, sizeof(scid));
+    xqc_memzero(&dcid, sizeof(dcid));
+    scid.cid_len = XQC_DEFAULT_CID_LEN;
+    dcid.cid_len = XQC_DEFAULT_CID_LEN;
+    memset(scid.cid_buf, 0x50 + (int) path_id, scid.cid_len);
+    memset(dcid.cid_buf, 0x70 + (int) path_id, dcid.cid_len);
+    if (xqc_cid_set_add_path(&conn->scid_set, path_id) != XQC_OK
+        || xqc_cid_set_insert_cid(&conn->scid_set, &scid, XQC_CID_UNUSED,
+                                  XQC_TEST_PATH_CID_LIMIT, path_id) != XQC_OK
+        || xqc_cid_set_add_path(&conn->dcid_set, path_id) != XQC_OK
+        || xqc_cid_set_insert_cid(&conn->dcid_set, &dcid, XQC_CID_UNUSED,
+                                  XQC_TEST_PATH_CID_LIMIT, path_id) != XQC_OK)
+    {
+        return NULL;
+    }
+
+    path = xqc_conn_create_path_inner(conn, NULL, NULL,
+                                      XQC_APP_PATH_STATUS_AVAILABLE, path_id);
+    if (path != NULL) {
+        xqc_path_validate(path);
+    }
+    return path;
+}
+
+/* an ack-eliciting packet of the path, in flight since sent_time */
+xqc_packet_out_t *
+test_send_packet(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_number_t pn, xqc_frame_type_bit_t frame_types,
+    xqc_usec_t sent_time)
+{
+    xqc_packet_out_t *po = xqc_packet_out_get(conn->conn_send_queue);
+
+    if (po == NULL) {
+        return NULL;
+    }
+
+    po->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    po->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    po->po_pkt.pkt_num = pn;
+    po->po_frame_types = frame_types;
+    po->po_used_size = XQC_TEST_PACKET_SIZE;
+    po->po_path_id = path->path_id;
+    po->po_sent_time = sent_time;
+    xqc_send_queue_insert_unacked(po,
+        &conn->conn_send_queue->sndq_unacked_packets[XQC_PNS_APP_DATA],
+        conn->conn_send_queue);
+    xqc_send_ctl_on_packet_sent(path->path_send_ctl, path->path_pn_ctl, po,
+                                sent_time);
+    return po;
+}
+
+/* the acknowledgment of the packets low to high of the path */
+xqc_int_t
+test_ack_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_number_t low, xqc_packet_number_t high, xqc_usec_t recv_time,
+    xqc_bool_t ack_on_same_path)
+{
+    xqc_ack_info_t ack_info;
+
+    xqc_memzero(&ack_info, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_APP_DATA;
+    ack_info.path_id = path->path_id;
+    ack_info.n_ranges = 1;
+    ack_info.ranges[0].low = low;
+    ack_info.ranges[0].high = high;
+    return xqc_send_ctl_on_ack_received(path->path_send_ctl,
+                                        path->path_pn_ctl,
+                                        conn->conn_send_queue, &ack_info,
+                                        recv_time, ack_on_same_path);
+}
+
 void
 xqc_test_murmur_hash2(void)
 {

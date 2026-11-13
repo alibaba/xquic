@@ -50,6 +50,7 @@ typedef enum {
     XQC_POF_INFLIGHT_CANCELED   = 1 << 23,  /* an inflight packet is dropped because of application cancelling. */
     XQC_POF_NO_PATH_PADDING     = 1 << 24,  /* skip path validation padding when limited by anti-amplification budget */
     XQC_POF_PATH_MIN_PADDING    = 1 << 25,  /* pad path validation packet only to RFC 9000 minimum datagram size */
+    XQC_POF_SPLIT               = 1 << 27,  /* resent in smaller packets */
 } xqc_packet_out_flag_t;
 
 typedef struct xqc_po_stream_frame_s {
@@ -143,6 +144,9 @@ xqc_bool_t xqc_packet_out_can_attach_ack(xqc_packet_out_t *po,
 xqc_bool_t xqc_packet_out_can_pto_probe(xqc_packet_out_t *po, uint64_t path_id);
 
 void xqc_packet_out_remove_ack_frame(xqc_packet_out_t *po);
+
+xqc_bool_t xqc_packet_out_exceeds_mss(xqc_connection_t *conn,
+    const xqc_packet_out_t *po);
 
 xqc_packet_out_t *xqc_packet_out_create(size_t po_buf_cap);
 

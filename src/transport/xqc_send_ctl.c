@@ -94,6 +94,20 @@ xqc_send_ctl_indirectly_ack_or_drop_po(xqc_connection_t *conn, xqc_packet_out_t 
         return XQC_TRUE;
     }
 
+    /*
+     * Its frames were resent in packets that fit the path MTU
+     * (xqc_send_queue_split_lost()): drop it, and every copy of it, without
+     * taking its frames as acknowledged, which the new packets are not yet.
+     */
+    if ((packet_out->po_flag & XQC_POF_SPLIT)
+        || (packet_out->po_origin
+            && (packet_out->po_origin->po_flag & XQC_POF_SPLIT)))
+    {
+        xqc_send_ctl_decrease_inflight(conn, packet_out);
+        xqc_send_queue_maybe_remove_unacked(packet_out, send_queue, path);
+        return XQC_TRUE;
+    }
+
     if (packet_out->po_frame_types & XQC_FRAME_BIT_DATAGRAM) {
         if ((packet_out->po_flag & XQC_POF_DROPPED_DGRAM)
             || (packet_out->po_origin && (packet_out->po_origin->po_flag & XQC_POF_DROPPED_DGRAM)))
@@ -105,6 +119,57 @@ xqc_send_ctl_indirectly_ack_or_drop_po(xqc_connection_t *conn, xqc_packet_out_t 
     }
 
     return XQC_FALSE;
+}
+
+
+/* RFC 9002 Appendix A.4: the smoothed RTT before the first RTT sample */
+static void
+xqc_send_ctl_init_srtt(xqc_send_ctl_t *send_ctl, xqc_usec_t initial_rtt)
+{
+    send_ctl->ctl_srtt = initial_rtt;
+    send_ctl->ctl_rttvar = initial_rtt / 2;
+}
+
+
+/* RFC 9002 Appendix A.4: the initial values of the RTT estimator */
+static void
+xqc_send_ctl_init_rtt(xqc_send_ctl_t *send_ctl)
+{
+    send_ctl->ctl_minrtt = XQC_MAX_UINT32_VALUE;
+    xqc_send_ctl_init_srtt(send_ctl,
+                           send_ctl->ctl_conn->conn_settings.initial_rtt);
+    send_ctl->ctl_latest_rtt = 0;
+    send_ctl->ctl_first_rtt_sample_time = 0;
+}
+
+
+/* the congestion controller's own initialization of its state */
+static void
+xqc_send_ctl_init_cc(xqc_send_ctl_t *send_ctl)
+{
+    xqc_connection_t *conn = send_ctl->ctl_conn;
+
+    if (send_ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr) {
+        send_ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr(send_ctl->ctl_cong,
+            &send_ctl->sampler, conn->conn_settings.cc_params);
+
+    } else {
+        send_ctl->ctl_cong_callback->xqc_cong_ctl_init(send_ctl->ctl_cong,
+            send_ctl, conn->conn_settings.cc_params);
+    }
+}
+
+
+/*
+ * RFC 9000 Section 9.4: the packets sent before the peer moved to a new IP
+ * address (xqc_send_ctl_reset_for_new_path()) contribute to neither the
+ * congestion control nor the RTT estimation of the path.
+ */
+static xqc_bool_t
+xqc_send_ctl_sent_on_old_path(const xqc_send_ctl_t *send_ctl,
+    xqc_usec_t sent_time)
+{
+    return sent_time < send_ctl->ctl_cc_reset_time;
 }
 
 
@@ -123,14 +188,10 @@ xqc_send_ctl_create(xqc_path_ctx_t *path)
     send_ctl->ctl_conn = conn;
 
     send_ctl->ctl_pto_count = 0;
-    send_ctl->ctl_minrtt = XQC_MAX_UINT32_VALUE;
-    send_ctl->ctl_srtt = conn->conn_settings.initial_rtt;
-    send_ctl->ctl_rttvar = send_ctl->ctl_srtt / 2;
-    send_ctl->ctl_latest_rtt = 0;
+    xqc_send_ctl_init_rtt(send_ctl);
     send_ctl->ctl_max_bytes_in_flight = 0;
     send_ctl->ctl_reordering_packet_threshold = conn->conn_settings.loss_detection_pkt_thresh;
     send_ctl->ctl_reordering_time_threshold_shift = XQC_kTimeThresholdShift;
-    send_ctl->ctl_first_rtt_sample_time = 0;
 
     for (size_t i = 0; i < XQC_PNS_N; i++) {
         send_ctl->ctl_largest_acked[i] = XQC_MAX_UINT64_VALUE;
@@ -164,14 +225,7 @@ xqc_send_ctl_create(xqc_path_ctx_t *path)
         send_ctl->ctl_cong_callback = &xqc_cubic_cb;
     }
     send_ctl->ctl_cong = xqc_pcalloc(conn->conn_pool, send_ctl->ctl_cong_callback->xqc_cong_ctl_size());
-
-    if (conn->conn_settings.cong_ctrl_callback.xqc_cong_ctl_init_bbr) {
-        send_ctl->ctl_cong_callback->xqc_cong_ctl_init_bbr(send_ctl->ctl_cong,
-                                                           &send_ctl->sampler, conn->conn_settings.cc_params);
-
-    } else {
-        send_ctl->ctl_cong_callback->xqc_cong_ctl_init(send_ctl->ctl_cong, send_ctl, conn->conn_settings.cc_params);
-    }
+    xqc_send_ctl_init_cc(send_ctl);
 
     xqc_pacing_init(&send_ctl->ctl_pacing, conn->conn_settings.pacing_on, send_ctl);
 
@@ -202,6 +256,61 @@ xqc_send_ctl_destroy(xqc_send_ctl_t *send_ctl)
     send_ctl->ctl_bytes_in_flight = 0;
 }
 
+/*
+ * RFC 9000 Section 9.4: once the peer is confirmed at a new IP address,
+ * restart the congestion controller and the RTT estimator of the path from
+ * their initial values (RFC 9002 Appendices A.4 and B.3). The packets sent
+ * before stay in flight until they are acknowledged or declared lost, but
+ * no longer count (xqc_send_ctl_sent_on_old_path()).
+ */
+void
+xqc_send_ctl_reset_for_new_path(xqc_send_ctl_t *send_ctl)
+{
+    xqc_connection_t *conn = send_ctl->ctl_conn;
+
+    send_ctl->ctl_cc_reset_time = xqc_monotonic_timestamp();
+    send_ctl->ctl_pto_count = 0;
+    send_ctl->ctl_max_bytes_in_flight = 0;
+    xqc_send_ctl_init_rtt(send_ctl);
+
+    /* xqc_bbr_init() and xqc_bbr2_init() start from the sampled srtt */
+    xqc_init_sample_before_ack(&send_ctl->sampler);
+    xqc_memzero(send_ctl->ctl_cong,
+                send_ctl->ctl_cong_callback->xqc_cong_ctl_size());
+    xqc_send_ctl_init_cc(send_ctl);
+    xqc_pacing_init(&send_ctl->ctl_pacing, conn->conn_settings.pacing_on,
+                    send_ctl);
+
+    /* the PTO follows the RTT estimate and the PTO count */
+    xqc_send_ctl_set_loss_detection_timer(send_ctl);
+
+    xqc_log(conn->log, XQC_LOG_INFO, "|path:%ui|cc and rtt reset|cwnd:%ui|",
+            send_ctl->ctl_path->path_id,
+            send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+                send_ctl->ctl_cong));
+}
+
+/*
+ * RFC 9002 Section 6.2.2: the delay between sending a PATH_CHALLENGE and
+ * receiving its PATH_RESPONSE may set the initial RTT of a new path. It is
+ * no RTT sample: the first sample replaces it, as it replaces the initial
+ * RTT of the settings.
+ */
+void
+xqc_send_ctl_set_initial_rtt(xqc_send_ctl_t *send_ctl, xqc_usec_t initial_rtt)
+{
+    if (send_ctl->ctl_first_rtt_sample_time != 0) {
+        return;
+    }
+
+    xqc_send_ctl_init_srtt(send_ctl, initial_rtt);
+    xqc_send_ctl_set_loss_detection_timer(send_ctl);
+
+    xqc_log(send_ctl->ctl_conn->log, XQC_LOG_INFO,
+            "|path:%ui|initial rtt from PATH_CHALLENGE|srtt:%ui|",
+            send_ctl->ctl_path->path_id, initial_rtt);
+}
+
 void
 xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl)
 {
@@ -209,14 +318,11 @@ xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl)
     xqc_path_ctx_t *path = send_ctl->ctl_path;
 
     send_ctl->ctl_pto_count = 0;
-    send_ctl->ctl_minrtt = XQC_MAX_UINT32_VALUE;
-    send_ctl->ctl_srtt = conn->conn_settings.initial_rtt;
-    send_ctl->ctl_rttvar = send_ctl->ctl_srtt / 2;
+    xqc_send_ctl_init_rtt(send_ctl);
     send_ctl->ctl_max_bytes_in_flight = 0;
     send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
     send_ctl->ctl_reordering_time_threshold_shift = XQC_kTimeThresholdShift;
     send_ctl->ctl_ack_sent_cnt = 0;
-    send_ctl->ctl_first_rtt_sample_time = 0;
 
     for (size_t i = 0; i < XQC_PNS_N; i++) {
         send_ctl->ctl_largest_acked[i] = XQC_MAX_UINT64_VALUE;
@@ -898,6 +1004,8 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
 
         if (packet_out->po_pkt.pkt_num >= range->low) {
             // this packet is acked
+            xqc_bool_t sent_on_old_path = xqc_send_ctl_sent_on_old_path(
+                send_ctl, packet_out->po_sent_time);
 
             // 修改标志位
             if (has_acked == 0) {
@@ -919,7 +1027,9 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
                 ignore_rtt = 0;
                 send_ctl->ctl_largest_acked[pns] = packet_out->po_pkt.pkt_num;
                 send_ctl->ctl_largest_acked_sent_time[pns] = packet_out->po_sent_time;
-                if (packet_out->po_flag & XQC_POF_PMTUD_PROBING) {
+                if ((packet_out->po_flag & XQC_POF_PMTUD_PROBING)
+                    || sent_on_old_path)
+                {
                     ignore_rtt = 1;
                 }
             }
@@ -941,7 +1051,10 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
                 frame_largest_ack, send_ctl->ctl_largest_acked[pns]);
 
             // 更新sample
-            xqc_update_sample(&send_ctl->sampler, packet_out, send_ctl, ack_recv_time);
+            if (!sent_on_old_path) {
+                xqc_update_sample(&send_ctl->sampler, packet_out, send_ctl,
+                                  ack_recv_time);
+            }
 
             /* Packet previously declared lost gets acked */
             if (!(packet_out->po_flag & XQC_POF_SPURIOUS_LOSS) && (packet_out->po_flag & XQC_POF_RETRANSED)) {
@@ -958,7 +1071,8 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
                 xqc_datagram_notify_ack(conn, packet_out);
             }
 
-            xqc_send_ctl_on_packet_acked(send_ctl, packet_out, ack_recv_time, 1);
+            xqc_send_ctl_on_packet_acked(send_ctl, packet_out, ack_recv_time,
+                                         !sent_on_old_path);
             
             if (packet_out->po_used_size > conn->max_acked_po_size) {
                 conn->max_acked_po_size = packet_out->po_used_size + XQC_TLS_AEAD_OVERHEAD_MAX_LEN;
@@ -1274,7 +1388,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
 {
     xqc_list_head_t *pos, *next;
     xqc_packet_out_t *po, *largest_lost = NULL;
-    uint64_t lost_n = 0;
+    uint64_t lost_n = 0, cc_lost_n = 0;
 
     send_ctl->ctl_loss_time[pns] = 0;
     send_ctl->sampler.loss = 0;
@@ -1388,6 +1502,11 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
 
                 conn->detected_loss_cnt++;
                 lost_n++;
+                if (!xqc_send_ctl_sent_on_old_path(send_ctl,
+                                                   po->po_sent_time))
+                {
+                    cc_lost_n++;
+                }
 
                 xqc_log(conn->log, XQC_LOG_DEBUG, "|mark lost|pns:%d|pkt_num:%ui|"
                         "lost_pn:%ui|po_sent_time:%ui|lost_send_time:%ui|loss_delay:%ui|frame:%s|repair:%d|",
@@ -1428,9 +1547,9 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
         }
     }
 
-    /* update statistic */
-    send_ctl->ctl_lost_pkts_number += lost_n;
-    send_ctl->sampler.loss = lost_n;
+    /* the delivery rate samples count the losses of the current path */
+    send_ctl->ctl_lost_pkts_number += cc_lost_n;
+    send_ctl->sampler.loss = cc_lost_n;
 
     /**
      * OnPacketsLost
@@ -1506,6 +1625,10 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
 xqc_bool_t
 xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *largest_lost, xqc_usec_t now)
 {
+    if (xqc_send_ctl_sent_on_old_path(send_ctl, largest_lost->po_sent_time)) {
+        return XQC_FALSE;
+    }
+
     if (send_ctl->ctl_pto_count >= XQC_CONSECUTIVE_PTO_THRESH) {
         xqc_usec_t duration = (send_ctl->ctl_srtt + xqc_max(send_ctl->ctl_rttvar << 2, XQC_kGranularity * 1000)
             + send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000) * XQC_kPersistentCongestionThreshold;
@@ -1523,6 +1646,10 @@ xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl, xqc_packet_out_t
 void
 xqc_send_ctl_congestion_event(xqc_send_ctl_t *send_ctl, xqc_usec_t sent_time)
 {
+    if (xqc_send_ctl_sent_on_old_path(send_ctl, sent_time)) {
+        return;
+    }
+
     if (send_ctl->ctl_cong_callback->xqc_cong_ctl_on_lost) {
         send_ctl->ctl_cong_callback->xqc_cong_ctl_on_lost(send_ctl->ctl_cong, sent_time);
     }

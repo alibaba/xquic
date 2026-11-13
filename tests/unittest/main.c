@@ -365,6 +365,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_rebinding_ignores_unauthenticated_packet", xqc_test_rebinding_ignores_unauthenticated_packet)
         || !CU_add_test(pSuite, "xqc_test_rebinding_path_challenge_requires_confirmed", xqc_test_rebinding_path_challenge_requires_confirmed)
         || !CU_add_test(pSuite, "xqc_test_rebinding_timeout_retry_limit", xqc_test_rebinding_timeout_retry_limit)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_ip_resets_cubic",
+                        xqc_test_rebinding_new_ip_resets_cubic)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_ip_resets_bbr",
+                        xqc_test_rebinding_new_ip_resets_bbr)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_port_keeps_cc",
+                        xqc_test_rebinding_new_port_keeps_cc)
         || !CU_add_test(pSuite, "xqc_test_rebinding_response_mismatch_preserves_state", xqc_test_rebinding_response_mismatch_preserves_state)
         || !CU_add_test(pSuite, "xqc_test_rebinding_sender_error_clears_candidate", xqc_test_rebinding_sender_error_clears_candidate)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
@@ -882,6 +888,21 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_packet_cc_reaction",
                         xqc_test_send_ctl_lost_packet_cc_reaction)
+        /* RFC 9000 14.2: lost packets that no longer fit are split */
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_split_lost_stream_packet",
+                        xqc_test_send_ctl_split_lost_stream_packet)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_split_lost_packet_copied",
+                        xqc_test_send_ctl_split_lost_packet_copied)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_split_keeps_other_frames",
+                        xqc_test_send_ctl_split_keeps_other_frames)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_split_copy_not_acked",
+                        xqc_test_send_ctl_split_copy_not_acked)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_pto_pings_when_none_fits",
+                        xqc_test_send_ctl_pto_pings_when_none_fits)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_pto_probes_packet_that_fits",
+                        xqc_test_send_ctl_pto_probes_packet_that_fits)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_mss_follows_smallest_path",
+                        xqc_test_send_ctl_mss_follows_smallest_path)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

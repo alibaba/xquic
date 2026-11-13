@@ -1052,3 +1052,84 @@ xqc_test_send_ctl_lost_packet_cc_reaction(void)
 {
     xqc_test_send_ctl_lost_packet_cc(XQC_FALSE);
 }
+
+
+/*
+ * RFC 9002 Section 6.2.1: each PTO expiry doubles the PTO period. xquic caps
+ * the backoff at 2^16, and pto_count keeps growing while no acknowledgment
+ * arrives, so the period stays at the cap however many PTOs expire.
+ */
+static xqc_usec_t
+xqc_test_pto_deadline(xqc_send_ctl_t *send_ctl, unsigned pto_count)
+{
+    xqc_pkt_num_space_t pns = XQC_PNS_N;
+
+    send_ctl->ctl_pto_count = pto_count;
+    xqc_usec_t t = xqc_send_ctl_get_pto_time_and_space(send_ctl, 0, &pns);
+    CU_ASSERT_EQUAL(pns, XQC_PNS_APP_DATA);
+    return t;
+}
+
+static xqc_connection_t *
+xqc_test_pto_backoff_conn(xqc_usec_t last_sent)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    /* PTO period without backoff: 30 + max(4 * 5, 1) + 25 = 75 ms */
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    conn->remote_settings.max_ack_delay = 25;
+    conn->conn_settings.pto_backoff_factor = 2.0;
+    send_ctl->ctl_srtt = 30000;
+    send_ctl->ctl_rttvar = 5000;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+    send_ctl->ctl_bytes_in_flight = 1200;
+    send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA] = 1200;
+    send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[XQC_PNS_APP_DATA] =
+        last_sent;
+    return conn;
+}
+
+static void
+xqc_test_pto_backoff_conn_destroy(xqc_connection_t *conn)
+{
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    send_ctl->ctl_bytes_in_flight = 0;
+    send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA] = 0;
+    send_ctl->ctl_pto_count = 0;
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_pto_backoff_doubles(void)
+{
+    xqc_usec_t last_sent = 1000000000;
+    xqc_connection_t *conn = xqc_test_pto_backoff_conn(last_sent);
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    CU_ASSERT_EQUAL(xqc_test_pto_deadline(send_ctl, 0), last_sent + 75000);
+    CU_ASSERT_EQUAL(xqc_test_pto_deadline(send_ctl, 1), last_sent + 2 * 75000);
+    CU_ASSERT_EQUAL(xqc_test_pto_deadline(send_ctl, 16),
+                    last_sent + 65536 * 75000ULL);
+
+    xqc_test_pto_backoff_conn_destroy(conn);
+}
+
+void
+xqc_test_pto_backoff_capped_after_30_ptos(void)
+{
+    xqc_usec_t last_sent = 1000000000;
+    xqc_connection_t *conn = xqc_test_pto_backoff_conn(last_sent);
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_usec_t capped = last_sent + 65536 * 75000ULL;
+    unsigned counts[] = {17, 30, 31, 32, 33, 64, 1000, 0xffffffff};
+
+    for (size_t i = 0; i < sizeof(counts) / sizeof(counts[0]); i++) {
+        CU_ASSERT_EQUAL(xqc_test_pto_deadline(send_ctl, counts[i]), capped);
+    }
+
+    xqc_test_pto_backoff_conn_destroy(conn);
+}

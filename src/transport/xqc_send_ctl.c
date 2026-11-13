@@ -1732,7 +1732,7 @@ xqc_send_ctl_get_pto_time_and_space(xqc_send_ctl_t *send_ctl, xqc_usec_t now, xq
     double  backoff = xqc_send_ctl_pow_x(c->conn_settings.pto_backoff_factor, send_ctl->ctl_pto_count);
 
     /* set a cap to avoid PTO timeout overflow */
-    backoff = xqc_min(backoff, 1 << 16);
+    backoff = xqc_min(backoff, 1 << XQC_PTO_BACKOFF_MAX_EXP);
 
     /* get pto duration */
     if (c->conn_settings.control_pto_value) {

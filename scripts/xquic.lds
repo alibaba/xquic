@@ -1,6 +1,5 @@
 XQUIC_VERS_1.0 {
     global:
-        xqc_set_engine_config;
         xqc_server_set_conn_settings;
         xqc_engine_create;
         xqc_engine_destroy;
@@ -58,7 +57,6 @@ XQUIC_VERS_1.0 {
         xqc_engine_packet_process;
         xqc_engine_finish_recv;
         xqc_engine_finish_send;
-        xqc_engine_recv_batch;
         xqc_engine_main_logic;
         xqc_engine_get_default_config;
         xqc_packet_parse_cid;

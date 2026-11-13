@@ -821,6 +821,8 @@ main(int argc, char *argv[])
                         xqc_test_retry_invalid_token_close)
         || !CU_add_test(pSuite, "xqc_test_retry_invalid_token_ignore_original_dcid",
                         xqc_test_retry_invalid_token_ignore_original_dcid)
+        || !CU_add_test(pSuite, "xqc_test_retry_pseudo_packet_bound",
+                        xqc_test_retry_pseudo_packet_bound)
         || !CU_add_test(pSuite, "xqc_test_receive_invalid_dgram", xqc_test_receive_invalid_dgram)
         || !CU_add_test(pSuite,
                         "xqc_test_receive_dgram_at_valid_encryption_level",

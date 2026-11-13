@@ -364,3 +364,60 @@ xqc_test_stop_sending_spares_other_streams()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+static xqc_int_t
+xqc_test_process_stream_bytes(xqc_connection_t *conn, unsigned char *frame, size_t len)
+{
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pos = frame;
+    pi.last = frame + len;
+    return xqc_process_stream_frame(conn, &pi);
+}
+
+/*
+ * RFC 9000 Section 4.5 and Section 20: a STREAM frame with FIN cannot end
+ * the stream below data already received, nor change a final size that is
+ * already known, even when all of its data was received before.
+ */
+void
+xqc_test_stream_frame_final_size()
+{
+    /* stream 0, LEN: 10 bytes */
+    unsigned char data10[3 + 10] = { 0x0a, 0x00, 0x0a };
+    /* stream 0, LEN and FIN: 5 bytes, final size 5 */
+    unsigned char fin5[3 + 5] = { 0x0b, 0x00, 0x05 };
+    /* stream 0, LEN and FIN: 10 bytes, final size 10 */
+    unsigned char fin10[3 + 10] = { 0x0b, 0x00, 0x0a };
+    xqc_connection_t *conn;
+    xqc_stream_t *stream;
+
+    /* a FIN below the 10 bytes received */
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    CU_ASSERT(stream->stream_id == 0);
+    CU_ASSERT(xqc_test_process_stream_bytes(conn, data10, sizeof(data10)) == XQC_OK);
+    CU_ASSERT(xqc_test_process_stream_bytes(conn, fin5, sizeof(fin5)) == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_FINAL_SIZE_ERROR);
+    CU_ASSERT(!stream->stream_data_in.stream_determined);
+    xqc_engine_destroy(conn->engine);
+
+    /* a FIN that moves the final size of 10 into data received before */
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    CU_ASSERT(xqc_test_process_stream_bytes(conn, fin10, sizeof(fin10)) == XQC_OK);
+    CU_ASSERT(stream->stream_data_in.stream_length == 10);
+    /* a retransmission of the same FIN is accepted */
+    CU_ASSERT(xqc_test_process_stream_bytes(conn, fin10, sizeof(fin10)) == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(xqc_test_process_stream_bytes(conn, fin5, sizeof(fin5)) == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_FINAL_SIZE_ERROR);
+    CU_ASSERT(stream->stream_data_in.stream_length == 10);
+    xqc_engine_destroy(conn->engine);
+}

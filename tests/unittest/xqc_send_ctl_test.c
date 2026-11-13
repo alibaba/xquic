@@ -696,6 +696,52 @@ xqc_test_send_ctl_granularity_defers_before_boundary(void)
 
 
 /*
+ * RFC 9002 Appendix A.10: a packet is lost by time once loss_delay has
+ * passed since it was sent, also with a clock that started less than
+ * loss_delay ago (loss_delay is kGranularity, 1 ms, here).
+ */
+static void
+xqc_test_send_ctl_small_clock_case(xqc_usec_t now, uint64_t expected_lost,
+    xqc_usec_t expected_loss_time)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    send_ctl->ctl_srtt = 0;
+    send_ctl->ctl_latest_rtt = 0;
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 100;
+    send_ctl->ctl_reordering_packet_threshold = XQC_kPacketThreshold;
+
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 99, 0);
+    CU_ASSERT_FATAL(po != NULL);
+
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, now);
+
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, expected_lost);
+    CU_ASSERT_EQUAL(send_ctl->ctl_loss_time[XQC_PNS_APP_DATA],
+                    expected_loss_time);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* sent at 0, 1 ms ago: lost */
+void
+xqc_test_send_ctl_small_clock_marks_at_loss_delay(void)
+{
+    xqc_test_send_ctl_small_clock_case(1000, 1, 0);
+}
+
+/* sent at 0, 0.5 ms ago: not lost yet, the loss timer waits for 1 ms */
+void
+xqc_test_send_ctl_small_clock_defers_before_loss_delay(void)
+{
+    xqc_test_send_ctl_small_clock_case(500, 0, 1000);
+}
+
+
+/*
  * Build a send_ctl state that satisfies xqc_send_ctl_in_persistent_congestion:
  *   - pto_count == XQC_CONSECUTIVE_PTO_THRESH
  *   - srtt/rttvar small so duration is bounded and easy to exceed

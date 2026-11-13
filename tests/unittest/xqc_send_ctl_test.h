@@ -82,4 +82,11 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * RFC 9002 Section 6.2.1: the PTO period doubles on each expiry up to the
+ * 2^16 backoff cap, and stays there however many expiries follow.
+ */
+void xqc_test_pto_backoff_doubles(void);
+void xqc_test_pto_backoff_capped_after_30_ptos(void);
+
 #endif

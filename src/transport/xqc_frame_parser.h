@@ -55,6 +55,10 @@ ssize_t xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, uint64_t offset,
 
 xqc_int_t xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_stream_frame_t * frame);
 
+/* the size that xqc_gen_padding_frame() pads a smaller packet to */
+size_t xqc_padding_frame_total_len(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out);
+
 void xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
 
 xqc_int_t xqc_gen_padding_frame_with_len(xqc_connection_t *conn, xqc_packet_out_t *packet_out,

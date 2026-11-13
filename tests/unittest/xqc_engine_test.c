@@ -32,6 +32,25 @@ xqc_test_engine_create()
 }
 
 
+void
+xqc_test_engine_unregister_alpn()
+{
+    xqc_engine_t *engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+
+    /* test_create_engine() registers "transport": a NULL name must not be compared */
+    CU_ASSERT(xqc_engine_unregister_alpn(engine, NULL, 9) == -XQC_EPARAM);
+    CU_ASSERT(xqc_engine_unregister_alpn(engine, "transport", 0) == -XQC_EPARAM);
+
+    /* the registration is still there */
+    CU_ASSERT(xqc_engine_unregister_alpn(engine, "transport", 9) == XQC_OK);
+    CU_ASSERT(xqc_engine_unregister_alpn(engine, "transport", 9)
+              == -XQC_EALPN_NOT_REGISTERED);
+
+    xqc_engine_destroy(engine);
+}
+
+
 #define XQC_TEST_SHORT_HEADER_PACKET_A "\x40\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
 #define XQC_TEST_LONG_HEADER_PACKET_B "\xC0\xFF\x00\x00\x1D\x08\xAB\x3f\x12\x0a\xcd\xef\x00\x89\x08\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
 #define XQC_TEST_INITIAL_FIRST_BYTE 0xC0

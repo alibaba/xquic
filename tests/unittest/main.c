@@ -507,6 +507,10 @@ main(int argc, char *argv[])
                         xqc_test_moqt_interop_oracle)
         || !CU_add_test(pSuite, "xqc_test_moqt_interop_oracle_errors",
                         xqc_test_moqt_interop_oracle_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_properties",
+                        xqc_test_moqt_interop_properties)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_properties_errors",
+                        xqc_test_moqt_interop_properties_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_errors",
                         xqc_test_moqt_fill_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_parameters",

@@ -16,7 +16,7 @@ typedef struct {
     xqc_interop_fixture_t fixture;
     size_t offsets[XQC_INTEROP_MAX_OBJECTS];
     unsigned char seen[XQC_INTEROP_MAX_OBJECTS];
-    unsigned objects, markers, failed;
+    unsigned objects, markers, failed, origin;
 } xqc_interop_oracle_t;
 
 typedef struct {

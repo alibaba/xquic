@@ -172,3 +172,43 @@ xqc_test_moqt_interop_oracle_errors(void)
     xqc_interop_oracle_object(&oracle, &o);
     CU_ASSERT_TRUE(oracle.failed);
 }
+
+void
+xqc_test_moqt_interop_properties(void)
+{
+    xqc_interop_oracle_t oracle = {.origin = 1};
+    xqc_interop_fixture_case("moq-test-extensions", &oracle.fixture);
+    char bytes[64];
+    memset(bytes, 't', sizeof(bytes));
+    unsigned char props[] = {2, 42, 3, 3, 'a', 'b', 'c'};
+    xqc_moqt_object_t object = {.priority = 200, .payload_length = 64,
+        .payload = {bytes, 64}, .properties = {props, sizeof(props)}};
+    xqc_interop_oracle_object(&oracle, &object);
+    CU_ASSERT_FALSE(oracle.failed);
+    CU_ASSERT_EQUAL(oracle.objects, 1);
+    oracle = (xqc_interop_oracle_t){0};
+    xqc_interop_fixture_case("moq-test-extensions", &oracle.fixture);
+    unsigned char fixed[] = {2, 1, 3, 1, 'x'};
+    object.properties = (struct iovec){fixed, sizeof(fixed)};
+    xqc_interop_oracle_object(&oracle, &object);
+    CU_ASSERT_FALSE(oracle.failed);
+    CU_ASSERT_EQUAL(oracle.objects, 1);
+}
+
+void
+xqc_test_moqt_interop_properties_errors(void)
+{
+    for (unsigned i = 0; i < 4; i++) {
+        xqc_interop_oracle_t oracle = {.origin = i != 3};
+        xqc_interop_fixture_case("moq-test-extensions", &oracle.fixture);
+        char bytes[64];
+        memset(bytes, 't', sizeof(bytes));
+        unsigned char props[] = {2, 42, i == 0 ? 5 : 3, 3, 'a', 'b', 'c'};
+        xqc_moqt_object_t object = {.priority = 200, .payload_length = 64,
+            .payload = {bytes, 64},
+            .properties = {props, i == 1 ? sizeof(props) - 1
+                                    : i == 2 ? 1 : sizeof(props)}};
+        xqc_interop_oracle_object(&oracle, &object);
+        CU_ASSERT_TRUE(oracle.failed);
+    }
+}

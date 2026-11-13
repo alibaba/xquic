@@ -34,8 +34,11 @@ struct xqc_interop_peer_s {
     xqc_wt_session_t *wt;
 #endif
     xqc_moqt_request_t *request, *sending;
+    xqc_moqt_request_t *join_sending;
     xqc_moqt_request_t *publications[2];
     xqc_moqt_subscription_t *subscription;
+    xqc_moqt_subscription_t *join_subscription;
+    xqc_moqt_stream_t *join_stream;
     xqc_moqt_stream_t *streams[2];
     xqc_interop_fixture_t fixture;
     xqc_interop_oracle_t oracle;
@@ -49,6 +52,7 @@ struct xqc_interop_peer_s {
     unsigned history, available, paused, pause_at, has_largest;
     unsigned fetch_ready, fetch_closed, fetch_first, fetch_index, fetch_last;
     unsigned fetch_finished;
+    unsigned join_streams;
     unsigned ready, response, response_type, incoming, error, closed;
     unsigned done, streams_closed, streams_reset, namespaces, removals;
     unsigned transport_closed, offered;
@@ -282,6 +286,8 @@ xqc_interop_message(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
 {
     xqc_interop_peer_t *p = data;
     xqc_moqt_message_t reply = {0};
+    int joining = m->type == XQC_MOQT_MSG_SUBSCRIBE
+        && p->history && p->sending;
     if (m->type == XQC_MOQT_MSG_REQUEST_OK
         || m->type == XQC_MOQT_MSG_SUBSCRIBE_OK
         || m->type == XQC_MOQT_MSG_FETCH_OK
@@ -366,7 +372,10 @@ xqc_interop_message(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
             p->offered += matches;
         }
     } else if (m->type == XQC_MOQT_MSG_SUBSCRIBE) {
-        if (!p->history
+        if (joining && p->join_sending) {
+            reply.type = XQC_MOQT_MSG_REQUEST_ERROR;
+            reply.error.code = XQC_MOQT_REQUEST_EXCESSIVE_LOAD;
+        } else if (!p->history
             && xqc_interop_fixture_parse(&m->track_namespace, &p->fixture)
             != 0 && (p->app->server || p->basic))
         {
@@ -375,13 +384,15 @@ xqc_interop_message(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
         } else {
             reply.type = XQC_MOQT_MSG_SUBSCRIBE_OK;
             reply.track_alias = p->next_alias++;
-            p->sending = r;
+            if (!joining) {
+                p->sending = r;
+                p->group = p->fixture.first_group;
+                p->object = p->fixture.first_object;
+                p->sent_streams = 0;
+            }
             if (p->basic) {
                 p->fixture.priority = 128;
             }
-            p->group = p->fixture.first_group;
-            p->object = p->fixture.first_object;
-            p->sent_streams = 0;
             p->forward = 1;
             for (size_t i = 0; i < m->parameter_count; i++) {
                 if (m->parameters[i].type == XQC_MOQT_PARAM_FORWARD) {
@@ -427,7 +438,12 @@ xqc_interop_message(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
     }
     if (reply.type == XQC_MOQT_MSG_SUBSCRIBE_OK) {
         p->incoming++;
-        p->subscription = xqc_moqt_request_subscription(r);
+        if (joining) {
+            p->join_sending = r;
+            p->join_subscription = xqc_moqt_request_subscription(r);
+        } else {
+            p->subscription = xqc_moqt_request_subscription(r);
+        }
         if (p->basic || p->app->server || p->history) {
             p->generating = 1;
         }
@@ -446,6 +462,9 @@ xqc_interop_request_closed(xqc_moqt_request_t *r,
         p->sending = NULL;
         p->generating = 0;
     }
+    if (p->join_sending == r) {
+        p->join_sending = NULL;
+    }
     for (unsigned i = 0; i < 2; i++) {
         if (p->publications[i] == r) {
             p->publications[i] = NULL;
@@ -461,6 +480,9 @@ xqc_interop_subscription_closed(xqc_moqt_subscription_t *sub,
     if (p->subscription == sub) {
         p->subscription = NULL;
         p->generating = 0;
+    }
+    if (p->join_subscription == sub) {
+        p->join_subscription = NULL;
     }
 }
 
@@ -483,6 +505,9 @@ xqc_interop_stream_closed(xqc_moqt_stream_t *stream,
     p->streams_reset += error != NULL;
     if (p->fetch_stream == stream) {
         p->fetch_stream = NULL;
+    }
+    if (p->join_stream == stream) {
+        p->join_stream = NULL;
     }
     for (unsigned i = 0; i < 2; i++) {
         if (p->streams[i] == stream) {
@@ -1008,6 +1033,12 @@ xqc_interop_generate(xqc_interop_peer_t *p)
         if (xqc_moqt_request_send(p->sending, &done) != XQC_OK) {
             p->error = 1;
         }
+        if (p->join_sending) {
+            done.stream_count = p->join_streams;
+            if (xqc_moqt_request_send(p->join_sending, &done) != XQC_OK) {
+                p->error = 1;
+            }
+        }
         p->generating = 0;
         return;
     }
@@ -1059,12 +1090,35 @@ xqc_interop_generate(xqc_interop_peer_t *p)
         return;
     }
     if (p->history) {
+        /* The bounded Join fixture has independent live and joining demands. */
+        if (p->join_subscription) {
+            if (!p->join_stream) {
+                p->join_stream = xqc_moqt_subgroup_open(p->join_subscription,
+                    p->group, 0, object.priority, 0, 0);
+                p->join_streams++;
+            }
+            if (!p->join_stream
+                || xqc_moqt_stream_send_object(p->join_stream, &object)
+                    != XQC_OK)
+            {
+                p->error = 1;
+                p->generating = 0;
+                return;
+            }
+        }
         p->available++;
         if (p->available == p->pause_at) {
             p->paused = 1;
         }
     }
     if (last || f->mode == 1) {
+        if (p->join_stream) {
+            xqc_moqt_stream_t *st = p->join_stream;
+            p->join_stream = NULL;
+            if (xqc_moqt_stream_finish(st) != XQC_OK) {
+                p->error = 1;
+            }
+        }
         for (unsigned i = 0; i < 2; i++) {
             if (p->streams[i] != NULL) {
                 xqc_moqt_stream_t *st = p->streams[i];
@@ -1524,6 +1578,7 @@ xqc_interop_origin(xqc_interop_app_t *app, const char *name)
     if (!sub || xqc_interop_fixture_case(name, &sub->oracle.fixture)) {
         return -1;
     }
+    sub->oracle.origin = 1;
     xqc_moqt_namespace_t ns = {0};
     char fields[15][24];
     xqc_interop_tuple(&ns, &sub->oracle.fixture, fields);

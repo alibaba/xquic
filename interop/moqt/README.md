@@ -67,6 +67,10 @@ uses SUBSCRIBE with FILL_PARAMETERS: six historical objects and nineteen
 subsequent live objects have independent oracles and completion conditions.
 Both cases require the original live observer to receive all thirty objects;
 an OK response or a partial history stream is insufficient.
+The bounded history publisher retains two independent upstream subscriptions
+for the live observer and joiner. A new Join does not restart the source or
+replace the original delivery; each demand has its own stream and completion
+count. Historical data remains available while both live deliveries progress.
 
 Data cases use fresh random namespaces, independent publisher and subscriber
 sessions, bounded phase/delivery deadlines and paced objects. The oracle
@@ -74,6 +78,10 @@ checks complete object identities, payload fragments and bytes, delivery mode,
 Subgroup, priority, properties, EOG and PUBLISH_DONE. Stream Count/FIN never
 substitutes for object completeness. Unknown Stream Count is `UINT64_MAX` per
 draft-22; wire values are not changed to match an older peer oracle.
+The controlled publisher uses property IDs 2 and 5 with known values so relay
+checks compare their bytes. Direct-origin checks validate those IDs and the
+complete property encoding while allowing random values, as specified by
+[MoQT Test -00 §§2.14–2.15](https://datatracker.ietf.org/doc/html/draft-afrind-moq-test-00#section-2.14).
 
 `--server` selects a direct endpoint/origin. Each
 connection independently accepts PUBLISH_NAMESPACE/PUBLISH, rejects unknown

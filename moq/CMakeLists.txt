@@ -1,6 +1,8 @@
 if (XQC_ENABLE_MOQ)
     set(
         MOQ_SOURCES
+        "moq/loc/xqc_loc.c"
+        "moq/msf/xqc_msf.c"
         "moq/moqt_relay/xqc_moqt_relay.c"
         "moq/moqt_relay/xqc_moqt_relay_data.c"
         "moq/moqt/xqc_moqt_codec.c"

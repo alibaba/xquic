@@ -161,6 +161,7 @@ if(HAVE_CUNIT)
 
     if(XQC_ENABLE_MOQ)
         list(APPEND test_SOURCES
+            ${UNIT_TEST_DIR}/xqc_loc_msf_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_relay_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_codec_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_quic_test.c

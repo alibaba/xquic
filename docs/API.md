@@ -1063,3 +1063,10 @@ Draft-07 retains its ordinary reset and best-effort association semantics.
 See the [MoQT binding contract](../spec/moqt/moqt-protocol.md#scope-and-webtransport),
 [WT contract](../harness/spec/webtransport/spec.md) and
 [parser demo](../demo/moqt.md) for ownership, policy and execution details.
+
+## LOC and MSF Application Formats
+
+With `XQC_ENABLE_MOQ`, `include/moq/xqc_loc.h` provides LOC public-property
+codecs and `include/moq/xqc_msf.h` provides independent MSF LOC catalogs.
+See the [minimum profile](../harness/spec/loc-msf/spec.md) for supported
+fields, memory ownership, limits and application integration obligations.

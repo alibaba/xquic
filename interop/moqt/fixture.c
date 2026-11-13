@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "fixture.h"
+#include "moq/moqt/xqc_moqt_codec.h"
 
 /* aiomoqt 0.14.1 moq_interop_client.py, MOQ_TEST_CASES. */
 int
@@ -164,9 +165,22 @@ xqc_interop_oracle_object(xqc_interop_oracle_t *o,
     if (obj->payload_offset == 0) {
         const unsigned char props[] = {2, 1, 3, 1, 'x'};
         if (f->extensions) {
-            if (obj->properties.iov_len != sizeof(props)
-                || memcmp(obj->properties.iov_base, props, sizeof(props)))
-            {
+            int valid = obj->properties.iov_len == sizeof(props)
+                && !memcmp(obj->properties.iov_base, props, sizeof(props));
+            if (o->origin && obj->properties.iov_len) {
+                /* MoQT Test -00 2.14/2.15: IDs 2 and 5, random values. */
+                const uint8_t *v = obj->properties.iov_base;
+                xqc_moqt_kv_t kv;
+                int n = xqc_moqt_kv_decode(v, obj->properties.iov_len, 0, &kv);
+                valid = n > 0 && kv.type == 2;
+                if (valid) {
+                    int next = xqc_moqt_kv_decode(v + n,
+                        obj->properties.iov_len - n, kv.type, &kv);
+                    valid = next > 0 && kv.type == 5
+                        && (size_t)(n + next) == obj->properties.iov_len;
+                }
+            }
+            if (!valid) {
                 o->failed = 1;
             }
         } else if (obj->properties.iov_len) {

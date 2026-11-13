@@ -95,7 +95,7 @@ class InteropEndpoint(unittest.TestCase):
             with self.subTest(transport=transport), \
                     self.server(transport, relay=True) as port:
                 for case in ("namespace-discovery", "data-subgroup-basic",
-                             "subscribe-error", "announce-only"):
+                             "fetch", "join", "subscribe-error", "announce-only"):
                     result = self.client(f"{scheme}://127.0.0.1:{port}/", case)
                     self.assertEqual(result.returncode, 0,
                                      case + ": " + result.stderr)
@@ -106,7 +106,8 @@ class InteropEndpoint(unittest.TestCase):
                                   ("webtransport", "https")):
             with self.subTest(transport=transport), self.server(transport) as port:
                 for case in ("moq-test-subgroup-per-group-eog",
-                             "moq-test-datagram", "subscribe-error"):
+                             "moq-test-datagram", "moq-test-extensions",
+                             "subscribe-error"):
                     result = self.client(f"{scheme}://127.0.0.1:{port}/", case,
                                          "--origin")
                     self.assertEqual(result.returncode, 0,

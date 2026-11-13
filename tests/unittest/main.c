@@ -561,6 +561,8 @@ main(int argc, char *argv[])
                         xqc_test_tp_value_not_longer_than_len)
         || !CU_add_test(pSuite, "xqc_test_tp_value_matches_len_decodes",
                         xqc_test_tp_value_matches_len_decodes)
+        || !CU_add_test(pSuite, "xqc_test_tp_len_past_end",
+                        xqc_test_tp_len_past_end)
         || !CU_add_test(pSuite, "xqc_test_tp_cid_overflow", xqc_test_tp_cid_overflow)
         || !CU_add_test(pSuite, "xqc_test_active_cid_limit_minimum", xqc_test_active_cid_limit_minimum)
         || !CU_add_test(pSuite, "xqc_test_check_transport_params_cids", xqc_test_check_transport_params_cids)

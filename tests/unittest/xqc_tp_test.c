@@ -847,3 +847,54 @@ xqc_test_tp_value_matches_len_decodes(void)
     CU_ASSERT_EQUAL(params.initial_max_data, 31);
     CU_ASSERT_EQUAL(params.disable_active_migration, 1);
 }
+
+/*
+ * RFC 9000 Section 18: a Transport Parameter Length that runs past the end of
+ * the extension is malformed, however large it is. 2^32 and 2^32 + 1 wrap a
+ * 32-bit pointer back to the value itself, so these cases also check that the
+ * length is compared with the bytes left rather than added to a pointer. A
+ * length of exactly the bytes left is accepted.
+ */
+void
+xqc_test_tp_len_past_end(void)
+{
+    /* a reserved parameter (31 * N + 27) of length 2^32 with no value */
+    uint8_t unknown[] = {
+        0x1b, 0xc0, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00
+    };
+    /* initial_max_data of length 2^32 + 1 with a one-byte value */
+    uint8_t known[] = {
+        XQC_TRANSPORT_PARAM_INITIAL_MAX_DATA,
+        0xc0, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05
+    };
+    /* the largest length a varint can hold, 2^62 - 1 */
+    uint8_t largest[] = {
+        0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+    };
+    /* a reserved parameter whose length is exactly the bytes left */
+    uint8_t exact[] = {
+        0x1b, 0x02, 0xaa, 0xbb
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_CLIENT_HELLO,
+                                      exact, sizeof(exact));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_CLIENT_HELLO,
+                                      unknown, sizeof(unknown));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_CLIENT_HELLO,
+                                      known, sizeof(known));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params, XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      largest, sizeof(largest));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+}

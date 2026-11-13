@@ -18,6 +18,7 @@
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame.h"
 #include "src/congestion_control/xqc_cubic.h"
+#include "src/congestion_control/xqc_sample.h"
 
 
 /*
@@ -1051,4 +1052,146 @@ void
 xqc_test_send_ctl_lost_packet_cc_reaction(void)
 {
     xqc_test_send_ctl_lost_packet_cc(XQC_FALSE);
+}
+
+
+/*
+ * xqc_cong_ctl_get_cwnd() returns a 64-bit window. CUBIC's slow start adds
+ * every acknowledged byte up to ssthresh, 2^32 - 1 before the first loss,
+ * so one acknowledged full-size packet takes a window of 4294966864 bytes,
+ * reached after about 4.29 GB acknowledged without a loss, to 2^32 + 1004.
+ */
+#define XQC_TEST_CWND_ABOVE_4G  ((1ULL << 32) + 1004)
+
+static void
+xqc_test_send_ctl_cubic_above_4g(xqc_send_ctl_t *send_ctl)
+{
+    xqc_cubic_t      *cubic = send_ctl->ctl_cong;
+    xqc_packet_out_t  po;
+
+    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback == &xqc_cubic_cb);
+    cubic->cwnd = XQC_TEST_CWND_ABOVE_4G - XQC_MSS;
+    cubic->tcp_cwnd = cubic->cwnd;
+
+    /* the window is in use, as CUBIC needs to grow it (#731) */
+    send_ctl->ctl_max_bytes_in_flight = 0xffffffff;
+    send_ctl->ctl_is_cwnd_limited = 1;
+
+    memset(&po, 0, sizeof(po));
+    po.po_sent_time = cubic->congestion_recovery_start_time + 1;
+    po.po_used_size = XQC_MSS;
+    xqc_cubic_cb.xqc_cong_ctl_on_ack(cubic, &po, po.po_sent_time + 1);
+
+    send_ctl->ctl_max_bytes_in_flight = 0;
+    send_ctl->ctl_is_cwnd_limited = 0;
+    CU_ASSERT_FATAL(cubic->cwnd == XQC_TEST_CWND_ABOVE_4G);
+}
+
+
+void
+xqc_test_send_ctl_can_send_window(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    uint64_t cwnd = xqc_cubic_cb.xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    xqc_packet_out_t po;
+
+    memset(&po, 0, sizeof(po));
+    po.po_used_size = 1200;
+    conn->conn_settings.so_sndbuf = 0;
+
+    /* a packet that fills the window goes, one byte more does not */
+    send_ctl->ctl_bytes_in_flight = cwnd - 1200;
+    CU_ASSERT_EQUAL(xqc_send_ctl_can_send(send_ctl, &po, 0), 1);
+    send_ctl->ctl_bytes_in_flight = cwnd - 1199;
+    CU_ASSERT_EQUAL(xqc_send_ctl_can_send(send_ctl, &po, 0), 0);
+    send_ctl->ctl_bytes_in_flight = 0;
+    CU_ASSERT_EQUAL(xqc_send_ctl_can_send(send_ctl, &po, cwnd - 1199), 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_can_send_window_above_4g(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_packet_out_t po;
+
+    memset(&po, 0, sizeof(po));
+    po.po_used_size = 1200;
+    conn->conn_settings.so_sndbuf = 0;
+
+    /* bytes in flight and the packet add up past 2^32 against a small window */
+    send_ctl->ctl_bytes_in_flight = 0xffffffff;
+    CU_ASSERT_EQUAL(xqc_send_ctl_can_send(send_ctl, &po, 0), 0);
+
+    xqc_test_send_ctl_cubic_above_4g(send_ctl);
+
+    /* nothing in flight: the window is not its low 32 bits, 1004 bytes */
+    send_ctl->ctl_bytes_in_flight = 0;
+    CU_ASSERT_EQUAL(xqc_send_ctl_can_send(send_ctl, &po, 0), 1);
+    send_ctl->ctl_bytes_in_flight = 0xffffffff - 1200;
+    CU_ASSERT_EQUAL(xqc_send_ctl_can_send(send_ctl, &po, 0), 1);
+    send_ctl->ctl_bytes_in_flight = 0xffffffff;
+    CU_ASSERT_EQUAL(xqc_send_ctl_can_send(send_ctl, &po, 1004), 0);
+    send_ctl->ctl_bytes_in_flight = 0;
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_send_ctl_cwnd_limited_window_above_4g(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_send_queue_t send_queue;
+
+    memset(&send_queue, 0, sizeof(send_queue));
+    xqc_init_list_head(&send_queue.sndq_send_packets);
+    xqc_init_list_head(&send_queue.sndq_lost_packets);
+    xqc_init_list_head(&send_queue.sndq_pto_probe_packets);
+
+    /* a full window is cwnd-limited, an empty one is application-limited */
+    send_ctl->ctl_bytes_in_flight =
+        xqc_cubic_cb.xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    CU_ASSERT_FALSE(xqc_sample_check_app_limited(&send_ctl->sampler,
+                                                 send_ctl, &send_queue));
+    send_ctl->ctl_bytes_in_flight = 0;
+    CU_ASSERT_TRUE(xqc_sample_check_app_limited(&send_ctl->sampler,
+                                                send_ctl, &send_queue));
+
+    xqc_test_send_ctl_cubic_above_4g(send_ctl);
+    send_ctl->ctl_app_limited = 0;
+    CU_ASSERT_TRUE(xqc_sample_check_app_limited(&send_ctl->sampler,
+                                                send_ctl, &send_queue));
+    CU_ASSERT(send_ctl->ctl_app_limited > 0);
+
+    /* one PING in flight leaves 4 GiB of window: not cwnd-limited */
+    xqc_packet_out_t *po = xqc_packet_out_get(conn->conn_send_queue);
+    CU_ASSERT_FATAL(po != NULL);
+    po->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    po->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    po->po_path_id = path->path_id;
+    po->po_frame_types = XQC_FRAME_BIT_PING;
+    po->po_used_size = 1200;
+    po->po_sent_time = 10;
+    send_ctl->ctl_is_cwnd_limited = 1;
+    xqc_send_ctl_on_packet_sent(send_ctl, path->path_pn_ctl, po, 10);
+    CU_ASSERT_EQUAL(send_ctl->ctl_bytes_in_flight, 1200);
+    CU_ASSERT_EQUAL(send_ctl->ctl_is_cwnd_limited, 0);
+
+    xqc_send_ctl_decrease_inflight(conn, po);
+    xqc_send_queue_insert_free(po, &conn->conn_send_queue->sndq_free_packets,
+                               conn->conn_send_queue);
+    xqc_engine_destroy(conn->engine);
 }

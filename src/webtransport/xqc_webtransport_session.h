@@ -23,6 +23,14 @@ ssize_t xqc_wt_get_varint(const uint8_t *buf, size_t buf_len, uint64_t *value);
 
 xqc_bool_t xqc_wt_valid_utf8(const unsigned char *data, size_t len);
 
+/* Internal protocol binding; connection-level application data is untouched. */
+typedef struct {
+    xqc_webtransport_stream_callbacks_t stream_cbs;
+    xqc_webtransport_dgram_callbacks_t  dgram_cbs;
+    void (*closed)(xqc_wt_session_t *session, void *data);
+    void (*writable)(xqc_wt_session_t *session, void *data);
+} xqc_wt_session_binding_t;
+
 struct xqc_webtransport_session_s {
     uint64_t              session_id;
     xqc_wt_conn_t        *wt_conn;
@@ -34,6 +42,9 @@ struct xqc_webtransport_session_s {
     xqc_bool_t            closed;
     xqc_bool_t            draining;
     xqc_bool_t            close_notified;
+    const xqc_wt_session_binding_t *binding;
+    void                 *binding_data;
+    xqc_bool_t            binding_closed;
     xqc_bool_t            client;
     xqc_bool_t            request_sent;
     xqc_bool_t            peer_closed;
@@ -83,6 +94,9 @@ xqc_bool_t xqc_wt_session_is_writable(xqc_wt_session_t *session);
 void xqc_wt_session_notify_draining(xqc_wt_session_t *session);
 const xqc_webtransport_stream_callbacks_t *
 xqc_wt_session_get_stream_callbacks(xqc_wt_session_t *session);
+const xqc_webtransport_dgram_callbacks_t *
+xqc_wt_session_get_dgram_callbacks(xqc_wt_session_t *session);
+void *xqc_wt_session_get_binding_user_data(xqc_wt_session_t *session);
 void *xqc_wt_session_get_callback_user_data(xqc_wt_session_t *session);
 
 xqc_h3_stream_t *xqc_wt_session_get_h3_stream(xqc_wt_session_t *session);

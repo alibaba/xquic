@@ -187,3 +187,15 @@ groups:
   runner: case_test/moq/relay.sh
   execution: implemented
   port_offset: 190
+- id: moqt.webtransport
+  module: moq
+  feature: moqt_webtransport
+  requires_cmake: [XQC_ENABLE_MOQ, XQC_ENABLE_WEBTRANSPORT]
+  estimated_seconds: 6
+  source_paths:
+  - moq/moqt/*
+  - include/moq/xqc_moqt*
+  - tests/complex_case/test_moqt_webtransport.c
+  runner: case_test/moq/webtransport.sh
+  execution: implemented
+  port_offset: 180

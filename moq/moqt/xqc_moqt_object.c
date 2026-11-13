@@ -472,7 +472,7 @@ xqc_moqt_datagram_send(xqc_moqt_subscription_t *sub, const xqc_moqt_object_t *o)
     if (xqc_moqt_object_apply(&candidate, &updated, o, &policy) != XQC_OK) {
         return -XQC_EPARAM;
     }
-    if ((size_t)len > xqc_datagram_get_mss(s->conn)) {
+    if ((size_t)len > xqc_moqt_transport_mss(s)) {
         return -XQC_EDGRAM_TOO_LARGE;
     }
     if (xqc_moqt_datagram_is_blocked(s, sub, o)) {
@@ -500,8 +500,7 @@ xqc_moqt_datagram_send(xqc_moqt_subscription_t *sub, const xqc_moqt_object_t *o)
     }
     xqc_moqt_stream_t *head = xqc_moqt_streams_hold(s);
     xqc_moqt_subscription_t *subscriptions = xqc_moqt_subscriptions_hold(s);
-    xqc_int_t ret = xqc_datagram_send(s->conn, buf->data, len, NULL,
-                                      XQC_DATA_QOS_NORMAL);
+    xqc_int_t ret = xqc_moqt_transport_datagram(s, buf->data, len);
     xqc_moqt_buffer_free(s, buf, sizeof(*buf));
     if (ret == XQC_OK) {
         sub->track->largest = candidate.largest;
@@ -772,7 +771,7 @@ xqc_moqt_stream_cancel(xqc_moqt_stream_t *st, uint64_t error)
             && st->transport_stream != NULL
             && st->transport_stream->stream_state_send
                < XQC_SEND_STREAM_ST_RESET_SENT
-            && st->transport_stream->stream_send_offset < d->prefix_length)
+            && xqc_moqt_transport_offset(st) < d->prefix_length)
         {
             if (!d->reset_pending) {
                 d->reset_pending = 1;
@@ -790,13 +789,7 @@ xqc_moqt_stream_cancel(xqc_moqt_stream_t *st, uint64_t error)
     st->state.data.error = error;
     st->state.data.has_error = 1;
     if (st->transport_stream != NULL) {
-        xqc_stream_t *transport = st->transport_stream;
-        size_t prefix = st->state.data.prefix_length;
-        if (prefix && transport->stream_send_offset >= prefix) {
-            /* Section 11.3.2: retain the identifying header on reset. */
-            xqc_stream_set_reliable_size(transport, prefix);
-        }
-        xqc_stream_close_with_error(transport, error);
+        xqc_moqt_transport_reset(st, error);
     }
     xqc_moqt_subgroup_notify(st);
     st->active--;
@@ -1132,14 +1125,11 @@ xqc_moqt_subgroup_open(xqc_moqt_subscription_t *sub, uint64_t group_id,
     xqc_moqt_subgroup_header_encode(sub->track_alias, flags, &o,
                                     buf->data, len);
     buf->data_len = len;
-    xqc_stream_t *transport = xqc_stream_create_with_direction(s->conn,
-                                                               XQC_STREAM_UNI,
-                                                               NULL);
-    if (transport == NULL || s->closed) {
+    xqc_moqt_stream_t *st = xqc_moqt_transport_open(s, XQC_STREAM_UNI);
+    if (st == NULL || s->closed) {
         xqc_moqt_buffer_free(s, buf, sizeof(*buf));
         return NULL;
     }
-    xqc_moqt_stream_t *st = transport->user_data;
     st->kind = XQC_MOQT_STREAM_SUBGROUP;
     xqc_moqt_data_stream_t *d = &st->state.data;
     d->object = o;

@@ -29,6 +29,9 @@
 #include "xqc_moqt_quic_test.h"
 #include "xqc_moqt_session_test.h"
 #include "xqc_moqt_relay_test.h"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+#include "xqc_moqt_webtransport_test.h"
+#endif
 #endif
 #include "xqc_recv_record_test.h"
 #include "xqc_reno_test.h"
@@ -606,6 +609,16 @@ main(int argc, char *argv[])
                         xqc_test_moqt_setup_validation)
         || !CU_add_test(pSuite, "xqc_test_moqt_session_lifecycle",
                         xqc_test_moqt_session_lifecycle)
+#ifdef XQC_ENABLE_WEBTRANSPORT
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport",
+                        xqc_test_moqt_webtransport)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_errors",
+                        xqc_test_moqt_webtransport_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_streams",
+                        xqc_test_moqt_webtransport_streams)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_setup_errors",
+                        xqc_test_moqt_webtransport_setup_errors)
+#endif
         || !CU_add_test(pSuite, "xqc_test_moqt_padding_and_goaway_errors",
                         xqc_test_moqt_padding_and_goaway_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_messages",

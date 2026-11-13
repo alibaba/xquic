@@ -10,6 +10,7 @@ if (XQC_ENABLE_MOQ)
         "moq/moqt/xqc_moqt_object.c"
         "moq/moqt/xqc_moqt_fetch.c"
         "moq/moqt/xqc_moqt_quic.c"
+        "moq/moqt/xqc_moqt_transport.c"
         "moq/moqt/xqc_moqt_session.c"
         "moq/moq_transport/xqc_moq_message.c"
         "moq/moq_transport/xqc_moq_message_handler.c"
@@ -34,6 +35,10 @@ if (XQC_ENABLE_MOQ)
         "moq/moq_media/dejitter/video/xqc_moq_jitter_buffer.c"
         "moq/moq_media/dejitter/video/xqc_moq_video_frame_buffer.c"
     )
+
+    if(XQC_ENABLE_WEBTRANSPORT)
+        list(APPEND MOQ_SOURCES "moq/moqt/xqc_moqt_webtransport.c")
+    endif()
 
     # add moq source
     set(

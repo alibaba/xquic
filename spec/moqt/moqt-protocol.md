@@ -63,6 +63,7 @@ Publisher / Subscriber applications    Relay service (separate implementation)
 | `include/moq/xqc_moqt.h` | Separate public API, borrowed message/object views, and callback contracts |
 | `moq/moqt/xqc_moqt_codec.*` | Framing and message/object-header codecs; reuse common vi64, naming, and KVP utilities |
 | `xqc_moqt_session.*` / `xqc_moqt_quic.c` | Session/Stream, SETUP, RX/TX, budgets, timers, and Native QUIC callback adaptation |
+| `xqc_moqt_transport.c` / `xqc_moqt_webtransport.c` | Shared transport operations and optional WT session binding; no second protocol state machine |
 | `xqc_moqt_request.c` | Request IDs, response/update FIFO, authorization, type-specific state, and cancellation |
 | `xqc_moqt_track.c` / `xqc_moqt_object.c` / `xqc_moqt_fetch.c` | Subscriptions, active-content summaries, incremental object delivery, and independent FETCH/Fill lifetimes |
 | Application | Authorization decisions, Track metadata, historical-object existence and data sources, media adaptation, and cross-session application policy |
@@ -82,13 +83,20 @@ messages or full §7 conformance.
 
 ### Integration, Authorization, and Resource Policy
 
-Applications create a Session in `conn_create_notify`, call
+Native QUIC applications create a Session in `conn_create_notify`, call
 `session_start` after handshake completion, and finally destroy it in the
 connection-close callback. The Session copies configuration and local SETUP
 and owns protocol/datagram user data; transport user data remains
 application-owned. Readiness is notified exactly once, after the QUIC
 handshake, full submission of local SETUP, and successful validation of peer
 SETUP.
+
+With WebTransport, applications authorize CONNECT and select `moqt-22`, then
+create/start a MoQT Session from the successful WT session notification using
+`xqc_moqt_session_create_webtransport`. Destroy it in the WT close notification,
+before the H3 connection is destroyed; MoQT callbacks must not destroy it.
+The binding preserves connection-level application data and callbacks. Each
+WT session owns independent MoQT controls, requests, aliases and budgets.
 
 The required `on_setup` callback supplies authority/path/token policy after
 library format and direction checks. Initial requests and updates invoke
@@ -889,12 +897,13 @@ table does not add private interface families absent from the public baseline.
 | `xqc_moqt_config_init/config_alpn` | Explicit version 22 only; unique corresponding `moqt-22` |
 | `xqc_moqt_init_alpn/connect` | Independent stream/datagram handlers preserving caller connection callbacks; offer one configured ALPN and require QUIC DATAGRAM |
 | `xqc_moqt_session_create/start` | Validate configuration/ALPN/handlers and copy configuration at creation; start after handshake, verify peer DATAGRAM, send SETUP; notify ready once after both SETUPs |
+| `xqc_moqt_session_create_webtransport` | Bind one open WT draft-16 session selecting `moqt-22`; reject existing streams/bindings and AUTHORITY/PATH; preserve H3 data; reuse common start/request/object/FETCH APIs |
 | `xqc_moqt_message_encode/decode` | Full-frame syntax/codecs; original request type supplies response context, REQUEST_UPDATE supplies update-response context |
-| `xqc_moqt_request_open/send/finish/cancel` | One bidi per initial request, updates on that stream; connection-wide parity/deduplication, cross-stream reordering, credit, FIFO responses, half-close/cancel; application callbacks supply business behavior |
+| `xqc_moqt_request_open/send/finish/cancel` | One bidi per initial request, updates on that stream; session-wide parity/deduplication, cross-stream reordering, credit, FIFO responses, half-close/cancel; application callbacks supply business behavior |
 | `xqc_moqt_request_publish/skip` | Enumerate authorized Tracks for an accepted St; suppress duplicates by publication instance and Full Track Name, create independent Pc or send SKIPPED; resource exhaustion must not forget skipped records and allow retry |
 | `xqc_moqt_datagram_send` | One complete Object for an established local-publisher subscription; check location/pause; MSS overflow EDGRAM_TOO_LARGE, expiry EEXPIRED; AGAIN retains no caller bytes |
 | `xqc_moqt_request_subscription` | Session-owned SUBSCRIBE/PUBLISH delivery handle; control-message views own no long-lived delivery state |
-| `xqc_moqt_session_goaway/close/destroy` | Session/request GOAWAY, finite waiting, reclamation; no version setter, version changes require a new connection |
+| `xqc_moqt_session_goaway/close/destroy` | Session/request GOAWAY, finite waiting, reclamation; no version setter, version changes require a new transport session |
 
 Object APIs use length-delimited binary names, locations/Delivery Mode, and
 incremental payload. Subgroup/Fetch/Fill ownership is in the entity design.
@@ -905,7 +914,7 @@ Failed `config_init` preserves its input; invalid `config_alpn` returns NULL.
 `xqc_moqt_connect` preserves original connection arguments/CID ownership,
 requires local DATAGRAM and ordinary QUIC encryption, and currently rejects
 ticket/cached TP without changing inputs. Resumption opt-in is future work.
-Connection version is immutable; changing the original configuration has no
+MoQT Session version is immutable; changing the original configuration has no
 effect.
 
 Applications migrating to draft-22 must change integration, request, and data
@@ -941,7 +950,8 @@ required and may coexist in one Session.
 | Dynamic Groups | Later opt-in | Do not advertise before implementation; application chooses IDs/timing, Relay aggregation separate |
 | Automatic migration/redirect following | Deferred | Standard messages/overlap constraints; application chooses migration |
 | Native QUIC 0-RTT/request pipelining | Later opt-in | Known Full Track Name SUBSCRIBE/PUBLISH only, under constraints above |
-| Draft-22 WebTransport, external extensions, media upgrade | Deferred | No new support claim; preserve existing legacy draft-05/0-RTT |
+| Draft-22 WebTransport over HTTP/3 | Optional binding | WT draft-16 with `moqt-22` application-protocol selection; both build features required |
+| External extensions, media upgrade | Deferred | No new support claim; preserve existing legacy draft-05/0-RTT |
 | Relay routing, fanout, caching, service process | Separate implementation | [Relay specification](moqt-relay.md) |
 
 ## Protocol Requirements
@@ -1018,19 +1028,39 @@ them to names/Scope. The current Session protocol implementation owns
 `.session` requests; unknown ones return DOES_NOT_EXIST, never application
 fallback or cross-hop forwarding. [§6.1][s6.1], [§6.5][s6.5]
 
-WebTransport is a separate future adapter. Before enabling it, convert moqt
-URI to https, establish extended CONNECT, and select `moqt-22` through
-WT-Available-Protocols/WT-Protocol. Bind MOQT streams/datagrams to that WT
-session, not the entire H3 connection. CONNECT supplies authority/path/query;
-MOQT SETUP must not repeat AUTHORITY/PATH. Both MOQT SETUPs are still required
-after CONNECT; H3 ALPN or WT success is not MOQT readiness. Meet DATAGRAM and
-WT requirements. Native QUIC ticket/0-RTT policy does not automatically apply.
+WebTransport uses the guarded interface in
+[`xqc_moqt_webtransport.h`](../../include/moq/xqc_moqt_webtransport.h).
+Applications convert moqt URI to https, authorize extended CONNECT and select
+`moqt-22` through WT-Available-Protocols/WT-Protocol. The constructor requires
+an open WT draft-16 session with that negotiated protocol and no existing
+streams or binding. WT draft-07 compatibility remains available independently;
+it cannot satisfy this binding's required application-protocol negotiation.
+CONNECT supplies authority/path/query; MOQT SETUP rejects AUTHORITY/PATH on
+both send and receive. Both MOQT SETUPs are still required after CONNECT;
+H3 ALPN or WT success is not MOQT readiness. Native QUIC ticket/0-RTT policy
+does not automatically apply.
 [§6.2.1][s6.2.1], [§9.1.1–9.1.2][s9.1.1]
+
+The binding reuses protocol state, bounded buffers, scheduling and parsing.
+WT owns Session ID prefixes, datagram association and application reset-code
+mapping. MoQT payload offsets and reliable identifying prefixes exclude WT
+framing in the shared protocol logic. Closing a MoQT Session sends a WT CLOSE
+capsule; pending WT capsules drain before a queued close. Transport closure
+detaches the binding after its streams are cleaned up. Other sessions and the
+shared H3 connection remain usable. Error values beyond WT's 32-bit range
+map to the corresponding MoQT INTERNAL_ERROR.
+
+Build and validate both feature gates with
+`./scripts/validate.sh test --feature moqt_webtransport`. The native endpoint
+example in `tests/complex_case/test_moqt_webtransport.c` demonstrates CONNECT,
+binding and lifecycle; it is not a runner client or relay implementation.
 
 Test same-Scope identity despite query differences, same-name separation across
 Scopes, publisher restart collisions, and nonforwarding of `.session`.
-WT-specific tests cover two WT sessions on one H3 connection, missing SETUP,
-and invalid AUTHORITY/PATH. Mark the absent adapter as a gap.
+WT-specific tests cover two WT sessions on one H3 connection, requests,
+partial object I/O, datagrams, FETCH, reset mapping, missing SETUP, control FIN,
+invalid AUTHORITY/PATH and continued operation of the unaffected session.
+Runner transport glue and external WT interoperability remain separate evidence.
 
 <a id="wire-codec"></a>
 
@@ -1828,7 +1858,7 @@ messages requiring Session closure.
 | Dynamic Groups | No DYNAMIC_GROUPS=1 before completion; ignore initial request under §9.20.19, require known support for updates |
 | RENDEZVOUS_TIMEOUT / FILL_TIMEOUT | Parse/expose through API; original endpoints do not own cross-session waiting; the separate Relay implements its budget |
 | GOAWAY / REDIRECT | Validate, notify application, follow draining/termination; no automatic reconnect or untrusted-URI following |
-| Draft-22 WebTransport | No adapter yet; Native QUIC 0-RTT only by explicit future policy; retain legacy draft-05/0-RTT independently |
+| Draft-22 WebTransport | Optional WT draft-16 Session binding; no WT 0-RTT or runner support claim; retain legacy draft-05/0-RTT independently |
 | Unknown SETUP option / ordinary property | Apply §9.1/§8.4, distinct from non-ignorable unknown parameters/messages |
 
 Applications SHALL explicitly authorize Session, publication, and subscription.
@@ -2040,7 +2070,7 @@ padding probes.
 | --- | --- | --- | --- |
 | F01 [vi64, framing, binary names, KVP](#wire-codec) | Complete | Complete; positive/negative vi64/codec tests | Yes; C01–C22 basic wire |
 | F02 [Native QUIC, ALPN, API isolation](#transport-versions) | Complete | Complete; ALPN dispatch and legacy endpoint tests | Conditional; Native QUIC C01–C22 |
-| F03 [WT CONNECT, SETUP, Session binding](#scope-and-webtransport) | Partial; boundary defined, adapter API/lifetime pending | Not implemented; separate adapter | Conditional; WebTransport C01–C22 |
+| F03 [WT CONNECT, SETUP, Session binding](#scope-and-webtransport) | Complete | Complete; constructor, transport/session isolation units and endpoints 1471/1472 | Conditional; WebTransport C01–C22; runner glue remains separate |
 | F04 [SETUP, ready, directional allowances, extensions](#setup-direction-and-extensions) | Complete | Complete; setup/session tests; nonzero operations in F11/F28 | Yes; C01–C22 |
 | F05 [Scope, URI, .session isolation](#scope-and-webtransport) | Complete | Partial; URI/.session present; Scope/query/restart-collision checks pending | No; no dedicated Scope case; basic connect counted in F02/F03 |
 | F06 [Request IDs, responses, credit, notification, half-close/cancel](#request-lifecycle) | Complete | Complete; request tests | Yes; C02–C22 associations/lifetimes |
@@ -2096,10 +2126,10 @@ Partial retains combinations or extensions that are still incomplete.
 
 | Scope | Complete SPEC | Complete implementation |
 | --- | --- | --- |
-| All targets F01–F44 | 37/44 (84.1%); 7 partial, 0 missing | 18/44 (40.9%); 6 core complete, 11 partial, 9 not implemented |
+| All targets F01–F44 | 38/44 (86.4%); 6 partial, 0 missing | 19/44 (43.2%); 6 core complete, 11 partial, 8 not implemented |
 | Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 1 partial, 3 not implemented |
-| WebTransport interop dependencies | 19/23 (82.6%); 4 partial, 0 missing | 15/23 (65.2%); 3 core complete, 1 partial, 4 not implemented |
-| Union of both transports | 20/24 (83.3%); 4 partial, 0 missing | 16/24 (66.7%); 3 core complete, 1 partial, 4 not implemented |
+| WebTransport interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 1 partial, 3 not implemented |
+| Union of both transports | 21/24 (87.5%); 3 partial, 0 missing | 17/24 (70.8%); 3 core complete, 1 partial, 3 not implemented |
 
 These measure **dependency completeness**, not a 22-case pass rate.
 Partial-capability gaps may exceed a case's assertions. Reports independently

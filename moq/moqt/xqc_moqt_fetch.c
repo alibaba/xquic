@@ -496,14 +496,11 @@ xqc_moqt_fetch_open(xqc_moqt_fetch_t *f)
                                            XQC_MOQT_FETCH_STREAM);
     xqc_vi64_write(p, end, f->info.request_id);
     buf->data_len = len;
-    xqc_stream_t *transport = xqc_stream_create_with_direction(s->conn,
-                                                               XQC_STREAM_UNI,
-                                                               NULL);
-    if (transport == NULL || s->closed) {
+    xqc_moqt_stream_t *st = xqc_moqt_transport_open(s, XQC_STREAM_UNI);
+    if (st == NULL || s->closed) {
         xqc_moqt_buffer_free(s, buf, sizeof(*buf));
         return NULL;
     }
-    xqc_moqt_stream_t *st = transport->user_data;
     st->kind = XQC_MOQT_STREAM_FETCH;
     st->state.data.fetch = f;
     st->state.data.track = f->track;

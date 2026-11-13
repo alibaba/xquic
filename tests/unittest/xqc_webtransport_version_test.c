@@ -1252,6 +1252,50 @@ version_protocol_response(const char *value, const char *expected,
     CU_ASSERT(version_closes == 1);
 }
 
+static void
+version_server_protocol(const char *value, xqc_bool_t valid)
+{
+    xqc_h3_conn_t *h3 = version_engine(XQC_WEBTRANSPORT_DRAFT_VERSION_16,
+                                        XQC_FALSE);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3);
+    xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(h3);
+    version_peer_settings(conn, XQC_FALSE, XQC_TRUE);
+    xqc_h3_request_t *request = version_request(h3, "webtransport-h3");
+    CU_ASSERT_PTR_NOT_NULL_FATAL(request);
+    xqc_http_header_t *offer = &request->h3_header[0].headers[5];
+    const char name[] = "wt-available-protocols", protocols[] = "\"moqt-22\"";
+    xqc_free(offer->name.iov_base);
+    xqc_free(offer->value.iov_base);
+    offer->name = (struct iovec){xqc_malloc(sizeof(name) - 1), sizeof(name) - 1};
+    offer->value = (struct iovec){xqc_malloc(sizeof(protocols) - 1),
+                                   sizeof(protocols) - 1};
+    memcpy(offer->name.iov_base, name, sizeof(name) - 1);
+    memcpy(offer->value.iov_base, protocols, sizeof(protocols) - 1);
+    xqc_http_header_t fields[] = {
+        {.name = {":status", 7}, .value = {"200", 3}},
+        {.name = {"wt-protocol", 11}, .value = {(void *)value, strlen(value)}},
+    };
+    xqc_http_headers_t response = {.headers = fields, .count = 2};
+    version_response = &response;
+    CU_ASSERT_EQUAL(xqc_h3_request_on_recv_header(request), XQC_OK);
+    version_response = NULL;
+    xqc_wt_session_t *session = xqc_wt_conn_find_session(conn,
+        request->h3_stream->stream_id);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+    CU_ASSERT_EQUAL(session->open, valid);
+    CU_ASSERT_EQUAL(version_creates, valid);
+    if (valid) {
+        const char *selected = xqc_wt_session_get_application_protocol(session);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(selected);
+        CU_ASSERT_STRING_EQUAL(selected, "moqt-22");
+    } else {
+        CU_ASSERT(session->closed && request->header_sent == 0);
+        CU_ASSERT_PTR_NULL(xqc_wt_session_get_application_protocol(session));
+        CU_ASSERT_EQUAL(h3->conn->conn_err, 0);
+    }
+    xqc_engine_destroy(h3->conn->engine);
+}
+
 void
 xqc_test_wt_application_protocol(void)
 {
@@ -1266,6 +1310,7 @@ xqc_test_wt_application_protocol(void)
     version_protocol_response("\"alpha\";bytes=:AQI:;empty=::",
                               "alpha", XQC_FALSE);
     CU_ASSERT_PTR_NULL(xqc_wt_session_get_application_protocol(NULL));
+    version_server_protocol("\"moqt-22\"", XQC_TRUE);
 }
 
 void
@@ -1293,6 +1338,9 @@ xqc_test_wt_application_protocol_errors(void)
         version_protocol_response(invalid[i], NULL, XQC_FALSE);
     }
     version_protocol_response("\"alpha\"", NULL, XQC_TRUE);
+    /* Draft-16 3.3: the server exposes only a valid, offered selection. */
+    version_server_protocol("\"other\"", XQC_FALSE);
+    version_server_protocol("moqt-22", XQC_FALSE);
 }
 
 void

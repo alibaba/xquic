@@ -222,7 +222,7 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_wt_select_application_protocol(const xqc_http_headers_t *headers,
     const char *const *protocols, size_t protocol_count, const char **selected);
 
-/* Client-selected protocol, borrowed until close notification; else NULL. */
+/* Negotiated protocol on either endpoint, borrowed until close; else NULL. */
 XQC_EXPORT_PUBLIC_API
 const char *xqc_wt_session_get_application_protocol(xqc_wt_session_t *session);
 

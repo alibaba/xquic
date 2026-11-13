@@ -81,21 +81,20 @@ xqc_moqt_connect(xqc_engine_t *engine, const xqc_moqt_config_t *config,
                        alpn, user_data);
 }
 
-static xqc_int_t
-xqc_moqt_stream_created(xqc_stream_t *transport, void *data)
+xqc_moqt_stream_t *
+xqc_moqt_stream_allocate(xqc_moqt_session_t *s, xqc_stream_t *transport)
 {
-    xqc_moqt_session_t *s = xqc_get_conn_alp_user_data_by_stream(transport);
     if (s == NULL || s->closed) {
-        return -XQC_EPARAM;
+        return NULL;
     }
     if (s->stream_count == s->config.max_streams) {
         xqc_moqt_session_close(s, XQC_MOQT_INTERNAL_ERROR);
-        return -XQC_EMALLOC;
+        return NULL;
     }
     xqc_moqt_stream_t *st = xqc_calloc(1, sizeof(*st));
     if (st == NULL) {
         xqc_moqt_session_close(s, XQC_MOQT_INTERNAL_ERROR);
-        return -XQC_EMALLOC;
+        return NULL;
     }
     st->session = s;
     st->transport_stream = transport;
@@ -103,7 +102,6 @@ xqc_moqt_stream_created(xqc_stream_t *transport, void *data)
     s->streams = st;
     s->stream_count++;
     xqc_init_list_head(&st->tx);
-    xqc_stream_set_user_data(transport, st);
     if (xqc_stream_is_recv_only(s->conn->conn_type, xqc_stream_id(transport))) {
         st->deadline = xqc_monotonic_timestamp() + s->config.timeout;
         xqc_moqt_timer_update(s);
@@ -111,8 +109,22 @@ xqc_moqt_stream_created(xqc_stream_t *transport, void *data)
     if (xqc_stream_get_direction(transport) == XQC_STREAM_BIDI && !s->ready) {
         /* Section 6.3 permits refusing streams received before SETUP. */
         st->discarded = 1;
-        xqc_stream_close(transport);
+        if (!s->webtransport) {
+            xqc_stream_close(transport);
+        }
     }
+    return st;
+}
+
+static xqc_int_t
+xqc_moqt_stream_created(xqc_stream_t *transport, void *data)
+{
+    xqc_moqt_session_t *s = xqc_get_conn_alp_user_data_by_stream(transport);
+    xqc_moqt_stream_t *st = xqc_moqt_stream_allocate(s, transport);
+    if (st == NULL) {
+        return -XQC_EPARAM;
+    }
+    xqc_stream_set_user_data(transport, st);
     return XQC_OK;
 }
 
@@ -218,7 +230,7 @@ xqc_moqt_stream_closed(xqc_stream_t *transport, void *data)
         return XQC_OK;
     }
     xqc_moqt_session_t *s = st->session;
-    if (st->kind == XQC_MOQT_STREAM_CONTROL
+    if (!s->closed && st->kind == XQC_MOQT_STREAM_CONTROL
         && s->conn->conn_state < XQC_CONN_STATE_CLOSING)
     {
         /* Section 6.3: a control stream cannot FIN/reset during the session. */

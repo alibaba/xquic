@@ -120,6 +120,12 @@ owning cross-session routes and delivery mappings without accessing private
 Session state. Its public API is `include/moq/xqc_moqt_relay.h`; see the
 [Relay specification](../../spec/moqt/moqt-relay.md).
 
+Optional MoQT-over-WebTransport binds to an established WT session through a
+protocol-independent private WT callback binding. Stream/datagram operations
+reuse the existing WT framing and reset mapping; shared MoQT protocol state
+does not duplicate them. WT and HTTP/3 retain connection-level context and
+have no dependency on MoQT types. Native QUIC retains its separate ALPN path.
+
 QUIC transport owns Reliable Stream Reset negotiation, state, and recovery.
 Applications consume this capability through the public stream API.
 TLS integration binds only its reset flag through the backend's native context

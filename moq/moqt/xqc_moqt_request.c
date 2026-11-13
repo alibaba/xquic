@@ -455,14 +455,11 @@ xqc_moqt_request_open(xqc_moqt_session_t *s, const xqc_moqt_message_t *message)
     if (state == NULL) {
         return NULL;
     }
-    xqc_stream_t *transport = xqc_stream_create_with_direction(s->conn,
-                                                               XQC_STREAM_BIDI,
-                                                               NULL);
-    if (transport == NULL || s->closed) {
+    xqc_moqt_stream_t *st = xqc_moqt_transport_open(s, XQC_STREAM_BIDI);
+    if (st == NULL || s->closed) {
         xqc_moqt_buffer_free(s, state, sizeof(*state));
         return NULL;
     }
-    xqc_moqt_stream_t *st = transport->user_data;
     xqc_moqt_request_init(st, &m, 1);
     xqc_moqt_request_t *r = &st->state.request;
     r->state = state;
@@ -557,7 +554,7 @@ xqc_moqt_request_cancel(xqc_moqt_request_t *r, uint64_t error)
         xqc_moqt_fetch_cancel(r->fetch, error);
     }
     if (st->transport_stream != NULL) {
-        xqc_stream_close_with_error(st->transport_stream, error);
+        xqc_moqt_transport_reset(st, error);
     }
     st->writing = writing;
     if (!st->reading

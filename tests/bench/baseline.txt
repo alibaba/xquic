@@ -1,0 +1,11 @@
+# Scenarios of scripts/perf_bench.sh: a name, the instructions that the run
+# executes in src/ and include/, and the options of xqc_bench
+# (tests/bench/xqc_bench.c). The counts are those of the Performance
+# workflow's toolchain, the GCC and glibc of Ubuntu 24.04, in a Release build;
+# refresh them with scripts/perf_bench.sh --update <build-dir>.
+h3                 97494699  -p h3
+h3-loss           123905032  -p h3 -l 10000
+hq                 93760941  -p hq
+hq-loss           120661116  -p hq -l 10000
+h3-requests       101931751  -p h3 -n 64 -s 131072
+h3-bbr            101850476  -p h3 -c bbr

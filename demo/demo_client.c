@@ -1618,6 +1618,8 @@ static void
 xqc_demo_cli_delayed_req_start(int fd, short what, void *arg)
 {
     xqc_demo_cli_user_conn_t *user_conn = (xqc_demo_cli_user_conn_t *) arg;
+    xqc_demo_cli_task_ctx_t *task_ctx = &user_conn->ctx->task_ctx;
+    int task_idx = user_conn->task->task_idx;
     int batch_cnt = user_conn->ctx->args->req_cfg.batch_cnt;
     int req_cnt = user_conn->task->req_cnt;
     if (batch_cnt) {
@@ -1626,9 +1628,15 @@ xqc_demo_cli_delayed_req_start(int fd, short what, void *arg)
     xqc_demo_cli_send_requests(user_conn, user_conn->ctx->args,
                                user_conn->task->reqs, req_cnt);
 
-    if (req_cnt > user_conn->ctx->task_ctx.schedule.schedule_info[user_conn->task->task_idx].req_create_cnt
-        && user_conn->ctx->args->req_cfg.idle_gap 
-        && user_conn->ctx->args->req_cfg.batch_cnt) 
+    /*
+     * as xqc_demo_cli_start() does without -w: the requests that the first
+     * batch left to send go after the idle gap
+     */
+    if (user_conn->task->req_cnt
+            > task_ctx->schedule.schedule_info[task_idx].req_create_cnt
+        && user_conn->ctx->args->req_cfg.idle_gap
+        && user_conn->ctx->args->req_cfg.batch_cnt
+        && !user_conn->ctx->args->req_cfg.serial)
     {
 
         user_conn->ev_idle_restart = event_new(user_conn->ctx->eb, -1, 0, 

@@ -1407,15 +1407,17 @@ xqc_test_wt_handshake_request_result(void)
         CU_ASSERT(session->request_sent == !fail);
         CU_ASSERT(session->closed == fail);
         CU_ASSERT(version_closes == fail);
-        CU_ASSERT(version_send_errors == fail);
-        CU_ASSERT(version_handshake_errors == (fail && trigger == 0));
+        CU_ASSERT(version_send_errors == XQC_TEST_LOGGED(XQC_LOG_ERROR, fail));
+        CU_ASSERT(version_handshake_errors
+                  == XQC_TEST_LOGGED(XQC_LOG_ERROR, (fail && trigger == 0)));
         CU_ASSERT_PTR_EQUAL(session->request, request);
         CU_ASSERT(conn->session_count == 1 && transport->conn_err == 0);
         if (fail) {
             CU_ASSERT(session->close_error == H3_INTERNAL_ERROR);
             /* No second notification or premature destruction on retry. */
             h3c->h3_conn_callbacks.h3_conn_handshake_finished(h3c, NULL);
-            CU_ASSERT(version_closes == 1 && version_send_errors == 1);
+            CU_ASSERT(version_closes == 1
+                      && version_send_errors == XQC_TEST_LOGGED(XQC_LOG_ERROR, 1));
         }
         h3c->log = saved_log;
         xqc_engine_destroy(transport->engine);

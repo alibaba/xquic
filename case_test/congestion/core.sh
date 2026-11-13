@@ -399,6 +399,151 @@ fi
 grep_err_log
 }
 
+# Recovery: a new peer IP address restarts congestion control (case IDs
+# 812/813). RFC 9000 Section 9.4: once the server has validated the client at
+# a new IP address, it resets the congestion controller and the RTT estimate
+# of the path, the RTT starting from the PATH_CHALLENGE round trip (RFC 9002
+# Section 6.2.2); a new port alone keeps both. Path 0 of the client moves to
+# its second socket after a tenth of the transfer.
+case_congestion_core_move_path0()
+{
+case_test_stop_server
+rm -rf tp_localhost test_session xqc_token
+case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+sleep 1
+clear_log
+case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 8 -M -i lo -i lo -E -n 2 \
+    -x $1 > stdlog
+result=`grep ">>>>>>>> pass:0" stdlog`
+errlog=`grep_err_log | grep -a -v "no match path challenge data" || true`
+for wait_idx in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    rebind=`grep -a "|path:0|REBINDING|validate NAT rebinding addr|" slog`
+    if [ -n "$rebind" ]; then
+        break
+    fi
+    sleep 0.2
+done
+reset=`grep -a "|path:0|cc and rtt reset|" slog`
+challenge_rtt=`grep -a "|path:0|initial rtt from PATH_CHALLENGE|" slog`
+}
+
+case_congestion_core_new_ip_resets_cc()
+{
+# 812 happy path: path 0 moves from 127.0.0.1 to 127.0.0.2; the server
+# restarts its congestion control and RTT estimate, and the transfer
+# completes.
+echo -e "a new peer IP address restarts congestion control ...\c"
+case_congestion_core_move_path0 812
+new_ip=`echo "$rebind" | grep -a "p-127.0.0.2-"`
+if [ -z "$errlog" ] && [ -z "$result" ] && [ -n "$new_ip" ] \
+    && [ -n "$reset" ] && [ -n "$challenge_rtt" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "new_ip_resets_cc" "pass"
+else
+    echo ">>>>>>>> pass:0 (result:${result:+y} new_ip:${new_ip:+y}" \
+        "reset:${reset:+y} challenge_rtt:${challenge_rtt:+y}" \
+        "errlog:${errlog:+y})"
+    case_print_result "new_ip_resets_cc" "fail"
+fi
+}
+
+case_congestion_core_new_port_keeps_cc()
+{
+# 813 abnormal path: path 0 moves to another port of 127.0.0.1; the server
+# validates it there but keeps its congestion control and RTT estimate.
+echo -e "a new peer port keeps congestion control ...\c"
+case_congestion_core_move_path0 813
+if [ -z "$errlog" ] && [ -z "$result" ] && [ -n "$rebind" ] \
+    && [ -z "$reset" ] && [ -z "$challenge_rtt" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "new_port_keeps_cc" "pass"
+else
+    echo ">>>>>>>> pass:0 (result:${result:+y} rebind:${rebind:+y}" \
+        "reset:${reset:+y} challenge_rtt:${challenge_rtt:+y}" \
+        "errlog:${errlog:+y})"
+    case_print_result "new_port_keeps_cc" "fail"
+fi
+}
+
+# Recovery: a new peer IP address restarts PMTUD (case IDs 814/815). RFC 9000
+# Section 14.2: each pair of addresses can have a PMTU of its own. Once PMTUD
+# has raised the packet size of the server, during the second or third of
+# three requests, path 1 of the client closes, path 0 moves to its second
+# socket, and its old address is gone. At a new IP address, whose path drops
+# the datagrams above 1300 bytes, the server goes back to the base size,
+# resends in smaller packets the lost ones that no longer fit, and PMTUD
+# searches again; a new port alone keeps the size.
+case_congestion_core_move_path0_pmtud()
+{
+case_test_stop_server
+rm -rf tp_localhost test_session xqc_token
+case_test_start_server stdbuf -oL ${SERVER_BIN} -l d -e -M --pmtud 1 -x $1 \
+    > svr_stdlog
+sleep 1
+clear_log
+case_test_sudo ${CLIENT_BIN} -s 512000 -l d -t 8 -M -i lo -i lo -E -n 3 \
+    --pmtud 1 -x $1 > stdlog
+# the three requests complete
+passed=`grep -c ">>>>>>>> pass:1" stdlog`
+result=`grep ">>>>>>>> pass:0" stdlog`
+if [ "$passed" != 3 ]; then
+    result="${result:-requests passed: $passed}"
+fi
+moved=`grep -a "\[case-$1\]|path 0 moves|" stdlog`
+errlog=`grep_err_log | grep -a -v "no match path challenge data" || true`
+for wait_idx in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    rebind=`grep -a "|path:0|REBINDING|validate NAT rebinding addr|" slog`
+    if [ -n "$rebind" ]; then
+        break
+    fi
+    sleep 0.2
+done
+pmtu_reset=`grep -a "|path:0|REBINDING|path MTU reset|" slog`
+}
+
+case_congestion_core_new_ip_resets_pmtu()
+{
+# 814 happy path: path 0 moves to 127.0.0.2, whose path takes no datagram
+# above 1300 bytes; the server goes back to the base size there, resends in
+# smaller packets the lost ones that no longer fit, and the requests
+# complete.
+echo -e "a new peer IP address restarts PMTUD ...\c"
+case_congestion_core_move_path0_pmtud 814
+new_ip=`echo "$rebind" | grep -a "p-127.0.0.2-"`
+dropped=`grep -a "\[case-814\]|new path drops a datagram|" svr_stdlog`
+split=`grep -a "|split lost packet|" slog`
+if [ -z "$errlog" ] && [ -z "$result" ] && [ -n "$moved" ] \
+    && [ -n "$new_ip" ] && [ -n "$pmtu_reset" ] && [ -n "$dropped" ] \
+    && [ -n "$split" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "new_ip_resets_pmtu" "pass"
+else
+    echo ">>>>>>>> pass:0 (result:${result:+y} moved:${moved:+y}" \
+        "new_ip:${new_ip:+y} pmtu_reset:${pmtu_reset:+y}" \
+        "dropped:${dropped:+y} split:${split:+y} errlog:${errlog:+y})"
+    case_print_result "new_ip_resets_pmtu" "fail"
+fi
+}
+
+case_congestion_core_new_port_keeps_pmtu()
+{
+# 815 abnormal path: path 0 moves to another port of 127.0.0.1; the server
+# validates it there and keeps the packet size that PMTUD found.
+echo -e "a new peer port keeps the PMTU ...\c"
+case_congestion_core_move_path0_pmtud 815
+old_ip=`echo "$rebind" | grep -a "p-127.0.0.1-"`
+if [ -z "$errlog" ] && [ -z "$result" ] && [ -n "$moved" ] \
+    && [ -n "$old_ip" ] && [ -z "$pmtu_reset" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "new_port_keeps_pmtu" "pass"
+else
+    echo ">>>>>>>> pass:0 (result:${result:+y} moved:${moved:+y}" \
+        "old_ip:${old_ip:+y} pmtu_reset:${pmtu_reset:+y}" \
+        "errlog:${errlog:+y})"
+    case_print_result "new_port_keeps_pmtu" "fail"
+fi
+}
+
 case_test_group_setup()
 {
     case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
@@ -424,6 +569,10 @@ case_test_case "sengmmsg_with_10_percent_loss" --id native --mode self-reporting
 case_test_case "max_pkt_out_size" --id native --mode self-reporting --run case_congestion_core_max_pkt_out_size
 case_test_case "lost_pmtud_probe_no_congestion_event" --id 804 --mode self-reporting --run case_congestion_core_lost_pmtud_probe_no_congestion_event
 case_test_case "lost_data_packet_congestion_event" --id 805 --mode self-reporting --run case_congestion_core_lost_data_packet_congestion_event
+case_test_case "new_ip_resets_cc" --id 812 --mode self-reporting --run case_congestion_core_new_ip_resets_cc
+case_test_case "new_port_keeps_cc" --id 813 --mode self-reporting --run case_congestion_core_new_port_keeps_cc
+case_test_case "new_ip_resets_pmtu" --id 814 --mode self-reporting --run case_congestion_core_new_ip_resets_pmtu
+case_test_case "new_port_keeps_pmtu" --id 815 --mode self-reporting --run case_congestion_core_new_port_keeps_pmtu
 
 if case_test_is_discovery; then
     case_test_run

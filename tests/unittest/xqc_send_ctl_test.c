@@ -10,6 +10,7 @@
 #include "xqc_alloc_wrap.h"
 
 #include "src/common/xqc_malloc.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_send_queue.h"
 #include "src/transport/xqc_conn.h"
@@ -17,6 +18,8 @@
 #include "src/transport/xqc_transport_params.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame.h"
+#include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_stream.h"
 #include "src/congestion_control/xqc_cubic.h"
 
 
@@ -1051,4 +1054,588 @@ void
 xqc_test_send_ctl_lost_packet_cc_reaction(void)
 {
     xqc_test_send_ctl_lost_packet_cc(XQC_FALSE);
+}
+
+
+/*
+ * RFC 9000 Section 14.2: packets that are not PMTU probes SHOULD fit within
+ * the maximum datagram size. Once the path MTU went down, a lost packet built
+ * at the old size is resent in packets of the new size, and a PTO probes
+ * with packets that fit.
+ */
+#define XQC_TEST_SPLIT_OLD_SIZE     1400
+#define XQC_TEST_SPLIT_NEW_SIZE     1200
+#define XQC_TEST_SPLIT_DATA_LEN     1350
+#define XQC_TEST_SPLIT_NOW          10000000
+
+/* the byte of the test data at a stream offset */
+static unsigned char
+xqc_test_split_byte(uint64_t offset)
+{
+    return (unsigned char) (offset * 31 + 7);
+}
+
+/* a client connection that builds its packets at the old size */
+static xqc_connection_t *
+xqc_test_split_conn(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+
+    if (conn == NULL) {
+        return NULL;
+    }
+
+    conn->conn_err = 0;
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT
+                       | XQC_CONN_FLAG_TLS_HSK_COMPLETED;
+    conn->pkt_out_size = XQC_TEST_SPLIT_OLD_SIZE;
+    conn->conn_initial_path->curr_pkt_out_size = XQC_TEST_SPLIT_OLD_SIZE;
+    return conn;
+}
+
+/*
+ * len bytes of test data written to stream from its offset 0, and queued:
+ * the flag keeps xqc_stream_send() from running the send logic.
+ */
+static void
+xqc_test_split_write(xqc_stream_t *stream, size_t len, uint8_t fin)
+{
+    unsigned char data[XQC_TEST_SPLIT_DATA_LEN];
+
+    CU_ASSERT_FATAL(len <= sizeof(data));
+    for (size_t i = 0; i < len; i++) {
+        data[i] = xqc_test_split_byte(i);
+    }
+    stream->stream_flag |= XQC_STREAM_FLAG_HAS_H3;
+    CU_ASSERT_FATAL(xqc_stream_send(stream, data, len, fin) == (ssize_t) len);
+}
+
+/* the packet queued with the data of stream */
+static xqc_packet_out_t *
+xqc_test_split_queued(xqc_connection_t *conn, xqc_stream_t *stream)
+{
+    xqc_list_head_t *pos;
+
+    xqc_list_for_each(pos, &conn->conn_send_queue->sndq_send_packets) {
+        xqc_packet_out_t *po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if ((po->po_frame_types & XQC_FRAME_BIT_STREAM)
+            && po->po_stream_frames[0].ps_stream_id == stream->stream_id)
+        {
+            return po;
+        }
+    }
+    return NULL;
+}
+
+/* po goes out on the initial path as packet number pn */
+static void
+xqc_test_split_send(xqc_connection_t *conn, xqc_packet_out_t *po,
+    xqc_packet_number_t pn)
+{
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+
+    xqc_send_queue_remove_send(&po->po_list);
+    po->po_pkt.pkt_num = pn;
+    po->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    po->po_path_id = path->path_id;
+    po->po_sent_time = pn;
+    xqc_send_queue_insert_unacked(po,
+        &conn->conn_send_queue->sndq_unacked_packets[XQC_PNS_APP_DATA],
+        conn->conn_send_queue);
+    xqc_send_ctl_on_packet_sent(path->path_send_ctl, path->path_pn_ctl, po,
+                                po->po_sent_time);
+}
+
+/* po and its copies acknowledged */
+static void
+xqc_test_split_ack(xqc_connection_t *conn, xqc_packet_out_t *po)
+{
+    xqc_send_ctl_on_packet_acked(conn->conn_initial_path->path_send_ctl, po,
+                                 XQC_TEST_SPLIT_NOW, 0);
+    xqc_send_queue_maybe_remove_unacked(po, conn->conn_send_queue, NULL);
+}
+
+/* the path MTU goes down: the connection builds packets of the new size */
+static void
+xqc_test_split_shrink(xqc_connection_t *conn)
+{
+    conn->conn_initial_path->curr_pkt_out_size = XQC_TEST_SPLIT_NEW_SIZE;
+    xqc_conn_try_to_update_mss(conn);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, XQC_TEST_SPLIT_NEW_SIZE);
+}
+
+/* ACKs up to largest_acked: the packets sent long before are lost */
+static void
+xqc_test_split_detect_lost(xqc_connection_t *conn,
+    xqc_packet_number_t largest_acked)
+{
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = largest_acked;
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, XQC_TEST_SPLIT_NOW);
+}
+
+/* the data of a STREAM frame of po (RFC 9000 Section 19.8) */
+static const unsigned char *
+xqc_test_split_frame_data(const xqc_packet_out_t *po,
+    const xqc_po_stream_frame_t *frame)
+{
+    const unsigned char *p = po->po_buf + frame->ps_type_offset;
+    unsigned char type = *p++;
+
+    p += xqc_vint_len(*p >> 6);
+    if (type & 0x04) {
+        p += xqc_vint_len(*p >> 6);
+    }
+    if (type & 0x02) {
+        p += xqc_vint_len(*p >> 6);
+    }
+    return p;
+}
+
+/*
+ * The lost list resends the len bytes of test data of stream, in order,
+ * each packet of the current size with a STREAM frame of its own that holds
+ * a stream reference, and the FIN in the last one when fin. Returns the
+ * number of those packets.
+ */
+static int
+xqc_test_split_check_pieces(xqc_connection_t *conn, xqc_stream_t *stream,
+    size_t len, uint8_t fin)
+{
+    xqc_list_head_t *pos;
+    uint64_t next = 0;
+    int count = 0;
+
+    xqc_list_for_each(pos, &conn->conn_send_queue->sndq_lost_packets) {
+        xqc_packet_out_t *po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        xqc_po_stream_frame_t *frame = &po->po_stream_frames[0];
+        const unsigned char *data;
+
+        if (!(po->po_frame_types & XQC_FRAME_BIT_STREAM)
+            || frame->ps_stream_id != stream->stream_id)
+        {
+            continue;
+        }
+
+        CU_ASSERT(po->po_used_size <= conn->pkt_out_size);
+        CU_ASSERT_PTR_NULL(po->po_origin);
+        CU_ASSERT(po->po_flag & XQC_POF_STREAM_UNACK);
+        CU_ASSERT_EQUAL(po->po_stream_frames_idx, 1);
+        CU_ASSERT_EQUAL(frame->ps_offset, next);
+        data = xqc_test_split_frame_data(po, frame);
+        for (unsigned int i = 0; i < frame->ps_length; i++) {
+            CU_ASSERT_EQUAL(data[i], xqc_test_split_byte(next + i));
+        }
+        next += frame->ps_length;
+        CU_ASSERT_EQUAL(frame->ps_has_fin, fin && next == len);
+        count++;
+    }
+
+    CU_ASSERT_EQUAL(next, len);
+    return count;
+}
+
+/* the packets of the lost list go out and are acknowledged */
+static void
+xqc_test_split_ack_lost_list(xqc_connection_t *conn, xqc_packet_number_t pn)
+{
+    xqc_list_head_t *pos, *next;
+
+    xqc_list_for_each_safe(pos, next,
+                           &conn->conn_send_queue->sndq_lost_packets)
+    {
+        xqc_packet_out_t *po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        xqc_test_split_send(conn, po, pn++);
+        xqc_test_split_ack(conn, po);
+    }
+}
+
+/* a PTO probe copy of po goes out as packet number pn, sent at sent_time */
+static xqc_packet_out_t *
+xqc_test_split_probe_copy(xqc_connection_t *conn, xqc_packet_out_t *po,
+    xqc_packet_number_t pn, xqc_usec_t sent_time)
+{
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_packet_out_t *copy;
+
+    xqc_send_ctl_decrease_inflight(conn, po);
+    xqc_send_queue_copy_to_probe(po, sq, conn->conn_initial_path);
+    CU_ASSERT_FATAL(!xqc_list_empty(&sq->sndq_pto_probe_packets));
+    copy = xqc_list_entry(sq->sndq_pto_probe_packets.next, xqc_packet_out_t,
+                          po_list);
+    xqc_test_split_send(conn, copy, pn);
+    copy->po_sent_time = sent_time;
+    return copy;
+}
+
+/*
+ * A lost STREAM packet that no longer fits, a PTO probe copy of the packet
+ * first sent: its data goes into packets that fit, which take the stream
+ * references, and the packets of the old size are dropped. A late ACK of the
+ * first one gives back no reference again, and the FIN is acknowledged with
+ * the new packet that carries it.
+ */
+void
+xqc_test_send_ctl_split_lost_stream_packet(void)
+{
+    xqc_connection_t *conn = xqc_test_split_conn();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+        XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_test_split_write(stream, XQC_TEST_SPLIT_DATA_LEN, 1);
+    xqc_packet_out_t *po = xqc_test_split_queued(conn, stream);
+    CU_ASSERT_FATAL(po != NULL);
+    xqc_test_split_send(conn, po, 1);
+    xqc_packet_out_t *copy = xqc_test_split_probe_copy(conn, po, 2, 2);
+    CU_ASSERT_EQUAL(stream->stream_unacked_pkt, 1);
+    CU_ASSERT_EQUAL(stream->stream_state_send, XQC_SEND_STREAM_ST_DATA_SENT);
+
+    xqc_test_split_shrink(conn);
+    CU_ASSERT_FATAL(xqc_packet_out_exceeds_mss(conn, copy));
+    xqc_test_split_detect_lost(conn, 10);
+
+    int pieces = xqc_test_split_check_pieces(conn, stream,
+                                             XQC_TEST_SPLIT_DATA_LEN, 1);
+    CU_ASSERT(pieces >= 2);
+    CU_ASSERT_EQUAL(stream->stream_unacked_pkt, pieces);
+    CU_ASSERT(po->po_flag & XQC_POF_SPLIT);
+    CU_ASSERT(copy->po_flag & XQC_POF_RETRANSED);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 1);
+    CU_ASSERT_EQUAL(stream->stream_stats.first_fin_ack_time, 0);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    /* a late ACK of the packet first sent */
+    xqc_send_ctl_on_packet_acked(conn->conn_initial_path->path_send_ctl, po,
+                                 XQC_TEST_SPLIT_NOW, 0);
+    CU_ASSERT_EQUAL(stream->stream_unacked_pkt, pieces);
+    CU_ASSERT_EQUAL(stream->stream_state_send, XQC_SEND_STREAM_ST_DATA_SENT);
+    CU_ASSERT_EQUAL(stream->stream_stats.first_fin_ack_time, 0);
+
+    /* the next loss detection drops them */
+    xqc_test_split_detect_lost(conn, 10);
+    CU_ASSERT(xqc_list_empty(&sq->sndq_unacked_packets[XQC_PNS_APP_DATA]));
+
+    xqc_test_split_ack_lost_list(conn, 20);
+    CU_ASSERT_EQUAL(stream->stream_unacked_pkt, 0);
+    CU_ASSERT_EQUAL(stream->stream_state_send, XQC_SEND_STREAM_ST_DATA_RECVD);
+    CU_ASSERT(stream->stream_stats.first_fin_ack_time != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A lost packet that still fits is copied as before, and so is one with a
+ * DATAGRAM frame, which cannot be cut out.
+ */
+void
+xqc_test_send_ctl_split_lost_packet_copied(void)
+{
+    xqc_connection_t *conn = xqc_test_split_conn();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+        XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    /* a packet of the new size */
+    xqc_test_split_write(stream, XQC_TEST_SPLIT_NEW_SIZE - 100, 0);
+    xqc_packet_out_t *fits = xqc_test_split_queued(conn, stream);
+    CU_ASSERT_FATAL(fits != NULL);
+    xqc_test_split_send(conn, fits, 1);
+
+    /* an oversized packet with a DATAGRAM frame */
+    xqc_packet_out_t *dgram = xqc_packet_out_get(sq);
+    CU_ASSERT_FATAL(dgram != NULL);
+    dgram->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    dgram->po_frame_types = XQC_FRAME_BIT_DATAGRAM | XQC_FRAME_BIT_MAX_DATA;
+    dgram->po_used_size = XQC_TEST_SPLIT_OLD_SIZE;
+    xqc_send_queue_insert_send(dgram, &sq->sndq_send_packets, sq);
+    xqc_test_split_send(conn, dgram, 2);
+
+    xqc_test_split_shrink(conn);
+    CU_ASSERT_FALSE(xqc_packet_out_exceeds_mss(conn, fits));
+    CU_ASSERT_EQUAL(xqc_send_queue_split_lost(sq, fits), -XQC_EPARAM);
+    CU_ASSERT_EQUAL(xqc_send_queue_split_lost(sq, dgram), -XQC_EPARAM);
+
+    xqc_test_split_detect_lost(conn, 10);
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 2);
+    CU_ASSERT_FALSE(fits->po_flag & XQC_POF_SPLIT);
+    CU_ASSERT_FALSE(dgram->po_flag & XQC_POF_SPLIT);
+    CU_ASSERT_EQUAL(fits->po_origin_ref_cnt, 1);
+    CU_ASSERT_EQUAL(dgram->po_origin_ref_cnt, 1);
+    CU_ASSERT_EQUAL(stream->stream_unacked_pkt, 1);
+
+    int copies = 0;
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &sq->sndq_lost_packets) {
+        xqc_packet_out_t *copy = xqc_list_entry(pos, xqc_packet_out_t,
+                                                po_list);
+        CU_ASSERT(copy->po_origin == fits || copy->po_origin == dgram);
+        CU_ASSERT_EQUAL(copy->po_used_size, copy->po_origin->po_used_size);
+        copies++;
+    }
+    CU_ASSERT_EQUAL(copies, 2);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * The other frames of a lost packet that no longer fits go into one more
+ * packet, without the STREAM frames and the padding: a MAX_DATA sent with
+ * stream data, and a MAX_STREAMS padded to the old size.
+ */
+void
+xqc_test_send_ctl_split_keeps_other_frames(void)
+{
+    xqc_connection_t *conn = xqc_test_split_conn();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+        XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    xqc_test_split_write(stream, XQC_TEST_SPLIT_DATA_LEN - 20, 0);
+    xqc_packet_out_t *mixed = xqc_test_split_queued(conn, stream);
+    CU_ASSERT_FATAL(mixed != NULL);
+    unsigned int header_len = mixed->po_stream_frames[0].ps_type_offset;
+    unsigned int max_data_len = xqc_gen_max_data_frame(mixed, 1 << 20);
+    mixed->po_used_size += max_data_len;
+    xqc_test_split_send(conn, mixed, 1);
+
+    xqc_packet_out_t *padded = xqc_write_new_packet(conn,
+                                                    XQC_PTYPE_SHORT_HEADER);
+    CU_ASSERT_FATAL(padded != NULL);
+    unsigned int max_streams_len = xqc_gen_max_streams_frame(padded, 100, 1);
+    CU_ASSERT_FATAL(max_streams_len > 0);
+    padded->po_used_size += max_streams_len;
+    xqc_gen_padding_frame_with_len(conn, padded,
+        XQC_TEST_SPLIT_OLD_SIZE - padded->po_used_size,
+        XQC_TEST_SPLIT_OLD_SIZE);
+    xqc_test_split_send(conn, padded, 2);
+
+    xqc_test_split_shrink(conn);
+    xqc_test_split_detect_lost(conn, 10);
+    CU_ASSERT(mixed->po_flag & XQC_POF_SPLIT);
+    CU_ASSERT(padded->po_flag & XQC_POF_SPLIT);
+    CU_ASSERT_EQUAL(stream->stream_unacked_pkt,
+                    xqc_test_split_check_pieces(conn, stream,
+                        XQC_TEST_SPLIT_DATA_LEN - 20, 0));
+
+    int max_data = 0, max_streams = 0;
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &sq->sndq_lost_packets) {
+        xqc_packet_out_t *po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (po->po_frame_types & XQC_FRAME_BIT_STREAM) {
+            continue;
+        }
+
+        CU_ASSERT_PTR_NULL(po->po_origin);
+        CU_ASSERT_FALSE(po->po_flag & XQC_POF_STREAM_UNACK);
+        CU_ASSERT_EQUAL(po->po_buf_size, XQC_TEST_SPLIT_NEW_SIZE);
+        CU_ASSERT_EQUAL(po->po_stream_frames_idx, 0);
+        if (po->po_frame_types == XQC_FRAME_BIT_MAX_DATA) {
+            CU_ASSERT_EQUAL(po->po_used_size, header_len + max_data_len);
+            CU_ASSERT_EQUAL(po->po_buf[header_len], 0x10);
+            max_data++;
+
+        } else if (po->po_frame_types == XQC_FRAME_BIT_MAX_STREAMS) {
+            CU_ASSERT_EQUAL(po->po_used_size, header_len + max_streams_len);
+            CU_ASSERT_PTR_NULL(po->po_padding);
+            max_streams++;
+
+        } else {
+            CU_FAIL("unexpected frames resent");
+        }
+    }
+    CU_ASSERT_EQUAL(max_data, 1);
+    CU_ASSERT_EQUAL(max_streams, 1);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * draft-ietf-quic-reliable-stream-reset-09 Section 5.3: a reliable reset
+ * completes once the data below the reliable size is acknowledged. When a
+ * lost packet is split, its other copies are dropped, and their data is not
+ * taken as acknowledged, which only the new packets can be.
+ */
+void
+xqc_test_send_ctl_split_copy_not_acked(void)
+{
+    xqc_connection_t *conn = xqc_test_split_conn();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    conn->local_settings.reset_stream_at = XQC_TRUE;
+    conn->remote_settings.reset_stream_at = XQC_TRUE;
+    xqc_stream_t *stream = xqc_stream_create_with_direction(conn,
+        XQC_STREAM_UNI, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+    stream->stream_flag |= XQC_STREAM_FLAG_HAS_H3;
+    CU_ASSERT(xqc_stream_set_reliable_size(stream, XQC_TEST_SPLIT_DATA_LEN)
+              == XQC_OK);
+
+    xqc_test_split_write(stream, XQC_TEST_SPLIT_DATA_LEN, 0);
+    xqc_packet_out_t *po = xqc_test_split_queued(conn, stream);
+    CU_ASSERT_FATAL(po != NULL);
+    xqc_test_split_send(conn, po, 1);
+
+    /* two PTO probes sent copies of it at the old size, the second one
+     * recently */
+    xqc_packet_out_t *copy = xqc_test_split_probe_copy(conn, po, 2, 2);
+    xqc_packet_out_t *recent = xqc_test_split_probe_copy(conn, po, 20,
+        XQC_TEST_SPLIT_NOW - 1000);
+    CU_ASSERT_PTR_EQUAL(copy->po_origin, po);
+    CU_ASSERT_PTR_EQUAL(recent->po_origin, po);
+    CU_ASSERT_EQUAL(stream->stream_unacked_pkt, 1);
+
+    /* RESET_STREAM_AT, acknowledged */
+    CU_ASSERT(xqc_stream_reset(stream, 9) == XQC_OK);
+    xqc_list_head_t *pos;
+    xqc_packet_out_t *reset = NULL;
+    xqc_list_for_each(pos, &sq->sndq_send_packets) {
+        xqc_packet_out_t *p = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        if (p->po_frame_types & XQC_FRAME_BIT_RESET_STREAM_AT) {
+            reset = p;
+        }
+    }
+    CU_ASSERT_FATAL(reset != NULL);
+    xqc_test_split_send(conn, reset, 3);
+    xqc_test_split_ack(conn, reset);
+    CU_ASSERT(stream->reset_at.send_reset_acked);
+    CU_ASSERT_EQUAL(stream->stream_state_send, XQC_SEND_STREAM_ST_DATA_SENT);
+
+    /* the path MTU goes down; the first copy is lost and split, and the
+     * recent one, still in flight, is dropped */
+    xqc_test_split_shrink(conn);
+    xqc_test_split_detect_lost(conn, 10);
+    CU_ASSERT(po->po_flag & XQC_POF_SPLIT);
+    int pieces = xqc_test_split_check_pieces(conn, stream,
+                                             XQC_TEST_SPLIT_DATA_LEN, 0);
+    CU_ASSERT(pieces >= 2);
+    CU_ASSERT_EQUAL(path->path_send_ctl->ctl_bytes_ack_eliciting_inflight[
+                        XQC_PNS_APP_DATA], 0);
+    CU_ASSERT_EQUAL(stream->stream_unacked_pkt, pieces);
+    CU_ASSERT_EQUAL(stream->stream_acked_offset, 0);
+    CU_ASSERT_EQUAL(stream->stream_state_send, XQC_SEND_STREAM_ST_DATA_SENT);
+
+    /* the next loss detection drops the lost packet and its first copy */
+    xqc_test_split_detect_lost(conn, 10);
+    CU_ASSERT(xqc_list_empty(&sq->sndq_unacked_packets[XQC_PNS_APP_DATA]));
+    CU_ASSERT_EQUAL(stream->stream_acked_offset, 0);
+    CU_ASSERT_EQUAL(stream->stream_state_send, XQC_SEND_STREAM_ST_DATA_SENT);
+
+    /* the new packets acknowledged complete the reset */
+    xqc_test_split_ack_lost_list(conn, 20);
+    CU_ASSERT_EQUAL(stream->stream_acked_offset, XQC_TEST_SPLIT_DATA_LEN);
+    CU_ASSERT_EQUAL(stream->stream_state_send, XQC_SEND_STREAM_ST_DATA_RECVD);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A PTO probes with a packet that fits: a copy of one built before the path
+ * MTU went down would be lost as well. Without any, it sends PINGs.
+ */
+static void
+xqc_test_send_ctl_pto_probe(xqc_bool_t with_fitting_packet)
+{
+    xqc_connection_t *conn = xqc_test_split_conn();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_stream_t *big = xqc_create_stream_with_conn(conn,
+        XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    xqc_stream_t *small = xqc_create_stream_with_conn(conn,
+        XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(big != NULL && small != NULL);
+
+    xqc_test_split_write(big, XQC_TEST_SPLIT_DATA_LEN, 0);
+    xqc_packet_out_t *oversized = xqc_test_split_queued(conn, big);
+    CU_ASSERT_FATAL(oversized != NULL);
+    xqc_test_split_send(conn, oversized, 1);
+
+    xqc_packet_out_t *fits = NULL;
+    if (with_fitting_packet) {
+        xqc_test_split_write(small, 100, 0);
+        fits = xqc_test_split_queued(conn, small);
+        CU_ASSERT_FATAL(fits != NULL);
+        xqc_test_split_send(conn, fits, 2);
+    }
+
+    xqc_test_split_shrink(conn);
+    xqc_path_send_one_or_two_ack_elicit_pkts(conn->conn_initial_path,
+                                             XQC_PNS_APP_DATA);
+
+    int probes = 0;
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, &sq->sndq_pto_probe_packets) {
+        xqc_packet_out_t *po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        CU_ASSERT(po->po_used_size <= xqc_conn_get_mss(conn));
+        if (with_fitting_packet) {
+            CU_ASSERT_PTR_EQUAL(po->po_origin, fits);
+
+        } else {
+            CU_ASSERT_PTR_NULL(po->po_origin);
+            CU_ASSERT_EQUAL(po->po_frame_types, XQC_FRAME_BIT_PING);
+        }
+        probes++;
+    }
+    CU_ASSERT_EQUAL(probes, XQC_CONN_PTO_PKT_CNT_MAX);
+    CU_ASSERT(oversized->po_flag & XQC_POF_IN_FLIGHT);
+    CU_ASSERT_FALSE(oversized->po_flag & XQC_POF_TLP);
+    CU_ASSERT_EQUAL(oversized->po_origin_ref_cnt, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_send_ctl_pto_pings_when_none_fits(void)
+{
+    xqc_test_send_ctl_pto_probe(XQC_FALSE);
+}
+
+void
+xqc_test_send_ctl_pto_probes_packet_that_fits(void)
+{
+    xqc_test_send_ctl_pto_probe(XQC_TRUE);
+}
+
+/*
+ * The packet size of the connection follows its smallest open path, down
+ * too, and PMTUD searches again from there; without an open path it stays.
+ */
+void
+xqc_test_send_ctl_mss_follows_smallest_path(void)
+{
+    xqc_connection_t *conn = xqc_test_split_conn();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+
+    conn->max_pkt_out_size = XQC_TEST_SPLIT_OLD_SIZE;
+    conn->probing_pkt_out_size = XQC_TEST_SPLIT_OLD_SIZE;
+    conn->probing_cnt = 2;
+    conn->conn_flag &= ~XQC_CONN_FLAG_PMTUD_PROBING;
+    path->path_max_pkt_out_size = XQC_MAX_PACKET_OUT_SIZE;
+
+    xqc_test_split_shrink(conn);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, XQC_MAX_PACKET_OUT_SIZE);
+    CU_ASSERT_EQUAL(conn->probing_pkt_out_size, XQC_MAX_PACKET_OUT_SIZE);
+    CU_ASSERT_EQUAL(conn->probing_cnt, 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_PMTUD_PROBING) != 0);
+
+    /* a closing path does not count */
+    xqc_set_path_state(path, XQC_PATH_STATE_CLOSING);
+    path->curr_pkt_out_size = XQC_PACKET_OUT_SIZE - 100;
+    xqc_conn_try_to_update_mss(conn);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, XQC_TEST_SPLIT_NEW_SIZE);
+
+    xqc_engine_destroy(conn->engine);
 }

@@ -103,6 +103,12 @@ typedef struct xqc_send_ctl_s {
                                 ctl_latest_rtt;
     xqc_usec_t                  ctl_first_rtt_sample_time; /* The time when the conn gets the first RTT sample. */
 
+    /*
+     * RFC 9000 Section 9.4: the packets sent before the peer moved to a new
+     * IP address count in neither congestion control nor RTT estimation
+     */
+    xqc_usec_t                  ctl_cc_reset_time;
+
     /* data record - latest rtt */
     uint32_t                    ctl_update_latest_rtt_count;
     xqc_msec_t                  ctl_latest_rtt_sum;
@@ -203,6 +209,11 @@ xqc_send_ctl_t *xqc_send_ctl_create(xqc_path_ctx_t *path);
 void xqc_send_ctl_destroy(xqc_send_ctl_t *send_ctl);
 
 void xqc_send_ctl_reset(xqc_send_ctl_t *send_ctl);
+
+void xqc_send_ctl_reset_for_new_path(xqc_send_ctl_t *send_ctl);
+
+void xqc_send_ctl_set_initial_rtt(xqc_send_ctl_t *send_ctl,
+    xqc_usec_t initial_rtt);
 
 xqc_pn_ctl_t *xqc_pn_ctl_create(xqc_connection_t *conn);
 

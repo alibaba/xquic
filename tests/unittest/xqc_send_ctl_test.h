@@ -82,4 +82,19 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * RFC 9000 14.2: once the path MTU went down, a lost packet that no longer
+ * fits is resent in packets that do, while one that fits, or one with a
+ * DATAGRAM frame, is copied; the copies of a split packet are dropped
+ * without their data taken as acknowledged; a PTO probes with packets that
+ * fit, or PINGs; the packet size follows the smallest open path, down too.
+ */
+void xqc_test_send_ctl_split_lost_stream_packet(void);
+void xqc_test_send_ctl_split_lost_packet_copied(void);
+void xqc_test_send_ctl_split_keeps_other_frames(void);
+void xqc_test_send_ctl_split_copy_not_acked(void);
+void xqc_test_send_ctl_pto_pings_when_none_fits(void);
+void xqc_test_send_ctl_pto_probes_packet_that_fits(void);
+void xqc_test_send_ctl_mss_follows_smallest_path(void);
+
 #endif

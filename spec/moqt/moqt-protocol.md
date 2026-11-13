@@ -2030,6 +2030,13 @@ propagation and rendezvous remain outside it. Register only its client role
 with the runner. Client scenarios may use an independent Relay to exercise
 existing endpoint capabilities; that does not implement XQUIC Relay support.
 
+The adapter additionally covers multi-publisher namespace retention using a
+synchronization namespace and late observers. Standalone `fetch` and Fill
+`join` use bounded deterministic history, independent live/history oracles,
+complete object sets and retrieval FIN. Application history is separate from
+Relay caching. Opposite sender directions and peer Fill encodings require
+separate results; a diagnostic wire variant is not an unmodified-peer pass.
+
 #### Data and Media Boundaries
 
 Deterministic sources/oracles are independent of the protocol library.
@@ -2108,8 +2115,8 @@ padding probes.
 | F18 [Ordinary Object Properties codec/fidelity](#properties-cache-and-malformed) | Complete | Complete; KVP/property tests | Yes; C18 ID set; value/byte fidelity separate |
 | F19 [Mandatory/Immutable, Track Properties, INCLUDE_PROPERTIES](#properties-cache-and-malformed) | Complete | Partial; Object validation/immutable reads present; response-phase/set-replacement checks pending | No; Mandatory/nonempty Track Properties not required |
 | F20 [Cross-delivery consistency, Prior Gap, malformed propagation](#properties-cache-and-malformed) | Partial; active-summary bounds defined, longer history policy unresolved | Partial; active Group/Subgroup and FETCH malformed handling present; complete history pending | No; sparse increments do not test Prior Gap conflict |
-| F21 [Standalone FETCH, history, ranges, cancellation](#fetch-decoding-history) | Complete | Complete; positive/negative codec/lifetime tests | No; catalog has no FETCH |
-| F22 [Fill/live concurrency, trigger IDs, cancellation](#fill-design) | Complete | Complete; scope/snapshot/cancel/scheduling tests | No; catalog has no Fill |
+| F21 [Standalone FETCH, history, ranges, cancellation](#fetch-decoding-history) | Complete | Complete; positive/negative codec/lifetime tests | Yes; extra fetch case; range/order/cancellation abnormalities remain separate |
+| F22 [Fill/live concurrency, trigger IDs, cancellation](#fill-design) | Complete | Complete; scope/snapshot/cancel/scheduling tests | Yes; extra join case; update/cancellation abnormalities remain separate |
 | F23 [Namespace publication/withdrawal](#namespace-state-boundaries) | Complete | Complete; registration/withdrawal and request isolation tests | Yes; C02/C03/C06–C10/C13–C22 |
 | F24 [Namespace discovery, suffix/DONE, prefix updates](#namespace-state-boundaries) | Complete | Complete; suffix/DONE, races/auth, FIN/reset, budgets/reentrancy | Yes; C09/C10/C21 |
 | F25 [SUBSCRIBE_TRACKS, independent PUBLISH, SKIPPED](#subscribe-tracks-design) | Partial; explicit sending/rejection subset, Location/Fill inheritance still needs peer agreement | Partial; C10 endpoint prerequisites and positive/negative tests present: bounded enumeration, independent Pc, SKIPPED, inheritance, updates, authorization, lifetimes; nonzero filters depend on F11, disputed combinations need validation | Yes; C10 endpoint subset ready; three-node execution depends on F35/F42, no inferred case pass |

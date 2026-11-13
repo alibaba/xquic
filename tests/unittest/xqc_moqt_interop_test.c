@@ -23,6 +23,38 @@ xqc_test_moqt_interop_fixture(void)
     CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 9);
     CU_ASSERT_EQUAL(f.first_object, 3);
     CU_ASSERT_EQUAL(f.object_step, 2);
+
+    xqc_interop_fixture_case("data-subgroup-basic", &f);
+    xqc_moqt_location_t start = {1, 0}, end = {1, UINT64_MAX};
+    unsigned first, last;
+    CU_ASSERT_EQUAL(xqc_interop_history_window(&f, 13, &start, &end,
+                                               &first, &last), 0);
+    CU_ASSERT_EQUAL(first, 5);
+    CU_ASSERT_EQUAL(last, 9);
+    end = (xqc_moqt_location_t){2, 1};
+    CU_ASSERT_EQUAL(xqc_interop_history_window(&f, 12, &start, &end,
+                                               &first, &last), 0);
+    CU_ASSERT_EQUAL(last, 11);
+
+    xqc_interop_retention_t state = {.run = "run"};
+    const char *names[] = {"moq-test",
+        "publish-namespace-multi-publisher-retention", "run", "shared"};
+    ns.count = 4;
+    for (unsigned i = 0; i < 4; i++) {
+        ns.fields[i] = (struct iovec){(void *)names[i], strlen(names[i])};
+    }
+    xqc_interop_retention_event(&state, &ns, 1);
+    ns.fields[3] = (struct iovec){"sync", 4};
+    xqc_interop_retention_event(&state, &ns, 1);
+    xqc_interop_retention_event(&state, &ns, 0);
+    CU_ASSERT_TRUE(state.present[0]);
+    state.allow_remove = 1;
+    ns.fields[3] = (struct iovec){"shared", 6};
+    xqc_interop_retention_event(&state, &ns, 0);
+    CU_ASSERT_FALSE(state.failed);
+    CU_ASSERT_EQUAL(state.adds[0], 1);
+    CU_ASSERT_EQUAL(state.removes[0], 1);
+    CU_ASSERT_EQUAL(state.removes[1], 1);
 }
 
 void
@@ -44,6 +76,35 @@ xqc_test_moqt_interop_fixture_errors(void)
     CU_ASSERT_NOT_EQUAL(xqc_interop_fixture_parse(&ns, &f), 0);
     ns.fields[7] = (struct iovec){"1x", 2};
     CU_ASSERT_NOT_EQUAL(xqc_interop_fixture_parse(&ns, &f), 0);
+
+    xqc_interop_fixture_case("data-subgroup-basic", &f);
+    xqc_moqt_location_t start = {2, 0}, end = {1, 4};
+    unsigned first, last;
+    CU_ASSERT_NOT_EQUAL(xqc_interop_history_window(&f, 15, &start, &end,
+                                                   &first, &last), 0);
+    end.group_id = 2;
+    CU_ASSERT_NOT_EQUAL(xqc_interop_history_window(&f, 0, &start, &end,
+                                                   &first, &last), 0);
+    CU_ASSERT_NOT_EQUAL(xqc_interop_history_window(&f, 16, &start, &end,
+                                                   &first, &last), 0);
+    start.object_id = 5;
+    CU_ASSERT_NOT_EQUAL(xqc_interop_history_window(&f, 15, &start, &end,
+                                                   &first, &last), 0);
+
+    xqc_interop_retention_t state = {.run = "run"};
+    const char *names[] = {"moq-test",
+        "publish-namespace-multi-publisher-retention", "run", "shared"};
+    ns.count = 4;
+    for (unsigned i = 0; i < 4; i++) {
+        ns.fields[i] = (struct iovec){(void *)names[i], strlen(names[i])};
+    }
+    xqc_interop_retention_event(&state, &ns, 1);
+    xqc_interop_retention_event(&state, &ns, 0);
+    CU_ASSERT_TRUE(state.failed); /* Withdrawal before the last publisher. */
+    state = (xqc_interop_retention_t){.run = "run"};
+    ns.fields[2] = (struct iovec){"another-run", 11};
+    xqc_interop_retention_event(&state, &ns, 1);
+    CU_ASSERT_TRUE(state.failed);
 }
 
 void
@@ -68,6 +129,19 @@ xqc_test_moqt_interop_oracle(void)
     CU_ASSERT_TRUE(xqc_interop_oracle_complete(&oracle, 0));
     CU_ASSERT_EQUAL(oracle.objects, 15);
     CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 1));
+    xqc_moqt_location_t start = {0, 0}, end = {2, 4};
+    CU_ASSERT_TRUE(xqc_interop_history_complete(&oracle, &start, &end));
+    start.group_id = 1;
+    CU_ASSERT_FALSE(xqc_interop_history_complete(&oracle, &start, &end));
+    for (unsigned i = 0; i < 5; i++) {
+        oracle.seen[i] = 0;
+    }
+    oracle.objects -= 5;
+    CU_ASSERT_TRUE(xqc_interop_history_complete(&oracle, &start, &end));
+    oracle.seen[14] = 0;
+    oracle.objects--;
+    end.object_id = 3;
+    CU_ASSERT_TRUE(xqc_interop_history_complete(&oracle, &start, &end));
 }
 
 void
@@ -76,6 +150,8 @@ xqc_test_moqt_interop_oracle_errors(void)
     xqc_interop_oracle_t oracle = {0};
     xqc_interop_fixture_case("data-subgroup-basic", &oracle.fixture);
     CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+    xqc_moqt_location_t start = {0, 0}, end = {2, 4};
+    CU_ASSERT_FALSE(xqc_interop_history_complete(&oracle, &start, &end));
     CU_ASSERT_TRUE(xqc_interop_oracle_complete(&oracle, 1));
     char bytes[64];
     memset(bytes, 't', sizeof(bytes));
@@ -84,6 +160,7 @@ xqc_test_moqt_interop_oracle_errors(void)
     xqc_interop_oracle_object(&oracle, &o);
     xqc_interop_oracle_object(&oracle, &o);
     CU_ASSERT_TRUE(oracle.failed);
+    CU_ASSERT_FALSE(xqc_interop_history_complete(&oracle, &start, &end));
     memset(oracle.seen, 0, sizeof(oracle.seen));
     memset(oracle.offsets, 0, sizeof(oracle.offsets));
     oracle.failed = 0;

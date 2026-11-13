@@ -25,11 +25,24 @@ explicit TLS verification bypass. There is no session resumption.
 The client implements SETUP, namespace publication/withdrawal, subscription
 errors and rendezvous timeout, publisher/subscriber ordering, namespace
 discovery lifecycle, direct PUBLISH and PUBLISH/subscription,
-`data-subgroup-basic`, and eight `moq-test-*` scenarios. Case definitions come
-from runner `2afe7b428e9ebf7277fef0d6b9701af4aefe60b0`; deterministic vectors
+`data-subgroup-basic`, eight `moq-test-*` scenarios, multi-publisher namespace
+retention, standalone `fetch`, and `join` with draft-22 Fill. Case definitions
+come from runner `2afe7b428e9ebf7277fef0d6b9701af4aefe60b0`; deterministic vectors
 follow aiomoqt 0.14.1. `--list` is the implemented set. SUBSCRIBE_TRACKS-based
-`namespace-discovery`, multi-publisher retention, and media decoding cases
-remain unsupported.
+`namespace-discovery` and media decoding cases remain unsupported.
+
+The retention case uses two publishers, a synchronization namespace and three
+observers. It checks complete names, rejects premature withdrawal and requires
+both late observers to see the namespace until its last publisher withdraws.
+Its overall deadline is eight seconds.
+
+The history cases publish six groups of five deterministic objects, pause
+after group 2's first object reaches the live observer, then open an independent
+fetcher/joiner. FETCH verifies all five objects of historical group 1. JOIN
+uses SUBSCRIBE with FILL_PARAMETERS: six historical objects and nineteen
+subsequent live objects have independent oracles and completion conditions.
+Both cases require the original live observer to receive all thirty objects;
+an OK response or a partial history stream is insufficient.
 
 Data cases use fresh random namespaces, independent publisher and subscriber
 sessions, bounded phase/delivery deadlines and paced objects. The oracle
@@ -46,9 +59,19 @@ It must not be registered as a relay. Runner cases requiring a relay use an
 independent relay. Direct-origin probes are separate evidence.
 
 The origin accepts at most 256 objects per tuple, payloads at most 1024 bytes,
-and pacing at most 100 ms. It supports the vector property IDs 2 and 5 with
+and pacing at most 100 ms. Dense subgroup fixtures without markers/properties
+also supply finite history through FETCH/Fill; FETCH supports both group
+orders and rejects invalid ranges without ending the session. This history
+is deterministic application data rather than a relay cache. It supports
+the vector property IDs 2 and 5 with
 fixed integer/byte values. It is an anonymous local test fixture; deployment
 authorization belongs to an application.
+
+The native Fill codec is unchanged: FILL_PARAMETERS contains a length-delimited
+sequence of inner parameters. aiomoqt 0.14.1's default Join sender includes an
+inner parameter count, which this codec rejects. Record that reverse-direction
+encoding mismatch separately; manually adjusted wire diagnostics do not count
+as unmodified-peer interoperability passes.
 
 The runner builds current draft-22 role images from `dev/moqt-interop`:
 `xquic-client:latest` starts the client, and `xquic-relay:latest` starts the

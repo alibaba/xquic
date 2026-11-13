@@ -50,4 +50,21 @@ and pacing at most 100 ms. It supports the vector property IDs 2 and 5 with
 fixed integer/byte values. It is an anonymous local test fixture; deployment
 authorization belongs to an application.
 
+The runner packages both roles in one current draft-22 image,
+`xquic-moq:latest`, built from `dev/moqt-interop`. In a runner checkout:
+
+```sh
+./builds/xquic/build.sh --local /path/to/xquic --target endpoint
+docker run --rm xquic-moq:latest --list
+docker run --rm -e RELAY_URL=moqt://relay:4443 -e TLS_DISABLE_VERIFY=1 \
+    xquic-moq:latest
+docker run --rm -p 4443:4443/udp -v /path/to/test-certs:/certs:ro \
+    xquic-moq:latest --server
+```
+
+The test certificate directory contains disposable `cert.pem` and `priv.key`.
+The runner registry key is `xquic`, with draft-22 only. Its build configuration
+and image workflows use the same development branch; previous draft-14/18
+image definitions are retired. Server probes remain separate from relay cases.
+
 [interface]: https://github.com/englishm/moq-interop-runner/blob/2afe7b428e9ebf7277fef0d6b9701af4aefe60b0/docs/TEST-CLIENT-INTERFACE.md

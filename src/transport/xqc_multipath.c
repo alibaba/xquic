@@ -411,6 +411,64 @@ xqc_path_rebinding_on_authenticated_datagram(xqc_connection_t *conn,
 }
 
 
+/*
+ * The packet size of a path before PMTUD finds more: that of the connection
+ * at its start (xqc_conn_create()), within the peer's max_udp_payload_size
+ * (xqc_conn_set_remote_transport_params()).
+ */
+static size_t
+xqc_path_base_pkt_out_size(xqc_connection_t *conn)
+{
+    size_t size = xqc_min(conn->conn_settings.max_pkt_out_size,
+                          conn->conn_settings.max_udp_payload_size
+                          - XQC_PACKET_OUT_EXT_SPACE);
+
+    if (conn->remote_settings.max_udp_payload_size >= XQC_PACKET_OUT_SIZE) {
+        size = xqc_min(size, conn->remote_settings.max_udp_payload_size
+                             - XQC_PACKET_OUT_EXT_SPACE);
+    }
+
+    return size;
+}
+
+
+/*
+ * RFC 9000 Sections 14.2 and 14.3, RFC 10069 Section 5.8: the maximum
+ * datagram size is kept for each pair of local and remote addresses, and
+ * what PMTUD found toward the old address says nothing of the new one (RFC
+ * 8899 Section 3). The path goes back to the size a connection starts from,
+ * which lowers that of the connection when the path had more, and PMTUD
+ * searches the whole range again. The probes sent before do not count
+ * (xqc_send_ctl_on_pmtud_ping_acked()), and the lost packets that no longer
+ * fit are resent in packets that do (xqc_send_queue_split_lost()).
+ */
+static void
+xqc_path_rebinding_reset_pmtu(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    size_t base;
+
+    if (!conn->enable_pmtud) {
+        return;
+    }
+
+    base = xqc_path_base_pkt_out_size(conn);
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|path:%ui|REBINDING|path MTU reset|size:%uz|to:%uz|",
+            path->path_id, path->curr_pkt_out_size, base);
+
+    path->curr_pkt_out_size = base;
+    path->path_max_pkt_out_size = conn->conn_settings.probing_pkt_out_size;
+    xqc_conn_try_to_update_mss(conn);
+
+    /* search again from the top, even when the connection keeps its size */
+    conn->max_pkt_out_size = path->path_max_pkt_out_size;
+    conn->probing_pkt_out_size = path->path_max_pkt_out_size;
+    conn->probing_cnt = 0;
+    conn->conn_flag |= XQC_CONN_FLAG_PMTUD_PROBING;
+    xqc_timer_unset(&conn->conn_timer_manager, XQC_TIMER_PMTUD_PROBING);
+}
+
+
 static void
 xqc_path_rebinding_commit_addr(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_usec_t now)
@@ -441,6 +499,7 @@ xqc_path_rebinding_commit_addr(xqc_connection_t *conn, xqc_path_ctx_t *path,
             xqc_send_ctl_set_initial_rtt(path->path_send_ctl,
                                          now - rebinding->challenge_sent_time);
         }
+        xqc_path_rebinding_reset_pmtu(conn, path);
     }
 
     if (conn->enable_multipath && path->path_id != XQC_INITIAL_PATH_ID) {

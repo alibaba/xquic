@@ -101,7 +101,8 @@ xqc_datagram_record_mss(xqc_connection_t *conn)
                                 (uint64_t) udp_payload_limit);
     conn->dgram_mss = xqc_min((size_t) dgram_frame_limit, mtu_limit);
 end:
-    if (conn->dgram_mss > old_mss) {
+    /* smaller too, when the path MTU goes down (RFC 9000 Section 14.2) */
+    if (conn->dgram_mss != 0 && conn->dgram_mss != old_mss) {
         conn->conn_flag |= XQC_CONN_FLAG_DGRAM_MSS_NOTIFY;
 
     } else {

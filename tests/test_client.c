@@ -1431,14 +1431,76 @@ xqc_client_get_path_fd_by_id(user_conn_t *user_conn, uint64_t path_id)
 
 
 /*
- * the cases that move path 0 to its rebinding socket mid-transfer: 812 to
- * another IP address, the others to another port
+ * the cases that move path 0 to its rebinding socket mid-transfer: 812 and
+ * 814 to another IP address, the others to another port
  */
 static int
 xqc_client_case_moves_path0(void)
 {
     return g_test_case == 103 || g_test_case == 800 || g_test_case == 812
-           || g_test_case == 813;
+           || g_test_case == 813 || g_test_case == 814 || g_test_case == 815;
+}
+
+
+static int
+xqc_client_case_moves_path0_ip(void)
+{
+    return g_test_case == 812 || g_test_case == 814;
+}
+
+
+/*
+ * cases 814-815: path 0 moves once the server has sent
+ * XQC_TEST_CASE_LARGE_PKTS datagrams above XQC_TEST_CASE_PATH_MTU, more than
+ * its PMTU probes: PMTUD has raised its packet size. The other paths close
+ * then, so that the rest of the transfer goes on path 0 only, and what the
+ * server sends to the old address of path 0 is lost, as when a NAT mapping
+ * goes away.
+ */
+#define XQC_TEST_CASE_LARGE_PKTS 10
+
+static int g_large_pkts_recvd;
+static int g_path0_moved;
+
+static int
+xqc_client_old_path0_gone(int fd)
+{
+    return (g_test_case == 814 || g_test_case == 815) && g_path0_moved
+           && fd == g_client_path[0].path_fd;
+}
+
+static void
+xqc_client_count_large_pkt(user_conn_t *user_conn, xqc_engine_t *engine,
+    size_t size)
+{
+    if ((g_test_case != 814 && g_test_case != 815) || g_path0_moved
+        || size <= XQC_TEST_CASE_PATH_MTU
+        || ++g_large_pkts_recvd < XQC_TEST_CASE_LARGE_PKTS)
+    {
+        return;
+    }
+
+    g_path0_moved = 1;
+    for (int i = 1; i < g_multi_interface_cnt; i++) {
+        if (g_client_path[i].is_in_used) {
+            xqc_conn_close_path(engine, &user_conn->cid,
+                                g_client_path[i].path_id);
+        }
+    }
+    printf("[case-%d]|path 0 moves|large_pkts:%d|\n", g_test_case,
+           g_large_pkts_recvd);
+}
+
+
+/* path 0 sends from its rebinding socket now */
+static int
+xqc_client_path0_moved(int path_idx)
+{
+    if (g_test_case == 814 || g_test_case == 815) {
+        return g_path0_moved;
+    }
+
+    return g_client_path[path_idx].send_size > g_send_body_size / 10;
 }
 
 
@@ -1575,7 +1637,7 @@ xqc_client_write_socket_ex(uint64_t path_id,
     if (hsk_completed) {
         if (xqc_client_case_moves_path0()
             && path_id == 0 && path_idx >= 0
-            && g_client_path[path_idx].send_size > g_send_body_size/10)
+            && xqc_client_path0_moved(path_idx))
         {
             fd = g_client_path[path_idx].rebinding_path_fd;
         }
@@ -1993,7 +2055,7 @@ xqc_client_create_path_socket(xqc_user_path_t *path,
         struct sockaddr_in new_ip;
         const struct sockaddr *local_addr = NULL;
 
-        if (g_test_case == 812) {
+        if (xqc_client_case_moves_path0_ip()) {
             /* IPv4 only: the IPv6 loopback has a single address */
             memset(&new_ip, 0, sizeof(new_ip));
             new_ip.sin_family = AF_INET;
@@ -5009,6 +5071,11 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 
         if (TEST_DROP) continue;
 
+        /* cases 814-815 */
+        if (xqc_client_old_path0_gone(fd)) {
+            continue;
+        }
+
         if (g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE) {
             xqc_client_key_update_copy_packet(user_conn, packet_buf,
                                               recv_size);
@@ -5068,6 +5135,9 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
             printf("xqc_client_read_handler: packet process err, ret: %d\n", ret);
             return;
         }
+
+        /* cases 814-815 */
+        xqc_client_count_large_pkt(user_conn, p_ctx->engine, recv_size);
 
         if (g_test_case == XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE) {
             xqc_client_key_update_start(user_conn);

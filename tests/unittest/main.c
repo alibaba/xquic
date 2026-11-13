@@ -371,6 +371,14 @@ main(int argc, char *argv[])
                         xqc_test_rebinding_new_ip_resets_bbr)
         || !CU_add_test(pSuite, "xqc_test_rebinding_new_port_keeps_cc",
                         xqc_test_rebinding_new_port_keeps_cc)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_ip_resets_pmtu",
+                        xqc_test_rebinding_new_ip_resets_pmtu)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_ip_searches_again",
+                        xqc_test_rebinding_new_ip_searches_again)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_port_keeps_pmtu",
+                        xqc_test_rebinding_new_port_keeps_pmtu)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_pmtud_off_keeps_size",
+                        xqc_test_rebinding_pmtud_off_keeps_size)
         || !CU_add_test(pSuite, "xqc_test_rebinding_response_mismatch_preserves_state", xqc_test_rebinding_response_mismatch_preserves_state)
         || !CU_add_test(pSuite, "xqc_test_rebinding_sender_error_clears_candidate", xqc_test_rebinding_sender_error_clears_candidate)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)

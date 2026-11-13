@@ -25,5 +25,9 @@ void xqc_test_rebinding_sender_error_clears_candidate();
 void xqc_test_rebinding_new_ip_resets_cubic();
 void xqc_test_rebinding_new_ip_resets_bbr();
 void xqc_test_rebinding_new_port_keeps_cc();
+void xqc_test_rebinding_new_ip_resets_pmtu(void);
+void xqc_test_rebinding_new_ip_searches_again(void);
+void xqc_test_rebinding_new_port_keeps_pmtu(void);
+void xqc_test_rebinding_pmtud_off_keeps_size(void);
 
 #endif

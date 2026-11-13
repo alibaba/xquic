@@ -204,6 +204,15 @@ xqc_moq_msg_alloc_params(xqc_int_t params_num)
 void
 xqc_moq_msg_free_params(xqc_moq_message_parameter_t *params, xqc_int_t params_num)
 {
+    /*
+     * a message is freed in whatever state its decoding stopped: its
+     * Number of Parameters may be read, and refused, before the parameters
+     * are allocated
+     */
+    if (params == NULL) {
+        return;
+    }
+
     for (xqc_int_t i = 0; i < params_num; i++) {
         xqc_free(params[i].value);
     }

@@ -139,3 +139,44 @@ xqc_test_retry_invalid_token_ignore_original_dcid()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/* defined in src/transport/xqc_packet_parser.c */
+xqc_int_t xqc_conn_gen_retry_integrity_tag(
+    xqc_connection_t *conn, const uint8_t *odcid_buf, unsigned odcid_len,
+    uint8_t *retry_buf, unsigned retry_len, uint8_t *tag_buf, size_t *tag_len);
+
+/*
+ * RFC 9001 Section 5.8: the Retry pseudo-packet is the ODCID length, the
+ * ODCID and the Retry packet without its tag. The longest one that fits
+ * the pseudo-packet buffer gets a tag; one byte more is refused.
+ */
+void
+xqc_test_retry_pseudo_packet_bound(void)
+{
+    /* the buffer that the tag computation uses, from its definition */
+    size_t max = 3 * (1 + XQC_MAX_CID_LEN) + 1 + 4 + XQC_MAX_TOKEN_LEN;
+    uint8_t odcid[8] = {0};
+    uint8_t retry[3 * (1 + XQC_MAX_CID_LEN) + 1 + 4 + XQC_MAX_TOKEN_LEN];
+    uint8_t tag[XQC_RETRY_INTEGRITY_TAG_LEN];
+    size_t tag_len = 0;
+    xqc_connection_t *conn = test_engine_connect();
+
+    CU_ASSERT_FATAL(conn != NULL);
+    memset(retry, 0xf0, sizeof(retry));
+
+    /* happy: 1 + 8 + (max - 9) bytes fill the pseudo-packet */
+    CU_ASSERT(xqc_conn_gen_retry_integrity_tag(conn, odcid, sizeof(odcid),
+                                               retry, max - 1 - sizeof(odcid),
+                                               tag, &tag_len)
+              == XQC_OK);
+    CU_ASSERT(tag_len == XQC_RETRY_INTEGRITY_TAG_LEN);
+
+    /* abnormal: one byte more does not fit */
+    CU_ASSERT(xqc_conn_gen_retry_integrity_tag(conn, odcid, sizeof(odcid),
+                                               retry, max - sizeof(odcid), tag,
+                                               &tag_len)
+              == XQC_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}

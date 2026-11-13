@@ -82,4 +82,14 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * A clock that goes backwards (gettimeofday() stepped back) gives no RTT
+ * sample, no persistent congestion and an ACK Delay of 0.
+ */
+void xqc_test_send_ctl_rtt_sample(void);
+void xqc_test_send_ctl_rtt_clock_backwards(void);
+void xqc_test_send_ctl_persistent_congestion_clock_backwards(void);
+void xqc_test_ack_delay(void);
+void xqc_test_ack_delay_clock_backwards(void);
+
 #endif

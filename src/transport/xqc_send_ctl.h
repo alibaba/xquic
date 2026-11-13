@@ -26,8 +26,12 @@
 
 #define XQC_kInitialRtt_us                  250000
 
-/* 2^n */
-#define xqc_send_ctl_pow(n)                 (1 << n)
+/*
+ * 2^n for the PTO backoff, n capped at 16 like the backoff itself:
+ * pto_count has no upper bound and 1 << n is undefined from n = 31.
+ */
+#define XQC_PTO_BACKOFF_MAX_EXP             16
+#define xqc_send_ctl_pow(n)                 (1 << xqc_min((n), XQC_PTO_BACKOFF_MAX_EXP))
 #define xqc_send_ctl_pow_x(x, n)            (fabs(x - 2) < 1e-7) ? xqc_send_ctl_pow(n) : pow(x, n)
 
 

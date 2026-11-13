@@ -111,6 +111,7 @@ if(ANDROID_ABI OR PLATFORM MATCHES "mac")
     endif()
 endif()
 
+# GCC and Clang options, MinGW-w64 GCC included; cl.exe takes none of them
 if(NOT (CMAKE_C_COMPILER_ID MATCHES "MSVC" OR CMAKE_CXX_COMPILER_ID MATCHES "MSVC"))
     set(CMAKE_C_FLAGS_OPTION "-Werror -Wno-unused -Wno-pointer-sign -Wno-format-security ")
 endif()
@@ -139,7 +140,6 @@ endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
     add_definitions(-DXQC_SYS_WINDOWS=1)
-    set(CMAKE_C_FLAGS_OPTION " ")
 endif()
 
 

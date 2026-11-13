@@ -11,7 +11,8 @@
 #include "xqc_configure.h"
 #include "xquic_typedef.h"
 
-#if defined(XQC_SYS_WINDOWS) && !defined(XQC_ON_MINGW)
+/* MinGW-w64 has the Windows socket headers, not the POSIX ones */
+#if defined(XQC_SYS_WINDOWS)
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else

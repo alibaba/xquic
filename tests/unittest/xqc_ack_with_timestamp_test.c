@@ -9,6 +9,7 @@
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_send_ctl.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_frame.h"
 
 #define test_pkt_num 13
 
@@ -39,6 +40,7 @@ xqc_test_ack_with_timestamp_normal()
     conn->remote_settings.extended_ack_features = 2;
     conn->remote_settings.max_receive_timestamps_per_ack = 30;
     conn->remote_settings.receive_timestamps_exponent = 0;
+    conn->local_settings.extended_ack_features = 2;
     conn->local_settings.max_receive_timestamps_per_ack = 30;
     conn->conn_create_time = 0;
 
@@ -104,6 +106,7 @@ xqc_test_ack_with_timestamp_no_buf_space()
     conn->remote_settings.extended_ack_features = 2;
     conn->remote_settings.max_receive_timestamps_per_ack = 30;
     conn->remote_settings.receive_timestamps_exponent = 0;
+    conn->local_settings.extended_ack_features = 2;
     conn->local_settings.max_receive_timestamps_per_ack = 30;
     conn->conn_create_time = 0;
 
@@ -164,6 +167,7 @@ xqc_test_ack_with_timestamp_partial_writing()
     conn->remote_settings.extended_ack_features = 2;
     conn->remote_settings.max_receive_timestamps_per_ack = 30;
     conn->remote_settings.receive_timestamps_exponent = 0;
+    conn->local_settings.extended_ack_features = 2;
     conn->local_settings.max_receive_timestamps_per_ack = 30;
     conn->conn_create_time = 0;
 
@@ -216,4 +220,173 @@ xqc_test_ack_with_timestamp()
     xqc_test_ack_with_timestamp_normal();
     xqc_test_ack_with_timestamp_no_buf_space();
     xqc_test_ack_with_timestamp_partial_writing();
+}
+
+
+/*
+ * ACK_EXTENDED frames (draft-smith-quic-receive-ts-01 Section 5) that
+ * acknowledge packets 3 to 5: type, Largest Acknowledged 5, ACK Delay 0,
+ * no ACK Range, First ACK Range 2, then Extended Ack Features and the
+ * fields its bits announce.
+ */
+
+/* features 2: Receive Timestamps, one range of one timestamp */
+static const unsigned char xqc_test_ack_ext_ts[] = {
+    0x40, 0xb1, 0x05, 0x00, 0x00, 0x02, 0x02,
+    0x01, 0x00, 0x01, 0x0a,
+};
+
+/* features 3: ECN Counts 1, 0, 0, then the Receive Timestamps */
+static const unsigned char xqc_test_ack_ext_ecn_ts[] = {
+    0x40, 0xb1, 0x05, 0x00, 0x00, 0x02, 0x03,
+    0x01, 0x00, 0x00,
+    0x01, 0x00, 0x01, 0x0a,
+};
+
+/* features 0: the fields of an ACK frame only */
+static const unsigned char xqc_test_ack_ext_none[] = {
+    0x40, 0xb1, 0x05, 0x00, 0x00, 0x02, 0x00,
+};
+
+/* features 4: a bit that no feature is defined for */
+static const unsigned char xqc_test_ack_ext_unknown[] = {
+    0x40, 0xb1, 0x05, 0x00, 0x00, 0x02, 0x04,
+};
+
+static xqc_connection_t *
+xqc_test_ack_ext_conn(uint64_t advertised)
+{
+    xqc_connection_t *conn = test_engine_connect();
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    /* the features this endpoint sent in extended_ack_features */
+    conn->local_settings.extended_ack_features = advertised;
+    conn->local_settings.max_receive_timestamps_per_ack = 30;
+    conn->local_settings.receive_timestamps_exponent = 0;
+    return conn;
+}
+
+static xqc_int_t
+xqc_test_ack_ext_parse(xqc_connection_t *conn, const unsigned char *frame,
+    size_t len, xqc_ack_timestamp_info_t *ts)
+{
+    unsigned char buf[32];
+    xqc_packet_in_t pi;
+    xqc_ack_info_t ack_info;
+    xqc_int_t ret;
+
+    CU_ASSERT_FATAL(len <= sizeof(buf));
+    memcpy(buf, frame, len);
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    pi.buf = buf;
+    pi.pos = buf;
+    pi.last = buf + len;
+    memset(&ack_info, 0, sizeof(ack_info));
+    ts->report_num = 0;
+
+    ret = xqc_parse_ack_ext_frame(&pi, conn, &ack_info, ts);
+    if (ret == XQC_OK) {
+        CU_ASSERT_PTR_EQUAL(pi.pos, buf + len);
+        CU_ASSERT_EQUAL(ack_info.n_ranges, 1);
+        CU_ASSERT_EQUAL(ack_info.ranges[0].high, 5);
+        CU_ASSERT_EQUAL(ack_info.ranges[0].low, 3);
+    }
+    return ret;
+}
+
+/*
+ * draft-smith-quic-receive-ts-01 Section 6: an endpoint accepts the
+ * ACK_EXTENDED features it included in its extended_ack_features
+ * transport parameter, and a frame that announces no feature.
+ */
+void
+xqc_test_ack_ext_advertised_features(void)
+{
+    xqc_connection_t *conn;
+    xqc_ack_timestamp_info_t ts;
+
+    /* Receive Timestamps, advertised */
+    conn = xqc_test_ack_ext_conn(XQC_ACK_EXT_FEATURE_BIT_RECV_TS);
+    CU_ASSERT_EQUAL(xqc_test_ack_ext_parse(conn, xqc_test_ack_ext_ts,
+                                           sizeof(xqc_test_ack_ext_ts), &ts),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(ts.report_num, 1);
+    CU_ASSERT_EQUAL(ts.pkt_nums[0], 5);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    /* no feature, with Receive Timestamps advertised */
+    CU_ASSERT_EQUAL(xqc_test_ack_ext_parse(conn, xqc_test_ack_ext_none,
+                                           sizeof(xqc_test_ack_ext_none), &ts),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(ts.report_num, 0);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    xqc_engine_destroy(conn->engine);
+
+    /* no feature, with nothing advertised */
+    conn = xqc_test_ack_ext_conn(0);
+    CU_ASSERT_EQUAL(xqc_test_ack_ext_parse(conn, xqc_test_ack_ext_none,
+                                           sizeof(xqc_test_ack_ext_none), &ts),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * draft-smith-quic-receive-ts-01 Section 6: "An endpoint receiving an
+ * ACK_EXTENDED frame with features it did not include in the transport
+ * parameter should terminate the connection with a PROTOCOL_VIOLATION
+ * violation error." The fields of such a feature are not parsed.
+ */
+void
+xqc_test_ack_ext_unadvertised_features(void)
+{
+    static const struct {
+        uint64_t             advertised;
+        const unsigned char *frame;
+        size_t               len;
+    } cases[] = {
+        /* ECN Counts, not advertised */
+        { XQC_ACK_EXT_FEATURE_BIT_RECV_TS,
+          xqc_test_ack_ext_ecn_ts, sizeof(xqc_test_ack_ext_ecn_ts) },
+        /* Receive Timestamps, with no feature advertised */
+        { 0, xqc_test_ack_ext_ts, sizeof(xqc_test_ack_ext_ts) },
+        /* a bit that no feature is defined for */
+        { XQC_ACK_EXT_FEATURE_BIT_RECV_TS,
+          xqc_test_ack_ext_unknown, sizeof(xqc_test_ack_ext_unknown) },
+    };
+    xqc_connection_t *conn;
+    xqc_ack_timestamp_info_t ts;
+    xqc_packet_in_t pi;
+    unsigned char buf[32];
+    size_t i, len;
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        conn = xqc_test_ack_ext_conn(cases[i].advertised);
+        CU_ASSERT_EQUAL(xqc_test_ack_ext_parse(conn, cases[i].frame,
+                                               cases[i].len, &ts),
+                        -XQC_EPROTO);
+        CU_ASSERT_EQUAL(ts.report_num, 0);
+        CU_ASSERT_EQUAL(conn->conn_err, TRA_PROTOCOL_VIOLATION);
+        CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+        xqc_engine_destroy(conn->engine);
+    }
+
+    /* in a 1-RTT packet, followed by a PING */
+    conn = xqc_test_ack_ext_conn(XQC_ACK_EXT_FEATURE_BIT_RECV_TS);
+    len = sizeof(xqc_test_ack_ext_ecn_ts);
+    memcpy(buf, xqc_test_ack_ext_ecn_ts, len);
+    buf[len++] = 0x01;
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    pi.buf = buf;
+    pi.pos = buf;
+    pi.last = buf + len;
+
+    CU_ASSERT_EQUAL(xqc_process_frames(conn, &pi), -XQC_EPROTO);
+    CU_ASSERT_EQUAL(conn->conn_err, TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_ERROR);
+    xqc_engine_destroy(conn->engine);
 }

@@ -450,6 +450,44 @@ else
 fi
 }
 
+# 763: NAT rebinding of path 0 whose first PATH_CHALLENGE is lost. RFC 9000
+# Sections 8.2.4 and 9.4: within the three PTOs of the validation, the server
+# sends a new PATH_CHALLENGE a PTO after the lost one, and validates the new
+# address of the client.
+case_transport_multipath_NAT_rebinding_lost_path_challenge()
+{
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M -x 763 > /dev/null
+
+clear_log
+echo -e "NAT rebinding with a lost PATH_CHALLENGE ...\c"
+case_test_sudo ${CLIENT_BIN} -s 102400 -l d -t 8 -M -i lo -i lo -E -n 2 -x 103 > stdlog
+result=`grep ">>>>>>>> pass:0" stdlog`
+errlog=`grep_err_log | grep -a -v "no match path challenge data" || true`
+# Wait until the server has processed the PATH_RESPONSE that validates the
+# new address of path 0, after which it writes this line last: slog is read
+# line by line as it grows, bounded by the watchdog of the case, and tail
+# ends with the server.
+while IFS= read -r line; do
+    case $line in
+    *"|path:0|REBINDING|validate NAT rebinding addr|conn:"*) break ;;
+    esac
+done < <(tail -n +1 -f --pid="${CASE_TEST_SERVER_PID}" slog)
+rebind=`grep -a "|path:0|REBINDING|validate NAT rebinding addr|" slog`
+resend=`grep -a "|REBINDING|path:0|send PATH_CHALLENGE again|" slog`
+if [ -z "$errlog" ] && [ -z "$result" ] && [ -n "$rebind" ] && [ -n "$resend" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "NAT_rebinding_lost_path_challenge" "pass"
+else
+    echo ">>>>>>>> pass:0 (result:${result:+y} rebind:${rebind:+y}" \
+        "resend:${resend:+y} errlog:${errlog:+y})"
+    case_print_result "NAT_rebinding_lost_path_challenge" "fail"
+fi
+
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+}
+
 case_transport_multipath_Multipath_Compensate_and_Accelerate()
 {
 grep_err_log
@@ -839,6 +877,7 @@ case_test_case "MPNS_reinject_unack_packets_by_capacity" --id native --mode self
 case_test_case "MPNS_reinject_unack_packets_by_deadline" --id native --mode self-reporting --run case_transport_multipath_MPNS_reinject_unack_packets_by_deadline
 case_test_case "NAT_rebinding_path_0" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_0 --timeout 60
 case_test_case "NAT_rebinding_path_1" --id native --mode self-reporting --run case_transport_multipath_NAT_rebinding_path_1
+case_test_case "NAT_rebinding_lost_path_challenge" --id 763 --mode self-reporting --run case_transport_multipath_NAT_rebinding_lost_path_challenge --timeout 60
 case_test_case "Multipath_Compensate_and_Accelerate" --id native --mode self-reporting --run case_transport_multipath_Multipath_Compensate_and_Accelerate
 case_test_case "No_reinjection_for_normal_datagrams" --id native --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_datagrams
 case_test_case "No_reinjection_for_normal_h3_ext_datagrams" --id native --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_h3_ext_datagrams

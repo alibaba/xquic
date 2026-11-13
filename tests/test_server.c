@@ -2196,6 +2196,28 @@ xqc_server_write_socket_ex(uint64_t path_id,
     const unsigned char *buf, size_t size,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
 {
+    /*
+     * NAT rebinding with a lost PATH_CHALLENGE: drop the first datagram that
+     * path 0 sends to an address other than its first one, the PATH_CHALLENGE
+     * that starts the validation of the client's new address.
+     */
+    if (g_test_case == 763 && path_id == 0) {
+        static struct sockaddr_in6 first_addr;
+        static socklen_t first_addrlen = 0;
+
+        if (first_addrlen == 0 && peer_addrlen <= sizeof(first_addr)) {
+            memcpy(&first_addr, peer_addr, peer_addrlen);
+            first_addrlen = peer_addrlen;
+
+        } else if (peer_addrlen != first_addrlen
+                   || memcmp(&first_addr, peer_addr, peer_addrlen) != 0)
+        {
+            g_test_case = -1;
+            printf("... drop the first datagram to the new address of path 0\n");
+            return size;
+        }
+    }
+
     return xqc_server_write_socket(buf, size, peer_addr, peer_addrlen, user_data);
 }
 

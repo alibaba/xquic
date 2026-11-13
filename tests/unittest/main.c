@@ -350,6 +350,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_cid_set_lookup_error",
                         xqc_test_cid_set_lookup_error)
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
+        || !CU_add_test(pSuite, "xqc_test_reset_packet_random_error",
+                        xqc_test_reset_packet_random_error)
+        || !CU_add_test(pSuite, "xqc_test_engine_create_random_error",
+                        xqc_test_engine_create_random_error)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
         || !CU_add_test(pSuite, "xqc_test_engine_drop_small_initial", xqc_test_engine_drop_small_initial)
         || !CU_add_test(pSuite, "xqc_test_engine_drop_small_unknown_0rtt", xqc_test_engine_drop_small_unknown_0rtt)

@@ -491,8 +491,12 @@ xqc_engine_create(xqc_engine_type_t engine_type,
     if (engine->rand_generator == NULL) {
         goto fail;
     }
-    xqc_get_random(engine->rand_generator, sipkey, sizeof(sipkey));
-    
+
+    /* the key of the connection hash tables must be unpredictable */
+    if (xqc_get_random(engine->rand_generator, sipkey, sizeof(sipkey)) != XQC_OK) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|generate hash table key error|");
+        goto fail;
+    }
 
     engine->conns_hash = xqc_engine_conns_hash_create(engine->config, sipkey, sizeof(sipkey), engine->log);
     if (engine->conns_hash == NULL) {

@@ -1574,7 +1574,9 @@ xqc_gen_reset_packet(xqc_cid_t *cid, unsigned char *dst_buf, char *key,
 #else
     /* write unpredictable bits */
     unpredictable_len = max_len - XQC_RESET_TOKEN_LEN;
-    xqc_get_random(rand_generator, dst_buf, unpredictable_len);
+    if (xqc_get_random(rand_generator, dst_buf, unpredictable_len) != XQC_OK) {
+        return XQC_ERROR;
+    }
 
     /* write fixed bits */
     dst_buf[0] = (dst_buf[0] & sr_first_byte_mask) | sr_fixed_bits;

@@ -882,6 +882,12 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_packet_cc_reaction",
                         xqc_test_send_ctl_lost_packet_cc_reaction)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_can_send_window",
+                        xqc_test_send_ctl_can_send_window)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_can_send_window_above_4g",
+                        xqc_test_send_ctl_can_send_window_above_4g)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_cwnd_limited_window_above_4g",
+                        xqc_test_send_ctl_cwnd_limited_window_above_4g)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

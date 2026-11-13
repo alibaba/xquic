@@ -423,18 +423,21 @@ xqc_send_ctl_can_send(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *packet_out, ui
     xqc_connection_t *conn = send_ctl->ctl_conn;
 
     int can = 1;
-    unsigned congestion_window = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    /* the window is 64-bit: CUBIC's can pass 4 GiB */
+    uint64_t congestion_window = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
 
     if (conn->conn_settings.so_sndbuf > 0) {
         congestion_window = xqc_min(congestion_window, conn->conn_settings.so_sndbuf);
     }
 
-    if (send_ctl->ctl_bytes_in_flight + schedule_bytes + packet_out->po_used_size > congestion_window) {
+    if ((uint64_t) send_ctl->ctl_bytes_in_flight + schedule_bytes
+        + packet_out->po_used_size > congestion_window)
+    {
         can = 0;
     }
 
     xqc_conn_log(conn, XQC_LOG_DEBUG,
-                 "|path:%ui|can:%d|pkt_sz:%ud|schedule_bytes:%ud|inflight:%ud|cwnd:%ud|conn:%p|stream_id:%ui|stream_offset:%ui|",
+                 "|path:%ui|can:%d|pkt_sz:%ud|schedule_bytes:%ud|inflight:%ud|cwnd:%ui|conn:%p|stream_id:%ui|stream_offset:%ui|",
                  send_ctl->ctl_path->path_id,
                  can, packet_out->po_used_size, schedule_bytes, send_ctl->ctl_bytes_in_flight,
                  congestion_window, conn,
@@ -620,14 +623,14 @@ xqc_send_ctl_update_cwnd_limited(xqc_send_ctl_t *send_ctl, xqc_usec_t now)
     if (send_ctl->ctl_bytes_in_flight > send_ctl->ctl_max_bytes_in_flight) {
         send_ctl->ctl_max_bytes_in_flight = send_ctl->ctl_bytes_in_flight;
     }
-    uint32_t cwnd_bytes = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    uint64_t cwnd_bytes = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
     /* If we can not send the next full-size packet, we are CWND limited. */
-    xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|path:%ui|cwnd:%ud|inflight:%ud|",
+    xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG, "|path:%ui|cwnd:%ui|inflight:%ud|",
             send_ctl->ctl_path->path_id, cwnd_bytes, send_ctl->ctl_bytes_in_flight);
       
     send_ctl->ctl_is_cwnd_limited = 0;
     uint32_t actual_mss = xqc_conn_get_mss(send_ctl->ctl_conn);
-    if ((send_ctl->ctl_bytes_in_flight + actual_mss) > cwnd_bytes) {
+    if ((uint64_t) send_ctl->ctl_bytes_in_flight + actual_mss > cwnd_bytes) {
         send_ctl->ctl_is_cwnd_limited = 1;
         /* record the time of cwnd limited */
         send_ctl->ctl_recent_cwnd_limitation_time[send_ctl->ctl_cwndlim_update_idx] = now;
@@ -1543,10 +1546,10 @@ int
 xqc_send_ctl_is_cwnd_limited(xqc_send_ctl_t *send_ctl)
 {
     if (send_ctl->ctl_cong_callback->xqc_cong_ctl_in_slow_start(send_ctl->ctl_cong)) {
-        uint32_t double_cwnd = send_ctl->ctl_max_bytes_in_flight << 1;
-        uint32_t cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+        uint64_t double_cwnd = (uint64_t) send_ctl->ctl_max_bytes_in_flight << 1;
+        uint64_t cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
         xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
-                "|cwnd: %ud, 2*max_inflight: %ud|", cwnd, double_cwnd);
+                "|cwnd: %ui, 2*max_inflight: %ui|", cwnd, double_cwnd);
         return cwnd < double_cwnd;
     }
     return (send_ctl->ctl_is_cwnd_limited);

@@ -275,6 +275,15 @@ filters of `grep_err_log`. Plain `grep` can report a binary match without
 returning the record that an assertion needs. Use `grep -q` when only the exit
 status is needed. Do not discard binary bytes from the original log files.
 
+Case functions run inside `case_test_run`, in the shell of the group script,
+and bash scoping is dynamic: a case function, or a helper that it calls, that
+assigns a variable without declaring it `local` assigns the runner's own
+variable of that name, such as its case filter `selected` or its `status`, and
+the runner then skips or misreports the later cases. Declare the variables of
+case functions and their helpers `local`. The runner-syntax architecture check
+rejects an assignment to a local variable of `case_test_run` or
+`case_test_run_self_reporting_case` that is not declared `local` first.
+
 The runner injects group-shared environment before executing the script:
 
 - `CASE_TEST_GROUP`

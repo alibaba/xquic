@@ -17,5 +17,7 @@ void xqc_test_tp_value_matches_len_decodes(void);
 void xqc_test_tp_cid_overflow();
 void xqc_test_active_cid_limit_minimum();
 void xqc_test_check_transport_params_cids();
+void xqc_test_remembered_tp_round_trip(void);
+void xqc_test_remembered_tp_cut_by_length(void);
 
 #endif

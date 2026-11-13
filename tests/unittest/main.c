@@ -564,6 +564,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_tp_cid_overflow", xqc_test_tp_cid_overflow)
         || !CU_add_test(pSuite, "xqc_test_active_cid_limit_minimum", xqc_test_active_cid_limit_minimum)
         || !CU_add_test(pSuite, "xqc_test_check_transport_params_cids", xqc_test_check_transport_params_cids)
+        || !CU_add_test(pSuite, "xqc_test_remembered_tp_round_trip",
+                        xqc_test_remembered_tp_round_trip)
+        || !CU_add_test(pSuite, "xqc_test_remembered_tp_cut_by_length",
+                        xqc_test_remembered_tp_cut_by_length)
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
                 || !CU_add_test(pSuite, "xqc_test_stream_frame_buffered_limit", xqc_test_stream_frame_buffered_limit)

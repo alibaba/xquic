@@ -16,6 +16,8 @@
 #include "src/common/xqc_str.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_packet_out.h"
+#include "src/transport/xqc_send_queue.h"
 
 
 #define XQC_TEST_SHORT_HEADER_PACKET_A "\x40\xAB\x3f\x12\x0a\xcd\xef\x00\x89"
@@ -148,6 +150,51 @@ xqc_test_packet_out_remained_size(void)
     CU_ASSERT_EQUAL(xqc_get_po_remained_size(packet_out), 0);
 
     xqc_packet_out_destroy(packet_out);
+}
+
+
+/*
+ * A copy of a packet, made to send its frames again, takes them into its
+ * own buffer: the capacity and the packet size of the copy stay those of
+ * the buffer that it got, sized for the current path MTU.
+ */
+void
+xqc_test_packet_out_copy_buffer_fields(void)
+{
+    xqc_connection_t *conn;
+    xqc_packet_out_t *po, *copy;
+    unsigned char *copy_buf;
+    unsigned int old_size;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    po = xqc_packet_out_get(conn->conn_send_queue);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+    old_size = po->po_buf_size;
+    memset(po->po_buf, 0x5a, 100);
+    po->po_used_size = 100;
+    po->po_payload = po->po_buf + 20;
+
+    /* the path MTU went up since po was built */
+    conn->pkt_out_size = old_size + 100;
+
+    copy = xqc_packet_out_get(conn->conn_send_queue);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(copy);
+    copy_buf = copy->po_buf;
+    xqc_packet_out_copy(copy, po);
+
+    CU_ASSERT(copy->po_buf == copy_buf);
+    CU_ASSERT_EQUAL(copy->po_buf_cap, XQC_PACKET_OUT_BUF_CAP);
+    CU_ASSERT_EQUAL(copy->po_buf_size, old_size + 100);
+    CU_ASSERT_EQUAL(copy->po_used_size, 100);
+    CU_ASSERT(copy->po_payload == copy_buf + 20);
+    CU_ASSERT(memcmp(copy->po_buf, po->po_buf, 100) == 0);
+    CU_ASSERT_EQUAL(xqc_get_po_remained_size(copy), old_size);
+
+    xqc_packet_out_destroy(copy);
+    xqc_packet_out_destroy(po);
+    xqc_engine_destroy(conn->engine);
 }
 
 

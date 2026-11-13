@@ -761,6 +761,10 @@ def case_timeout_selftest(root)
 
   raise "timeout selftest unexpectedly passed\n#{output}" if status.success?
   raise "case timeout was not reported\n#{output}" unless output.include?("[case-test] case-timeout")
+  # the case sleeps 5s: ended by its 1s timeout, it never reaches its end
+  if output.include?("case-end group=selftest.timeout case=selftest.timeout id=native status=pass")
+    raise "timed-out case kept running\n#{output}"
+  end
   raise "runner did not continue after timeout\n#{output}" unless output.include?("[case-test] selftest.after result=pass")
   raise "timeout selftest waited for shard timeout\n#{output}" if elapsed >= 8
 

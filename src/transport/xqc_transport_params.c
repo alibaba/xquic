@@ -1272,74 +1272,94 @@ xqc_remembered_tp_parse_decimal(const char *data, size_t data_len,
 }
 
 
+/*
+ * The remembered parameters come back from the application as the bytes
+ * that save_tp_cb gave it, without a terminating NUL: read nothing past
+ * the end of the line.
+ */
+static xqc_bool_t
+xqc_remembered_tp_key(char **p, const char *eol, const char *key)
+{
+    size_t key_len = strlen(key);
+
+    if ((size_t)(eol - *p) < key_len || memcmp(*p, key, key_len) != 0) {
+        return XQC_FALSE;
+    }
+
+    *p += key_len;
+    return XQC_TRUE;
+}
+
+
+static uint64_t
+xqc_remembered_tp_value(const char *p, const char *eol)
+{
+    char value[32];
+    size_t len = xqc_min((size_t)(eol - p), sizeof(value) - 1);
+
+    memcpy(value, p, len);
+    value[len] = '\0';
+    return strtoul(value, NULL, XQC_DECIMAL);
+}
+
+
 xqc_int_t
 xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_params_t *params)
 {
     char *p = tp_data;
     char *e = p + tp_data_len;
+    char *eol;
     xqc_bool_t reset_stream_at_seen = XQC_FALSE;
     params->reset_stream_at = XQC_FALSE;
-    while (*p != '\0' && p < e) {
+    while (p < e && *p != '\0') {
+        eol = memchr(p, '\n', e - p);
+        if (eol == NULL) {
+            eol = e;
+        }
+
         if (*p == ' ') {
             p++;
         }
 
-        if (strncmp(p, "initial_max_streams_bidi=",
-                    xqc_lengthof("initial_max_streams_bidi=")) == 0)
+        if (xqc_remembered_tp_key(&p, eol, "initial_max_streams_bidi=")) {
+            params->initial_max_streams_bidi = xqc_remembered_tp_value(p, eol);
+
+        } else if (xqc_remembered_tp_key(&p, eol, "initial_max_streams_uni=")) {
+            params->initial_max_streams_uni = xqc_remembered_tp_value(p, eol);
+
+        } else if (xqc_remembered_tp_key(&p, eol,
+                                         "initial_max_stream_data_bidi_local="))
         {
-            p += xqc_lengthof("initial_max_streams_bidi=");
-            params->initial_max_streams_bidi = strtoul(p, NULL, XQC_DECIMAL);
+            params->initial_max_stream_data_bidi_local
+                = xqc_remembered_tp_value(p, eol);
 
-        } else if (strncmp(p, "initial_max_streams_uni=",
-                           xqc_lengthof("initial_max_streams_uni=")) == 0)
+        } else if (xqc_remembered_tp_key(
+                       &p, eol, "initial_max_stream_data_bidi_remote="))
         {
-            p += xqc_lengthof("initial_max_streams_uni=");
-            params->initial_max_streams_uni = strtoul(p, NULL, XQC_DECIMAL);
+            params->initial_max_stream_data_bidi_remote
+                = xqc_remembered_tp_value(p, eol);
 
-        } else if (strncmp(p, "initial_max_stream_data_bidi_local=",
-                           xqc_lengthof("initial_max_stream_data_bidi_local=")) == 0)
+        } else if (xqc_remembered_tp_key(&p, eol,
+                                         "initial_max_stream_data_uni="))
         {
-            p += xqc_lengthof("initial_max_stream_data_bidi_local=");
-            params->initial_max_stream_data_bidi_local = strtoul(p, NULL, XQC_DECIMAL);
+            params->initial_max_stream_data_uni = xqc_remembered_tp_value(p,
+                                                                          eol);
 
-        } else if (strncmp(p, "initial_max_stream_data_bidi_remote=",
-                           xqc_lengthof("initial_max_stream_data_bidi_remote=")) == 0)
-        {
-            p += xqc_lengthof("initial_max_stream_data_bidi_remote=");
-            params->initial_max_stream_data_bidi_remote = strtoul(p, NULL, XQC_DECIMAL);
+        } else if (xqc_remembered_tp_key(&p, eol, "initial_max_data=")) {
+            params->initial_max_data = xqc_remembered_tp_value(p, eol);
 
-        } else if (strncmp(p, "initial_max_stream_data_uni=",
-                           xqc_lengthof("initial_max_stream_data_uni=")) == 0)
-        {
-            p += xqc_lengthof("initial_max_stream_data_uni=");
-            params->initial_max_stream_data_uni = strtoul(p, NULL, XQC_DECIMAL);
+        } else if (xqc_remembered_tp_key(&p, eol, "max_ack_delay=")) {
+            params->max_ack_delay = xqc_remembered_tp_value(p, eol);
 
-        } else if (strncmp(p, "initial_max_data=", xqc_lengthof("initial_max_data=")) == 0) {
-            p += xqc_lengthof("initial_max_data=");
-            params->initial_max_data = strtoul(p, NULL, XQC_DECIMAL);
+        } else if (xqc_remembered_tp_key(&p, eol, "max_datagram_frame_size=")) {
+            params->max_datagram_frame_size = xqc_remembered_tp_value(p, eol);
 
-        } else if (strncmp(p, "max_ack_delay=", xqc_lengthof("max_ack_delay=")) == 0) {
-            p += xqc_lengthof("max_ack_delay=");
-            params->max_ack_delay = strtoul(p, NULL, XQC_DECIMAL);
-
-        } else if (strncmp(p, "max_datagram_frame_size=", xqc_lengthof("max_datagram_frame_size=")) == 0) {
-            p += xqc_lengthof("max_datagram_frame_size=");
-            params->max_datagram_frame_size = strtoul(p, NULL, XQC_DECIMAL);
-
-        } else if (strncmp(p, "reset_stream_at=",
-                           xqc_lengthof("reset_stream_at=")) == 0)
-        {
-            p += xqc_lengthof("reset_stream_at=");
-            if (p > e || reset_stream_at_seen) {
+        } else if (xqc_remembered_tp_key(&p, eol, "reset_stream_at=")) {
+            if (reset_stream_at_seen) {
                 return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
             }
-            const char *end = memchr(p, '\n', e - p);
-            if (end == NULL) {
-                end = e;
-            }
             uint64_t value;
-            if (xqc_remembered_tp_parse_decimal(p, end - p, &value)
-                    != XQC_OK
+            if (xqc_remembered_tp_parse_decimal(p, eol - p, &value) != XQC_OK
                 || value > 1)
             {
                 return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
@@ -1347,18 +1367,17 @@ xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_param
             params->reset_stream_at = value == 1;
             reset_stream_at_seen = XQC_TRUE;
 
-        } else if (strncmp(p, "active_connection_id_limit=",
-                           xqc_lengthof("active_connection_id_limit=")) == 0)
+        } else if (xqc_remembered_tp_key(&p, eol,
+                                         "active_connection_id_limit="))
         {
-            p += xqc_lengthof("active_connection_id_limit=");
-            params->active_connection_id_limit = strtoul(p, NULL, XQC_DECIMAL);
+            params->active_connection_id_limit = xqc_remembered_tp_value(p,
+                                                                         eol);
         }
 
-        p = strchr(p, '\n');
-        if (p == NULL) {
-            return 0;
+        if (eol == e) {
+            break;
         }
-        p++;
+        p = eol + 1;
     }
 
     return XQC_OK;

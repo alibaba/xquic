@@ -23,7 +23,18 @@ class InteropCLI(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("setup-only", result.stdout.splitlines())
         self.assertIn("moq-test-datagram", result.stdout.splitlines())
+        for name in ("publish-namespace-multi-publisher-retention",
+                     "fetch", "join"):
+            self.assertIn(name, result.stdout.splitlines())
         self.assertNotIn("namespace-discovery", result.stdout.splitlines())
+
+    def test_history_and_retention_are_supported_cases(self):
+        for name in ("publish-namespace-multi-publisher-retention",
+                     "fetch", "join"):
+            result = self.run_cli("--relay", "invalid", "--test", name)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Bail out!", result.stdout)
+            self.assertNotIn("# SKIP", result.stdout)
 
     def test_unknown_case_is_unsupported(self):
         result = self.run_cli("--test", "unsupported-test")

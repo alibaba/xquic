@@ -193,3 +193,100 @@ xqc_interop_oracle_complete(const xqc_interop_oracle_t *o, int forward_zero)
         ? o->objects == 0 && o->markers == 0
         : o->objects + o->markers == xqc_interop_fixture_count(&o->fixture));
 }
+
+int
+xqc_interop_history_window(const xqc_interop_fixture_t *f,
+    unsigned available, const xqc_moqt_location_t *start,
+    const xqc_moqt_location_t *end, unsigned *first, unsigned *last)
+{
+    unsigned count = xqc_interop_fixture_count(f);
+    if (!count || count > XQC_INTEROP_MAX_OBJECTS || !available
+        || available > count || f->group_step != 1 || f->object_step != 1
+        || f->mode || f->markers || start->group_id < f->first_group
+        || start->group_id > f->last_group
+        || start->object_id < f->first_object
+        || start->object_id > f->last_object)
+    {
+        return -1;
+    }
+    unsigned width = f->last_object - f->first_object + 1;
+    *first = (start->group_id - f->first_group) * width
+        + start->object_id - f->first_object;
+    *last = available - 1;
+    if (end->group_id < f->first_group
+        || (end->group_id <= f->last_group
+            && end->object_id < f->first_object))
+    {
+        return -1;
+    }
+    if (end->group_id <= f->last_group) {
+        uint64_t id = end->object_id < f->last_object
+            ? end->object_id : f->last_object;
+        unsigned limit = (end->group_id - f->first_group) * width
+            + id - f->first_object;
+        if (limit < *last) {
+            *last = limit;
+        }
+    }
+    return *first <= *last ? 0 : -1;
+}
+
+int
+xqc_interop_history_complete(const xqc_interop_oracle_t *o,
+    const xqc_moqt_location_t *start, const xqc_moqt_location_t *end)
+{
+    unsigned first, last, count = xqc_interop_fixture_count(&o->fixture);
+    if (o->failed || o->markers
+        || xqc_interop_history_window(&o->fixture, count, start, end,
+                                      &first, &last))
+    {
+        return 0;
+    }
+    for (unsigned i = 0; i < count; i++) {
+        if (!!o->seen[i] != (i >= first && i <= last)) {
+            return 0;
+        }
+    }
+    return o->objects == last - first + 1;
+}
+
+void
+xqc_interop_retention_event(xqc_interop_retention_t *s,
+    const xqc_moqt_namespace_t *name, int available)
+{
+    const char *prefix[] = {"moq-test",
+        "publish-namespace-multi-publisher-retention", s->run};
+    if (name->count != 4) {
+        s->failed = 1;
+        return;
+    }
+    for (unsigned i = 0; i < 3; i++) {
+        if (name->fields[i].iov_len != strlen(prefix[i])
+            || memcmp(name->fields[i].iov_base, prefix[i], strlen(prefix[i])))
+        {
+            s->failed = 1;
+            return;
+        }
+    }
+    const struct iovec *field = &name->fields[3];
+    unsigned slot;
+    if (field->iov_len == 6 && !memcmp(field->iov_base, "shared", 6)) {
+        slot = 0;
+    } else if (field->iov_len == 4 && !memcmp(field->iov_base, "sync", 4)) {
+        slot = 1;
+    } else {
+        s->failed = 1;
+        return;
+    }
+    if (!!available == !!s->present[slot]
+        || (!slot && !available && !s->allow_remove))
+    {
+        s->failed = 1;
+    }
+    s->present[slot] = !!available;
+    if (available) {
+        s->adds[slot]++;
+    } else {
+        s->removes[slot]++;
+    }
+}

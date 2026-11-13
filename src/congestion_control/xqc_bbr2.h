@@ -11,10 +11,6 @@
 #include "src/congestion_control/xqc_window_filter.h"
 #include "src/congestion_control/xqc_bbr_common.h"
 
-#define TRUE 1
-#define FALSE 0
-#define MSEC2SEC 1000000
-
 typedef enum {
     /* Start phase quickly to fill pipe */
     BBR2_STARTUP,

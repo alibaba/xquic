@@ -1,4 +1,4 @@
-# MoQT endpoint interop
+# MoQT interop
 
 `moqt_interop` adapts the public draft-22 endpoint APIs to the
 [MoQ interop runner interface][interface]. It negotiates only `moqt-22` over
@@ -17,6 +17,8 @@ RELAY_URL=https://localhost:4443/moq TLS_DISABLE_VERIFY=1 \
     ./build/validation/tests/moqt_interop --test setup-only
 ./build/validation/tests/moqt_interop --server --transport webtransport \
     --port 4443 --cert /path/to/test-cert.pem --key /path/to/test-key.pem
+./build/validation/tests/moqt_interop --relay-server --transport dual \
+    --port 4443 --cert /path/to/test-cert.pem --key /path/to/test-key.pem
 ```
 
 The client accepts `--relay`, `--test`, `--transport`, `--verbose`, and
@@ -25,7 +27,9 @@ The client accepts `--relay`, `--test`, `--transport`, `--verbose`, and
 flags take priority. HTTPS selects WT. A canonical `moqt://` URI uses QUIC by
 default or WT with `--transport webtransport`. Server mode uses the same
 transport option/environment, defaulting to QUIC. The two transports reuse
-the same scenario drivers and complete payload oracles.
+the same scenario drivers and complete payload oracles. Server-only `dual`
+registers Native QUIC and WT ALPNs on one UDP listener. Each accepted peer
+selects its endpoint constructor from its actual transport.
 Omitting the test runs every listed case. Stdout is TAP v14; diagnostics go to
 stderr. Exit codes are 0 (pass), 1 (failure), and 127 (unknown/unsupported case,
 reported as SKIP). URI resolution currently uses IPv4. A build without WT
@@ -46,8 +50,10 @@ discovery lifecycle, direct PUBLISH and PUBLISH/subscription,
 `data-subgroup-basic`, eight `moq-test-*` scenarios, multi-publisher namespace
 retention, standalone `fetch`, and `join` with draft-22 Fill. Case definitions
 come from runner `2afe7b428e9ebf7277fef0d6b9701af4aefe60b0`; deterministic vectors
-follow aiomoqt 0.14.1. `--list` is the implemented set. SUBSCRIBE_TRACKS-based
-`namespace-discovery` and media decoding cases remain unsupported.
+follow aiomoqt 0.14.1. `--list` exposes 23 implemented cases, including
+SUBSCRIBE_TRACKS-based `namespace-discovery`. It publishes a namespace and
+Track, discovers the namespace, then verifies the complete Track name offered
+on an independent PUBLISH. Media decoding remains unsupported.
 
 The retention case uses two publishers, a synchronization namespace and three
 observers. It checks complete names, rejects premature withdrawal and requires
@@ -69,12 +75,22 @@ Subgroup, priority, properties, EOG and PUBLISH_DONE. Stream Count/FIN never
 substitutes for object completeness. Unknown Stream Count is `UINT64_MAX` per
 draft-22; wire values are not changed to match an older peer oracle.
 
-The server is a direct endpoint/origin, without cross-connection routing,
-fanout, caching, rendezvous, or namespace notification propagation. Each
+`--server` selects a direct endpoint/origin. Each
 connection independently accepts PUBLISH_NAMESPACE/PUBLISH, rejects unknown
 SUBSCRIBE with DOES_NOT_EXIST, and serves bounded MoQT Test tuples.
-It must not be registered as a relay. Runner cases requiring a relay use an
-independent relay. Direct-origin probes are separate evidence.
+Direct-origin probes use client `--origin`, whose `--list` contains five
+control cases and eight deterministic data vectors. These 13 probes reuse
+the full object oracle and require PUBLISH_DONE and all declared stream FINs.
+They are recorded separately from relay scenarios.
+
+`--relay-server` selects the existing bounded relay core. Its peers use public
+Native QUIC or WT relay constructors, explicit anonymous test policies, and
+one copied test Scope. The application processes relay work outside callbacks
+after engine events, destroys peers at transport close, and reclaims closed
+connection wrappers outside callbacks. Routing, namespace retention,
+SUBSCRIBE_TRACKS, fanout, and FETCH/Fill forwarding belong to the shared core;
+the adapter adds no alternate protocol engine or history cache. The anonymous
+Scope is intended for controlled local interoperability testing.
 
 The origin accepts at most 256 objects per tuple, payloads at most 1024 bytes,
 and pacing at most 100 ms. Dense subgroup fixtures without markers/properties
@@ -93,7 +109,8 @@ as unmodified-peer interoperability passes.
 
 The runner builds current draft-22 role images from `dev/moqt-interop`:
 `xquic-client:latest` starts the client, and `xquic-relay:latest` starts the
-direct server. In a runner checkout:
+relay with both transports. Append `--server` for direct-origin mode. In a
+runner checkout:
 
 ```sh
 ./builds/xquic/build.sh --local /path/to/xquic
@@ -112,6 +129,6 @@ The test certificate directory contains disposable `cert.pem` and `priv.key`.
 The runner registry key is `xquic`, with draft-22 only. Its build configuration
 and image workflows use the same development branch; previous draft-14/18
 image definitions are retired. Use `--target client` or `--target relay` to
-build one role. Server probes remain separate from relay cases.
+build one role. Direct-origin probes remain separate from relay cases.
 
 [interface]: https://github.com/englishm/moq-interop-runner/blob/2afe7b428e9ebf7277fef0d6b9701af4aefe60b0/docs/TEST-CLIENT-INTERFACE.md

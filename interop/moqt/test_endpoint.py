@@ -12,7 +12,7 @@ import test_cli
 
 class InteropEndpoint(unittest.TestCase):
     @contextmanager
-    def server(self, transport):
+    def server(self, transport, relay=False):
         binary = Path(test_cli.InteropCLI.binary).resolve()
         build = binary.parent.parent
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
@@ -20,7 +20,8 @@ class InteropEndpoint(unittest.TestCase):
             port = reservation.getsockname()[1]
         env = os.environ.copy()
         env.pop("MOQT_TRANSPORT", None)
-        process = subprocess.Popen([str(binary), "--server", "--transport",
+        process = subprocess.Popen([str(binary),
+            "--relay-server" if relay else "--server", "--transport",
             transport, "--port", str(port), "--cert", str(build / "server.crt"),
             "--key", str(build / "server.key")], env=env,
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
@@ -28,7 +29,8 @@ class InteropEndpoint(unittest.TestCase):
             ready, _, _ = select.select([process.stderr], [], [], 5)
             self.assertTrue(ready, "server startup did not finish")
             line = process.stderr.readline()
-            self.assertIn("endpoint server moqt-22 transport=" + transport,
+            self.assertIn(("relay" if relay else "endpoint")
+                          + " server moqt-22 transport=" + transport,
                           line)
             yield port
         finally:
@@ -86,6 +88,39 @@ class InteropEndpoint(unittest.TestCase):
             result = self.client(f"moqt://127.0.0.1:{port}/", "setup-only")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("transport: quic", result.stdout)
+
+    def test_relay_routes_and_request_error_recovery(self):
+        for transport, scheme in (("quic", "moqt"),
+                                  ("webtransport", "https")):
+            with self.subTest(transport=transport), \
+                    self.server(transport, relay=True) as port:
+                for case in ("namespace-discovery", "data-subgroup-basic",
+                             "subscribe-error", "announce-only"):
+                    result = self.client(f"{scheme}://127.0.0.1:{port}/", case)
+                    self.assertEqual(result.returncode, 0,
+                                     case + ": " + result.stderr)
+                    self.assertIn("ok 1 - " + case, result.stdout)
+
+    def test_origin_objects_and_unknown_track_recovery(self):
+        for transport, scheme in (("quic", "moqt"),
+                                  ("webtransport", "https")):
+            with self.subTest(transport=transport), self.server(transport) as port:
+                for case in ("moq-test-subgroup-per-group-eog",
+                             "moq-test-datagram", "subscribe-error"):
+                    result = self.client(f"{scheme}://127.0.0.1:{port}/", case,
+                                         "--origin")
+                    self.assertEqual(result.returncode, 0,
+                                     case + ": " + result.stderr)
+
+    def test_dual_relay_and_closed_peer_reclamation(self):
+        with self.server("dual", relay=True) as port:
+            for index in range(66):
+                scheme = "https" if index % 2 else "moqt"
+                result = self.client(f"{scheme}://127.0.0.1:{port}/",
+                                     "setup-only")
+                self.assertEqual(result.returncode, 0, result.stderr)
+            result = self.client(f"moqt://127.0.0.1:{port}/", "subscribe-error")
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

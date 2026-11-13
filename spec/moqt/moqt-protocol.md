@@ -2021,14 +2021,15 @@ integration; two-endpoint success cannot substitute for it.
 
 #### Endpoint Runner Adapter
 
-The adapter in `interop/moqt/` exposes a TAP v14 client and a
-direct test server through the public endpoint APIs. Its
+The adapter in `interop/moqt/` exposes a TAP v14 client, direct test origin,
+and bounded relay through the public endpoint and relay APIs. Its
 [usage and role boundaries](../../interop/moqt/README.md) define CLI,
 environment, capability discovery, bounded fixtures, and unsupported cases.
-The server is not a Relay: cross-Session routing, fanout, namespace observer
-propagation and rendezvous remain outside it. Register only its client role
-with the runner. Client scenarios may use an independent Relay to exercise
-existing endpoint capabilities; that does not implement XQUIC Relay support.
+The relay entrypoint shares the library's cross-Session routing, fanout,
+namespace observer propagation, and rendezvous. Both transports use the same
+scenario drivers; a separate direct-origin mode checks deterministic object
+delivery without assuming cross-connection routing. Media decoding remains
+outside this adapter.
 
 Native QUIC and WT share the same scenario drivers and object oracles. HTTPS
 selects WT, or explicit transport selection uses a canonical moqt URI. The

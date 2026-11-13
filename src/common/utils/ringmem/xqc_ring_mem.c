@@ -141,9 +141,10 @@ xqc_ring_mem_resize(xqc_ring_mem_t *rmem, size_t cap)
                 }
             }
         }
-
-        xqc_free(rmem->buf);
     }
+
+    /* the old buffer goes, whether it held bytes or not */
+    xqc_free(rmem->buf);
 
     rmem->buf = buf;
     rmem->capacity = mcap;

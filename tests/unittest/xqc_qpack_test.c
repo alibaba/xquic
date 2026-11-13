@@ -1176,10 +1176,98 @@ xqc_test_qpack_h3_conn_create_alloc_failures(void)
     CU_ASSERT(n > 1);
 }
 
+/*
+ * RFC 9204 Section 4.3.1: the peer's encoder raises the capacity of the
+ * empty dynamic table step by step up to SETTINGS_QPACK_MAX_TABLE_CAPACITY.
+ * Each raise grows the decoder's table, and once the QPACK handler is
+ * destroyed nothing that the raises allocated is left.
+ */
+void
+xqc_test_qpack_dtable_cap_raises(void)
+{
+    uint64_t cap;
+    xqc_qpack_t *qpk;
+    xqc_engine_t *engine = xqc_qpack_test_h3c_engine();
+    xqc_var_buf_t *ins = xqc_var_buf_create(32);
+    xqc_ins_buf_t ins_buf = {NULL, NULL};
+
+    CU_ASSERT_FATAL(engine != NULL && ins != NULL);
+
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+    qpk = xqc_qpack_create(16 * 1024, 16 * 1024, engine->log, &ins_cb,
+                           &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+
+    for (cap = 1; cap <= 16 * 1024; cap *= 2) {
+        xqc_var_buf_clear(ins);
+        CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, cap) == XQC_OK);
+        CU_ASSERT(xqc_qpack_process_encoder(qpk, ins->data, ins->data_len)
+                  == ins->data_len);
+    }
+
+    xqc_qpack_destroy(qpk);
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(xqc_test_alloc_live == 0);
+
+    xqc_var_buf_free(ins);
+    xqc_engine_destroy(engine);
+}
+
+/*
+ * A capacity above SETTINGS_QPACK_MAX_TABLE_CAPACITY is an encoder stream
+ * error (RFC 9204 Section 4.3.1), after raises that left the table empty,
+ * and destroying the QPACK handler leaves nothing allocated.
+ */
+void
+xqc_test_qpack_dtable_cap_above_max(void)
+{
+    xqc_qpack_t *qpk;
+    xqc_engine_t *engine = xqc_qpack_test_h3c_engine();
+    xqc_var_buf_t *ins = xqc_var_buf_create(32);
+    xqc_ins_buf_t ins_buf = {NULL, NULL};
+
+    CU_ASSERT_FATAL(engine != NULL && ins != NULL);
+
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+    qpk = xqc_qpack_create(16 * 1024, 16 * 1024, engine->log, &ins_cb,
+                           &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 64) == XQC_OK);
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 1024) == XQC_OK);
+    CU_ASSERT(xqc_qpack_process_encoder(qpk, ins->data, ins->data_len)
+              == ins->data_len);
+
+    xqc_var_buf_clear(ins);
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 16 * 1024 + 1) == XQC_OK);
+    CU_ASSERT(xqc_qpack_process_encoder(qpk, ins->data, ins->data_len) < 0);
+
+    xqc_qpack_destroy(qpk);
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(xqc_test_alloc_live == 0);
+
+    xqc_var_buf_free(ins);
+    xqc_engine_destroy(engine);
+}
+
 #else
 
 void
 xqc_test_qpack_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_qpack_dtable_cap_raises(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_qpack_dtable_cap_above_max(void)
 {
     /* needs the linker's --wrap (see tests/CMakeLists.txt) */
 }

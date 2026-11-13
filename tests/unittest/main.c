@@ -814,6 +814,10 @@ main(int argc, char *argv[])
                         xqc_test_qpack_h3_conn_create_alloc_failures)
         || !CU_add_test(pSuite, "xqc_test_prefixed_str", xqc_test_prefixed_str)
         || !CU_add_test(pSuite, "xqc_test_id_hash", xqc_test_id_hash)
+        || !CU_add_test(pSuite, "xqc_test_str_hash_release",
+                        xqc_test_str_hash_release)
+        || !CU_add_test(pSuite, "xqc_test_str_hash_release_after_add_failure",
+                        xqc_test_str_hash_release_after_add_failure)
         || !CU_add_test(pSuite, "xqc_test_retry", xqc_test_retry)
         || !CU_add_test(pSuite, "xqc_test_retry_same_length_dcid",
                         xqc_test_retry_same_length_dcid)

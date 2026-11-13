@@ -121,6 +121,8 @@ xqc_str_hash_release(xqc_str_hash_table_t *hash_tab)
         while (node) {
             xqc_str_hash_node_t *p = node;
             node = node->next;
+            /* the copy of the key that xqc_str_hash_add() made */
+            a->free(a->opaque, p->element.str.data);
             a->free(a->opaque, p);
         }
     }

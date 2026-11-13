@@ -316,6 +316,109 @@ xqc_test_h3_single_vint_frame_length_error()
 }
 
 
+/*
+ * Parse one frame of buf, step bytes at a time, and return the bytes that
+ * it took, or the error.
+ */
+static ssize_t
+xqc_test_h3_parse_frame_by(const unsigned char *buf, size_t len, size_t step,
+    xqc_h3_frame_pctx_t *pctx)
+{
+    size_t offset = 0;
+    ssize_t ret;
+
+    while (offset < len && pctx->state != XQC_H3_FRM_STATE_END) {
+        ret = xqc_h3_frm_parse(buf + offset, xqc_min(step, len - offset),
+                               pctx, NULL);
+        if (ret < 0) {
+            return ret;
+        }
+        offset += ret;
+    }
+
+    return offset;
+}
+
+
+/*
+ * RFC 9000 Section 16 lets the Push ID of a PUSH_PROMISE take more bytes
+ * than its value needs. The Encoded Field Section is the rest of the frame,
+ * and the next frame starts after it.
+ */
+void
+xqc_test_h3_push_promise_push_id_length()
+{
+    /* Push ID 5 in 1, 2 and 8 bytes */
+    static const unsigned char push_id_1[] = {0x05};
+    static const unsigned char push_id_2[] = {0x40, 0x05};
+    static const unsigned char push_id_8[] = {0xc0, 0x00, 0x00, 0x00,
+                                              0x00, 0x00, 0x00, 0x05};
+    static const struct {
+        const unsigned char *bytes;
+        size_t len;
+    } push_ids[] = {
+        {push_id_1, sizeof(push_id_1)},
+        {push_id_2, sizeof(push_id_2)},
+        {push_id_8, sizeof(push_id_8)},
+    };
+    /* a Push ID of 2 bytes in a payload of 1 byte, then a DATA frame */
+    static const unsigned char past_frame[] = {
+        XQC_H3_FRM_PUSH_PROMISE, 0x01, 0x40, 0x05, XQC_H3_FRM_DATA, 0x00,
+    };
+    static const size_t steps[] = {1, 64};
+    unsigned char buf[32];
+    xqc_h3_frame_pctx_t pctx;
+    xqc_var_buf_t *section;
+    ssize_t processed;
+    size_t i, s, len;
+
+    for (i = 0; i < sizeof(push_ids) / sizeof(push_ids[0]); i++) {
+        /* PUSH_PROMISE with the Encoded Field Section "abc", then DATA */
+        len = 0;
+        buf[len++] = XQC_H3_FRM_PUSH_PROMISE;
+        buf[len++] = push_ids[i].len + 3;
+        memcpy(buf + len, push_ids[i].bytes, push_ids[i].len);
+        len += push_ids[i].len;
+        memcpy(buf + len, "abc", 3);
+        len += 3;
+        buf[len++] = XQC_H3_FRM_DATA;
+        buf[len++] = 0x01;
+        buf[len++] = 'd';
+
+        for (s = 0; s < sizeof(steps) / sizeof(steps[0]); s++) {
+            memset(&pctx, 0, sizeof(pctx));
+            processed = xqc_test_h3_parse_frame_by(buf, len, steps[s], &pctx);
+            CU_ASSERT(processed == 2 + push_ids[i].len + 3);
+            CU_ASSERT(pctx.state == XQC_H3_FRM_STATE_END);
+            CU_ASSERT(pctx.frame.type == XQC_H3_FRM_PUSH_PROMISE);
+            CU_ASSERT(pctx.frame.frame_payload.push_promise.push_id.vi == 5);
+            section = pctx.frame.frame_payload.push_promise.encoded_field_section;
+            CU_ASSERT(section != NULL && section->data_len == 3
+                      && memcmp(section->data, "abc", 3) == 0);
+            xqc_h3_frm_reset_pctx(&pctx);
+
+            /* the DATA frame follows */
+            if (processed < 0 || (size_t) processed >= len) {
+                continue;
+            }
+            CU_ASSERT(xqc_h3_frm_parse(buf + processed, len - processed,
+                                       &pctx, NULL) == 2);
+            CU_ASSERT(pctx.frame.type == XQC_H3_FRM_DATA);
+            CU_ASSERT(pctx.frame.len == 1);
+            xqc_h3_frm_reset_pctx(&pctx);
+        }
+    }
+
+    for (s = 0; s < sizeof(steps) / sizeof(steps[0]); s++) {
+        memset(&pctx, 0, sizeof(pctx));
+        processed = xqc_test_h3_parse_frame_by(past_frame, sizeof(past_frame),
+                                               steps[s], &pctx);
+        CU_ASSERT(processed == -XQC_H3_DECODE_ERROR);
+        xqc_h3_frm_reset_pctx(&pctx);
+    }
+}
+
+
 void
 xqc_test_ins()
 {

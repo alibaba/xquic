@@ -1446,18 +1446,19 @@ xqc_engine_unregister_alpn(xqc_engine_t *engine, const char *alpn, size_t alpn_l
     xqc_list_head_t *pos, *next;
     xqc_alpn_registration_t *alpn_reg;
 
+    if (NULL == alpn || 0 == alpn_len) {
+        return -XQC_EPARAM;
+    }
+
     xqc_list_for_each_safe(pos, next, &engine->alpn_reg_list) {
         alpn_reg = xqc_list_entry(pos, xqc_alpn_registration_t, head);
-        if (alpn_reg && alpn_len == alpn_reg->alpn_len
+        if (alpn_len == alpn_reg->alpn_len
             && xqc_memcmp(alpn, alpn_reg->alpn, alpn_len) == 0)
         {
             xqc_list_del(&alpn_reg->head);
 
-            /* remove registration */
-            if (alpn_reg->alpn) {
-                xqc_free(alpn_reg->alpn);
-            }
-
+            /* remove registration, whose alpn xqc_engine_add_alpn() allocated */
+            xqc_free(alpn_reg->alpn);
             xqc_free(alpn_reg);
 
             return xqc_tls_ctx_unregister_alpn(engine->tls_ctx, alpn, alpn_len);

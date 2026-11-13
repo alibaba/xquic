@@ -676,6 +676,9 @@ xqc_int_t xqc_conn_process_packet(xqc_connection_t *c, const unsigned char *pack
 void xqc_conn_process_packet_recved_path(xqc_connection_t *conn, xqc_cid_t *scid, 
     size_t packet_in_size, xqc_usec_t recv_time);
 
+/* record a received packet in the ACK ranges of its packet number space */
+void xqc_conn_record_single(xqc_connection_t *c, xqc_packet_in_t *packet_in);
+
 xqc_int_t xqc_conn_check_handshake_complete(xqc_connection_t *conn);
 
 

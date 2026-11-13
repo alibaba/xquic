@@ -18,4 +18,7 @@ void xqc_test_tp_cid_overflow();
 void xqc_test_active_cid_limit_minimum();
 void xqc_test_check_transport_params_cids();
 
+void xqc_test_max_receive_timestamps_per_ack_large(void);
+void xqc_test_max_receive_timestamps_per_ack_advertised(void);
+
 #endif

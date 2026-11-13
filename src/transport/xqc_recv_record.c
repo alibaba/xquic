@@ -300,15 +300,33 @@ xqc_maybe_should_ack(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_pn_ctl_t 
     } else if (send_ctl->ctl_ack_eliciting_pkt[pns] > 0
                && !xqc_timer_is_set(&send_ctl->path_timer_manager, XQC_TIMER_ACK_INIT + pns))
     {
+        xqc_usec_t ack_delay = xqc_ack_timer_delay(conn);
+
         xqc_timer_set(&send_ctl->path_timer_manager, XQC_TIMER_ACK_INIT + pns,
-                      now, conn->local_settings.max_ack_delay * 1000);
+                      now, ack_delay);
 
         xqc_log(conn->log, XQC_LOG_DEBUG,
-                "|path:%ui|set ack timer|ack_eliciting_pkt:%ud|pns:%d|flag:%s|now:%ui|max_ack_delay:%ui|",
+                "|path:%ui|set ack timer|ack_eliciting_pkt:%ud|pns:%d|flag:%s|now:%ui|delay:%ui|max_ack_delay:%ui|",
                 path->path_id,
                 send_ctl->ctl_ack_eliciting_pkt[pns], pns, xqc_conn_flag_2_str(conn, conn->conn_flag),
-                now, conn->local_settings.max_ack_delay * 1000);
+                now, ack_delay, conn->local_settings.max_ack_delay * 1000);
     }
+}
+
+/*
+ * RFC 9000 Section 18.2: the advertised max_ack_delay "SHOULD include the
+ * receiver's expected delays in alarms firing". An event loop that waits in
+ * whole milliseconds runs an expired timer up to the timer granularity of
+ * RFC 9002 Section 6.1.2 late: the ACK timer is armed that much before
+ * max_ack_delay, so that the acknowledgment it delays leaves within it.
+ */
+xqc_usec_t
+xqc_ack_timer_delay(xqc_connection_t *conn)
+{
+    xqc_usec_t max_ack_delay = conn->local_settings.max_ack_delay * 1000;
+    xqc_usec_t margin = XQC_kGranularity * 1000;
+
+    return max_ack_delay > margin ? max_ack_delay - margin : 0;
 }
 
 int

@@ -40,7 +40,6 @@ typedef enum {
 #define XQC_MOQT_DEFAULT_PRIORITY 128
 #define XQC_MOQT_PROPERTY_OBJECT_TIMEOUT 0x02
 #define XQC_MOQT_PROPERTY_SUBGROUP_TIMEOUT 0x06
-#define XQC_MOQT_PROPERTY_IMMUTABLE 0x0b
 #define XQC_MOQT_PROPERTY_PUBLISHER_PRIORITY 0x0e
 #define XQC_MOQT_PROPERTY_GROUP_ORDER 0x22
 #define XQC_MOQT_LOCATION_FILTER_MAX_FIELDS 5
@@ -322,8 +321,6 @@ void xqc_moqt_subscription_free(xqc_moqt_subscription_t *sub);
 void xqc_moqt_subscription_check_done(xqc_moqt_subscription_t *sub);
 xqc_moqt_subscription_t *xqc_moqt_subscriptions_hold(xqc_moqt_session_t *s);
 void xqc_moqt_subscriptions_release(xqc_moqt_subscription_t *head);
-xqc_int_t xqc_moqt_subscription_is_matching(const xqc_moqt_subscription_t *sub,
-    const xqc_moqt_location_t *location);
 
 xqc_int_t xqc_moqt_location_compare(const xqc_moqt_location_t *a,
     const xqc_moqt_location_t *b);

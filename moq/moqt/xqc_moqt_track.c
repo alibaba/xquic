@@ -396,10 +396,30 @@ xqc_int_t
 xqc_moqt_subscription_is_matching(const xqc_moqt_subscription_t *sub,
     const xqc_moqt_location_t *location)
 {
+    if (sub == NULL || location == NULL) {
+        return XQC_FALSE;
+    }
+    /* Pending, stopped and paused interests cannot receive new objects. */
+    if (!sub->established || sub->stopped || !sub->forward) {
+        return XQC_FALSE;
+    }
     xqc_int_t start = xqc_moqt_location_compare(location, &sub->start);
-    return sub->established && !sub->stopped && sub->forward
-           && (start > 0 || (start == 0 && !sub->start_exclusive))
-           && xqc_moqt_location_compare(location, &sub->end) <= 0;
+    /* NextObject excludes the lower boundary; other filters include it. */
+    if (start < 0 || (start == 0 && sub->start_exclusive)) {
+        return XQC_FALSE;
+    }
+    return xqc_moqt_location_compare(location, &sub->end) <= 0;
+}
+
+xqc_int_t
+xqc_moqt_subscription_largest(const xqc_moqt_subscription_t *sub,
+    xqc_moqt_location_t *location)
+{
+    if (sub == NULL || location == NULL || !sub->track->has_largest) {
+        return XQC_ERROR;
+    }
+    *location = sub->track->largest;
+    return XQC_OK;
 }
 
 /* Free only after callbacks/iteration release their borrowed references. */

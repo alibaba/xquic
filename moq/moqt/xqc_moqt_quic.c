@@ -151,7 +151,8 @@ xqc_moqt_stream_read(xqc_stream_t *transport, void *data)
             {
                 xqc_moqt_stream_cancel(st, transport->stream_err);
             }
-            ret = (xqc_int_t)n;
+            /* A handled peer reset is not a transport callback failure. */
+            ret = n == -XQC_ESTREAM_RESET ? XQC_OK : (xqc_int_t)n;
             break;
         }
         ret = xqc_moqt_stream_input(st, buf, n, fin);

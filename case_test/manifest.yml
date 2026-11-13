@@ -174,3 +174,16 @@ groups:
   runner: case_test/moq/request.sh
   execution: implemented
   port_offset: 170
+- id: moqt.relay
+  module: moq
+  feature: moqt
+  requires_cmake: [XQC_ENABLE_MOQ]
+  estimated_seconds: 25
+  source_paths:
+  - moq/moqt_relay/*
+  - moq/moqt/*
+  - include/moq/xqc_moqt*.h
+  - tests/complex_case/test_moqt_relay.c
+  runner: case_test/moq/relay.sh
+  execution: implemented
+  port_offset: 190

@@ -38,6 +38,10 @@ without speculative placeholder frameworks.
 
 ## Separate Scopes
 
+The [Relay core change](../moqt-relay-core/proposal.md) delivers its independent
+implementation and local three-node cases. Remaining acceptance below also
+includes external runner integration and broader TLS/interop evidence.
+
 - [ ] Relay: hop IDs/Aliases, upstream Established, rendezvous, source sets,
   fanout/mixed pause, total FETCH/Fill budget, malformed/slow-peer isolation,
   overlapping migration; positive/negative three-node tests with two

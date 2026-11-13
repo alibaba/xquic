@@ -353,6 +353,9 @@ modules:
       moqt:
         paths:
           - include/moq/xqc_moqt.h
+          - include/moq/xqc_moqt_relay.h
+          - moq/moqt_relay/*
+          - tests/complex_case/test_moqt_relay.c
           - moq/moqt/*
           - tests/unittest/xqc_moqt_*_test.*
           - tests/complex_case/test_moqt_negotiation.c
@@ -362,6 +365,21 @@ modules:
         validation:
           level: targeted
           unit:
+            - xqc_test_moqt_relay_discovery_updates
+            - xqc_test_moqt_relay_budget_rollback
+            - xqc_test_moqt_relay_late_response
+            - xqc_test_moqt_relay_fill_boundaries
+            - xqc_test_moqt_relay_config
+            - xqc_test_moqt_relay_routes
+            - xqc_test_moqt_relay_errors
+            - xqc_test_moqt_relay_delivery
+            - xqc_test_moqt_relay_history
+            - xqc_test_moqt_relay_updates
+            - xqc_test_moqt_relay_limits
+            - xqc_test_moqt_relay_tracks
+            - xqc_test_moqt_relay_rendezvous_tracks
+            - xqc_test_moqt_relay_tracks_errors
+            - xqc_test_moqt_relay_fill
             - xqc_test_moqt_subgroup_codec
             - xqc_test_moqt_subgroup_codec_errors
             - xqc_test_moqt_subgroup_scheduling

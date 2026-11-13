@@ -28,6 +28,7 @@
 #include "xqc_moqt_codec_test.h"
 #include "xqc_moqt_quic_test.h"
 #include "xqc_moqt_session_test.h"
+#include "xqc_moqt_relay_test.h"
 #endif
 #include "xqc_recv_record_test.h"
 #include "xqc_reno_test.h"
@@ -459,6 +460,36 @@ main(int argc, char *argv[])
                         xqc_test_sprintf_counted_string)
         || !CU_add_test(pSuite, "xqc_test_vint", xqc_test_vint)
 #ifdef XQC_ENABLE_MOQ
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_discovery_updates",
+                        xqc_test_moqt_relay_discovery_updates)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_budget_rollback",
+                        xqc_test_moqt_relay_budget_rollback)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_late_response",
+                        xqc_test_moqt_relay_late_response)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_fill_boundaries",
+                        xqc_test_moqt_relay_fill_boundaries)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_config",
+                        xqc_test_moqt_relay_config)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_routes",
+                        xqc_test_moqt_relay_routes)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_errors",
+                        xqc_test_moqt_relay_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_delivery",
+                        xqc_test_moqt_relay_delivery)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_history",
+                        xqc_test_moqt_relay_history)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_updates",
+                        xqc_test_moqt_relay_updates)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_limits",
+                        xqc_test_moqt_relay_limits)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks",
+                        xqc_test_moqt_relay_tracks)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_rendezvous_tracks",
+                        xqc_test_moqt_relay_rendezvous_tracks)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks_errors",
+                        xqc_test_moqt_relay_tracks_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_fill",
+                        xqc_test_moqt_relay_fill)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_errors",
                         xqc_test_moqt_fill_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_parameters",

@@ -1,0 +1,1 @@
+{"version":1,"streamingFormat":1,"streamingFormatVersion":"0.2","commonTrackFields":{"namespace":"ns","packaging":"loc","renderGroup":1},"tracks":[{"name":"video","selectionParams":{"codec":"av01","width":1920,"height":1080,"framerate":30,"bitrate":1500000}}]}

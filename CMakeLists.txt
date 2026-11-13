@@ -26,6 +26,7 @@ option (XQC_ENABLE_XOR "enable fec scheme xor" OFF)
 option (XQC_ENABLE_RSC "enable fec scheme reed-solomon code" OFF)
 option (XQC_ENABLE_PKM "enable fec scheme packet mask" OFF)
 option (XQC_PING_ATTACK_PROTECT "enable ping attack protection" OFF)
+option (XQC_ENABLE_FUZZ "build the libFuzzer targets of tests/fuzz (clang)" OFF)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
@@ -127,6 +128,29 @@ if(ASAN)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w -fsanitize=address -fsanitize-address-use-after-scope -fno-omit-frame-pointer")
 endif()
 
+# fuzzing: instrument the library for libFuzzer and the sanitizers, and build
+# the fuzz targets of tests/fuzz, which link the fuzzing engine
+if(XQC_ENABLE_FUZZ)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "XQC_ENABLE_FUZZ needs clang and its libFuzzer")
+    endif()
+    # the function sanitizer stays off while some library functions are
+    # still defined with () instead of (void)
+    set(XQC_FUZZ_SANITIZERS "address,undefined" CACHE STRING
+        "sanitizers of the fuzz build, empty for none")
+    set(XQC_FUZZ_ENGINE "-fsanitize=fuzzer" CACHE STRING
+        "link flags of the fuzzing engine, e.g. $LIB_FUZZING_ENGINE")
+    set(XQC_FUZZ_FLAGS "-fsanitize=fuzzer-no-link -fno-omit-frame-pointer")
+    if(XQC_FUZZ_SANITIZERS)
+        set(XQC_FUZZ_FLAGS "${XQC_FUZZ_FLAGS} -fsanitize=${XQC_FUZZ_SANITIZERS}")
+        set(XQC_FUZZ_FLAGS "${XQC_FUZZ_FLAGS} -fno-sanitize=function")
+        set(XQC_FUZZ_FLAGS "${XQC_FUZZ_FLAGS} -fno-sanitize-recover=all")
+    endif()
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${XQC_FUZZ_FLAGS}")
+    # keep the assertions of Debug builds, but fuzz faster than -O0
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O1")
+endif()
+
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
     add_definitions(-DXQC_SYS_WINDOWS=1)
@@ -200,6 +224,10 @@ endif(XQC_ENABLE_TESTING)
 
 if(XQC_ENABLE_MOQ)
     add_subdirectory(moq)
+endif()
+
+if(XQC_ENABLE_FUZZ)
+    add_subdirectory(tests/fuzz)
 endif()
 
 # http3/qpack source

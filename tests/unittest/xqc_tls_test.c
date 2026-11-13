@@ -496,7 +496,9 @@ void
 xqc_test_tls_ctx_alpn_list(void)
 {
     static const char     *alpns[] = {
-        "h3", "transport", "hq-interop", "a-much-longer-protocol-name",
+        /* RFC 7301 Section 3.1: exact-capacity appends retain the full name. */
+        "moq-quic", "moqt-22", "h3", "transport", "hq-interop",
+        "a-much-longer-protocol-name",
     };
     xqc_log_callbacks_t    log_cb = xqc_null_log_cb;
     xqc_log_t             *log;

@@ -32,6 +32,7 @@ typedef struct xqc_var_buf_s {
 typedef struct xqc_list_buf_s {
     xqc_list_head_t list_head;
     xqc_var_buf_t  *buf;
+    xqc_usec_t      timestamp; /* Optional enqueue origin; zero when unused. */
 } xqc_list_buf_t;
 
 /**

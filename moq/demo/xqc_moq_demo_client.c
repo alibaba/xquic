@@ -16,6 +16,9 @@
 
 #include "tests/platform.h"
 #include "xqc_moq_demo_comm.h"
+#include "moq/xqc_moqt.h"
+#include "src/common/xqc_malloc.h"
+#include "src/common/xqc_str.h"
 
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
@@ -59,10 +62,15 @@ int g_spec_local_addr = 0;
 int g_frame_num = 5;
 int g_fec_on = 0;
 xqc_moq_role_t g_role = XQC_MOQ_PUBSUB;
+/* An unset config preserves the draft-05 path. */
+static xqc_moqt_config_t g_moqt_config;
 
 static void
 save_session_cb(const char * data, size_t data_len, void *user_data)
 {
+    if (g_moqt_config.version == XQC_MOQT_VERSION_DRAFT_22) {
+        return;
+    }
     DEBUG;
     FILE * fp  = fopen(FILE_SESSION_TICKET, "wb");
     int write_size = fwrite(data, 1, data_len, fp);
@@ -78,6 +86,9 @@ save_session_cb(const char * data, size_t data_len, void *user_data)
 static void
 save_tp_cb(const char * data, size_t data_len, void * user_data)
 {
+    if (g_moqt_config.version == XQC_MOQT_VERSION_DRAFT_22) {
+        return;
+    }
     FILE * fp = fopen(FILE_TRANS_PARAMS, "wb");
     int write_size = fwrite(data, 1, data_len, fp);
     if (data_len != write_size) {
@@ -91,6 +102,10 @@ save_tp_cb(const char * data, size_t data_len, void * user_data)
 static void
 save_token(const unsigned char *data, unsigned data_len, void *user_data)
 {
+    /* NEW_TOKEN requires this callback even when persistence is disabled. */
+    if (g_moqt_config.version == XQC_MOQT_VERSION_DRAFT_22) {
+        return;
+    }
     FILE * fp  = fopen(FILE_TOKEN, "wb");
     int write_size = fwrite(data, 1, data_len, fp);
     if (data_len != write_size) {
@@ -506,12 +521,53 @@ void on_audio_frame(xqc_moq_user_session_t *user_session, uint64_t subscribe_id,
     //printf("audio_data:%s\n",audio_frame->audio_data);
 }
 
-int
-xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
+static uint64_t
+xqc_demo_moqt_setup(xqc_moqt_session_t *session,
+    const xqc_moqt_setup_t *setup, void *data)
+{
+    /* This demo accepts an unauthenticated server, with no token input. */
+    return setup->token_count ? XQC_MOQT_UNAUTHORIZED : XQC_MOQT_NO_ERROR;
+}
+
+static void
+xqc_demo_moqt_ready(xqc_moqt_session_t *session, void *data)
+{
+    printf("moqt ready:client\n");
+}
+
+static void
+xqc_demo_moqt_goaway(xqc_moqt_session_t *session, const struct iovec *uri,
+    uint64_t timeout, void *data)
+{
+    /* This handshake demo drains immediately; no automatic migration. */
+    xqc_moqt_session_close(session, XQC_MOQT_NO_ERROR);
+}
+
+xqc_int_t
+xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+    void *user_data, void *conn_proto_data)
 {
     DEBUG;
     xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)user_data;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
+
+    if (g_moqt_config.version == XQC_MOQT_VERSION_DRAFT_22) {
+        const xqc_moqt_kv_t options[] = {
+            {.type = XQC_MOQT_OPT_PATH, .value.bytes = {"/", 1}},
+            {.type = XQC_MOQT_OPT_AUTHORITY,
+             .value.bytes = {"localhost", sizeof("localhost") - 1}},
+        };
+        const xqc_moqt_callbacks_t callbacks = {
+            .on_setup = xqc_demo_moqt_setup,
+            .on_ready = xqc_demo_moqt_ready,
+            .on_goaway = xqc_demo_moqt_goaway,
+        };
+        xqc_moqt_config_t config = g_moqt_config;
+        config.setup_options = options;
+        config.setup_option_count = sizeof(options) / sizeof(options[0]);
+        return xqc_moqt_session_create(conn, &config, &callbacks, NULL)
+               ? XQC_OK : -XQC_EPARAM;
+    }
 
     xqc_moq_session_callbacks_t callbacks = {
         .on_session_setup = on_session_setup,
@@ -538,8 +594,9 @@ xqc_client_conn_create_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void
 }
 
 #define XQC_CACHE_SESSION_INVALID_ERR  (0x150)
-int
-xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void *user_data, void *conn_proto_data)
+xqc_int_t
+xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid,
+    void *user_data, void *conn_proto_data)
 {
     DEBUG;
     xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)user_data;
@@ -550,17 +607,26 @@ xqc_client_conn_close_notify(xqc_connection_t *conn, const xqc_cid_t *cid, void 
             stats.fec_recover_pkt_cnt);
 
     xqc_int_t err = xqc_conn_get_errno(conn);
-    if (xqc_conn_should_clear_0rtt_ticket(err) || err == XQC_CACHE_SESSION_INVALID_ERR) {
+    if (g_moqt_config.version == 0
+        && (xqc_conn_should_clear_0rtt_ticket(err)
+            || err == XQC_CACHE_SESSION_INVALID_ERR))
+    {
         printf("should_clear_0rtt_ticket, conn_err:%d, clear_0rtt_ticket:%d\n", err,
                xqc_conn_should_clear_0rtt_ticket(err));
         xqc_app_delete_file(FILE_SESSION_TICKET);
         xqc_app_delete_file(FILE_TRANS_PARAMS);
         xqc_app_delete_file(FILE_TOKEN);
     }
-    
-    xqc_moq_session_destroy(user_session->session);
-    free(user_session);
-    
+
+    if (g_moqt_config.version == XQC_MOQT_VERSION_DRAFT_22) {
+        xqc_moqt_session_destroy(conn_proto_data);
+    }
+    if (user_session->session != NULL) {
+        xqc_moq_session_destroy(user_session->session);
+        user_session->session = NULL;
+    }
+    xqc_free(user_session);
+
     event_base_loopbreak(eb);
 
     return 0;
@@ -572,6 +638,14 @@ xqc_client_conn_handshake_finished(xqc_connection_t *conn, void *user_data, void
     DEBUG;
     xqc_moq_user_session_t *user_session = (xqc_moq_user_session_t *)user_data;
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
+    xqc_moq_session_t *session = user_session->session;
+    xqc_conn_stats_t stats = xqc_conn_get_stats(ctx.engine, &user_conn->cid);
+    printf("handshake alpn:%s legacy_session:%d\n", stats.alpn,
+           session != NULL);
+    if (g_moqt_config.version == XQC_MOQT_VERSION_DRAFT_22) {
+        xqc_moqt_session_start(conn_proto_data);
+        return;
+    }
 }
 
 void
@@ -637,7 +711,7 @@ int main(int argc, char *argv[])
     uint8_t secret_key[16] = {0};
     int use_proxy = 0;
     int use_1rtt = 0;
-    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1")) != -1) {
+    while ((ch = getopt(argc, argv, "a:p:r:c:l:A:P:k:n:f1v:F:")) != -1) {
         switch (ch) {
             case 'a':
                 printf("option addr :%s\n", optarg);
@@ -713,6 +787,22 @@ int main(int argc, char *argv[])
                 printf("option open fec: on\n");
                 g_fec_on = 1;
                 break;
+            case 'v':
+                if (strcmp(optarg, "22") == 0) {
+                    xqc_moqt_config_init(&g_moqt_config,
+                                         XQC_MOQT_VERSION_DRAFT_22);
+                } else if (strcmp(optarg, "05") == 0
+                           || strcmp(optarg, "5") == 0)
+                {
+                    g_moqt_config.version = 0;
+                } else {
+                    fprintf(stderr, "protocol version must be 05 or 22\n");
+                    return 1;
+                }
+                break;
+            case 'F':
+                fprintf(stderr, "this public demo does not support legacy -F modes\n");
+                return 1;
             case '1': /* Force 1RTT. */
                 printf("option 1RTT :%s\n", "on");
                 use_1rtt = 1;
@@ -770,9 +860,24 @@ int main(int argc, char *argv[])
             .conn_close_notify = xqc_client_conn_close_notify,
             .conn_handshake_finished = xqc_client_conn_handshake_finished,
     };
-    xqc_moq_init_alpn(ctx.engine, &conn_cbs, XQC_MOQ_TRANSPORT_QUIC);
 
-    xqc_moq_user_session_t *user_session = calloc(1, sizeof(xqc_moq_user_session_t) + sizeof(user_conn_t));
+    if (g_moqt_config.version == XQC_MOQT_VERSION_DRAFT_22) {
+        if (xqc_moqt_init_alpn(ctx.engine, &g_moqt_config, &conn_cbs)
+            != XQC_OK)
+        {
+            xqc_engine_destroy(ctx.engine);
+            return -1;
+        }
+    } else {
+        xqc_moq_init_alpn(ctx.engine, &conn_cbs, XQC_MOQ_TRANSPORT_QUIC);
+    }
+
+    xqc_moq_user_session_t *user_session = xqc_calloc(
+        1, sizeof(*user_session) + sizeof(user_conn_t));
+    if (user_session == NULL) {
+        xqc_engine_destroy(ctx.engine);
+        return -XQC_EMALLOC;
+    }
     user_conn_t *user_conn = (user_conn_t *)user_session->data;
 
     xqc_client_init_addr(user_conn, server_addr, server_port);
@@ -796,7 +901,8 @@ int main(int argc, char *argv[])
             .fec_encoder_schemes_num = 1,
             .fec_decoder_schemes_num = 1,
             .fec_code_rate = 0.1
-        }
+        },
+        .max_datagram_frame_size = XQC_PACKET_TMP_BUF_LEN,
     };
     
 #ifdef XQC_ENABLE_PROXY
@@ -820,7 +926,8 @@ int main(int argc, char *argv[])
 #endif
     
     unsigned char token[XQC_TOKEN_MAX_KEY_LEN] = {0};
-    int token_len = xqc_app_read_file_data(token, sizeof(token), FILE_TOKEN);
+    xqc_int_t token_len = g_moqt_config.version ? 0
+        : xqc_app_read_file_data(token, sizeof(token), FILE_TOKEN);
     if (token_len > 0) {
         user_conn->token = token;
         user_conn->token_len = token_len;
@@ -835,9 +942,14 @@ int main(int argc, char *argv[])
     
     char session_ticket_data[8192]={0};
     char tp_data[8192] = {0};
-    
-    int session_len = xqc_app_read_file_data((unsigned char *)session_ticket_data, sizeof(session_ticket_data), FILE_SESSION_TICKET);
-    int tp_len = xqc_app_read_file_data((unsigned char *)tp_data, sizeof(tp_data), FILE_TRANS_PARAMS);
+
+    xqc_int_t session_len = g_moqt_config.version ? -1
+        : xqc_app_read_file_data((unsigned char *)session_ticket_data,
+                                 sizeof(session_ticket_data),
+                                 FILE_SESSION_TICKET);
+    xqc_int_t tp_len = g_moqt_config.version ? -1
+        : xqc_app_read_file_data((unsigned char *)tp_data, sizeof(tp_data),
+                                 FILE_TRANS_PARAMS);
 
     if (session_len < 0 || tp_len < 0 || use_1rtt) {
         printf("sessoin data read error or use_1rtt\n");
@@ -853,10 +965,21 @@ int main(int argc, char *argv[])
     }
 
     const xqc_cid_t *cid;
-    cid = xqc_connect(ctx.engine, &conn_settings, user_conn->token, user_conn->token_len,
-                      server_addr, 0, &conn_ssl_config, user_conn->peer_addr,
-                      user_conn->peer_addrlen, XQC_ALPN_MOQ_QUIC, user_session);
-    if (cid == NULL) {
+    const char *alpn = XQC_ALPN_MOQ_QUIC;
+
+    if (g_moqt_config.version == XQC_MOQT_VERSION_DRAFT_22) {
+        cid = xqc_moqt_connect(
+            ctx.engine, &g_moqt_config, &conn_settings,
+            NULL, 0, server_addr, &conn_ssl_config, user_conn->peer_addr,
+            user_conn->peer_addrlen, user_session);
+    } else {
+        cid = xqc_connect(
+            ctx.engine, &conn_settings, user_conn->token,
+            user_conn->token_len, server_addr, 0, &conn_ssl_config,
+            user_conn->peer_addr, user_conn->peer_addrlen, alpn, user_session);
+    }
+
+    if (cid == NULL && g_moqt_config.version == 0) {
         printf("xqc_connect error, delete cache files then retry once\n");
         xqc_app_delete_file(FILE_SESSION_TICKET);
         xqc_app_delete_file(FILE_TRANS_PARAMS);

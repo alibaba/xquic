@@ -595,6 +595,30 @@ xqc_dtable_set_min_ref(xqc_dtable_t *dt, uint64_t ref)
 }
 
 
+/* rebuild the 2d hash table from the entries in the ring array */
+static void
+xqc_dtable_rehash(xqc_dtable_t *dt)
+{
+    xqc_dtable_entry_t *entry;
+    uint64_t idx;
+
+    xqc_2d_hash_table_clear(dt->ht2d);
+
+    for (idx = dt->first_idx; idx < dt->insert_cnt; idx++) {
+        entry = xqc_rarray_get(dt->entries, idx - dt->first_idx);
+        if (entry == NULL
+            || xqc_2d_hash_table_add(dt->ht2d, entry->nhash, entry->vhash,
+                                     entry)
+                   != XQC_OK)
+        {
+            /* an entry left out is only not found by lookups */
+            xqc_log(dt->log, XQC_LOG_ERROR, "|rehash entry error|idx:%ui|",
+                    idx);
+        }
+    }
+}
+
+
 xqc_int_t
 xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capacity)
 {
@@ -623,6 +647,14 @@ xqc_dtable_set_capacity(xqc_dtable_t *dt, uint64_t capacity)
     if (ret != XQC_OK) {
         xqc_log(dt->log, XQC_LOG_ERROR, "|resize rarray error|ret:%d|", ret);
         return ret;
+    }
+
+    /*
+     * a larger ring array moves the entries, which the 2d hash table points
+     * at: point it at the moved entries
+     */
+    if (dt->ht2d) {
+        xqc_dtable_rehash(dt);
     }
 
     dt->capacity = capacity;

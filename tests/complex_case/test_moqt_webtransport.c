@@ -521,7 +521,14 @@ run_relay(unsigned bad)
     CHECK(xqc_moqt_relay_stats(server.relay)->forwarded > 0);
     xqc_moqt_session_close(client.channel[0].session, XQC_MOQT_NO_ERROR);
     CHECK(!wait_for(&client, &server, &server.channel[0].wt_closed, 1));
-    xqc_moqt_relay_process(server.relay, xqc_complex_case_now_us());
+    xqc_complex_case_engine_t *engines[] = {&client.base, &server.base};
+    xqc_usec_t deadline = xqc_complex_case_now_us() + 6000000;
+    while (xqc_moqt_relay_stats(server.relay)->peers != 1
+           && xqc_complex_case_now_us() < deadline)
+    {
+        xqc_complex_case_pump(engines, 2, 2);
+        xqc_moqt_relay_process(server.relay, xqc_complex_case_now_us());
+    }
     CHECK(xqc_moqt_relay_stats(server.relay)->peers == 1);
     unsigned ok = client.channel[1].ok;
     CHECK(request_open(&client.channel[1], XQC_MOQT_MSG_PUBLISH_NAMESPACE,

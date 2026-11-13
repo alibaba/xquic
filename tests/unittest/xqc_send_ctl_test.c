@@ -1052,3 +1052,84 @@ xqc_test_send_ctl_lost_packet_cc_reaction(void)
 {
     xqc_test_send_ctl_lost_packet_cc(XQC_FALSE);
 }
+
+
+/*
+ * RFC 9002 Appendix A.9: OnLossDetectionTimeout ends with
+ * SetLossDetectionTimer(), which keeps a timer armed while ack-eliciting
+ * packets are in flight, also when their PTO deadline has already passed.
+ */
+static xqc_usec_t xqc_test_ld_now;
+
+static xqc_usec_t
+xqc_test_ld_clock(void)
+{
+    return xqc_test_ld_now;
+}
+
+static void
+xqc_test_send_ctl_ld_timer_case(xqc_usec_t sent_ago, unsigned expected_pto)
+{
+    xqc_timestamp_pt saved = xqc_monotonic_timestamp;
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_timer_t *timer =
+        &send_ctl->path_timer_manager.timer[XQC_TIMER_LOSS_DETECTION];
+
+    xqc_monotonic_timestamp = xqc_test_ld_clock;
+    xqc_test_ld_now = 1000000000;
+
+    /* PTO period: 20 + max(4 * 10, 1) + 25 = 85 ms */
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    conn->remote_settings.max_ack_delay = 25;
+    send_ctl->ctl_srtt = 20000;
+    send_ctl->ctl_rttvar = 10000;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+
+    xqc_packet_out_t *po = xqc_packet_out_get(sq);
+    CU_ASSERT_FATAL(po != NULL);
+    po->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    po->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    po->po_pkt.pkt_num = 1;
+    po->po_path_id = send_ctl->ctl_path->path_id;
+    po->po_frame_types = XQC_FRAME_BIT_PING;
+    po->po_used_size = 100;
+    po->po_sent_time = xqc_test_ld_now - sent_ago;
+    po->po_flag = XQC_POF_IN_FLIGHT;
+    send_ctl->ctl_bytes_in_flight = 100;
+    send_ctl->ctl_bytes_ack_eliciting_inflight[XQC_PNS_APP_DATA] = 100;
+    send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[XQC_PNS_APP_DATA] =
+        po->po_sent_time;
+    xqc_send_queue_insert_unacked(po,
+        &sq->sndq_unacked_packets[XQC_PNS_APP_DATA], sq);
+
+    xqc_send_ctl_set_loss_detection_timer(send_ctl);
+    CU_ASSERT_FATAL(timer->timer_is_set);
+
+    /* the PTO fires at its deadline and re-arms the timer */
+    xqc_test_ld_now = xqc_max(timer->expire_time, xqc_test_ld_now);
+    xqc_timer_expire(&send_ctl->path_timer_manager, xqc_test_ld_now);
+    CU_ASSERT_EQUAL(send_ctl->ctl_pto_count, expected_pto);
+    CU_ASSERT(timer->timer_is_set);
+    CU_ASSERT(timer->expire_time > xqc_test_ld_now);
+
+    xqc_monotonic_timestamp = saved;
+    xqc_engine_destroy(conn->engine);
+}
+
+/* a PTO deadline ahead of now: the timer is re-armed at the doubled period */
+void
+xqc_test_send_ctl_pto_rearm(void)
+{
+    xqc_test_send_ctl_ld_timer_case(0, 1);
+}
+
+/* the packet left 10 s ago: the re-armed deadline has passed too */
+void
+xqc_test_send_ctl_pto_rearm_past_deadline(void)
+{
+    xqc_test_send_ctl_ld_timer_case(10000000, 1);
+}

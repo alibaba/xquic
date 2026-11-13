@@ -9,7 +9,7 @@
 
 
 static size_t
-xqc_minrtt_scheduler_size()
+xqc_minrtt_scheduler_size(void)
 {
     return 0;
 }

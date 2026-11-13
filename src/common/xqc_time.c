@@ -43,7 +43,7 @@ gettimeofday(struct timeval *tv, struct timezone *tz)
 #endif
 
 xqc_usec_t
-xqc_now()
+xqc_now(void)
 {
     /* get microsecond unit time */
     struct timeval tv;

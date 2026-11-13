@@ -32,7 +32,7 @@ typedef struct xqc_ack_timestamp_info_s {
     uint64_t                recv_ts[XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH];
 } xqc_ack_timestamp_info_t;
 
-xqc_recv_timestamps_info_t *xqc_recv_timestamps_info_create();
+xqc_recv_timestamps_info_t *xqc_recv_timestamps_info_create(void);
 
 void xqc_recv_timestamps_info_destroy(xqc_recv_timestamps_info_t *ts_info);
 

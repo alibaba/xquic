@@ -394,3 +394,78 @@ jobs:
         cd build
         cmake -DPLATFORM=mac -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
         make -j
+
+  build-windows:
+
+    name: Build on Windows
+
+    runs-on: windows-2025
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+
+    - name: Fetch BoringSSL headers
+      shell: bash
+      run: |
+        # The job builds the static library, which links nothing: it needs the
+        # BoringSSL headers only, and empty files pass the SSL_LIB_PATH check.
+        git clone --depth 1 https://github.com/google/boringssl.git ./third_party/boringssl
+        mkdir -p third_party/boringssl/build
+        touch third_party/boringssl/build/ssl.lib third_party/boringssl/build/crypto.lib
+
+    - name: Build XQUIC
+      shell: bash
+      run: |
+        SSL_PATH_STR="$(cygpath -m "${PWD}")/third_party/boringssl"
+        cmake -S . -B build -A x64 \
+          -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DXQC_ENABLE_COPA=1 \
+          -DXQC_ENABLE_UNLIMITED=1 -DXQC_ENABLE_FEC=1 -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 -DXQC_ENABLE_PKM=1 \
+          -DSSL_TYPE=boringssl -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/ssl.lib;${SSL_PATH_STR}/build/crypto.lib"
+        cmake --build build --target xquic-static --config Release
+
+  build-mingw:
+
+    name: Build with MinGW-w64
+
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        sudo apt-get update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+    - name: Fetch BoringSSL headers
+      run: |
+        # The job builds the static library, which links nothing: it needs the
+        # BoringSSL headers only, and empty files pass the SSL_LIB_PATH check.
+        git clone --depth 1 https://github.com/google/boringssl.git ./third_party/boringssl
+        mkdir -p third_party/boringssl/build
+        touch third_party/boringssl/build/libssl.a third_party/boringssl/build/libcrypto.a
+
+    - name: Build XQUIC
+      run: |
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        cmake -S . -B build -DCMAKE_SYSTEM_NAME=Windows \
+          -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+          -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+          -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DXQC_ENABLE_COPA=1 \
+          -DXQC_ENABLE_UNLIMITED=1 -DXQC_ENABLE_FEC=1 -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 -DXQC_ENABLE_PKM=1 \
+          -DSSL_TYPE=boringssl -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        cmake --build build --target xquic-static --parallel

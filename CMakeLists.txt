@@ -111,13 +111,23 @@ if(ANDROID_ABI OR PLATFORM MATCHES "mac")
     endif()
 endif()
 
+# GCC and Clang options, MinGW-w64 GCC included; cl.exe takes none of them
 if(NOT (CMAKE_C_COMPILER_ID MATCHES "MSVC" OR CMAKE_CXX_COMPILER_ID MATCHES "MSVC"))
     set(CMAKE_C_FLAGS_OPTION "-Werror -Wno-unused -Wno-pointer-sign -Wno-format-security ")
 endif()
 
+# The sources are C11, with _Static_assert declarations. cl.exe ignores
+# -std=gnu11 and, without /std:c11 (Visual Studio 2019 16.8 and later),
+# compiles its legacy C dialect, which has no _Static_assert.
+if(MSVC)
+    set(XQC_C_STD_FLAG "/std:c11")
+else()
+    set(XQC_C_STD_FLAG "-std=gnu11")
+endif()
+
 # C_FLAGS
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2 -std=gnu11 -Wall ${CMAKE_C_FLAGS_OPTION} -DNDEBUG_PRINT -DNPRINT_MALLOC ")
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -g -O0 -std=gnu11 -Wall ${CMAKE_C_FLAGS_OPTION} -DNDEBUG_PRINT -DNPRINT_MALLOC -DXQC_DEBUG ")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O2 ${XQC_C_STD_FLAG} -Wall ${CMAKE_C_FLAGS_OPTION} -DNDEBUG_PRINT -DNPRINT_MALLOC ")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -g -O0 ${XQC_C_STD_FLAG} -Wall ${CMAKE_C_FLAGS_OPTION} -DNDEBUG_PRINT -DNPRINT_MALLOC -DXQC_DEBUG ")
 
 if(XQC_PING_ATTACK_PROTECT)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DXQC_PING_ATTACK_PROTECT")
@@ -130,7 +140,6 @@ endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
     add_definitions(-DXQC_SYS_WINDOWS=1)
-    set(CMAKE_C_FLAGS_OPTION " ")
 endif()
 
 

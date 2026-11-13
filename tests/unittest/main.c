@@ -683,6 +683,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_single_vint_frame_length_error",
                         xqc_test_h3_single_vint_frame_length_error)
+        || !CU_add_test(pSuite, "xqc_test_h3_push_promise_push_id_length",
+                        xqc_test_h3_push_promise_push_id_length)
         || !CU_add_test(pSuite, "xqc_test_tls_default_cert_with_sni",
                         xqc_test_tls_default_cert_with_sni)
         || !CU_add_test(pSuite, "xqc_test_tls_default_cert_without_sni",

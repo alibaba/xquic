@@ -82,4 +82,11 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * RFC 9002 Appendix A.10: time threshold loss detection with a clock that
+ * started less than loss_delay ago.
+ */
+void xqc_test_send_ctl_small_clock_marks_at_loss_delay(void);
+void xqc_test_send_ctl_small_clock_defers_before_loss_delay(void);
+
 #endif

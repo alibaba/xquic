@@ -1293,8 +1293,12 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
     /* Minimum time of kGranularity before packets are deemed lost. */
     loss_delay = xqc_max(loss_delay, XQC_kGranularity * 1000);
 
-    /* Packets sent before this time are deemed lost. */
-    xqc_usec_t lost_send_time = now - loss_delay;
+    /*
+     * Packets sent before this time are deemed lost: sent_time + loss_delay
+     * <= now, which is compared without now - loss_delay, as that wraps
+     * around when now is below loss_delay (RFC 9002 Appendix A.10).
+     */
+    xqc_usec_t lost_send_time = now > loss_delay ? now - loss_delay : 0;
 
     /* Packets with packet numbers before this are deemed lost. */
     /* 若 lost_pn == XQC_MAX_UINT64_VALUE, 无丢包 */
@@ -1323,7 +1327,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
         }
 
         /* Mark packet as lost, or set time when it should be marked. */
-        if (po->po_sent_time <= lost_send_time
+        if (po->po_sent_time + loss_delay <= now
 			|| (lost_pn != XQC_MAX_UINT64_VALUE && po->po_pkt.pkt_num <= lost_pn))
 		{
             if (po->po_flag & XQC_POF_IN_FLIGHT) {

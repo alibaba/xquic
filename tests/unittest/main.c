@@ -841,6 +841,10 @@ main(int argc, char *argv[])
                         xqc_test_moq_msg_strings_split)
         || !CU_add_test(pSuite, "xqc_test_moq_msg_empty_string_split",
                         xqc_test_moq_msg_empty_string_split)
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_track_object_payload",
+                        xqc_test_moq_msg_track_object_payload)
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_track_object_over_limit",
+                        xqc_test_moq_msg_track_object_over_limit)
 #endif
 #ifdef XQC_ENABLE_FEC
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)

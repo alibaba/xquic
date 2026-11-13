@@ -169,3 +169,47 @@ xqc_test_moq_msg_empty_string_split(void)
     CU_ASSERT(subscribe_error->track_alias == 7);
     xqc_moq_msg_free(XQC_MOQ_MSG_SUBSCRIBE_ERROR, subscribe_error);
 }
+
+/* an object of a track stream carries its payload */
+void
+xqc_test_moq_msg_track_object_payload(void)
+{
+    /* Group ID 1, Object ID 2, Object Payload Length 3, payload */
+    uint8_t buf[] = {0x01, 0x02, 0x03, 'a', 'b', 'c'};
+    xqc_moq_decode_msg_ctx_t ctx;
+    xqc_moq_track_stream_obj_msg_t *object;
+    xqc_int_t finish = 0, wait_more_data = 0;
+
+    xqc_moq_decode_msg_ctx_reset(&ctx);
+    object = xqc_moq_msg_create(XQC_MOQ_MSG_TRACK_STREAM_OBJECT);
+    CU_ASSERT_FATAL(object != NULL);
+
+    CU_ASSERT(object->msg_base.decode(buf, sizeof(buf), 0, &ctx,
+                                      &object->msg_base, &finish,
+                                      &wait_more_data)
+              == sizeof(buf));
+    CU_ASSERT(finish == 1);
+    CU_ASSERT(object->payload_len == 3
+              && memcmp(object->payload, "abc", 3) == 0);
+
+    xqc_moq_msg_free(XQC_MOQ_MSG_TRACK_STREAM_OBJECT, object);
+}
+
+/*
+ * An object of a track stream is limited to XQC_MOQ_MAX_OBJECT_LEN, like
+ * an OBJECT_STREAM message: a longer Object Payload Length is refused
+ * before anything is allocated for it.
+ */
+void
+xqc_test_moq_msg_track_object_over_limit(void)
+{
+    /* Object Payload Length XQC_MOQ_MAX_OBJECT_LEN + 1, as a 4-byte varint */
+    uint8_t buf[] = {0x01, 0x02, 0x80, 0xa0, 0x00, 0x01};
+    xqc_int_t finish = 0;
+
+    CU_ASSERT(XQC_MOQ_MAX_OBJECT_LEN + 1 == 0xa00001);
+    CU_ASSERT(xqc_test_moq_decode(XQC_MOQ_MSG_TRACK_STREAM_OBJECT, buf,
+                                  sizeof(buf), &finish)
+              == -XQC_ELIMIT);
+    CU_ASSERT(finish == 0);
+}

@@ -1736,8 +1736,15 @@ xqc_moq_msg_decode_track_stream_obj(uint8_t *buf, size_t buf_len, uint8_t stream
                 break;
             }
             processed += ret;
+            /* the limit of the payloads of OBJECT_STREAM messages */
+            if (object->payload_len > XQC_MOQ_MAX_OBJECT_LEN) {
+                return -XQC_ELIMIT;
+            }
             if (object->payload_len) {
                 object->payload = xqc_realloc(object->payload, object->payload_len);
+                if (object->payload == NULL) {
+                    return -XQC_EMALLOC;
+                }
             }
             DEBUG_PRINTF("==>payload_len:%d\n",(int)object->payload_len);
             msg_ctx->cur_field_idx = 3;

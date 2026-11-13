@@ -25,6 +25,7 @@
 #include "xqc_common_test.h"
 #include "xqc_vint_test.h"
 #ifdef XQC_ENABLE_MOQ
+#include "xqc_loc_msf_test.h"
 #include "xqc_moqt_codec_test.h"
 #include "xqc_moqt_quic_test.h"
 #include "xqc_moqt_session_test.h"
@@ -653,6 +654,13 @@ main(int argc, char *argv[])
                         xqc_test_moqt_connect)
         || !CU_add_test(pSuite, "xqc_test_moqt_frames",
                         xqc_test_moqt_frames)
+        || !CU_add_test(pSuite, "xqc_test_loc_properties",
+                        xqc_test_loc_properties)
+        || !CU_add_test(pSuite, "xqc_test_loc_errors", xqc_test_loc_errors)
+        || !CU_add_test(pSuite, "xqc_test_msf_catalog", xqc_test_msf_catalog)
+        || !CU_add_test(pSuite, "xqc_test_msf_errors", xqc_test_msf_errors)
+        || !CU_add_test(pSuite, "xqc_test_loc_msf_objects",
+                        xqc_test_loc_msf_objects)
         || !CU_add_test(pSuite, "xqc_test_moqt_frame_errors",
                         xqc_test_moqt_frame_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_names",

@@ -1049,3 +1049,10 @@ The [Relay specification](../spec/moqt/moqt-relay.md) defines hop-local IDs,
 source/interest/delivery lifetimes, resource bounds, and acceptance gaps.
 The endpoint's read-only subscription and stream queries expose existing
 filter, Largest, termination, END_OF_GROUP, and Object-arrival state.
+
+## LOC and MSF Application Formats
+
+With `XQC_ENABLE_MOQ`, `include/moq/xqc_loc.h` provides LOC public-property
+codecs and `include/moq/xqc_msf.h` provides independent MSF LOC catalogs.
+See the [minimum profile](../harness/spec/loc-msf/spec.md) for supported
+fields, memory ownership, limits and application integration obligations.

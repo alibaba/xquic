@@ -350,6 +350,28 @@ modules:
       level: targeted
       hints: [moq, moqt, alpn, legacy, audio]
     features:
+      loc_msf:
+        paths:
+          - include/moq/xqc_loc.h
+          - include/moq/xqc_msf.h
+          - moq/loc/*
+          - moq/msf/*
+          - tests/unittest/xqc_loc_msf_test.*
+        read:
+          - harness/spec/loc-msf/spec.md
+        update_when:
+          format_or_public_contract_changed:
+            - harness/spec/loc-msf/spec.md
+        feature_flags:
+          - XQC_ENABLE_MOQ=ON
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_loc_properties
+            - xqc_test_loc_errors
+            - xqc_test_msf_catalog
+            - xqc_test_msf_errors
+            - xqc_test_loc_msf_objects
       moqt_webtransport:
         paths:
           - include/moq/xqc_moqt_webtransport.h

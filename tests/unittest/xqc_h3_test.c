@@ -3507,6 +3507,32 @@ xqc_test_h3_server_push_promise_rejected()
 }
 
 
+/*
+ * RFC 9114 Sections 4.6 and 7.2.5: a client that sent no MAX_PUSH_ID allows
+ * no push ID, so a PUSH_PROMISE on a request stream, push ID 0 included,
+ * closes the connection with H3_ID_ERROR.
+ */
+void
+xqc_test_h3_client_push_promise_rejected()
+{
+    xqc_connection_t *conn = NULL;
+    xqc_h3_conn_t *h3c = NULL;
+    xqc_h3_stream_t *h3s = xqc_h3_msgerr_setup(&conn, &h3c);
+    CU_ASSERT_FATAL(h3s != NULL);
+    CU_ASSERT(conn->conn_type == XQC_CONN_TYPE_CLIENT);
+
+    unsigned char push_promise[] = { 0x05, 0x02, 0x00, 0x00 };
+    ssize_t processed = xqc_h3_stream_process_request(h3s, push_promise,
+            sizeof(push_promise), XQC_FALSE);
+
+    CU_ASSERT(processed == -XQC_H3_INVALID_PUSH_PROMISE_ID);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_ID_ERROR);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+
+    xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
 void
 xqc_test_h3_allowed_headers_pass()
 {

@@ -778,6 +778,9 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_server_push_promise_rejected",
                         xqc_test_h3_server_push_promise_rejected)
+        || !CU_add_test(pSuite,
+                        "xqc_test_h3_client_push_promise_rejected",
+                        xqc_test_h3_client_push_promise_rejected)
         /* issue #746: RFC 9114 §4.2 forbidden connection-specific headers */
         || !CU_add_test(pSuite, "xqc_test_h3_message_error_enum", xqc_test_h3_message_error_enum)
         || !CU_add_test(pSuite, "xqc_test_h3_forbidden_headers_rejected", xqc_test_h3_forbidden_headers_rejected)

@@ -463,11 +463,20 @@ else()
     # scripts/xquic.lds exports symbols that the feature switches above may have
     # compiled out (xqc_reno_cb, xqc_copa_cb, the FEC scheme callbacks, ...). GNU
     # ld only warns about those, while lld rejects them outright, so ask lld to
-    # tolerate them. Older GNU ld does not know the flag, hence the Android scope.
+    # tolerate them. Older GNU ld does not know the flag, so probe for it (a
+    # probe needs CMake 3.14); Android keeps the flag without one.
+    set(XQC_UNDEFINED_VERSION)
     if(ANDROID)
         set(XQC_UNDEFINED_VERSION "-Wl,--undefined-version")
-    else()
-        set(XQC_UNDEFINED_VERSION)
+    elseif(NOT CMAKE_VERSION VERSION_LESS 3.14)
+        include(CheckCSourceCompiles)
+        set(CMAKE_REQUIRED_LINK_OPTIONS "-Wl,--undefined-version")
+        check_c_source_compiles("int main(void) { return 0; }"
+                                XQC_LD_HAS_UNDEFINED_VERSION)
+        unset(CMAKE_REQUIRED_LINK_OPTIONS)
+        if(XQC_LD_HAS_UNDEFINED_VERSION)
+            set(XQC_UNDEFINED_VERSION "-Wl,--undefined-version")
+        endif()
     endif()
 
     target_link_libraries(

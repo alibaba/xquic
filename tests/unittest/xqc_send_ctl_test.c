@@ -1052,3 +1052,102 @@ xqc_test_send_ctl_lost_packet_cc_reaction(void)
 {
     xqc_test_send_ctl_lost_packet_cc(XQC_FALSE);
 }
+
+
+/*
+ * Write the pending ACK frame of space pns into a new packet, with a receive
+ * record of packets 1, 2 and 3 (one range) or 1, 2 and 5 (two ranges), the
+ * given bytes in flight, and the last ack-eliciting packet sent "since"
+ * microseconds ago, a smoothed RTT being 100 ms. Return the ACK packet.
+ */
+static xqc_packet_out_t *
+xqc_test_ack_only_packet(xqc_connection_t *conn, xqc_pkt_num_space_t pns,
+    xqc_bool_t gap, uint32_t in_flight, xqc_usec_t since)
+{
+    xqc_path_ctx_t     *path = conn->conn_initial_path;
+    xqc_pn_ctl_t       *pn_ctl = xqc_get_pn_ctl(conn, path);
+    xqc_send_ctl_t     *send_ctl = path->path_send_ctl;
+    xqc_send_queue_t   *sndq = conn->conn_send_queue;
+
+    path->path_state = XQC_PATH_STATE_ACTIVE;
+    xqc_recv_record_add(&pn_ctl->ctl_recv_record[pns], 1);
+    xqc_recv_record_add(&pn_ctl->ctl_recv_record[pns], 2);
+    xqc_recv_record_add(&pn_ctl->ctl_recv_record[pns], gap ? 5 : 3);
+
+    send_ctl->ctl_srtt = 100000;
+    send_ctl->ctl_bytes_in_flight = in_flight;
+    send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[pns] =
+        xqc_monotonic_timestamp() - since;
+    path->path_flag |= XQC_PATH_FLAG_SHOULD_ACK_INIT << pns;
+    conn->ack_flag |= 1 << pns;
+
+    if (xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(conn) != XQC_OK
+        || xqc_list_empty(&sndq->sndq_send_packets_high_pri))
+    {
+        return NULL;
+    }
+
+    return xqc_list_entry(sndq->sndq_send_packets_high_pri.prev,
+                          xqc_packet_out_t, po_list);
+}
+
+
+void
+xqc_test_ack_only_packet_ping(void)
+{
+    xqc_packet_out_t   *po;
+    xqc_connection_t   *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    po = xqc_test_ack_only_packet(conn, XQC_PNS_APP_DATA, XQC_TRUE, 0,
+                                  200000);
+    CU_ASSERT_FATAL(po != NULL);
+    CU_ASSERT(po->po_frame_types & XQC_FRAME_BIT_ACK);
+    CU_ASSERT(po->po_frame_types & XQC_FRAME_BIT_PING);
+    CU_ASSERT(XQC_IS_ACK_ELICITING(po->po_frame_types));
+
+    /* the PING precedes the ACK frame, which a PTO probe copy removes */
+    CU_ASSERT_FATAL(po->po_ack_offset > 0);
+    CU_ASSERT(po->po_buf[po->po_ack_offset - 1] == 0x01);
+    xqc_packet_out_remove_ack_frame(po);
+    CU_ASSERT(po->po_frame_types == XQC_FRAME_BIT_PING);
+    CU_ASSERT(po->po_used_size == po->po_ack_offset);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_ack_only_packet_no_ping(void)
+{
+    static const struct {
+        xqc_pkt_num_space_t     pns;
+        xqc_bool_t              gap;
+        uint32_t                in_flight;
+        xqc_usec_t              since;
+    } cases[] = {
+        /* one range: an acknowledgment of the ACK frame removes nothing */
+        { XQC_PNS_APP_DATA, XQC_FALSE, 0,    200000 },
+        /* the peer will acknowledge the packets in flight */
+        { XQC_PNS_APP_DATA, XQC_TRUE,  1200, 200000 },
+        /* an ack-eliciting packet went out within the smoothed RTT */
+        { XQC_PNS_APP_DATA, XQC_TRUE,  0,    1000 },
+        /* the handshake ends before ranges accumulate */
+        { XQC_PNS_HSK,      XQC_TRUE,  0,    200000 },
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        xqc_packet_out_t   *po;
+        xqc_connection_t   *conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+
+        po = xqc_test_ack_only_packet(conn, cases[i].pns, cases[i].gap,
+                                      cases[i].in_flight, cases[i].since);
+        CU_ASSERT_FATAL(po != NULL);
+        CU_ASSERT(po->po_frame_types & XQC_FRAME_BIT_ACK);
+        CU_ASSERT(!(po->po_frame_types & XQC_FRAME_BIT_PING));
+
+        xqc_engine_destroy(conn->engine);
+    }
+}

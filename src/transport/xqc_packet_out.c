@@ -624,6 +624,35 @@ xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet(xqc_connection_t *conn, xqc_pac
     return ret;
 }
 
+/*
+ * RFC 9000 Section 13.2.4: an endpoint whose packets carry ACK frames and no
+ * ack-eliciting frame is never acknowledged, so it cannot learn which of its
+ * ACK frames the peer has received, and repeats every range of its receive
+ * record, up to XQC_MAX_ACK_RANGE_CNT, in each ACK frame. When the path has
+ * nothing in flight that the peer will acknowledge, a smoothed RTT has passed
+ * since its last ack-eliciting packet in the space, and the record holds
+ * more than one range, a PING makes a new ACK-only packet ack-eliciting, as
+ * the RFC suggests once per round trip: the peer's acknowledgment of it lets
+ * xqc_send_ctl_on_ack_received() remove the ranges that the packet's ACK
+ * frame reported.
+ */
+static xqc_bool_t
+xqc_ack_packet_needs_ping(xqc_path_ctx_t *path, xqc_pn_ctl_t *pn_ctl,
+    xqc_pkt_num_space_t pns, xqc_usec_t now)
+{
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+
+    if (pns != XQC_PNS_APP_DATA
+        || pn_ctl->ctl_recv_record[pns].node_count < 2
+        || send_ctl->ctl_bytes_in_flight > 0)
+    {
+        return XQC_FALSE;
+    }
+
+    return now - send_ctl->ctl_time_of_last_sent_ack_eliciting_packet[pns]
+           >= send_ctl->ctl_srtt;
+}
+
 xqc_int_t
 xqc_write_ack_or_mp_ack_or_ext_ack_to_packets(xqc_connection_t *conn)
 {
@@ -735,6 +764,23 @@ write_new:
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_new_packet error|");
                 return -XQC_EWRITE_PKT;
             }
+
+            /*
+             * The PING goes before the ACK frame: a copy of the packet for
+             * a PTO probe removes the ACK frame and what follows it.
+             */
+            if (xqc_ack_packet_needs_ping(path, pn_ctl, pns,
+                                          xqc_monotonic_timestamp()))
+            {
+                ret = xqc_gen_ping_frame(packet_out);
+                if (ret < 0) {
+                    xqc_log(conn->log, XQC_LOG_ERROR,
+                            "|xqc_gen_ping_frame error|");
+                    return ret;
+                }
+                packet_out->po_used_size += ret;
+            }
+
             ret = xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet(conn, packet_out, pns, path, is_mp_ack, is_ext_ack, 1);
             if (ret != XQC_OK) {
                 xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet write to new packet error|ret:%d|is_mp_ack:%d|is_ext_ack:%d|",

@@ -82,4 +82,13 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * RFC 9000 13.2.4: an ACK-only packet carries a PING, ahead of the ACK
+ * frame, once a smoothed RTT has passed without an ack-eliciting packet,
+ * nothing is in flight and the receive record holds several ranges; it
+ * carries the ACK frame alone otherwise.
+ */
+void xqc_test_ack_only_packet_ping(void);
+void xqc_test_ack_only_packet_no_ping(void);
+
 #endif

@@ -678,6 +678,47 @@ xqc_test_ack_range_negative_rejected()
 }
 
 
+/*
+ * RFC 9000 Section 19.3: the ACK Delay field times 2^ack_delay_exponent can
+ * exceed 64 bits; the decoded delay saturates instead of wrapping (2^44
+ * shifted by 20 used to give 0).
+ */
+void
+xqc_test_ack_delay_saturates(void)
+{
+    unsigned char frame[] = {
+        0x02,                                           /* ACK */
+        0x0a,                                           /* largest acknowledged = 10 */
+        0xc0, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, /* ACK delay = 2^44 */
+        0x00,                                           /* ACK range count */
+        0x00                                            /* first ACK range */
+    };
+    unsigned char small[] = { 0x02, 0x0a, 0x40, 0x64, 0x00, 0x00 };   /* ACK delay = 100 */
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    xqc_ack_info_t ack_info;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->remote_settings.ack_delay_exponent = 20;
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    memset(&ack_info, 0, sizeof(ack_info));
+    packet_in.pos = frame;
+    packet_in.last = frame + sizeof(frame);
+    CU_ASSERT_EQUAL(xqc_parse_ack_frame(&packet_in, conn, &ack_info), XQC_OK);
+    CU_ASSERT_EQUAL(ack_info.ack_delay, XQC_MAX_UINT64_VALUE);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = small;
+    packet_in.last = small + sizeof(small);
+    CU_ASSERT_EQUAL(xqc_parse_ack_frame(&packet_in, conn, &ack_info), XQC_OK);
+    CU_ASSERT_EQUAL(ack_info.ack_delay, 100ULL << 20);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_stream_frame_offset_overflow()
 {

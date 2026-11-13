@@ -75,6 +75,14 @@ void xqc_test_conn_close_transport_error_type_overlap(void);
 
 void xqc_test_conn_close_reason_truncated(void);
 
+void xqc_test_path_abandon_reason_phrase(void);
+
+void xqc_test_path_abandon_reason_past_packet(void);
+
+void xqc_test_frame_length_past_packet(void);
+
+void xqc_test_new_token_longer_than_buffer(void);
+
 void xqc_test_conn_close_valid_packet_types(void);
 
 void xqc_test_conn_close_app_error_in_handshake_rejected(void);

@@ -429,13 +429,52 @@ xqc_gen_crypto_frame(xqc_packet_out_t *packet_out, uint64_t offset,
     return dst_buf - begin;
 }
 
+/* the bytes of a frame field that a Length (i) field announces */
+typedef struct xqc_frame_bytes_s {
+    const unsigned char    *data;
+    size_t                  len;
+} xqc_frame_bytes_t;
+
+/*
+ * Read a Length (i) field and the bytes that it announces, such as a Reason
+ * Phrase, and move *pos past them. The Length comes from the peer, so it is
+ * compared with the bytes left before *pos moves: one that runs past the
+ * end of the packet is a FRAME_ENCODING_ERROR (RFC 9000 Sections 12.4 and
+ * 20.1).
+ */
+static xqc_int_t
+xqc_parse_frame_bytes(const unsigned char **pos, const unsigned char *end,
+    xqc_frame_bytes_t *bytes)
+{
+    const unsigned char *p = *pos;
+    uint64_t len;
+    int vlen;
+
+    vlen = xqc_vint_read(p, end, &len);
+    if (vlen < 0) {
+        return -XQC_EVINTREAD;
+    }
+    p += vlen;
+
+    /* xqc_vint_read() leaves p <= end */
+    if (len > (uint64_t) (end - p)) {
+        return -XQC_EILLEGAL_FRAME;
+    }
+
+    bytes->data = p;
+    bytes->len = (size_t) len;
+    *pos = p + bytes->len;
+    return XQC_OK;
+}
+
 xqc_int_t
 xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     xqc_stream_frame_t *frame)
 {
     int      vlen;
     uint64_t offset;
-    uint64_t length;
+    xqc_int_t ret;
+    xqc_frame_bytes_t data;
     const unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
 
@@ -448,29 +487,26 @@ xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     frame->data_offset = offset;
     p += vlen;
 
-    vlen = xqc_vint_read(p, end, &length);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
+    /* Length (i), Crypto Data (..) */
+    ret = xqc_parse_frame_bytes(&p, end, &data);
+    if (ret != XQC_OK) {
+        return ret;
     }
-    frame->data_length = length;
-    p += vlen;
-    if (p + length > end) {
-        return -XQC_EILLEGAL_FRAME;;
-    }
+
+    frame->data_length = data.len;
     if (frame->data_length > 0) {
         frame->data = xqc_malloc(frame->data_length);
         if (!frame->data) {
             return -XQC_EMALLOC;
         }
-        memcpy(frame->data, p, frame->data_length);
+        memcpy(frame->data, data.data, frame->data_length);
     }
-
-    p += length;
 
     packet_in->pos = (unsigned char *)p;
     packet_in->pi_frame_types |= XQC_FRAME_BIT_CRYPTO;
 
-    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_CRYPTO, offset, length);
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_CRYPTO, offset,
+                  (uint64_t) data.len);
     return XQC_OK;
 }
 
@@ -1481,12 +1517,13 @@ xqc_gen_conn_close_frame(xqc_packet_out_t *packet_out,
 xqc_int_t
 xqc_parse_conn_close_frame(xqc_packet_in_t *packet_in, uint64_t *err_code, xqc_connection_t *conn)
 {
-    unsigned char *p = packet_in->pos;
+    const unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
     const unsigned char first_byte = *p++;
 
     int vlen;
-    uint64_t reason_len;
+    xqc_int_t ret;
+    xqc_frame_bytes_t reason;
     uint64_t frame_type;
 
     vlen = xqc_vint_read(p, end, err_code);
@@ -1503,19 +1540,13 @@ xqc_parse_conn_close_frame(xqc_packet_in_t *packet_in, uint64_t *err_code, xqc_c
         p += vlen;
     }
 
-    vlen = xqc_vint_read(p, end, &reason_len);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-
-    if (reason_len > (uint64_t) (end - p)) {
-        return -XQC_EILLEGAL_FRAME;
+    /* Reason Phrase Length (i), Reason Phrase (..) */
+    ret = xqc_parse_frame_bytes(&p, end, &reason);
+    if (ret != XQC_OK) {
+        return ret;
     }
 
-    p += reason_len;
-
-    packet_in->pos = p;
+    packet_in->pos = (unsigned char *) p;
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_CONNECTION_CLOSE;
 
@@ -1531,7 +1562,7 @@ xqc_parse_conn_close_frame(xqc_packet_in_t *packet_in, uint64_t *err_code, xqc_c
     }
 
     xqc_log_event(conn->log, TRA_FRAMES_PROCESSED,
-                  XQC_FRAME_CONNECTION_CLOSE, *err_code, reason_len);
+                  XQC_FRAME_CONNECTION_CLOSE, *err_code, (uint64_t) reason.len);
     return XQC_OK;
 }
 
@@ -2097,37 +2128,45 @@ xqc_gen_new_token_frame(xqc_packet_out_t *packet_out, const unsigned char *token
 xqc_int_t
 xqc_parse_new_token_frame(xqc_packet_in_t *packet_in, unsigned char *token, unsigned *token_len, xqc_connection_t *conn)
 {
-    unsigned char *p = packet_in->pos;
+    const unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
     const unsigned char first_byte = *p++;
 
-    int vlen;
-    uint64_t recv_token_len;
+    xqc_int_t ret;
+    xqc_frame_bytes_t recv_token;
 
-    vlen = xqc_vint_read(p, end, &recv_token_len);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
+    /* Token Length (i), Token (..) */
+    ret = xqc_parse_frame_bytes(&p, end, &recv_token);
+    if (ret != XQC_OK) {
+        return ret;
     }
-    if (recv_token_len == 0) {
+    if (recv_token.len == 0) {
         return -XQC_EPROTO;
     }
-    p += vlen;
 
-    if (recv_token_len > *token_len) {
-        return -XQC_ENOBUF;
-    }
-    if (p + recv_token_len > end) {
-        return -XQC_EILLEGAL_FRAME;
-    }
-    xqc_memcpy(token, p, recv_token_len);
-    *token_len = recv_token_len;
-    p += recv_token_len;
-
-    packet_in->pos = p;
+    packet_in->pos = (unsigned char *) p;
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_NEW_TOKEN;
 
-    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_NEW_TOKEN, recv_token_len, token);
+    /*
+     * RFC 9000 Section 19.7 sets no maximum Token Length, and a client may
+     * discard the tokens of NEW_TOKEN frames (Section 8.1.3): a token longer
+     * than the buffer is not kept, *token_len is 0, and the frame is
+     * processed.
+     */
+    if (recv_token.len > *token_len) {
+        xqc_log(conn->log, XQC_LOG_INFO,
+                "|NEW_TOKEN token not kept|token_len:%uz|max:%ud|",
+                recv_token.len, *token_len);
+        *token_len = 0;
+        return XQC_OK;
+    }
+
+    xqc_memcpy(token, recv_token.data, recv_token.len);
+    *token_len = recv_token.len;
+
+    xqc_log_event(conn->log, TRA_FRAMES_PROCESSED, XQC_FRAME_NEW_TOKEN,
+                  (uint64_t) recv_token.len, token);
     return XQC_OK;
 }
 
@@ -2807,11 +2846,12 @@ xqc_int_t
 xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
     uint64_t *path_id, uint64_t *error_code)
 {
-    unsigned char *p = packet_in->pos;
+    const unsigned char *p = packet_in->pos;
     const unsigned char *end = packet_in->last;
 
     int vlen;
-    uint64_t reason_len = 0;
+    xqc_int_t ret;
+    xqc_frame_bytes_t reason;
 
     uint64_t frame_type = 0;
     vlen = xqc_vint_read(p, end, &frame_type);  /* get frame_type */
@@ -2834,19 +2874,13 @@ xqc_parse_path_abandon_frame(xqc_packet_in_t *packet_in,
     }
     p += vlen;
 
-    /* Reason Phrase Length (i) */
-    vlen = xqc_vint_read(p, end, &reason_len);
-    if (vlen < 0) {
-        return -XQC_EVINTREAD;
-    }
-    p += vlen;
-
-     /* Reason Phrase (..) */
-    if (reason_len > 0) {
-        p += reason_len;
+    /* Reason Phrase Length (i), Reason Phrase (..) */
+    ret = xqc_parse_frame_bytes(&p, end, &reason);
+    if (ret != XQC_OK) {
+        return ret;
     }
 
-    packet_in->pos = p;
+    packet_in->pos = (unsigned char *) p;
 
     packet_in->pi_frame_types |= XQC_FRAME_BIT_PATH_ABANDON;
 

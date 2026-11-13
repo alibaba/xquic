@@ -6,6 +6,7 @@
 #include <CUnit/CUnit.h>
 #include <string.h>
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_datagram.h"
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_frame.h"
 #include "src/transport/xqc_frame_parser.h"
@@ -129,4 +130,69 @@ xqc_test_reject_dgram_at_invalid_encryption_level()
 
         xqc_engine_destroy(conn->engine);
     }
+}
+
+static int      xqc_test_mss_notify_cnt;
+static size_t   xqc_test_mss_notified;
+
+static void
+xqc_test_dgram_mss_updated(xqc_connection_t *conn, size_t mss,
+    void *user_data)
+{
+    xqc_test_mss_notify_cnt++;
+    xqc_test_mss_notified = mss;
+}
+
+static void
+xqc_test_record_mss_times(xqc_connection_t *conn, int times)
+{
+    for (int i = 0; i < times; i++) {
+        xqc_datagram_record_mss(conn);
+    }
+}
+
+/*
+ * An MSS of zero tells the application that the peer takes no DATAGRAM
+ * frames. It is reported once, however often the MSS is computed again,
+ * e.g. on a connection ID or path MTU change, and once more after an MSS
+ * above zero.
+ */
+void
+xqc_test_dgram_mss_zero_notified_once()
+{
+    int dgram_data = 0;
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->app_proto_cbs.dgram_cbs.datagram_mss_updated_notify =
+        xqc_test_dgram_mss_updated;
+    conn->dgram_data = &dgram_data;
+    conn->conn_flag |= XQC_CONN_FLAG_UPPER_CONN_EXIST
+                       | XQC_CONN_FLAG_CAN_SEND_1RTT;
+    conn->remote_settings.max_udp_payload_size = XQC_CONN_MAX_UDP_PAYLOAD_SIZE;
+    xqc_test_mss_notify_cnt = 0;
+    xqc_test_mss_notified = 0;
+
+    /* the peer takes no DATAGRAM frames */
+    conn->remote_settings.max_datagram_frame_size = 0;
+    xqc_test_record_mss_times(conn, 3);
+    CU_ASSERT_EQUAL(xqc_test_mss_notify_cnt, 1);
+    CU_ASSERT_EQUAL(xqc_test_mss_notified, 0);
+    CU_ASSERT_EQUAL(xqc_datagram_get_mss(conn), 0);
+
+    /* an MSS above zero is reported */
+    conn->remote_settings.max_datagram_frame_size = 1000;
+    xqc_test_record_mss_times(conn, 3);
+    CU_ASSERT_EQUAL(xqc_test_mss_notify_cnt, 2);
+    CU_ASSERT(xqc_test_mss_notified > 0);
+    CU_ASSERT_EQUAL(xqc_test_mss_notified, xqc_datagram_get_mss(conn));
+
+    /* and a later MSS of zero once more */
+    conn->remote_settings.max_datagram_frame_size = 0;
+    xqc_test_record_mss_times(conn, 3);
+    CU_ASSERT_EQUAL(xqc_test_mss_notify_cnt, 3);
+    CU_ASSERT_EQUAL(xqc_test_mss_notified, 0);
+
+    xqc_engine_destroy(conn->engine);
 }

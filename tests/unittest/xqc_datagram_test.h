@@ -8,5 +8,6 @@
 void xqc_test_receive_invalid_dgram();
 void xqc_test_receive_dgram_at_valid_encryption_level();
 void xqc_test_reject_dgram_at_invalid_encryption_level();
+void xqc_test_dgram_mss_zero_notified_once();
 
 #endif /* _XQC_CUBIC_TEST_H_INCLUDED_ */

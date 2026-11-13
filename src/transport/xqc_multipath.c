@@ -1190,7 +1190,8 @@ xqc_path_send_buffer_append(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out, 
     if (!(packet_out->po_flag & XQC_POF_IN_PATH_BUF_LIST)) {
         packet_out->po_flag |= XQC_POF_IN_PATH_BUF_LIST;
 
-        packet_out->po_cc_size = packet_out->po_used_size;
+        packet_out->po_cc_size = xqc_conn_padded_size(path->parent_conn,
+                                                      packet_out);
         if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
             path->path_schedule_bytes += packet_out->po_cc_size;
         }

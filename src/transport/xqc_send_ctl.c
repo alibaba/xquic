@@ -424,19 +424,22 @@ xqc_send_ctl_can_send(xqc_send_ctl_t *send_ctl, xqc_packet_out_t *packet_out, ui
 
     int can = 1;
     unsigned congestion_window = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
+    size_t pkt_size = xqc_conn_padded_size(conn, packet_out);
 
     if (conn->conn_settings.so_sndbuf > 0) {
         congestion_window = xqc_min(congestion_window, conn->conn_settings.so_sndbuf);
     }
 
-    if (send_ctl->ctl_bytes_in_flight + schedule_bytes + packet_out->po_used_size > congestion_window) {
+    if (send_ctl->ctl_bytes_in_flight + schedule_bytes + pkt_size
+        > congestion_window)
+    {
         can = 0;
     }
 
     xqc_conn_log(conn, XQC_LOG_DEBUG,
-                 "|path:%ui|can:%d|pkt_sz:%ud|schedule_bytes:%ud|inflight:%ud|cwnd:%ud|conn:%p|stream_id:%ui|stream_offset:%ui|",
+                 "|path:%ui|can:%d|pkt_sz:%uz|schedule_bytes:%ud|inflight:%ud|cwnd:%ud|conn:%p|stream_id:%ui|stream_offset:%ui|",
                  send_ctl->ctl_path->path_id,
-                 can, packet_out->po_used_size, schedule_bytes, send_ctl->ctl_bytes_in_flight,
+                 can, pkt_size, schedule_bytes, send_ctl->ctl_bytes_in_flight,
                  congestion_window, conn,
                  packet_out->po_stream_id, packet_out->po_stream_offset);
     return can;
@@ -472,8 +475,8 @@ xqc_send_packet_pacer_allows(xqc_send_ctl_t *send_ctl,
     if (XQC_CAN_IN_FLIGHT(packet_out->po_frame_types)) {
 
         if (xqc_pacing_is_on(&send_ctl->ctl_pacing)) {
-            if (!xqc_pacing_can_write(&send_ctl->ctl_pacing, 
-                    schedule_bytes + packet_out->po_used_size)) 
+            if (!xqc_pacing_can_write(&send_ctl->ctl_pacing,
+                    schedule_bytes + xqc_conn_padded_size(conn, packet_out)))
             {
                 xqc_log(conn->log, XQC_LOG_DEBUG, "|pacing blocked|");
                 if (packet_out->po_send_pacing_blk_ts == 0) {

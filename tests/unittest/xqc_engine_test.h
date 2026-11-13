@@ -22,5 +22,7 @@ void xqc_test_rebinding_path_challenge_requires_confirmed();
 void xqc_test_rebinding_timeout_retry_limit();
 void xqc_test_rebinding_response_mismatch_preserves_state();
 void xqc_test_rebinding_sender_error_clears_candidate();
+void xqc_test_rebinding_resend_before_deadline();
+void xqc_test_rebinding_previous_challenge_validates();
 
 #endif

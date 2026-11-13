@@ -2893,6 +2893,291 @@ xqc_client_key_update_conn_closed(void)
 }
 
 
+/*
+ * Cases 1321 and 1322: the client opens path 1 before the server holds any
+ * of the client's connection IDs for path ID 1, as when the packet carrying
+ * them is lost or arrives after the PATH_CHALLENGE (RFC 10069 Section 3.1).
+ * From the handshake on, the client issues no connection ID; once it holds
+ * the server's connection IDs for path ID 1, it opens path 1 with one of its
+ * own that it keeps to itself. Then:
+ *   1321: it issues its connection IDs 300 ms later, and the server sets the
+ *         path up when the PATH_CHALLENGE is sent again;
+ *   1322: it never issues them, abandons path 1 at its validation deadline
+ *         and completes the request on path 0.
+ */
+#define XQC_TEST_CASE_MP_PATH_BEFORE_CIDS   1321
+#define XQC_TEST_CASE_MP_PATH_WITHOUT_CIDS  1322
+
+#define XQC_TEST_MP_CIDS_POLL_US        20000
+#define XQC_TEST_MP_CIDS_RELEASE_US     300000
+#define XQC_TEST_MP_CIDS_PATH_ID        1
+
+typedef struct {
+    user_conn_t        *user_conn;
+    struct event       *ev;
+    uint64_t            peer_cid_limit;
+    xqc_bool_t          path_opened;
+    xqc_bool_t          released;
+} xqc_test_mp_held_cids_t;
+
+static xqc_test_mp_held_cids_t xqc_test_mp_held_cids;
+
+static xqc_bool_t
+xqc_client_mp_cids_held_case(void)
+{
+    return g_test_case == XQC_TEST_CASE_MP_PATH_BEFORE_CIDS
+           || g_test_case == XQC_TEST_CASE_MP_PATH_WITHOUT_CIDS;
+}
+
+static void
+xqc_client_mp_held_cids_arm(xqc_usec_t after)
+{
+    struct timeval tv = {
+        .tv_sec = after / 1000000,
+        .tv_usec = after % 1000000,
+    };
+
+    event_add(xqc_test_mp_held_cids.ev, &tv);
+}
+
+/* open path 1 with a connection ID the server does not know */
+static xqc_int_t
+xqc_client_mp_open_path_without_cids(user_conn_t *user_conn,
+    xqc_connection_t *conn, uint64_t peer_cid_limit)
+{
+    xqc_cid_t scid;
+    uint64_t  path_id = 0;
+    xqc_int_t ret;
+
+    ret = xqc_generate_cid(ctx.engine, &conn->scid_set.user_scid, &scid, 0);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    ret = xqc_cid_set_insert_cid(&conn->scid_set, &scid, XQC_CID_UNUSED,
+                                 peer_cid_limit, XQC_TEST_MP_CIDS_PATH_ID);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+    xqc_cid_set_on_cid_acked(&conn->scid_set, XQC_TEST_MP_CIDS_PATH_ID,
+                             scid.cid_seq_num);
+
+    ret = xqc_conn_create_path(ctx.engine, &user_conn->cid, &path_id, 0);
+    printf("[mp-held-cids]|path_opened|path_id:%"PRIu64"|ret:%d|\n",
+           path_id, ret);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+
+    for (int i = 1; i < g_multi_interface_cnt; i++) {
+        if (g_client_path[i].is_in_used == 0) {
+            g_client_path[i].path_id = path_id;
+            g_client_path[i].is_in_used = 1;
+            break;
+        }
+    }
+
+    return XQC_OK;
+}
+
+static void
+xqc_client_mp_held_cids_callback(int fd, short what, void *arg)
+{
+    xqc_test_mp_held_cids_t *t = (xqc_test_mp_held_cids_t *)arg;
+    xqc_connection_t *conn;
+
+    conn = xqc_engine_conns_hash_find(ctx.engine, &t->user_conn->cid, 's');
+    if (conn == NULL || conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return;
+    }
+
+    if (!t->path_opened) {
+        /* the server's connection IDs for path ID 1 have not come yet */
+        if (!conn->enable_multipath
+            || xqc_cid_set_get_unused_cnt(&conn->dcid_set,
+                                          XQC_TEST_MP_CIDS_PATH_ID) <= 0)
+        {
+            xqc_client_mp_held_cids_arm(XQC_TEST_MP_CIDS_POLL_US);
+            return;
+        }
+
+        if (xqc_client_mp_open_path_without_cids(t->user_conn, conn,
+                                                 t->peer_cid_limit)
+            != XQC_OK)
+        {
+            return;
+        }
+        t->path_opened = XQC_TRUE;
+
+        if (g_test_case == XQC_TEST_CASE_MP_PATH_BEFORE_CIDS) {
+            xqc_client_mp_held_cids_arm(XQC_TEST_MP_CIDS_RELEASE_US);
+        }
+        return;
+    }
+
+    if (!t->released) {
+        conn->remote_settings.active_connection_id_limit = t->peer_cid_limit;
+        t->released = XQC_TRUE;
+        printf("[mp-held-cids]|released|\n");
+        xqc_conn_continue_send(ctx.engine, &t->user_conn->cid);
+    }
+}
+
+static void
+xqc_client_mp_hold_cids(user_conn_t *user_conn, xqc_connection_t *conn)
+{
+    xqc_test_mp_held_cids_t *t = &xqc_test_mp_held_cids;
+
+    if (!xqc_client_mp_cids_held_case() || t->ev != NULL) {
+        return;
+    }
+
+    /* xqc_conn_try_add_new_conn_id() issues none while the limit is 0 */
+    t->user_conn = user_conn;
+    t->peer_cid_limit = conn->remote_settings.active_connection_id_limit;
+    conn->remote_settings.active_connection_id_limit = 0;
+    t->ev = event_new(eb, -1, 0, xqc_client_mp_held_cids_callback, t);
+    xqc_client_mp_held_cids_arm(XQC_TEST_MP_CIDS_POLL_US);
+    printf("[mp-held-cids]|held|peer_cid_limit:%"PRIu64"|\n",
+           t->peer_cid_limit);
+}
+
+/*
+ * Case 1350: the client keeps one path besides the initial one, and replaces
+ * it once it is validated, until the path of path ID 8 is validated: with the
+ * default init_max_path_id of 8, path IDs 0 to 8 are used, nine paths over
+ * the connection, never more than two open at a time.
+ * Case 1351: the client opens a path on each of eight interfaces, then
+ * tries one more while the eight are open: XQC_MAX_PATHS_COUNT paths are, and
+ * the server issues no connection ID for a path ID beyond them.
+ */
+#define XQC_TEST_CASE_MP_PATH_CHURN         1350
+#define XQC_TEST_CASE_MP_OPEN_PATH_LIMIT    1351
+
+#define XQC_TEST_MP_PATHS_TICK_US       50000
+#define XQC_TEST_MP_PATHS_LAST_PATH_ID  8
+
+typedef struct {
+    user_conn_t        *user_conn;
+    struct event       *ev;
+} xqc_test_mp_paths_t;
+
+static xqc_test_mp_paths_t xqc_test_mp_paths;
+
+static void
+xqc_client_mp_paths_arm(void)
+{
+    struct timeval tv = {
+        .tv_sec = XQC_TEST_MP_PATHS_TICK_US / 1000000,
+        .tv_usec = XQC_TEST_MP_PATHS_TICK_US % 1000000,
+    };
+
+    event_add(xqc_test_mp_paths.ev, &tv);
+}
+
+/* case 1350: one step; XQC_TRUE once the last path ID is validated */
+static xqc_bool_t
+xqc_client_mp_path_churn(xqc_connection_t *conn, user_conn_t *user_conn)
+{
+    xqc_user_path_t *slot = &g_client_path[1];
+    xqc_path_ctx_t *path;
+    uint64_t path_id = 0;
+
+    if (!slot->is_in_used) {
+        if (xqc_conn_create_path(ctx.engine, &user_conn->cid, &path_id, 0)
+            == XQC_OK)
+        {
+            slot->path_id = path_id;
+            slot->is_in_used = 1;
+            printf("[mp-path-churn]|opened|path_id:%"PRIu64"|\n", path_id);
+        }
+        return XQC_FALSE;
+    }
+
+    path = xqc_conn_find_path_by_path_id(conn, slot->path_id);
+    if (path == NULL || path->path_state != XQC_PATH_STATE_ACTIVE) {
+        return XQC_FALSE;
+    }
+
+    printf("[mp-path-churn]|validated|path_id:%"PRIu64"|\n", slot->path_id);
+    if (slot->path_id >= XQC_TEST_MP_PATHS_LAST_PATH_ID) {
+        return XQC_TRUE;
+    }
+
+    /* the slot is free again once the path is removed */
+    xqc_conn_close_path(ctx.engine, &user_conn->cid, slot->path_id);
+    return XQC_FALSE;
+}
+
+/* case 1351: XQC_TRUE once the extra path was tried */
+static xqc_bool_t
+xqc_client_mp_open_path_limit(xqc_connection_t *conn, user_conn_t *user_conn)
+{
+    xqc_path_ctx_t *path;
+    uint64_t path_id = 0;
+    xqc_int_t ret;
+    int open = 0;
+
+    for (int i = 0; i < g_multi_interface_cnt; i++) {
+        path = g_client_path[i].is_in_used
+               ? xqc_conn_find_path_by_path_id(conn, g_client_path[i].path_id)
+               : NULL;
+        if (path != NULL && path->path_state == XQC_PATH_STATE_ACTIVE) {
+            open++;
+        }
+    }
+
+    /* every interface has its validated path */
+    if (open < g_multi_interface_cnt) {
+        return XQC_FALSE;
+    }
+
+    ret = xqc_conn_create_path(ctx.engine, &user_conn->cid, &path_id, 0);
+    printf("[mp-open-path-limit]|open_paths:%d|ret:%d|\n", open, ret);
+    return XQC_TRUE;
+}
+
+static void
+xqc_client_mp_paths_callback(int fd, short what, void *arg)
+{
+    xqc_test_mp_paths_t *t = (xqc_test_mp_paths_t *)arg;
+    xqc_connection_t *conn;
+    xqc_bool_t done;
+
+    conn = xqc_engine_conns_hash_find(ctx.engine, &t->user_conn->cid, 's');
+    if (conn == NULL || conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return;
+    }
+
+    if (!conn->enable_multipath) {
+        xqc_client_mp_paths_arm();
+        return;
+    }
+
+    done = g_test_case == XQC_TEST_CASE_MP_PATH_CHURN
+           ? xqc_client_mp_path_churn(conn, t->user_conn)
+           : xqc_client_mp_open_path_limit(conn, t->user_conn);
+    if (!done) {
+        xqc_client_mp_paths_arm();
+    }
+}
+
+static void
+xqc_client_mp_paths_start(user_conn_t *user_conn)
+{
+    if ((g_test_case != XQC_TEST_CASE_MP_PATH_CHURN
+         && g_test_case != XQC_TEST_CASE_MP_OPEN_PATH_LIMIT)
+        || xqc_test_mp_paths.ev != NULL)
+    {
+        return;
+    }
+
+    xqc_test_mp_paths.user_conn = user_conn;
+    xqc_test_mp_paths.ev = event_new(eb, -1, 0, xqc_client_mp_paths_callback,
+                                     &xqc_test_mp_paths);
+    xqc_client_mp_paths_arm();
+}
+
 static void
 xqc_client_close_send_only_stream(xqc_connection_t *conn)
 {
@@ -3027,6 +3312,9 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
     if (g_test_case == 718 || g_test_case == 719) {
         xqc_client_send_max_stream_data_test_frame(h3_conn->conn);
     }
+
+    xqc_client_mp_hold_cids(user_conn, h3_conn->conn);
+    xqc_client_mp_paths_start(user_conn);
 
     xqc_conn_stats_t stats = xqc_conn_get_stats(p_ctx->engine, &user_conn->cid);
     printf("0rtt_flag:%d\n", stats.early_data_flag);
@@ -7194,6 +7482,14 @@ skip_data:
 
     if (ctx.ev_delay) {
         event_free(ctx.ev_delay);
+    }
+
+    if (xqc_test_mp_held_cids.ev) {
+        event_free(xqc_test_mp_held_cids.ev);
+    }
+
+    if (xqc_test_mp_paths.ev) {
+        event_free(xqc_test_mp_paths.ev);
     }
 
     xqc_engine_destroy(ctx.engine);

@@ -74,14 +74,124 @@ xqc_path_destroy(xqc_path_ctx_t *path)
     xqc_free((void *)path);
 }
 
+static const char * const xqc_path_create_result_names[] = {
+    [XQC_PATH_CREATE_OK]                = "ok",
+    [XQC_PATH_CREATE_PATH_ID_IN_USE]    = "path ID in use",
+    [XQC_PATH_CREATE_PATH_ID_ABANDONED] = "path ID abandoned",
+    [XQC_PATH_CREATE_NO_LOCAL_CID]      = "no local CID for the path ID",
+    [XQC_PATH_CREATE_NO_PEER_CID]       = "no peer CID for the path ID",
+    [XQC_PATH_CREATE_LIMIT_REACHED]     = "too many paths",
+    [XQC_PATH_CREATE_NO_RESOURCE]       = "no resource",
+};
+
+_Static_assert(sizeof(xqc_path_create_result_names)
+               / sizeof(xqc_path_create_result_names[0])
+               == XQC_PATH_CREATE_RESULT_N,
+               "a name for every xqc_path_create_result_t");
+
+const char *
+xqc_path_create_result_str(xqc_path_create_result_t result)
+{
+    if ((size_t) result >= XQC_PATH_CREATE_RESULT_N) {
+        return "unknown";
+    }
+
+    return xqc_path_create_result_names[result];
+}
+
+static xqc_bool_t
+xqc_path_id_cid_set_in_state(xqc_cid_set_t *cid_set, uint64_t path_id,
+    xqc_cid_set_state_t state)
+{
+    xqc_cid_set_inner_t *inner_set = xqc_get_path_cid_set(cid_set, path_id);
+
+    return inner_set != NULL && inner_set->set_state == state;
+}
+
+static xqc_bool_t
+xqc_path_id_has_unused_cid(xqc_cid_set_t *cid_set, uint64_t path_id)
+{
+    xqc_cid_set_inner_t *inner_set = xqc_get_path_cid_set(cid_set, path_id);
+
+    return inner_set != NULL && inner_set->unused_cnt > 0;
+}
+
+/* the paths that count toward XQC_MAX_OPEN_PATHS */
+static uint32_t
+xqc_conn_open_path_count(xqc_connection_t *conn)
+{
+    xqc_list_head_t *pos;
+    xqc_path_ctx_t *path;
+    uint32_t count = 0;
+
+    xqc_list_for_each(pos, &conn->conn_paths_list) {
+        path = xqc_list_entry(pos, xqc_path_ctx_t, path_list);
+        if (path->path_state < XQC_PATH_STATE_CLOSING) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+uint32_t
+xqc_conn_openable_path_count(xqc_connection_t *conn)
+{
+    uint32_t open = xqc_conn_open_path_count(conn);
+
+    return open < XQC_MAX_OPEN_PATHS ? XQC_MAX_OPEN_PATHS - open : 0;
+}
+
+/*
+ * The checks that need no allocation: a path that cannot be created costs
+ * nothing. NULL scid or dcid means an unused connection ID of the path ID
+ * is taken.
+ */
+xqc_path_create_result_t
+xqc_conn_check_new_path(xqc_connection_t *conn, xqc_cid_t *scid,
+    xqc_cid_t *dcid, uint64_t path_id)
+{
+    /* RFC 10069 Section 3.1: a new path uses an unused path ID */
+    if (xqc_conn_find_path_by_path_id(conn, path_id) != NULL) {
+        return XQC_PATH_CREATE_PATH_ID_IN_USE;
+    }
+
+    if (xqc_path_id_cid_set_in_state(&conn->scid_set, path_id,
+                                     XQC_CID_SET_ABANDONED)
+        || xqc_path_id_cid_set_in_state(&conn->dcid_set, path_id,
+                                        XQC_CID_SET_ABANDONED))
+    {
+        return XQC_PATH_CREATE_PATH_ID_ABANDONED;
+    }
+
+    if (scid == NULL
+        ? !xqc_path_id_has_unused_cid(&conn->scid_set, path_id)
+        : xqc_cid_in_cid_set(&conn->scid_set, scid, path_id) == NULL)
+    {
+        return XQC_PATH_CREATE_NO_LOCAL_CID;
+    }
+
+    if (dcid == NULL && !xqc_path_id_has_unused_cid(&conn->dcid_set, path_id)) {
+        return XQC_PATH_CREATE_NO_PEER_CID;
+    }
+
+    if (xqc_conn_openable_path_count(conn) == 0) {
+        return XQC_PATH_CREATE_LIMIT_REACHED;
+    }
+
+    return XQC_PATH_CREATE_OK;
+}
+
 xqc_path_ctx_t *
 xqc_path_create(xqc_connection_t *conn, xqc_cid_t *scid, xqc_cid_t *dcid, uint64_t path_id)
 {
     xqc_path_ctx_t *path = NULL;
+    xqc_path_create_result_t result;
 
-    if (conn->create_path_count >= XQC_MAX_PATHS_COUNT) {
-        xqc_log(conn->log, XQC_LOG_ERROR, 
-                "|too many paths|current maximum:%d|", XQC_MAX_PATHS_COUNT);
+    result = xqc_conn_check_new_path(conn, scid, dcid, path_id);
+    if (result != XQC_PATH_CREATE_OK) {
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|path not created|path:%ui|"
+                "reason:%s|", path_id, xqc_path_create_result_str(result));
         return NULL;
     }
 
@@ -769,12 +879,35 @@ xqc_conn_is_current_mp_version_supported(xqc_multipath_version_t mp_version)
     return ret;
 }
 
+/* create a path, telling why when it is not created */
+static xqc_path_ctx_t *
+xqc_conn_try_create_path(xqc_connection_t *conn, xqc_cid_t *scid,
+    xqc_cid_t *dcid, xqc_app_path_status_t path_status, uint64_t path_id,
+    xqc_path_create_result_t *result)
+{
+    xqc_path_ctx_t *path;
+
+    *result = xqc_conn_check_new_path(conn, scid, dcid, path_id);
+    if (*result != XQC_PATH_CREATE_OK) {
+        return NULL;
+    }
+
+    path = xqc_conn_create_path_inner(conn, scid, dcid, path_status, path_id);
+    if (path == NULL) {
+        *result = XQC_PATH_CREATE_NO_RESOURCE;
+    }
+
+    return path;
+}
+
 xqc_int_t
 xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_path_id, int path_status)
 {
     xqc_connection_t *conn = NULL;
     xqc_path_ctx_t *path = NULL;
     xqc_app_path_status_t ps_inner = XQC_APP_PATH_STATUS_AVAILABLE;
+    xqc_path_create_result_t result;
+    xqc_log_level_t level;
     uint64_t path_id = 0;
 
     conn = xqc_engine_conns_hash_find(engine, scid, 's');
@@ -807,9 +940,14 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
         ps_inner = XQC_APP_PATH_STATUS_STANDBY;
     }
 
-    path = xqc_conn_create_path_inner(conn, NULL, NULL, ps_inner, path_id);
+    path = xqc_conn_try_create_path(conn, NULL, NULL, ps_inner, path_id,
+                                    &result);
     if (path == NULL) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_create error|%ui|", path_id);
+        /* XQC_MAX_OPEN_PATHS open paths are a limit, not a failure */
+        level = result == XQC_PATH_CREATE_NO_RESOURCE ? XQC_LOG_ERROR
+                                                      : XQC_LOG_WARN;
+        xqc_log(conn->log, level, "|xqc_path_create error|%ui|reason:%s|",
+                path_id, xqc_path_create_result_str(result));
         return -XQC_EMP_CREATE_PATH;
     }
 
@@ -966,6 +1104,44 @@ xqc_conn_create_path_inner(xqc_connection_t *conn,
         return NULL;
     }
     xqc_log_event(conn->log, CON_PATH_ASSIGNED, path, conn);
+    return path;
+}
+
+
+/*
+ * RFC 10069 Section 3.1: the server sets up the path of a path ID the client
+ * starts using. "An endpoint that has no active connection ID for this path
+ * or lacks other resources to immediately configure a new path could delay
+ * sending the PATH_RESPONSE until sufficient resources are available", and
+ * draft-ietf-quic-multipath-10 Section 3.1 has a PATH_CHALLENGE that comes
+ * before the MP_NEW_CONNECTION_ID of its path ID ignored. A path that cannot
+ * be set up now is left alone and the connection goes on: its packets are
+ * neither answered nor acknowledged, so the client repeats its PATH_CHALLENGE
+ * until the path can be set up or it abandons the path (Section 3.4). An
+ * abandoned path ID is never set up again (Sections 3.4 and 4).
+ */
+xqc_path_ctx_t *
+xqc_conn_server_open_path(xqc_connection_t *conn, xqc_packet_in_t *packet_in,
+    xqc_path_create_result_t *result)
+{
+    xqc_path_ctx_t *path;
+
+    path = xqc_conn_try_create_path(conn, &packet_in->pi_pkt.pkt_dcid, NULL,
+                                    XQC_APP_PATH_STATUS_AVAILABLE,
+                                    packet_in->pi_path_id, result);
+    if (path == NULL) {
+        /* xqc_path_init() failed on a path that is listed already */
+        if (*result == XQC_PATH_CREATE_NO_RESOURCE
+            && xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id))
+        {
+            XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+        }
+        return NULL;
+    }
+
+    conn->validating_path_id = path->path_id;
+    conn->conn_flag |= XQC_CONN_FLAG_RECV_NEW_PATH;
+
     return path;
 }
 

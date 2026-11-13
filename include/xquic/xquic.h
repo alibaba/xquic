@@ -1604,6 +1604,14 @@ typedef enum {
 } xqc_0rtt_flag_t;
 
 
+/**
+ * The paths of a connection that can be open at the same time, the initial
+ * path included, and the paths that xqc_conn_stats_t reports. A path stops
+ * counting once it is abandoned. Path IDs are never reused, so over its life
+ * a connection creates as many paths as the maximum path ID allows
+ * (init_max_path_id of xqc_conn_settings_t), and a closed path keeps its
+ * memory until the connection is destroyed.
+ */
 #define XQC_MAX_PATHS_COUNT 8
 #define XQC_CONN_INFO_LEN 400
 #define XQC_EXTERN_CONN_INFO_LEN 128

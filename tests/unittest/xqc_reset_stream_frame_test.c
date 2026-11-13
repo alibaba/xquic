@@ -276,3 +276,108 @@ xqc_test_reset_stream_frame_duplicate()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * A peer-initiated stream that the application accepts or refuses in its
+ * create notify, as the HTTP/3 client refuses server-initiated
+ * bidirectional streams (RFC 9114 Section 6.1), then reset by the peer.
+ */
+static xqc_int_t xqc_test_reset_peer_reads;
+static xqc_int_t xqc_test_reset_peer_closings;
+
+static xqc_int_t
+xqc_test_reset_peer_accept(xqc_stream_t *stream, void *strm_user_data)
+{
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_test_reset_peer_refuse(xqc_stream_t *stream, void *strm_user_data)
+{
+    return -XQC_ECREATE_STREAM;
+}
+
+static xqc_int_t
+xqc_test_reset_peer_read(xqc_stream_t *stream, void *strm_user_data)
+{
+    xqc_test_reset_peer_reads++;
+    return XQC_OK;
+}
+
+static void
+xqc_test_reset_peer_closing(xqc_stream_t *stream, xqc_int_t err,
+                            void *strm_user_data)
+{
+    xqc_test_reset_peer_closings++;
+}
+
+static void
+xqc_test_reset_peer_stream(xqc_bool_t refuse)
+{
+    /* RESET_STREAM for stream 1, the first server-initiated bidi stream */
+    unsigned char frame[] = {0x04, 0x01, XQC_TEST_RESET_ERR_CODE,
+                             XQC_TEST_RESET_FINAL_SZ};
+    xqc_connection_t *conn;
+    xqc_stream_t *stream;
+    xqc_packet_in_t pi;
+    uint64_t fc_recved;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_FATAL(conn->conn_type == XQC_CONN_TYPE_CLIENT);
+
+    memset(&conn->app_proto_cbs.stream_cbs, 0,
+           sizeof(conn->app_proto_cbs.stream_cbs));
+    conn->app_proto_cbs.stream_cbs.stream_create_notify
+        = refuse ? xqc_test_reset_peer_refuse : xqc_test_reset_peer_accept;
+    conn->app_proto_cbs.stream_cbs.stream_read_notify
+        = xqc_test_reset_peer_read;
+    conn->app_proto_cbs.stream_cbs.stream_closing_notify
+        = xqc_test_reset_peer_closing;
+    xqc_test_reset_peer_reads = 0;
+    xqc_test_reset_peer_closings = 0;
+
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pos = frame;
+    pi.last = pi.pos + sizeof(frame);
+    fc_recved = conn->conn_flow_ctl.fc_data_recved;
+
+    CU_ASSERT(xqc_process_reset_stream_frame(conn, &pi) == XQC_OK);
+    stream = xqc_find_stream_by_id(1, conn->streams_hash);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+    CU_ASSERT(((stream->stream_flag & XQC_STREAM_FLAG_DISCARDED) != 0)
+              == refuse);
+    xqc_process_read_streams(conn);
+
+    /* RFC 9000 4.5: the final size counts on the connection either way */
+    CU_ASSERT(conn->conn_flow_ctl.fc_data_recved
+              == fc_recved + XQC_TEST_RESET_FINAL_SZ);
+
+    if (refuse) {
+        /* the application never sees a stream it refused */
+        CU_ASSERT(xqc_test_reset_peer_reads == 0);
+        CU_ASSERT(xqc_test_reset_peer_closings == 0);
+
+    } else {
+        CU_ASSERT(xqc_test_reset_peer_reads == 1);
+        CU_ASSERT(xqc_test_reset_peer_closings == 1);
+    }
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* happy path: an accepted peer stream learns of its reset */
+void
+xqc_test_reset_stream_frame_peer_stream(void)
+{
+    xqc_test_reset_peer_stream(XQC_FALSE);
+}
+
+/* abnormal path: a refused peer stream is reset without notifications */
+void
+xqc_test_reset_stream_frame_refused_stream(void)
+{
+    xqc_test_reset_peer_stream(XQC_TRUE);
+}

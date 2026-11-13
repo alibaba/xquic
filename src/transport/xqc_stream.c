@@ -62,6 +62,14 @@ xqc_stream_shutdown_write(xqc_stream_t *stream)
 void
 xqc_stream_ready_to_read(xqc_stream_t *stream)
 {
+    /*
+     * the application refused the stream in its create notify: it is told
+     * nothing of the stream, as it gets no close notify for it
+     */
+    if (stream->stream_flag & XQC_STREAM_FLAG_DISCARDED) {
+        return;
+    }
+
     if (!(stream->stream_flag & XQC_STREAM_FLAG_READY_TO_READ)) {
         if (stream->stream_encrypt_level == XQC_ENC_LEV_1RTT) {
             xqc_list_add_tail(&stream->read_stream_list, &stream->stream_conn->conn_read_streams);
@@ -2107,7 +2115,9 @@ xqc_stream_set_multipath_usage(xqc_stream_t *stream, uint8_t schedule, uint8_t r
 void
 xqc_stream_closing(xqc_stream_t *stream, xqc_int_t err)
 {
-    if (stream->stream_if->stream_closing_notify) {
+    if (stream->stream_if->stream_closing_notify
+        && !(stream->stream_flag & XQC_STREAM_FLAG_DISCARDED))
+    {
         stream->stream_if->stream_closing_notify(stream, err,
                                                  stream->user_data);
     }

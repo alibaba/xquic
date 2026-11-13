@@ -10,5 +10,7 @@ void xqc_test_reset_stream_frame_notify_last();
 void xqc_test_reset_stream_frame_closing_destroys_stream();
 
 void xqc_test_reset_stream_frame_duplicate();
+void xqc_test_reset_stream_frame_peer_stream(void);
+void xqc_test_reset_stream_frame_refused_stream(void);
 
 #endif /* _XQC_RESET_STREAM_FRAME_TEST_H_INCLUDED_ */

@@ -349,6 +349,24 @@ main(int argc, char *argv[])
                         xqc_test_mp_retire_cid_without_cid_set)
         || !CU_add_test(pSuite, "xqc_test_cid_set_lookup_error",
                         xqc_test_cid_set_lookup_error)
+        || !CU_add_test(pSuite, "xqc_test_cid_confirm_drops_client_first_dcid",
+                        xqc_test_cid_confirm_drops_client_first_dcid)
+        || !CU_add_test(pSuite, "xqc_test_cid_confirm_server_keeps_client_first_dcid",
+                        xqc_test_cid_confirm_server_keeps_client_first_dcid)
+        || !CU_add_test(pSuite, "xqc_test_retire_prior_to_full_set",
+                        xqc_test_retire_prior_to_full_set)
+        || !CU_add_test(pSuite, "xqc_test_retire_prior_to_still_over_limit",
+                        xqc_test_retire_prior_to_still_over_limit)
+        || !CU_add_test(pSuite, "xqc_test_mp_retire_prior_to_full_set",
+                        xqc_test_mp_retire_prior_to_full_set)
+        || !CU_add_test(pSuite, "xqc_test_retire_prior_to_rotation_bounded",
+                        xqc_test_retire_prior_to_rotation_bounded)
+        || !CU_add_test(pSuite, "xqc_test_mp_retire_prior_to_rotation_bounded",
+                        xqc_test_mp_retire_prior_to_rotation_bounded)
+        || !CU_add_test(pSuite, "xqc_test_retire_prior_to_unacked_limit",
+                        xqc_test_retire_prior_to_unacked_limit)
+        || !CU_add_test(pSuite, "xqc_test_retire_prior_to_unacked_limit_after_handshake",
+                        xqc_test_retire_prior_to_unacked_limit_after_handshake)
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
         || !CU_add_test(pSuite, "xqc_test_engine_drop_small_initial", xqc_test_engine_drop_small_initial)

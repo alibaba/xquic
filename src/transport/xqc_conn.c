@@ -4894,6 +4894,48 @@ xqc_conn_record_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 }
 
 
+/*
+ * RFC 9000 Section 7.2: once the server's Initial gives its connection ID, the
+ * client sends with it. The connection ID the client chose for its first
+ * Initial was not issued by the server (Section 5.1.1 gives it no sequence
+ * number), so it goes: no RETIRE_CONNECTION_ID frame is due for it, and it no
+ * longer has to be left out of the active_connection_id_limit count. A server
+ * may keep it as its own connection ID; then it is the server's handshake
+ * connection ID, which the limit counts (Section 18.2).
+ */
+static void
+xqc_conn_drop_client_first_dcid(xqc_connection_t *c, xqc_cid_t *server_cid)
+{
+    xqc_cid_t            first_dcid;
+    xqc_cid_inner_t     *inner_cid;
+    xqc_list_head_t     *pos, *next;
+    xqc_cid_set_inner_t *inner_set;
+
+    inner_set = xqc_get_path_cid_set(&c->dcid_set, XQC_INITIAL_PATH_ID);
+    if (inner_set == NULL) {
+        return;
+    }
+
+    xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if (!inner_cid->is_original) {
+            continue;
+        }
+
+        if (xqc_cid_is_equal(&inner_cid->cid, server_cid) == XQC_OK) {
+            inner_cid->is_original = 0;
+            if (inner_set->original_cid_cnt > 0) {
+                inner_set->original_cid_cnt--;
+            }
+            continue;
+        }
+
+        xqc_cid_copy(&first_dcid, &inner_cid->cid);
+        xqc_cid_set_delete_cid(&c->dcid_set, &first_dcid, XQC_INITIAL_PATH_ID);
+    }
+}
+
+
 xqc_int_t
 xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
 {
@@ -4928,6 +4970,8 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
             xqc_cid_copy(&c->conn_initial_path->path_dcid, &pkt->pkt_scid);
             xqc_datagram_record_mss(c);
         }
+
+        xqc_conn_drop_client_first_dcid(c, &pkt->pkt_scid);
 
         if (xqc_insert_conns_hash(c->engine->conns_hash_dcid, c,
                                   c->dcid_set.current_dcid.cid_buf,
@@ -5343,6 +5387,36 @@ xqc_conn_purge_removed_scid(xqc_connection_t *conn, xqc_cid_inner_t *inner_cid)
     xqc_free(inner_cid);
 }
 
+/*
+ * take the peer's connection ID dcid out of both the engine's DCID and its
+ * stateless reset token hashes
+ */
+static void
+xqc_conn_remove_dcid_hash_entries(xqc_connection_t *conn, const xqc_cid_t *dcid)
+{
+    if (conn->engine->conns_hash_dcid) {
+        /* delete relationship from conns_hash_dcid */
+        if (xqc_find_conns_hash(conn->engine->conns_hash_dcid, conn,
+                                dcid->cid_buf, dcid->cid_len))
+        {
+            xqc_remove_conns_hash(conn->engine->conns_hash_dcid, conn,
+                                  dcid->cid_buf, dcid->cid_len);
+        }
+    }
+
+    if (conn->engine->conns_hash_sr_token) {
+        /* delete relationship from conns_hash_sr_token */
+        if (xqc_find_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                                dcid->sr_token,
+                                XQC_STATELESS_RESET_TOKENLEN))
+        {
+            xqc_remove_conns_hash(conn->engine->conns_hash_sr_token, conn,
+                                  dcid->sr_token,
+                                  XQC_STATELESS_RESET_TOKENLEN);
+        }
+    }
+}
+
 void
 xqc_conn_destroy_cids(xqc_connection_t *conn)
 {
@@ -5390,32 +5464,50 @@ xqc_conn_destroy_cids(xqc_connection_t *conn)
         inner_set = xqc_list_entry(pos_set, xqc_cid_set_inner_t, next);
         xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
             cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
-            if (conn->engine->conns_hash_dcid) {
-                /* delete relationship from conns_hash_dcid */
-                if (xqc_find_conns_hash(conn->engine->conns_hash_dcid, conn,
-                                        cid->cid.cid_buf, cid->cid.cid_len))
-                {
-                    xqc_remove_conns_hash(conn->engine->conns_hash_dcid, conn,
-                                        cid->cid.cid_buf, cid->cid.cid_len);
-                }
-
-            }
-            if (conn->engine->conns_hash_sr_token) {
-                /* delete relationship from conns_hash_sr_token */
-                if (xqc_find_conns_hash(conn->engine->conns_hash_sr_token, conn,
-                                        cid->cid.sr_token,
-                                        XQC_STATELESS_RESET_TOKENLEN))
-                {
-                    xqc_remove_conns_hash(conn->engine->conns_hash_sr_token, conn,
-                                        cid->cid.sr_token,
-                                        XQC_STATELESS_RESET_TOKENLEN);
-                }
-            }
+            xqc_conn_remove_dcid_hash_entries(conn, &cid->cid);
         }
     }
 
     xqc_destroy_cid_set(&conn->scid_set);
     xqc_destroy_cid_set(&conn->dcid_set);
+}
+
+/*
+ * A connection ID of the peer that this end retired stays in its set until
+ * the RETIRE_CONNECTION_ID frame retiring it is acknowledged, so that their
+ * number can be limited (RFC 9000 Section 5.1.2), then goes, with its entries
+ * in the engine's hashes. On the client, its own handshake connection ID and
+ * the server's both have sequence number 0.
+ */
+void
+xqc_conn_on_retire_conn_id_acked(xqc_connection_t *conn, uint64_t path_id,
+    uint64_t seq_num)
+{
+    xqc_cid_t               dcid;
+    xqc_cid_inner_t        *inner_cid;
+    xqc_list_head_t        *pos, *next;
+    xqc_cid_set_inner_t    *inner_set;
+
+    inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
+    if (inner_set == NULL) {
+        return;
+    }
+
+    xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if (inner_cid->state != XQC_CID_RETIRED
+            || inner_cid->cid.cid_seq_num != seq_num)
+        {
+            continue;
+        }
+
+        xqc_cid_copy(&dcid, &inner_cid->cid);
+        xqc_conn_remove_dcid_hash_entries(conn, &dcid);
+        xqc_cid_set_delete_cid(&conn->dcid_set, &dcid, path_id);
+        xqc_log(conn->log, XQC_LOG_DEBUG,
+                "|retired dcid removed|dcid:%s|path:%ui|seq:%ui|",
+                xqc_dcid_str(conn->engine, &dcid), path_id, seq_num);
+    }
 }
 
 xqc_int_t

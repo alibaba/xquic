@@ -94,6 +94,20 @@ xqc_send_ctl_indirectly_ack_or_drop_po(xqc_connection_t *conn, xqc_packet_out_t 
         return XQC_TRUE;
     }
 
+    /*
+     * Its frames were resent in packets that fit the path MTU
+     * (xqc_send_queue_split_lost()): drop it, and every copy of it, without
+     * taking its frames as acknowledged, which the new packets are not yet.
+     */
+    if ((packet_out->po_flag & XQC_POF_SPLIT)
+        || (packet_out->po_origin
+            && (packet_out->po_origin->po_flag & XQC_POF_SPLIT)))
+    {
+        xqc_send_ctl_decrease_inflight(conn, packet_out);
+        xqc_send_queue_maybe_remove_unacked(packet_out, send_queue, path);
+        return XQC_TRUE;
+    }
+
     if (packet_out->po_frame_types & XQC_FRAME_BIT_DATAGRAM) {
         if ((packet_out->po_flag & XQC_POF_DROPPED_DGRAM)
             || (packet_out->po_origin && (packet_out->po_origin->po_flag & XQC_POF_DROPPED_DGRAM)))

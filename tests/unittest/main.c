@@ -965,6 +965,8 @@ main(int argc, char *argv[])
                         xqc_test_alpn_server_cb_propagates_error)
         || !CU_add_test(pSuite, "xqc_test_alpn_client_handshake_no_alpn",
                         xqc_test_alpn_client_handshake_no_alpn)
+        || !CU_add_test(pSuite, "xqc_test_ack_delay_from_largest_packet",
+                        xqc_test_ack_delay_from_largest_packet)
         /* ADD TESTS HERE */)
     {
         CU_cleanup_registry();

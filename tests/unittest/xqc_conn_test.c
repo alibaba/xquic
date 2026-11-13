@@ -1714,3 +1714,66 @@ xqc_test_conn_open_path_perf_class(void)
     path->path_state = state;
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * RFC 9000 Section 13.2.5: the ACK Delay counts from the receipt of the
+ * packet with the largest packet number, the Largest Acknowledged, also
+ * when that packet elicits no acknowledgment.
+ */
+void
+xqc_test_ack_delay_from_largest_packet(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
+
+    xqc_packet_in_t pi;
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    pi.pi_path_id = path->path_id;
+
+    /* packet 5 elicits an acknowledgment and arrives at 1000 us */
+    pi.pi_pkt.pkt_num = 5;
+    pi.pi_frame_types = XQC_FRAME_BIT_STREAM;
+    pi.pkt_recv_time = 1000;
+    xqc_conn_record_single(conn, &pi);
+
+    /* packet 6 only acknowledges and arrives at 4000 us */
+    pi.pi_pkt.pkt_num = 6;
+    pi.pi_frame_types = XQC_FRAME_BIT_ACK;
+    pi.pkt_recv_time = 4000;
+    xqc_conn_record_single(conn, &pi);
+
+    CU_ASSERT_EQUAL(send_ctl->ctl_largest_received[XQC_PNS_APP_DATA], 6);
+    CU_ASSERT_EQUAL(send_ctl->ctl_largest_recv_time[XQC_PNS_APP_DATA], 4000);
+
+    /* the ACK frame sent at 10000 us acknowledges packet 6 after 6000 us */
+    xqc_packet_out_t *packet_out = xqc_packet_out_create(XQC_QUIC_MAX_MSS);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+    int has_gap = 0;
+    xqc_packet_number_t largest_ack = 0;
+    ssize_t len = xqc_gen_ack_frame(conn, packet_out, 10000, 0,
+                                    &pn_ctl->ctl_recv_record[XQC_PNS_APP_DATA],
+                                    send_ctl->ctl_largest_recv_time[XQC_PNS_APP_DATA],
+                                    &has_gap, &largest_ack);
+    CU_ASSERT(len > 0);
+    if (len > 0) {
+        xqc_packet_in_t ack_in;
+        xqc_ack_info_t ack_info;
+        memset(&ack_in, 0, sizeof(ack_in));
+        memset(&ack_info, 0, sizeof(ack_info));
+        ack_in.pos = packet_out->po_buf;
+        ack_in.last = packet_out->po_buf + len;
+        conn->remote_settings.ack_delay_exponent = 0;
+        CU_ASSERT_EQUAL(xqc_parse_ack_frame(&ack_in, conn, &ack_info), XQC_OK);
+        CU_ASSERT_EQUAL(ack_info.largest_acked, 6);
+        CU_ASSERT_EQUAL(ack_info.ack_delay, 6000);
+    }
+
+    xqc_packet_out_destroy(packet_out);
+    xqc_engine_destroy(conn->engine);
+}

@@ -4872,13 +4872,19 @@ xqc_conn_record_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
     range_status = xqc_recv_record_add(&pn_ctl->ctl_recv_record[pns], pkt_num);
     if (range_status == XQC_PKTRANGE_OK) {
+        /*
+         * RFC 9000 Section 13.2.5: the ACK Delay counts from the receipt of
+         * the packet with the largest packet number, the Largest
+         * Acknowledged of the next ACK frame, also when that packet elicits
+         * no acknowledgment.
+         */
+        if (pkt_num > send_ctl->ctl_largest_received[pns] || send_ctl->ctl_largest_received[pns] == XQC_MAX_UINT64_VALUE) {
+            send_ctl->ctl_largest_received[pns] = pkt_num;
+            send_ctl->ctl_largest_recv_time[pns] = packet_in->pkt_recv_time;
+        }
+
         if (XQC_IS_ACK_ELICITING(packet_in->pi_frame_types)) {
             ++send_ctl->ctl_ack_eliciting_pkt[pns];
-
-            if (pkt_num > send_ctl->ctl_largest_received[pns] || send_ctl->ctl_largest_received[pns] == XQC_MAX_UINT64_VALUE) {
-                send_ctl->ctl_largest_received[pns] = pkt_num;
-                send_ctl->ctl_largest_recv_time[pns] = packet_in->pkt_recv_time;
-            }
         }
 
         if (pkt_num != xqc_recv_record_largest(&pn_ctl->ctl_recv_record[pns])) {

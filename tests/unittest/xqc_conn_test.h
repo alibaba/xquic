@@ -53,5 +53,6 @@ void xqc_test_0rtt_remote_mad_timeline(void);
 void xqc_test_alpn_error_code_value(void);
 void xqc_test_alpn_server_cb_propagates_error(void);
 void xqc_test_alpn_client_handshake_no_alpn(void);
+void xqc_test_ack_delay_from_largest_packet(void);
 
 #endif

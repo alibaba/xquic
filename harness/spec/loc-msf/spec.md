@@ -97,13 +97,17 @@ Object assembly, codec configuration and decoding/display.
 | Full LOC catalog snapshot | Independent JSON, inheritance, selected decoder fields, ownership and encode projection; malformed/schema/unsupported/budget rejection | Implemented; paired unit coverage |
 | Object composition | Raw payload/property fidelity and malformed LOC isolation through Object codec | Implemented; format unit coverage |
 | Live snapshot/state and media workflow | Joining FETCH, catalog placement, live-to-ended commitment, GOP/stream IDs | Application integration gap |
-| Pinned C22 | Independent publisher/catalog/decoder/display, ≥2 frames and normal subscriber exit | External interop gap |
+| Bounded C22 profile | Separate publisher/subscriber, decoded catalog, three VP8 samples, independent decoder/terminal rendering and normal completion | Application adapter in `interop/moqt/`; peer results remain runtime evidence |
 
-No endpoint case IDs are allocated for format units. Native QUIC and WT
-client-to-server normal/malformed media scenarios remain gaps until an
-application adapter exists. The format subset does not complete F44 or imply
-a C22 pass. Runner/images, fixtures, playback, encryption, ABR, timeline,
-delta updates and HTTP/URL workflows remain outside this implementation.
+No numeric endpoint case IDs are allocated for format units or the named
+interop scenarios. The application adapter adds normal catalog/LOC/VP8
+delivery and malformed-catalog/LOC recovery over Native QUIC and WT. It uses
+three all-keyframe GOPs and a real FFmpeg decoder with terminal luma rendering.
+This restricted profile does not complete F44 or imply general-purpose player
+interoperability. Joining FETCH of live snapshots, encryption, audio, ABR,
+timeline, delta updates and HTTP/URL workflows remain outside this profile.
+Case availability does not itself prove an independent peer C22 pass; retain
+actual transport, negotiation, decoder and completion evidence separately.
 
 [loc]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-loc-05#section-2.3
 [msf]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-msf-01

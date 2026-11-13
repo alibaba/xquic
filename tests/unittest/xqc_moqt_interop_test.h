@@ -7,4 +7,8 @@ void xqc_test_moqt_interop_oracle(void);
 void xqc_test_moqt_interop_oracle_errors(void);
 void xqc_test_moqt_interop_properties(void);
 void xqc_test_moqt_interop_properties_errors(void);
+void xqc_test_moqt_interop_catalog(void);
+void xqc_test_moqt_interop_catalog_errors(void);
+void xqc_test_moqt_interop_media(void);
+void xqc_test_moqt_interop_media_errors(void);
 #endif

@@ -9,6 +9,10 @@
 
 #define XQC_MOQT_MICROS_PER_MILLISECOND 1000
 
+/* Track properties shared by endpoints and relays (sections 10.3/10.7). */
+#define XQC_MOQT_PROPERTY_MAX_CACHE_DURATION 0x04
+#define XQC_MOQT_PROPERTY_IMMUTABLE 0x0b
+
 xqc_int_t xqc_moqt_is_initial_request(uint64_t type);
 xqc_int_t xqc_moqt_is_namespace_request(uint64_t type);
 xqc_int_t xqc_moqt_fill_parameters_decode(

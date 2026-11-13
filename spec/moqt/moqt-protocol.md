@@ -918,7 +918,7 @@ signature and ownership comment explicitly.
 ## Minimum Supported Scope
 
 “Minimum” means endpoints capable of direct publishing, subscribing, live
-delivery, and historical Fill, with public interfaces for a future relay.
+delivery, and historical Fill, with public interfaces for a separate Relay.
 It is not every optional draft capability. Both publisher/subscriber roles are
 required and may coexist in one Session.
 
@@ -1765,7 +1765,7 @@ preserves camera. Cover future Tracks, same-type overlap, cross-type identical
 prefix, Pc surviving St update/cancel, stream-exhaustion SKIPPED, and stale
 enumeration completion without resurrecting closed requests.
 
-A future Relay uses independent endpoints: A→R publishes namespace, R→B
+A Relay uses independent endpoints: A→R publishes namespace, R→B
 notifies Sns, B→R St expresses interest, and A→R/R→B have independent
 PUBLISH/Pc, Request IDs, and Aliases. Known-Full-Name downstream SUBSCRIBE
 still waits for corresponding upstream Established. Rebuild hop parameters,
@@ -1826,7 +1826,7 @@ messages requiring Session closure.
 | Range Filters | Before support/at zero: advertise MAX_FILTER_RANGES=0 and reject prohibited filters with INVALID_FILTER; TX permission follows peer allowance, not local RX allowance |
 | Token Alias cache | Before support/at zero: MAX_AUTH_TOKEN_CACHE_SIZE=0; excess SETUP REGISTER acts as USE_VALUE, outside SETUP gives AUTH_TOKEN_CACHE_OVERFLOW; peer allowance controls TX, baseline sends only USE_VALUE |
 | Dynamic Groups | No DYNAMIC_GROUPS=1 before completion; ignore initial request under §9.20.19, require known support for updates |
-| RENDEZVOUS_TIMEOUT / FILL_TIMEOUT | Parse/expose through API; original endpoints do not own cross-session waiting; future Relay implements its budget |
+| RENDEZVOUS_TIMEOUT / FILL_TIMEOUT | Parse/expose through API; original endpoints do not own cross-session waiting; the separate Relay implements its budget |
 | GOAWAY / REDIRECT | Validate, notify application, follow draining/termination; no automatic reconnect or untrusted-URI following |
 | Draft-22 WebTransport | No adapter yet; Native QUIC 0-RTT only by explicit future policy; retain legacy draft-05/0-RTT independently |
 | Unknown SETUP option / ordinary property | Apply §9.1/§8.4, distinct from non-ignorable unknown parameters/messages |
@@ -2064,7 +2064,7 @@ padding probes.
 | F24 [Namespace discovery, suffix/DONE, prefix updates](#namespace-state-boundaries) | Complete | Complete; suffix/DONE, races/auth, FIN/reset, budgets/reentrancy | Yes; C09/C10/C21 |
 | F25 [SUBSCRIBE_TRACKS, independent PUBLISH, SKIPPED](#subscribe-tracks-design) | Partial; explicit sending/rejection subset, Location/Fill inheritance still needs peer agreement | Partial; C10 endpoint prerequisites and positive/negative tests present: bounded enumeration, independent Pc, SKIPPED, inheritance, updates, authorization, lifetimes; nonzero filters depend on F11, disputed combinations need validation | Yes; C10 endpoint subset ready; three-node execution depends on F35/F42, no inferred case pass |
 | F26 [TRACK_STATUS query](#namespace-state-boundaries) | Partial; TRACK_STATUS_OK/EXPIRES conflict unresolved | Partial; queries/properties/FIN/errors present; disputed EXPIRES checks/peer agreement pending | No; no TRACK_STATUS case |
-| F27 [Rendezvous, late PUBLISH matching, termination](#rendezvous-and-relay-contract) | Complete | Partial; publish/discovery/withdrawal events ready; waiting/matching/termination need Relay | Yes; C05/C07/C13–C20 |
+| F27 [Rendezvous, late PUBLISH matching, termination](#rendezvous-and-relay-contract) | Complete | Core complete; bounded Relay rendezvous, late-publication matching, and cancellation termination | Yes; C05/C07/C13–C20 |
 | F28 [Directional Token Alias caches and ordering](#token-alias-design) | Complete | Not implemented; zero-cache fallback is not support | No; REGISTER/USE_ALIAS/DELETE not required |
 | F29 [Native QUIC 0-RTT, pipelining, rejection recovery](#moqt-0rtt-negotiation) | Complete | Not implemented; legacy fast/0-RTT is not draft-22 support | No; no resumption/early-data checks |
 | F30 [Dynamic Groups/NEW_GROUP_REQUEST, Relay aggregation](#dynamic-group-design) | Complete | Not implemented; application callbacks and Relay outstanding state separate | No; no dynamic-Group case |
@@ -2072,13 +2072,13 @@ padding probes.
 | F32 [Padding consume/cancel and context-specific Grease](#deployment-and-security) | Complete | Partial; consume/discard/unknown errors present; independent cancel/combinations pending | No; optional active probing excluded |
 | F33 [Overload, budgets, slow endpoints, idle protection](#deployment-and-security) | Complete | Partial; basic budgets/backpressure present; overload/short-prefix/deployment checks pending | No; ordinary interop is not load/security acceptance |
 | F34 [Authentication/authorization and Token/cache reauthorization](#request-errors-and-authorization) | Complete | Partial; namespace/candidate authorization present; Alias/cache cases pending | No; anonymous success is not full security acceptance |
-| F35 [Relay hop IDs, routing, upstream establishment, fanout](#rendezvous-and-relay-contract) | Complete | Not implemented; separate Relay; two endpoints do not prove three-node behavior | Yes; Relay role in C04/C06–C08/C10/C12–C22 |
-| F36 [Relay source retention/discovery](#rendezvous-and-relay-contract) | Complete | Not implemented; separate Relay; DONE only after last source withdraws | Yes; C21 |
-| F37 [Relay aggregation, mixed pause, authorized filter union](#rendezvous-and-relay-contract) | Complete | Not implemented; separate Relay | No; C20 requires zero downstream delivery, not aggregation |
-| F38 [Relay cache, MAX_CACHE_DURATION, unknown gaps](#properties-cache-and-malformed) | Partial; key/deadline/gap defined; index/eviction/replacement transaction pending | Not implemented; separate cache extension; temporary queues obey TTL too | No; cache hit/eviction not required |
-| F39 [Relay FETCH/Fill forwarding, source switch, total budget](#rendezvous-and-relay-contract) | Complete | Not implemented; separate Relay, depends on F21/F22 | No; no historical retrieval |
-| F40 [Relay property fidelity and malformed/auth/slow-peer isolation](#properties-cache-and-malformed) | Complete | Not implemented; upstream cancellation/downstream termination linkage | No; C18 ordinary properties counted in F18/F35, not these abnormal cases |
-| F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Not implemented; application/Relay policy, no automatic URI following | No; no migration case |
+| F35 [Relay hop IDs, routing, upstream establishment, fanout](#rendezvous-and-relay-contract) | Complete | Core complete; independent hop IDs, Established gating, and fanout; three-node self-tests, external interop pending | Yes; Relay role in C04/C06–C08/C10/C12–C22 |
+| F36 [Relay source retention/discovery](#rendezvous-and-relay-contract) | Complete | Core complete; multiple sources and final-source DONE, with independent discovery/delivery reclamation | Yes; C21 |
+| F37 [Relay aggregation, mixed pause, authorized filter union](#rendezvous-and-relay-contract) | Complete | Partial; mixed/all pause implemented using independent requests; aggregation and filter union deferred | No; C20 requires zero downstream delivery, not aggregation |
+| F38 [Relay cache, MAX_CACHE_DURATION, unknown gaps](#properties-cache-and-malformed) | Partial; key/deadline/gap defined; index/eviction/replacement transaction pending | Partial; enforce MAX_CACHE_DURATION before forwarding; history caching and eviction deferred | No; cache hit/eviction not required |
+| F39 [Relay FETCH/Fill forwarding, source switch, total budget](#rendezvous-and-relay-contract) | Complete | Core complete; single-source FETCH/Fill mappings and total budgets; automatic source switching deferred | No; no historical retrieval |
+| F40 [Relay property fidelity and malformed/auth/slow-peer isolation](#properties-cache-and-malformed) | Complete | Core complete; property fidelity, malformed/authorization/slow-subscriber isolation, and cancellation propagation | No; C18 ordinary properties counted in F18/F35, not these abnormal cases |
+| F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Core complete; overlapping sources and subscription replacement; application-selected URI/credentials, no automatic reconnection | No; no migration case |
 | F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Partial; version/result definitions ready; image entrypoint/runner contract pending | Not implemented; old draft-18 matrix excluded | Yes; prerequisite of C01–C22 |
 | F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Not implemented; separate C08/eight moq-test integration | Yes; C08/C13–C20 |
 | F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; pass criteria ready; fixture/profile/decoder choice pending | Not implemented; application integration, legacy APIs unchanged | Yes; C22 |
@@ -2090,12 +2090,16 @@ Derive denominators from rows, not development progress/document length.
 Conditional dependencies follow chosen transport; the combined target is a
 union, not a sum.
 
+Core complete records the implemented first-version Relay subset. It does
+not enter the full Complete numerator or imply independent interoperability.
+Partial retains combinations or extensions that are still incomplete.
+
 | Scope | Complete SPEC | Complete implementation |
 | --- | --- | --- |
-| All targets F01–F44 | 37/44 (84.1%); 7 partial, 0 missing | 18/44 (40.9%); 10 partial, 16 not implemented |
-| Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 2 partial, 5 not implemented |
-| WebTransport interop dependencies | 19/23 (82.6%); 4 partial, 0 missing | 15/23 (65.2%); 2 partial, 6 not implemented |
-| Union of both transports | 20/24 (83.3%); 4 partial, 0 missing | 16/24 (66.7%); 2 partial, 6 not implemented |
+| All targets F01–F44 | 37/44 (84.1%); 7 partial, 0 missing | 18/44 (40.9%); 6 core complete, 11 partial, 9 not implemented |
+| Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 1 partial, 3 not implemented |
+| WebTransport interop dependencies | 19/23 (82.6%); 4 partial, 0 missing | 15/23 (65.2%); 3 core complete, 1 partial, 4 not implemented |
+| Union of both transports | 20/24 (83.3%); 4 partial, 0 missing | 16/24 (66.7%); 3 core complete, 1 partial, 4 not implemented |
 
 These measure **dependency completeness**, not a 22-case pass rate.
 Partial-capability gaps may exceed a case's assertions. Reports independently

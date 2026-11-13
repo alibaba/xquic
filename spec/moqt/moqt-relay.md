@@ -1,8 +1,8 @@
 # MoQT Relay Specification
 
-This shared specification defines the target for a separate Relay
-implementation. The endpoint change does not implement Relay; this document
-is not evidence of validated Relay behavior.
+This specification defines the Relay core built on public endpoint APIs.
+Endpoints and Relay are delivered separately. These requirements are not
+evidence of a successful run or interoperability with independent peers.
 
 Protocol basis: [draft-ietf-moq-transport-22 §7][s7], depending on the
 [endpoint specification](moqt-protocol.md).
@@ -19,7 +19,7 @@ Both sides explicitly configure draft-22 and negotiate `moqt-22`, obeying
 endpoint version/ALPN consistency. Preserving legacy draft-05/0-RTT does not
 provide cross-version bridging.
 
-| Capability | Separate Relay implementation requirement |
+| Capability | Relay core requirement |
 | --- | --- |
 | PUBLISH_NAMESPACE and direct PUBLISH | Required; authorize Namespace and specific Track independently |
 | SUBSCRIBE routing, upstream establishment, downstream fanout | Required; multiple publishers/subscribers, Session-local IDs |
@@ -38,6 +38,102 @@ provide cross-version bridging.
 The first version is an intermediate target. Claiming complete draft-22 Relay
 support still requires all messages and §7 rules; endpoint optional subsets
 do not waive Relay obligations.
+
+The pinned interop catalog's `namespace-discovery` case requires
+SUBSCRIBE_TRACKS. Endpoints already provide St enumeration, independent Pc,
+and SKIPPED; Relay reuses them for cross-Session discovery without another
+endpoint message implementation. Runner, container, and external-peer adapters
+are outside this library. Local three-node success does not establish that
+the independent interop case passes.
+
+## Implementation Boundaries and Entity Design
+
+Relay is an optional MoQ module above the endpoints. Its public entry point is
+`include/moq/xqc_moqt_relay.h`; implementation lives in `moq/moqt_relay/`.
+It uses only `xqc_moqt_*` endpoint APIs, shared codec/name helpers, and XQUIC
+memory/containers. QUIC/TLS, draft-05 APIs, and connection negotiation acquire
+no Relay-specific branch.
+
+Endpoint additions are read-only queries for existing Location/known
+termination decisions and current Largest, plus incoming Subgroup
+END_OF_GROUP and the arrival time of an Object's first header byte. Relay
+does not inspect private endpoint structures. END_OF_GROUP is retained from
+the stream header and takes effect only on complete FIN. Continuation
+fragments omit repeated properties; unknown and Immutable Properties preserve
+their raw bytes. New subscriptions to direct PUBLISH use current Largest,
+not a stale cached initial location.
+
+| Protocol responsibility | Entity | References and lifetime |
+| --- | --- | --- |
+| Relay node | `xqc_moqt_relay_t` | Owns Peers, routing state, and total metadata budget; single-threaded |
+| Independent hop/Session | `xqc_moqt_relay_peer_t` | Owns one endpoint Session and an explicit application Scope; destroy on connection close |
+| Publication registration, discovery, queries, subscription control | `xqc_moqt_relay_request_t` | Weak endpoint Request handle, message snapshots, and upstream/downstream mappings; Request closure clears only that handle |
+| Shared content identity | `xqc_moqt_relay_track_t` | Scope plus binary Full Track Name; associates sources/demand, never a global Alias key |
+| Live delivery | Endpoint `xqc_moqt_subscription_t` | Relay Request retains an independent delivery reference until subscription termination, not Request FIN |
+| Historical delivery | `xqc_moqt_relay_fetch_t` | Associates both Fetches and triggering requests; one absolute deadline, independent of Request FIN on either hop |
+| Per-stream forwarding | `xqc_moqt_relay_stream_t` | One incoming-to-downstream stream mapping; endpoint APIs own FIN/reset, cancellation, and acknowledgment completion |
+
+Each endpoint Session allocates its own Request IDs and Track Aliases. Relay
+associates handles and never copies hop-local IDs/Aliases into responses.
+Discovery registrations are counted by source Request. Notify DONE only when
+the final source for that Namespace disappears. Direct PUBLISH associates a
+specific Track without registering its Namespace.
+
+This version advertises one update credit per Request and returns downstream
+OK after the corresponding upstream update completes. Reuse the endpoint
+FIFO rather than maintaining another concurrent update queue.
+
+This version does not aggregate Object subscriptions. Each downstream demand
+creates an independent SUBSCRIBE to each matching publisher, retaining that
+demand's filters and delivery parameters. Direct PUBLISH may fan out to
+multiple authorized downstreams. Each downstream pauses/resumes independently;
+pause direct PUBLISH only when all matching demands are paused. This avoids
+premature filter-union/shared-update scheduling. Incoming Tokens are removed;
+application hop policy supplies outbound credentials.
+
+Applications explicitly provide SETUP policy, request authorization, and
+Scope. Peer creation/destruction follows connection creation/closure; start
+its Session after handshake. Relay creates neither threads nor an event loop.
+Call its processing entry point after QUIC events and at the returned next
+deadline. Closure callbacks immediately clear invalid handles; defer mapping
+reclamation during callback traversal to prevent cross-Session dangling
+references.
+
+Relay Peer/Request/Stream/byte limits and each Session's stream/byte limits
+both apply. Forward borrowed incoming fragments through endpoint send queues,
+which copy them; do not add unlimited per-downstream payload queues. A queue
+that cannot accept a fragment terminates only that downstream delivery while
+healthy downstreams continue. Relay metadata, duplicate windows, and pending
+operations consume its byte budget; payload consumes the destination Session
+queue budget. The combined bound is the Relay budget plus all admitted
+Sessions' configured bounds, with bounded Peer count. These are distinct
+counters, not one interchangeable budget.
+
+The first sufficient FETCH response fixes End Location before associating
+the two Fetches. Fill uses its triggering response snapshot and each hop's
+Request ID, without becoming a live Subgroup. Total budget starts with the
+first request; queuing, response waits, and source changes cannot extend its
+deadline. Downstream cancellation cancels its upstream request/Fetch and
+streams, preserving other downstreams' independent requests.
+
+Each historical operation initially chooses one authorized publisher, without
+automatic source switching. Missing Fill ranges become independent FETCHes
+to that publisher. Withhold FETCH_OK until End Location is sufficiently known.
+An upstream unable to cover the promised Fill boundary causes
+UNKNOWN_OBJECT_STATUS reset, never a shortened snapshot or invented
+nonexistent Object. With no remaining budget and no Object yet, send a
+timed-out range. If a partial Object cannot complete, reset DELIVERY_TIMEOUT
+rather than sending an apparently complete FIN.
+
+Duplicate detection retains a bounded identity/SHA-256 window, not historical
+payload. Each new downstream has its own delivered window; prior delivery to
+another subscriber must not suppress its Objects. If a duplicate Subgroup
+record is skipped, reset any open output stream and use another for subsequent
+records. Never continue across an omitted record and then FIN the old stream.
+Objects outside the window are not claimed to be deduplicated. Conflicts
+terminate only the affected Track, preserving unrelated Tracks/Sessions.
+Payload digests are judged on complete reception; a delivered prefix cannot
+be retracted, so conflict detection must terminate the affected delivery.
 
 ## Relay Requirements
 
@@ -76,8 +172,17 @@ supplies matching, authorized, established publication sources to
 one publication; a new publication after reconnection uses a new ID. Reusable
 pointer addresses must not serve as instance IDs. Repeated enumeration when
 sources appear lets the endpoint suppress previously offered/skipped entries.
-Map each downstream Pc independently to its source and Object delivery; Pc
-must not have St's lifetime. Never copy upstream credentials into downstream
+Relay enumerates authorized publishers whose Namespaces intersect. Each
+publisher peer shares one upstream St with an empty prefix, authorized on
+that hop; do not create overlapping upstream St for multiple downstreams.
+This shares only name discovery, never Object authorization or filters.
+Cancel upstream enumeration when the last relevant St disappears. New
+upstream PUBLISH creates an independent source, re-enumerated for current
+matching interest. Map each downstream Pc independently to its source and
+Object delivery; Pc must not have St's lifetime. St cancellation releases
+only upstream enumeration interest. Source PUBLISH and established downstream
+Pc are reclaimed at their own delivery termination.
+Never copy upstream credentials into downstream
 PUBLISH. Relay owns downstream-origin exclusion, cross-Scope isolation, and
 specific Track authorization; endpoint APIs provide neither cross-Session
 routing nor authorization policy.
@@ -177,20 +282,33 @@ Never log Tokens.
 ## Cross-Session State and Lifetimes
 
 Sns is Namespace discovery, St is a prefix Track subscription, and Pc is a
-specific Track's PUBLISH. None owns the others' delivery lifetime.
+specific Track's PUBLISH. Namespace discovery, specific-Track control, and
+Object delivery have separate lifetimes. SUBSCRIBE_TRACKS owns enumeration
+interest only; generated PUBLISH independently retains its delivery mapping
+through St cancellation or FIN. Live state notifications, FORWARD aggregation,
+and source termination apply only to subscriptions. An independent FETCH for
+the same Track neither counts as a live source nor terminates with live
+notifications or cancellation.
 
 | State | Ownership and commit conditions | Termination and isolation |
 | --- | --- | --- |
-| Pending rendezvous | Downstream interest and original deadline; match late PUBLISH to same-Track waiting requests | Commit success/failure/timeout once; late publish cannot revive cancelled state or duplicate PUBLISH to B |
-| Namespace source set | Authorized matching sources by Scope | DONE only after final source withdrawal; disappearance does not automatically terminate independent Pc |
-| Aggregated demand | Independent downstream filter/priority/deadline; upstream covers authorized Object union | Cancelling/pausing B1 preserves B2 dependencies; excess ranges may widen filtering within authorization/budget or add upstreams, followed by per-downstream filtering |
+| Pending rendezvous | Downstream interest and original deadline; match late PUBLISH to same-Track waiting requests | Commit success/failure/timeout once; late publication cannot revive cancelled state |
+| Namespace source set | Authorized matching sources by Scope | DONE only after final source withdrawal; disappearance does not automatically terminate independent Track delivery |
+| Independent demand | Each downstream retains filter/priority/deadline and creates an independent upstream request per source | Cancelling/pausing B1 preserves B2 dependencies; direct PUBLISH fans out under each downstream's policy |
 | FETCH/Fill attempt | Original total timeout budget and definite End Location | No restart on source switch; cache miss/eviction/filter exclusion stays unknown; unfiltered FETCH explicitly marks gaps or resets UNKNOWN_OBJECT_STATUS |
 | Asynchronous operation | Bound to owning Session/subscription/cancellation state | Late completion only releases; no dangling references, duplicate terminal state, or unlimited wait |
 
-Prefer matching late publication to pending SUBSCRIBE. Only matched
-SUBSCRIBE_TRACKS without pending SUBSCRIBE creates an independent PUBLISH by
-discovery rules. Success waits for upstream Established. Add new publication
-sources to existing demand, rather than retaining only the first publisher.
+Match late publication to pending SUBSCRIBE, committing success only after
+upstream Established. Add new publication sources to existing demand, rather
+than retaining only the first publisher.
+
+When the same subscriber also has a matching St, late PUBLISH SHALL satisfy
+the pending SUBSCRIBE without another Pc. Check each St's merge condition
+before committing SUBSCRIBE_OK so traversal order cannot erase the pending
+state. Use PUBLISH_SKIPPED to record the publication instance for an uncreated
+Pc. Neither later scans nor SUB cancellation may retry that instance; a new
+publication instance may be enumerated. Cancelled/timed-out SUB requests do
+not participate; other St-only subscribers receive Pc normally. [§7.6][s7.6]
 
 Subscriber migration establishes new before cancelling old; B1 migration does
 not migrate B2. Publisher rebuilds registration/PUBLISH on the new Session and
@@ -198,10 +316,8 @@ continues old-session sends until interest migrates. Deduplicate by Object
 identity during overlap. Reallocate Aliases; application decides URI/credentials
 without automatic inheritance. [§7.4.1][s7.4.1], [§7.6.1][s7.6.1]
 
-Dynamic-Group outstanding aggregation is separate from subscription update
-credit; see [completion rules](moqt-protocol.md#dynamic-group-design).
-Cache indexes, eviction, and replacement transactions remain a separate
-extension. Temporary send queues are not history caches.
+Dynamic Groups, cache indexes, eviction, and replacement transactions remain
+separate extensions. Temporary send queues are not history caches.
 
 ## Acceptance for the Separate Relay Implementation
 
@@ -219,10 +335,17 @@ errors, and reclamation, not just process exit.
 | Objects/properties | Binary payload, Subgroup/Datagram, unknown properties, duplicate fidelity | Conflicts malformed; FIN cannot conceal gaps; no forwarding starts after TTL |
 | FETCH/Fill | Upstream history without cache, concurrent live, correct End Location/mode/order | Total-budget timeout/unknown/reset; cancellation stops only unreferenced operations |
 | Failure/resources | Healthy delivery continues, bounded queues/timers/routes reclaimed | Isolated slow-peer termination, malformed-upstream containment, all-upstream loss terminates affected delivery, no async UAF |
-| Aggregation/migration | Authorized union, new subscription established before old cancellation | Per-downstream filtering despite range overflow; B1 does not migrate B2; no old Alias/credential inheritance |
+| Overlapping migration | New subscription succeeds before old cancellation; independent delivery and deduplication during overlap | B1 does not migrate B2; new Sessions inherit neither Aliases nor credentials |
 
-These scenarios are not implemented yet. Allocate case IDs when implementing
-Relay under repository rules.
+Regression entry point: `case_test/moq/relay.sh`. Case 1475 covers routing,
+discovery, filters/pause, Datagrams, and overlapping migration; 1476 covers
+slow-subscriber, authorization, and malformed-Track isolation. Cases 1477/1478
+cover FETCH/Fill success and live delivery after history failure; 1479/1480
+cover St→Pc discovery, independent lifetimes, authorization, and SKIPPED.
+Units additionally cover Scope, zero budgets, timeouts, empty streams,
+allocation limits, state notifications, and callback cleanup. External runner
+results are separate; these three-node self-tests do not replace independent
+interoperability evidence.
 
 Prove routing, rights, multi-publisher behavior, fanout, FETCH/Fill, unknown
 properties, slow consumers, timeouts, and disconnects separately. Endpoint

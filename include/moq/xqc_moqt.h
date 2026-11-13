@@ -450,6 +450,23 @@ XQC_EXPORT_PUBLIC_API
 void xqc_moqt_subscription_cancel(xqc_moqt_subscription_t *subscription,
     uint64_t error);
 
+/* True only for an established, forwarding subscription at this location. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moqt_subscription_is_matching(
+    const xqc_moqt_subscription_t *subscription,
+    const xqc_moqt_location_t *location);
+
+/* Copies the current Track Largest; XQC_ERROR means no known location. */
+XQC_EXPORT_PUBLIC_API
+xqc_int_t xqc_moqt_subscription_largest(
+    const xqc_moqt_subscription_t *subscription, xqc_moqt_location_t *location);
+
+/* Known Track/Group termination excludes this late normal Object. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_subscription_object_is_obsolete(
+    const xqc_moqt_subscription_t *subscription,
+    const xqc_moqt_object_t *object);
+
 /* FETCH delivery survives request closure; views expire on_fetch_closed. */
 XQC_EXPORT_PUBLIC_API
 xqc_moqt_fetch_t *xqc_moqt_request_fetch(const xqc_moqt_request_t *request);
@@ -498,6 +515,15 @@ xqc_int_t xqc_moqt_stream_finish(xqc_moqt_stream_t *stream);
 
 XQC_EXPORT_PUBLIC_API
 void xqc_moqt_stream_cancel(xqc_moqt_stream_t *stream, uint64_t error);
+
+/* Receive-side metadata; END_OF_GROUP takes effect only after complete FIN. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_stream_end_of_group(const xqc_moqt_stream_t *stream);
+
+/* Monotonic arrival of this Object's first header bytes; zero if unavailable. */
+XQC_EXPORT_PUBLIC_API
+xqc_usec_t xqc_moqt_stream_object_received_at(
+    const xqc_moqt_stream_t *stream);
 
 /* Context is the initial request type, or REQUEST_UPDATE for its response. */
 XQC_EXPORT_PUBLIC_API

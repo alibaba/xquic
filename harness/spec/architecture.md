@@ -114,9 +114,11 @@ state; Request is embedded in its request stream. Track/Group/Subgroup share
 bounded content summaries. Object is an incrementally borrowed view.
 Subscription and Fetch delivery can outlive their request streams. Common
 containers, buffers, allocation, and vi64 are reused without changing QUIC
-varint. Legacy `moq/moq_transport/` retains its draft-05 behavior. Relay is a
-separate implementation described in the
-[relay specification](../../spec/moqt/moqt-relay.md).
+varint. Legacy `moq/moq_transport/` retains its draft-05 behavior. The separate
+`moq/moqt_relay/` module consumes public endpoint APIs and shared MoQT codecs,
+owning cross-session routes and delivery mappings without accessing private
+Session state. Its public API is `include/moq/xqc_moqt_relay.h`; see the
+[Relay specification](../../spec/moqt/moqt-relay.md).
 
 QUIC transport owns Reliable Stream Reset negotiation, state, and recovery.
 Applications consume this capability through the public stream API.

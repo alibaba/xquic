@@ -74,6 +74,10 @@ endif()
 
 target_link_libraries(test_server ${APP_DEPEND_LIBS})
 if(XQC_ENABLE_MOQ)
+    add_executable(test_moqt_relay
+        complex_case/test_moqt_relay.c
+        complex_case/complex_case_common.c)
+    target_link_libraries(test_moqt_relay ${APP_DEPEND_LIBS})
     add_executable(test_moqt_negotiation
         complex_case/test_moqt_negotiation.c
         complex_case/complex_case_common.c)
@@ -151,6 +155,7 @@ if(HAVE_CUNIT)
 
     if(XQC_ENABLE_MOQ)
         list(APPEND test_SOURCES
+            ${UNIT_TEST_DIR}/xqc_moqt_relay_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_codec_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_quic_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_session_test.c)

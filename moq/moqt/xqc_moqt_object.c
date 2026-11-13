@@ -285,6 +285,15 @@ xqc_moqt_object_dispatch(xqc_moqt_session_t *s, xqc_moqt_track_t *track,
     xqc_moqt_streams_release(head);
 }
 
+xqc_bool_t
+xqc_moqt_subscription_object_is_obsolete(const xqc_moqt_subscription_t *sub,
+    const xqc_moqt_object_t *object)
+{
+    return sub != NULL && object != NULL
+        && xqc_moqt_object_is_obsolete(sub->track,
+            xqc_moqt_group_find(sub->track, object->group_id), object);
+}
+
 void
 xqc_moqt_datagram_input(xqc_moqt_session_t *s, const uint8_t *data, size_t len)
 {
@@ -962,6 +971,9 @@ xqc_moqt_subgroup_input(xqc_moqt_stream_t *st, uint8_t fin)
     }
     while (rx->data_len && !st->discarded && !s->closed) {
         if (!d->object_header) {
+            if (!d->object_time) {
+                d->object_time = xqc_monotonic_timestamp();
+            }
             xqc_moqt_object_t object = d->object;
             xqc_int_t n = st->kind == XQC_MOQT_STREAM_FETCH
                 ? xqc_moqt_fetch_header_decode(rx->data, rx->data_len,
@@ -1028,6 +1040,7 @@ xqc_moqt_subgroup_input(xqc_moqt_stream_t *st, uint8_t fin)
             rx->data_len -= d->header_length;
             memmove(rx->data, rx->data + d->header_length, rx->data_len);
             d->object_header = 0;
+            d->object_time = 0;
             xqc_memzero(&o->properties, sizeof(o->properties));
             xqc_memzero(&o->payload, sizeof(o->payload));
         }
@@ -1059,6 +1072,25 @@ xqc_moqt_subgroup_input(xqc_moqt_stream_t *st, uint8_t fin)
 malformed:
     xqc_moqt_session_close(s, XQC_MOQT_PROTOCOL_VIOLATION);
     return -XQC_EILLEGAL_FRAME;
+}
+
+xqc_bool_t
+xqc_moqt_stream_end_of_group(const xqc_moqt_stream_t *st)
+{
+    return st != NULL && st->kind == XQC_MOQT_STREAM_SUBGROUP
+           && (st->state.data.flags & XQC_MOQT_SUBGROUP_END_GROUP);
+}
+
+xqc_usec_t
+xqc_moqt_stream_object_received_at(const xqc_moqt_stream_t *st)
+{
+    if (st == NULL
+        || (st->kind != XQC_MOQT_STREAM_SUBGROUP
+            && st->kind != XQC_MOQT_STREAM_FETCH))
+    {
+        return 0;
+    }
+    return st->state.data.object_time;
 }
 
 xqc_moqt_stream_t *

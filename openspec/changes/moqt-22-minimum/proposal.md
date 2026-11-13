@@ -29,9 +29,9 @@ constant change.
 
 The [protocol specification][protocol] maintains the durable
 `moqt-22-protocol` contract. The [relay specification][relay] defines the
-unimplemented `moqt-22-relay` target. This change retains motivation, an
-architecture-decision index, and implementation outline, avoiding duplicate
-specifications and historical progress snapshots.
+separate `moqt-22-relay` core and remaining extension targets. This change
+retains motivation, an architecture-decision index, and implementation outline,
+avoiding duplicate specifications and historical progress snapshots.
 
 Affected areas are optional MoQ, a separate public header, common vi64, and
 paired tests. `XQC_ENABLE_MOQ` controls both protocols. QUIC varint, media

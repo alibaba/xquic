@@ -1025,8 +1025,8 @@ readiness additionally requires both SETUP messages to complete.
 The [MoQT protocol specification](../spec/moqt/moqt-protocol.md) defines
 request, subscription, incremental Object, FETCH/Fill, and discovery APIs,
 borrowed-view lifetimes, and current capability gaps. Existing `xqc_moq_*`
-interfaces retain their draft-05 behavior. Relay and draft-22 resumption are
-separate planned capabilities.
+interfaces retain their draft-05 behavior. Draft-22 resumption remains a
+separate planned capability.
 
 For an accepted incoming `SUBSCRIBE_TRACKS`, enumerate authorized publication
 instances with `xqc_moqt_request_publish()` or explicitly skip one with
@@ -1034,3 +1034,18 @@ instances with `xqc_moqt_request_publish()` or explicitly skip one with
 generated PUBLISH requests have independent lifetimes. The
 `on_publish_skipped` callback receives a borrowed complete name. Enumeration
 retains bounded offered/skipped state until the prefix request closes.
+
+## MoQT Relay Core
+
+Include [`moq/xqc_moqt_relay.h`](../include/moq/xqc_moqt_relay.h) with MoQ
+enabled. Create a Relay with explicit SETUP, incoming authorization, and
+outbound hop-policy callbacks. Create each Peer in its connection-create
+callback, supplying an application-normalized opaque Scope. Start the Peer
+Session after handshake and destroy the Peer on connection close.
+
+Call `xqc_moqt_relay_process()` outside callbacks after engine processing and
+at the returned absolute monotonic deadline. Destroy Peers before the Relay.
+The [Relay specification](../spec/moqt/moqt-relay.md) defines hop-local IDs,
+source/interest/delivery lifetimes, resource bounds, and acceptance gaps.
+The endpoint's read-only subscription and stream queries expose existing
+filter, Largest, termination, END_OF_GROUP, and Object-arrival state.

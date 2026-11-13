@@ -9,7 +9,7 @@
 
 
 static size_t
-xqc_rap_scheduler_size()
+xqc_rap_scheduler_size(void)
 {
     return 0;
 }

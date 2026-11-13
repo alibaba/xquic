@@ -6,7 +6,7 @@
 #include "src/common/xqc_config.h"
 
 size_t
-xqc_unlimited_cc_size()
+xqc_unlimited_cc_size(void)
 {
     return 0;
 }

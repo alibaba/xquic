@@ -103,7 +103,7 @@ static void xqc_bbr2_save_cwnd(xqc_bbr2_t *bbr2);
 static bool xqc_bbr2_is_probing_bandwidth(xqc_bbr2_t *bbr2);
 
 size_t
-xqc_bbr2_size()
+xqc_bbr2_size(void)
 {
     return sizeof(xqc_bbr2_t);
 }

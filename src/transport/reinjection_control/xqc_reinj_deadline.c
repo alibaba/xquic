@@ -27,7 +27,7 @@
 
 
 static size_t
-xqc_deadline_reinj_ctl_size()
+xqc_deadline_reinj_ctl_size(void)
 {
     return sizeof(xqc_deadline_reinj_ctl_t);
 }

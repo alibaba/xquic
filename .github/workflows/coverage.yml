@@ -1,0 +1,187 @@
+name: Coverage
+
+# Measures the line, function and branch coverage of the library sources
+# (src/ and include/) by the unit suite and the case suite together, with
+# gcov, and publishes the report as an artifact and a job summary. The case
+# suite runs its shards in parallel, each writing its gcov counters under a
+# GCOV_PREFIX of its own (case_test/lib/runner.sh); the job merges those
+# counters into the build tree before reporting. Test failures are reported
+# in the summary and fail the Build workflow, not this one.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The BoringSSL release that the job builds: a tag, not BoringSSL's main
+  # branch, so that a BoringSSL commit cannot break the job on its own.
+  XQC_BORINGSSL_TAG: 0.20261105.0
+
+jobs:
+
+  coverage:
+
+    name: Unit and case coverage
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 60
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            gcovr \
+            libcunit1-dev \
+            libevent-dev \
+            psmisc
+
+    - name: Build BoringSSL
+      run: |
+        git clone --depth 1 --branch "$XQC_BORINGSSL_TAG" \
+          https://github.com/google/boringssl.git ./third_party/boringssl
+        cmake -S third_party/boringssl -B third_party/boringssl/build \
+          -DBUILD_SHARED_LIBS=0 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_FLAGS="-fPIC" \
+          -DCMAKE_CXX_FLAGS="-fPIC"
+        cmake --build third_party/boringssl/build --parallel --target ssl crypto
+
+    - name: Build XQUIC
+      run: |
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        cmake -S . -B build \
+          -DGCOV=on \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DXQC_ENABLE_TESTING=1 \
+          -DXQC_PRINT_SECRET=1 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DXQC_ENABLE_UNLIMITED=1 \
+          -DXQC_ENABLE_COPA=1 \
+          -DXQC_COMPAT_DUPLICATE=1 \
+          -DXQC_ENABLE_FEC=1 \
+          -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 \
+          -DXQC_ENABLE_PKM=1 \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        cmake --build build --parallel
+
+    - name: Run the unit and case suites
+      run: |
+        cd build
+        openssl req -newkey rsa:2048 -x509 -nodes -days 1 \
+          -keyout server.key -out server.crt -subj /CN=test.xquic.com
+        set +e
+        ./tests/run_tests > ../unit_test.log 2>&1
+        echo "unit_status=$?" >> "$GITHUB_ENV"
+        XQC_BUILD_DIR="${PWD}" \
+          CASE_TEST_CASE_TIMEOUT=300 \
+          CASE_TEST_SHARD_TIMEOUT=600 \
+          bash ../scripts/case_test.sh --execute --parallel --jobs auto \
+            --require-complete > ../case_test.log 2>&1
+        echo "case_status=$?" >> "$GITHUB_ENV"
+        exit 0
+
+    - name: Merge the case-test counters
+      run: |
+        # case_test/lib/runner.sh gives each shard the GCOV_PREFIX
+        # ${TMPDIR:-/tmp}/xquic-case-test-gcov/<run>/<shard> with
+        # GCOV_PREFIX_STRIP=0: a shard's counters sit under that prefix at
+        # the absolute path of the build tree.
+        build="${PWD}/build"
+        merged="${RUNNER_TEMP}/gcov-merged"
+        shards=0
+        for shard in "${TMPDIR:-/tmp}"/xquic-case-test-gcov/*/*; do
+          [ -d "${shard}${build}" ] || continue
+          rm -rf "${merged}"
+          gcov-tool merge -o "${merged}" "${build}" "${shard}${build}"
+          cp -R "${merged}/." "${build}/"
+          shards=$((shards + 1))
+        done
+        echo "merged the counters of ${shards} case-test shards"
+
+    - name: Report coverage
+      run: |
+        mkdir -p coverage
+        gcovr --root . --filter 'src/' --filter 'include/' \
+          --gcov-ignore-parse-errors \
+          --html-details coverage/index.html \
+          --cobertura coverage/coverage.xml \
+          --json-summary coverage/summary.json \
+          --txt coverage/summary.txt \
+          build
+        python3 - coverage/summary.json >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+        import collections, json, os, sys
+
+        files = json.load(open(sys.argv[1]))["files"]
+        keys = ("line", "function", "branch")
+        dirs = collections.defaultdict(lambda: dict.fromkeys(
+            [k + s for k in keys for s in ("_covered", "_total")], 0))
+        for f in files:
+            parts = f["filename"].split("/")
+            d = "/".join(parts[:2]) if parts[0] == "src" and len(parts) > 2 \
+                else parts[0]
+            for k in keys:
+                for s in ("_covered", "_total"):
+                    dirs[d][k + s] += f[k + s]
+                    dirs["Total"][k + s] += f[k + s]
+
+        def pct(c, t):
+            return "%.1f%% (%d/%d)" % (100.0 * c / t, c, t) if t else "-"
+
+        unit = os.environ.get("unit_status", "?")
+        case = os.environ.get("case_status", "?")
+        print("### Coverage of src/ and include/ by the unit and case suites")
+        print()
+        print("Unit suite exit status: %s; case suite exit status: %s."
+              % (unit, case))
+        print()
+        print("| Directory | Lines | Functions | Branches |")
+        print("|---|---:|---:|---:|")
+        for d in sorted(k for k in dirs if k != "Total") + ["Total"]:
+            v = dirs[d]
+            print("| %s | %s | %s | %s |" % (d,
+                  pct(v["line_covered"], v["line_total"]),
+                  pct(v["function_covered"], v["function_total"]),
+                  pct(v["branch_covered"], v["branch_total"])))
+        EOF
+
+    - name: Upload the coverage report
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: coverage-report
+        path: |
+          coverage/
+          unit_test.log
+          case_test.log
+        retention-days: 7

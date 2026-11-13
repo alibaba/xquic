@@ -529,6 +529,122 @@ xqc_test_rebinding_sender_error_clears_candidate()
 }
 
 
+/*
+ * RFC 9000 Sections 8.2.4 and 9.4: an unanswered PATH_CHALLENGE is followed by
+ * another one before the validation deadline, and the validation is
+ * abandoned at the deadline only.
+ */
+void
+xqc_test_rebinding_resend_before_deadline()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_path_ctx_t *path;
+    xqc_timer_manager_t *timers;
+    struct sockaddr_in addr;
+    unsigned char sent_data[XQC_PATH_CHALLENGE_DATA_LEN];
+    xqc_usec_t now;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    path = conn->conn_initial_path;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    timers = &path->path_send_ctl->path_timer_manager;
+
+    /* a PATH_CHALLENGE went to the candidate; the next one finds no room */
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flag &= ~XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    xqc_memzero(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(4433);
+    CU_ASSERT_EQUAL(xqc_memcpy_with_cap(path->rebinding.addr,
+                                        sizeof(path->rebinding.addr), &addr,
+                                        sizeof(addr)), XQC_OK);
+    path->rebinding.addrlen = sizeof(addr);
+    path->rebinding.recv_bytes = 1200;
+    path->rebinding.state = XQC_REBINDING_ADDRESS_VALIDATING;
+    memset(path->rebinding.challenge_data, 0x5a, sizeof(sent_data));
+    xqc_memcpy(sent_data, path->rebinding.challenge_data, sizeof(sent_data));
+    now = xqc_monotonic_timestamp();
+    path->rebinding.deadline = now + 3000000;
+
+    /* before the deadline: the validation goes on until the deadline */
+    xqc_path_rebinding_on_timeout(conn, path, now + 1000000);
+    CU_ASSERT_EQUAL(path->rebinding.state, XQC_REBINDING_ADDRESS_VALIDATING);
+    CU_ASSERT_EQUAL(path->rebinding.addrlen, sizeof(addr));
+    CU_ASSERT_EQUAL(memcmp(path->rebinding.challenge_data, sent_data,
+                           sizeof(sent_data)), 0);
+    CU_ASSERT_TRUE(xqc_timer_is_set(timers, XQC_TIMER_NAT_REBINDING));
+    CU_ASSERT_EQUAL(timers->timer[XQC_TIMER_NAT_REBINDING].expire_time,
+                    path->rebinding.deadline);
+    CU_ASSERT_PTR_EQUAL(xqc_path_rebinding_find_by_challenge(conn, sent_data), path);
+
+    /* at the deadline: the validation is abandoned */
+    xqc_path_rebinding_on_timeout(conn, path, path->rebinding.deadline);
+    CU_ASSERT_EQUAL(path->rebinding.state, XQC_REBINDING_IDLE);
+    CU_ASSERT_EQUAL(path->rebinding.addrlen, 0);
+    CU_ASSERT_EQUAL(path->rebinding.deadline, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 9000 Section 8.2.3: a PATH_RESPONSE to the PATH_CHALLENGE before the
+ * last one validates the new address; once the address is validated, only
+ * the PATH_CHALLENGE of the MTU probe counts.
+ */
+void
+xqc_test_rebinding_previous_challenge_validates()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_path_ctx_t *path;
+    struct sockaddr_in addr;
+    unsigned char prev_data[XQC_PATH_CHALLENGE_DATA_LEN];
+    xqc_int_t ret;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    path = conn->conn_initial_path;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flag &= ~XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    xqc_memzero(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(4434);
+    CU_ASSERT_EQUAL(xqc_memcpy_with_cap(path->rebinding.addr,
+                                        sizeof(path->rebinding.addr), &addr,
+                                        sizeof(addr)), XQC_OK);
+    path->rebinding.addrlen = sizeof(addr);
+    path->rebinding.state = XQC_REBINDING_ADDRESS_VALIDATING;
+    path->rebinding.deadline = xqc_monotonic_timestamp() + 3000000;
+    memset(path->rebinding.challenge_data, 0x5a,
+           sizeof(path->rebinding.challenge_data));
+    path->rebinding.initial_challenge_padded = XQC_FALSE;
+    memset(prev_data, 0xa5, sizeof(prev_data));
+    xqc_memcpy(path->rebinding.prev_challenge_data, prev_data, sizeof(prev_data));
+    path->rebinding.prev_challenge_padded = XQC_FALSE;
+    path->rebinding.has_prev_challenge = XQC_TRUE;
+
+    CU_ASSERT_PTR_EQUAL(xqc_path_rebinding_find_by_challenge(conn, prev_data), path);
+    ret = xqc_path_rebinding_on_response(conn, path, prev_data,
+                                         xqc_monotonic_timestamp());
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_TRUE(xqc_is_same_addr((struct sockaddr *)&addr,
+                                    (struct sockaddr *)path->peer_addr));
+    CU_ASSERT_EQUAL(path->rebinding.valid, 1);
+
+    /* the unpadded PATH_CHALLENGE leads to an MTU probe */
+    CU_ASSERT_EQUAL(path->rebinding.state, XQC_REBINDING_MTU_VALIDATING);
+    CU_ASSERT_FALSE(path->rebinding.has_prev_challenge);
+    CU_ASSERT_PTR_NULL(xqc_path_rebinding_find_by_challenge(conn, prev_data));
+    ret = xqc_path_rebinding_on_response(conn, path, prev_data,
+                                         xqc_monotonic_timestamp());
+    CU_ASSERT_EQUAL(ret, XQC_ERROR);
+    CU_ASSERT_EQUAL(path->rebinding.state, XQC_REBINDING_MTU_VALIDATING);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_engine_packet_process()
 {

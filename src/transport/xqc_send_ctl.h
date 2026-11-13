@@ -191,6 +191,20 @@ xqc_send_ctl_calc_pto(xqc_send_ctl_t *send_ctl)
         + send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000;
 }
 
+/*
+ * The PTO of xqc_send_ctl_calc_pto() on a path without RTT sample, whose
+ * smoothed_rtt is the initial RTT and rttvar half of it (RFC 9002 Section
+ * 6.2.2): the PTO of a new path.
+ */
+static inline xqc_usec_t
+xqc_send_ctl_calc_initial_pto(xqc_connection_t *conn)
+{
+    xqc_usec_t initial_rtt = conn->conn_settings.initial_rtt;
+
+    return initial_rtt + xqc_max(4 * (initial_rtt / 2), XQC_kGranularity * 1000)
+        + conn->remote_settings.max_ack_delay * 1000;
+}
+
 
 void xqc_send_ctl_on_dgram_dropped(xqc_connection_t *conn, xqc_packet_out_t *po);
 

@@ -26,7 +26,6 @@
 
 /* draft-smith-quic-receive-ts-01: receive_timestamps_exponent above 20 is invalid */
 #define XQC_MAX_RECEIVE_TIMESTAMPS_EXPONENT     20
-#define XQC_MAX_RECEIVE_TIMESTAMPS_PER_ACK      63
 
 static inline uint16_t
 xqc_get_uint16(const uint8_t *p)
@@ -926,8 +925,12 @@ static xqc_int_t xqc_decode_max_receive_timestamps_per_ack(xqc_transport_params_
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
     ssize_t nread = xqc_vint_read(p, end, &params->max_receive_timestamps_per_ack);
-    /* [TRANSPORT] Values above 20 are invalid */
-    if (nread < 0 || params->max_receive_timestamps_per_ack > XQC_MAX_RECEIVE_TIMESTAMPS_PER_ACK) {
+    /*
+     * draft-smith-quic-receive-ts-01 Section 6 puts no upper bound on the
+     * timestamps that a peer can ask for: frames carry fewer when the
+     * sender cannot write that many.
+     */
+    if (nread < 0) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
     }
     return XQC_OK;

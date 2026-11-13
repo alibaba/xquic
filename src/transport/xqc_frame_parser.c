@@ -3447,6 +3447,13 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
     xqc_packet_number_t cur_pkt_num, last_pkt_num = 0;
     xqc_usec_t cur_pkt_recv_time, last_pkt_recv_time = 0;
     uint32_t total_ts_len = xqc_recv_timestamps_info_length(recv_ts_info);
+    /*
+     * The Timestamp Range Count and each Timestamp Delta Count are written on
+     * one byte, so a frame carries 63 timestamps at most, whatever
+     * max_receive_timestamps_per_ack the peer asked for.
+     */
+    uint64_t max_report = xqc_min(conn->conn_settings.max_receive_timestamps_per_ack,
+                                  XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH - 1);
     int cur_idx = total_ts_len - 1;
     xqc_recv_timestamps_info_fetch(recv_ts_info, cur_idx, &cur_pkt_num, &cur_pkt_recv_time);
     while(cur_idx >= 0) {
@@ -3456,7 +3463,7 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
          * 2. currently, using one byte to write timestamp range count, 
          *    so timestamp_range_count need be small than 1 << 6 - 1
         */
-        if (total_report_num > conn->conn_settings.max_receive_timestamps_per_ack) {
+        if (total_report_num > max_report) {
             break;
         }
         if (is_first_pkt_in_cur_range) {

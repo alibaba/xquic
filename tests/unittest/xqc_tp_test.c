@@ -847,3 +847,59 @@ xqc_test_tp_value_matches_len_decodes(void)
     CU_ASSERT_EQUAL(params.initial_max_data, 31);
     CU_ASSERT_EQUAL(params.disable_active_migration, 1);
 }
+
+
+/*
+ * draft-smith-quic-receive-ts-01 Section 6: max_receive_timestamps_per_ack
+ * has no upper bound; a peer asking for more timestamps than xquic writes
+ * in a frame is no transport parameter error.
+ */
+void
+xqc_test_max_receive_timestamps_per_ack_large(void)
+{
+    uint8_t tp[] = {
+        0x8f, 0xf0, 0xa0, 0x04, 0x01, 0x02,     /* extended_ack_features: 2 */
+        0x8f, 0xf0, 0xa0, 0x02, 0x02, 0x41, 0x00 /* max_receive_timestamps_per_ack: 256 */
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      tp, sizeof(tp));
+
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.extended_ack_features, 2);
+    CU_ASSERT_EQUAL(params.max_receive_timestamps_per_ack, 256);
+}
+
+
+/*
+ * xquic advertises at most the 63 receive timestamps that an ACK_EXTENDED
+ * frame is parsed into, whatever the application asks for.
+ */
+void
+xqc_test_max_receive_timestamps_per_ack_advertised(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+
+    xqc_conn_settings_t conn_settings;
+    memset(&conn_settings, 0, sizeof(conn_settings));
+    conn_settings.proto_version = XQC_VERSION_V1;
+    conn_settings.extended_ack_features = 2;
+    conn_settings.max_receive_timestamps_per_ack = 100;
+    xqc_conn_ssl_config_t conn_ssl_config;
+    memset(&conn_ssl_config, 0, sizeof(conn_ssl_config));
+    const xqc_cid_t *cid = xqc_connect(engine, &conn_settings, NULL, 0, "", 0,
+                                       &conn_ssl_config, NULL, 0, "transport", NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(cid);
+    xqc_connection_t *conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    CU_ASSERT_EQUAL(conn->local_settings.extended_ack_features, 2);
+    CU_ASSERT_EQUAL(conn->local_settings.max_receive_timestamps_per_ack, 63);
+
+    xqc_engine_destroy(engine);
+}

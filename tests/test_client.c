@@ -6501,7 +6501,7 @@ int main(int argc, char *argv[]) {
 
     if (g_test_case == 452) {
         conn_settings.extended_ack_features = 2;
-        /* negotiation fail test, because max_receive_timestamps_per_ack > 63 */
+        /* above the 63 timestamps a frame carries: advertised as 63 */
         conn_settings.max_receive_timestamps_per_ack = 64;
         conn_settings.receive_timestamps_exponent = 0;
     }

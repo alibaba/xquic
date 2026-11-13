@@ -551,6 +551,10 @@ main(int argc, char *argv[])
                         xqc_test_max_ack_delay_valid_boundary)
         || !CU_add_test(pSuite, "xqc_test_max_ack_delay_invalid_boundary",
                         xqc_test_max_ack_delay_invalid_boundary)
+        || !CU_add_test(pSuite, "xqc_test_max_receive_timestamps_per_ack_large",
+                        xqc_test_max_receive_timestamps_per_ack_large)
+        || !CU_add_test(pSuite, "xqc_test_max_receive_timestamps_per_ack_advertised",
+                        xqc_test_max_receive_timestamps_per_ack_advertised)
         || !CU_add_test(pSuite,
                         "xqc_test_max_udp_payload_size_valid_boundary",
                         xqc_test_max_udp_payload_size_valid_boundary)

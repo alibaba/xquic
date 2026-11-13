@@ -5,15 +5,11 @@
 #ifndef _XQC_BBR2_H_INCLUDED_
 #define _XQC_BBR2_H_INCLUDED_
 
+#include <stdbool.h>
 #include <xquic/xquic.h>
 #include <xquic/xquic_typedef.h>
 #include "src/congestion_control/xqc_window_filter.h"
 #include "src/congestion_control/xqc_bbr_common.h"
-
-typedef char bool;
-#define TRUE 1
-#define FALSE 0
-#define MSEC2SEC 1000000
 
 typedef enum {
     /* Start phase quickly to fill pipe */

@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "tests/complex_case/complex_case_common.h"
 #include "fixture.h"
+#include <moq/xqc_moqt_relay.h>
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #ifdef XQC_ENABLE_WEBTRANSPORT
 #include "include/moq/xqc_moqt_webtransport.h"
@@ -27,6 +28,7 @@ struct xqc_interop_peer_s {
     xqc_interop_app_t *app;
     xqc_interop_peer_t *next;
     xqc_moqt_session_t *session;
+    xqc_moqt_relay_peer_t *relay_peer;
 #ifdef XQC_ENABLE_WEBTRANSPORT
     xqc_h3_conn_t *h3;
     xqc_wt_session_t *wt;
@@ -43,11 +45,13 @@ struct xqc_interop_peer_s {
     xqc_moqt_stream_t *fetch_stream;
     xqc_moqt_fetch_info_t fetched;
     xqc_moqt_location_t largest;
+    xqc_moqt_namespace_t discovery;
     unsigned history, available, paused, pause_at, has_largest;
     unsigned fetch_ready, fetch_closed, fetch_first, fetch_index, fetch_last;
     unsigned fetch_finished;
     unsigned ready, response, response_type, incoming, error, closed;
     unsigned done, streams_closed, streams_reset, namespaces, removals;
+    unsigned transport_closed, offered;
     uint64_t response_error, done_code, stream_count, next_alias;
     unsigned group, object, sent_streams, generating, forward, basic;
     xqc_usec_t next_send;
@@ -57,7 +61,8 @@ struct xqc_interop_peer_s {
 struct xqc_interop_app_s {
     xqc_complex_case_engine_t base;
     xqc_interop_peer_t *peers;
-    unsigned peer_count, server, verify, verbose, webtransport;
+    xqc_moqt_relay_t *relay;
+    unsigned peer_count, server, verify, verbose, webtransport, origin, dual;
     struct sockaddr_storage remote;
     socklen_t remote_len;
     char host[256], authority[300], path[1024];
@@ -75,7 +80,8 @@ static const char *xqc_interop_cases[] = {
     "moq-test-subgroup-per-object", "moq-test-two-subgroups-eog",
     "moq-test-datagram", "moq-test-datagram-eog", "moq-test-extensions",
     "moq-test-increments", "moq-test-forward-zero",
-    "publish-namespace-multi-publisher-retention", "fetch", "join"
+    "publish-namespace-multi-publisher-retention", "fetch", "join",
+    "namespace-discovery"
 };
 
 static void xqc_interop_generate(xqc_interop_peer_t *p);
@@ -142,6 +148,16 @@ static void xqc_interop_fetch_generate(xqc_interop_peer_t *p);
 static int xqc_interop_fetch_end(xqc_interop_peer_t *p,
     const xqc_moqt_message_t *m, xqc_moqt_location_t *end);
 static int xqc_interop_run_id(char run[33]);
+static uint64_t xqc_interop_relay_setup(xqc_moqt_relay_peer_t *peer,
+    const xqc_moqt_setup_t *setup, void *data);
+static xqc_int_t xqc_interop_relay_authorize(xqc_moqt_relay_peer_t *peer,
+    const xqc_moqt_message_t *message, const xqc_moqt_message_t *candidate,
+    uint64_t *error, void *data);
+static xqc_int_t xqc_interop_relay_forward(xqc_moqt_relay_peer_t *peer,
+    xqc_moqt_message_t *message, void *data);
+static int xqc_interop_discovery(xqc_interop_app_t *app, const char *run);
+static int xqc_interop_origin_case(const char *name);
+static int xqc_interop_origin(xqc_interop_app_t *app, const char *name);
 #ifdef XQC_ENABLE_WEBTRANSPORT
 static xqc_int_t xqc_interop_h3_created(xqc_h3_conn_t *h3,
     const xqc_cid_t *cid, void *data);
@@ -219,10 +235,13 @@ xqc_interop_ready(xqc_moqt_session_t *session, void *data)
 {
     xqc_interop_peer_t *p = data;
     p->ready++;
+    unsigned wt = 0;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    wt = p->wt != NULL;
+#endif
     fprintf(stderr, "SETUP ready alpn=%s protocol=moqt-22 "
             "transport=%s role=%s\n",
-            p->app->webtransport ? "h3" : "moqt-22",
-            p->app->webtransport ? "webtransport" : "quic",
+            wt ? "h3" : "moqt-22", wt ? "webtransport" : "quic",
             p->app->server ? "server" : p->role);
 }
 
@@ -231,6 +250,29 @@ xqc_interop_authorize(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
     const xqc_moqt_message_t *candidate, uint64_t *error, void *data)
 {
     /* Anonymous, bounded interop endpoint; deployment policy is external. */
+    return XQC_OK;
+}
+
+static uint64_t
+xqc_interop_relay_setup(xqc_moqt_relay_peer_t *peer,
+    const xqc_moqt_setup_t *setup, void *data)
+{
+    return XQC_MOQT_NO_ERROR;
+}
+
+static xqc_int_t
+xqc_interop_relay_authorize(xqc_moqt_relay_peer_t *peer,
+    const xqc_moqt_message_t *message, const xqc_moqt_message_t *candidate,
+    uint64_t *error, void *data)
+{
+    /* Explicit anonymous policy for this bounded interoperability fixture. */
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_interop_relay_forward(xqc_moqt_relay_peer_t *peer,
+    xqc_moqt_message_t *message, void *data)
+{
     return XQC_OK;
 }
 
@@ -306,8 +348,23 @@ xqc_interop_message(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
         }
     } else if (m->type == XQC_MOQT_MSG_PUBLISH_NAMESPACE) {
         reply.type = XQC_MOQT_MSG_REQUEST_OK;
+    } else if (m->type == XQC_MOQT_MSG_SUBSCRIBE_TRACKS) {
+        reply.type = XQC_MOQT_MSG_REQUEST_OK;
     } else if (m->type == XQC_MOQT_MSG_PUBLISH) {
         reply.type = XQC_MOQT_MSG_REQUEST_OK;
+        if (p->discovery.count && m->track_name.iov_len == 10
+            && !memcmp(m->track_name.iov_base, "test-track", 10)
+            && m->track_namespace.count == p->discovery.count)
+        {
+            unsigned matches = 1;
+            for (size_t i = 0; i < p->discovery.count; i++) {
+                const struct iovec *a = &p->discovery.fields[i];
+                const struct iovec *b = &m->track_namespace.fields[i];
+                matches &= a->iov_len == b->iov_len
+                    && !memcmp(a->iov_base, b->iov_base, a->iov_len);
+            }
+            p->offered += matches;
+        }
     } else if (m->type == XQC_MOQT_MSG_SUBSCRIBE) {
         if (!p->history
             && xqc_interop_fixture_parse(&m->track_namespace, &p->fixture)
@@ -454,6 +511,21 @@ xqc_interop_session_create(xqc_interop_peer_t *p, xqc_connection_t *conn)
 {
     xqc_moqt_config_t config;
     xqc_moqt_config_init(&config, XQC_MOQT_VERSION_DRAFT_22);
+    if (p->app->relay) {
+        struct iovec scope = {"interop", 7};
+#ifdef XQC_ENABLE_WEBTRANSPORT
+        if (p->wt) {
+            p->relay_peer = xqc_moqt_relay_peer_create_webtransport(
+                p->app->relay, p->wt, &config, &scope, p);
+        } else
+#endif
+        {
+            p->relay_peer = xqc_moqt_relay_peer_create(p->app->relay, conn,
+                                                        &config, &scope, p);
+        }
+        p->session = xqc_moqt_relay_peer_session(p->relay_peer);
+        return p->session ? XQC_OK : XQC_ERROR;
+    }
     xqc_moqt_kv_t opts[2] = {0};
     if (!p->app->server && !p->app->webtransport) {
         opts[0].type = XQC_MOQT_OPT_PATH;
@@ -479,7 +551,7 @@ xqc_interop_session_create(xqc_interop_peer_t *p, xqc_connection_t *conn)
         .on_fetch_closed = xqc_interop_fetch_closed,
     };
 #ifdef XQC_ENABLE_WEBTRANSPORT
-    if (p->app->webtransport) {
+    if (p->wt) {
         /* Draft-22 6.2.1/9.1: CONNECT supplies authority/path for WT. */
         p->session = xqc_moqt_session_create_webtransport(p->wt,
             &config, &cbs, p);
@@ -512,11 +584,16 @@ xqc_interop_closed(xqc_connection_t *conn, const xqc_cid_t *cid,
     void *data, void *proto_data)
 {
     xqc_interop_peer_t *p = data;
-    if (p->session != NULL) {
+    if (p->relay_peer) {
+        xqc_moqt_relay_peer_destroy(p->relay_peer);
+        p->relay_peer = NULL;
+        p->session = NULL;
+    } else if (p->session != NULL) {
         xqc_moqt_session_destroy(p->session);
         p->session = NULL;
     }
     p->closed++;
+    p->transport_closed |= conn != NULL;
     return XQC_OK;
 }
 
@@ -543,6 +620,7 @@ xqc_interop_h3_closed(xqc_h3_conn_t *h3, const xqc_cid_t *cid, void *data)
     xqc_interop_peer_t *p = data;
     p->h3 = NULL;
     p->closed++;
+    p->transport_closed = 1;
     return XQC_OK;
 }
 
@@ -603,6 +681,19 @@ xqc_interop_wt_closed(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
 static int
 xqc_interop_init(xqc_interop_app_t *app, unsigned port)
 {
+    if (app->server == 2) {
+        xqc_moqt_relay_config_t relay_config;
+        xqc_moqt_relay_config_init(&relay_config);
+        const xqc_moqt_relay_callbacks_t callbacks = {
+            .on_setup = xqc_interop_relay_setup,
+            .on_authorize = xqc_interop_relay_authorize,
+            .on_forward = xqc_interop_relay_forward,
+        };
+        app->relay = xqc_moqt_relay_create(&relay_config, &callbacks);
+        if (!app->relay) {
+            return -1;
+        }
+    }
     xqc_config_t config;
     xqc_engine_ssl_config_t ssl = {0};
     xqc_engine_callback_t engine_cbs;
@@ -650,7 +741,7 @@ xqc_interop_init(xqc_interop_app_t *app, unsigned port)
         xqc_server_set_conn_settings(app->base.engine, &settings);
     }
 #ifdef XQC_ENABLE_WEBTRANSPORT
-    if (app->webtransport) {
+    if (app->webtransport || app->dual) {
         xqc_h3_callbacks_t h3 = {.h3c_cbs = {
             .h3_conn_create_notify = xqc_interop_h3_created,
             .h3_conn_close_notify = xqc_interop_h3_closed}};
@@ -665,9 +756,15 @@ xqc_interop_init(xqc_interop_app_t *app, unsigned port)
             .max_uni_streams = 128, .init_recv_window = 65536,
             .enable_datagram = XQC_TRUE,
         };
-        return xqc_h3_ctx_init(app->base.engine, &h3)
+        if (xqc_h3_ctx_init(app->base.engine, &h3)
             || xqc_wt_ctx_init(app->base.engine, NULL, &sessions, NULL)
-            || xqc_wt_engine_set_default_settings(app->base.engine, &wt);
+            || xqc_wt_engine_set_default_settings(app->base.engine, &wt))
+        {
+            return -1;
+        }
+        if (!app->dual) {
+            return 0;
+        }
     }
 #endif
     xqc_moqt_config_t moqt;
@@ -994,6 +1091,22 @@ xqc_interop_pump(xqc_interop_app_t *app, unsigned ms)
     xqc_usec_t deadline = xqc_complex_case_now_us() + ms * 1000;
     do {
         xqc_complex_case_pump(engines, 1, 2);
+        if (app->relay) {
+            xqc_moqt_relay_process(app->relay, xqc_complex_case_now_us());
+        }
+        if (app->server) {
+            xqc_interop_peer_t **link = &app->peers;
+            while (*link) {
+                xqc_interop_peer_t *p = *link;
+                if (p->transport_closed) {
+                    *link = p->next;
+                    free(p);
+                    app->peer_count--;
+                } else {
+                    link = &p->next;
+                }
+            }
+        }
         for (xqc_interop_peer_t *p = app->peers; p; p = p->next) {
             xqc_interop_fetch_generate(p);
             xqc_interop_generate(p);
@@ -1034,6 +1147,8 @@ xqc_interop_release(xqc_interop_app_t *app)
         xqc_interop_pump(app, 100);
     }
     xqc_complex_case_engine_release(&app->base);
+    xqc_moqt_relay_destroy(app->relay);
+    app->relay = NULL;
     while (app->peers) {
         xqc_interop_peer_t *p = app->peers;
         app->peers = p->next;
@@ -1388,8 +1503,103 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
 }
 
 static int
+xqc_interop_origin_case(const char *name)
+{
+    xqc_interop_fixture_t fixture;
+    return (!strncmp(name, "moq-test-", 9)
+            && !xqc_interop_fixture_case(name, &fixture))
+        || !strcmp(name, "setup-only") || !strcmp(name, "announce-only")
+        || !strcmp(name, "publish-namespace-done")
+        || !strcmp(name, "subscribe-error")
+        || !strcmp(name, "publish-track-only");
+}
+
+static int
+xqc_interop_origin(xqc_interop_app_t *app, const char *name)
+{
+    if (strncmp(name, "moq-test-", 9)) {
+        return xqc_interop_run(app, name);
+    }
+    xqc_interop_peer_t *sub = xqc_interop_connect(app, "subscriber");
+    if (!sub || xqc_interop_fixture_case(name, &sub->oracle.fixture)) {
+        return -1;
+    }
+    xqc_moqt_namespace_t ns = {0};
+    char fields[15][24];
+    xqc_interop_tuple(&ns, &sub->oracle.fixture, fields);
+    int zero = !strcmp(name, "moq-test-forward-zero");
+    if (xqc_interop_request(sub, XQC_MOQT_MSG_SUBSCRIBE, &ns, "track", 0, zero)
+        || xqc_interop_wait(app, &sub->response, 1, XQC_INTEROP_PHASE_MS)
+        || sub->response_type != XQC_MOQT_MSG_SUBSCRIBE_OK
+        || xqc_interop_wait(app, &sub->done, 1, XQC_INTEROP_DELIVERY_MS))
+    {
+        return -1;
+    }
+    xqc_usec_t end = xqc_complex_case_now_us()
+        + XQC_INTEROP_DELIVERY_MS * 1000;
+    while ((sub->stream_count == UINT64_MAX
+            || sub->streams_closed < sub->stream_count)
+           && xqc_complex_case_now_us() < end)
+    {
+        xqc_interop_pump(app, 2);
+    }
+    xqc_interop_pump(app, 250);
+    fprintf(stderr, "origin objects=%u markers=%u streams=%u/%llu bad=%u\n",
+        sub->oracle.objects, sub->oracle.markers, sub->streams_closed,
+        (unsigned long long)sub->stream_count, sub->oracle.failed);
+    return !xqc_interop_oracle_complete(&sub->oracle, zero)
+        || sub->done_code != XQC_MOQT_PUBLISH_TRACK_ENDED
+        || sub->streams_reset || sub->error
+        || (sub->stream_count != UINT64_MAX
+            && sub->streams_closed != sub->stream_count) ? -1 : 0;
+}
+
+static int
+xqc_interop_discovery(xqc_interop_app_t *app, const char *run)
+{
+    xqc_moqt_namespace_t ns;
+    xqc_interop_name(&ns, "moq-test", "discovery", run);
+    xqc_interop_peer_t *pub = xqc_interop_connect(app, "publisher");
+    if (!pub || xqc_interop_request(pub, XQC_MOQT_MSG_PUBLISH_NAMESPACE,
+                                      &ns, NULL, 0, 0)
+        || xqc_interop_wait(app, &pub->response, 1, XQC_INTEROP_PHASE_MS)
+        || pub->response_type != XQC_MOQT_MSG_REQUEST_OK)
+    {
+        return -1;
+    }
+    if (xqc_interop_request(pub, XQC_MOQT_MSG_PUBLISH, &ns, "test-track", 0, 0)
+        || xqc_interop_wait(app, &pub->response, 1, XQC_INTEROP_PHASE_MS)
+        || pub->response_type != XQC_MOQT_MSG_REQUEST_OK)
+    {
+        return -1;
+    }
+    xqc_interop_peer_t *sub = xqc_interop_connect(app, "subscriber");
+    if (sub) {
+        sub->discovery = ns;
+    }
+    if (!sub || xqc_interop_request(sub, XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE,
+                                      &ns, NULL, 0, 0)
+        || xqc_interop_wait(app, &sub->response, 1, XQC_INTEROP_PHASE_MS)
+        || sub->response_type != XQC_MOQT_MSG_REQUEST_OK
+        || xqc_interop_wait(app, &sub->namespaces, 1, XQC_INTEROP_PHASE_MS)
+        || xqc_interop_request(sub, XQC_MOQT_MSG_SUBSCRIBE_TRACKS,
+                                 &ns, NULL, 0, 0)
+        || xqc_interop_wait(app, &sub->response, 1, XQC_INTEROP_PHASE_MS)
+        || sub->response_type != XQC_MOQT_MSG_REQUEST_OK
+        || xqc_interop_wait(app, &sub->offered, 1, XQC_INTEROP_PHASE_MS))
+    {
+        return -1;
+    }
+    return sub->error || pub->error ? -1 : 0;
+}
+
+static int
 xqc_interop_run(xqc_interop_app_t *app, const char *name)
 {
+    if (!strcmp(name, "namespace-discovery")) {
+        char run[33];
+        return xqc_interop_run_id(run) ? -1 : xqc_interop_discovery(app, run);
+    }
     if (!strcmp(name, "publish-namespace-multi-publisher-retention")
         || !strcmp(name, "fetch") || !strcmp(name, "join"))
     {
@@ -1610,6 +1820,8 @@ main(int argc, char **argv)
         {"verbose", no_argument, NULL, 'v'},
         {"tls-disable-verify", no_argument, NULL, 'k'},
         {"server", no_argument, NULL, 's'},
+        {"relay-server", no_argument, NULL, 'R'},
+        {"origin", no_argument, NULL, 'o'},
         {"port", required_argument, NULL, 'p'},
         {"cert", required_argument, NULL, 'c'},
         {"key", required_argument, NULL, 'K'},
@@ -1617,8 +1829,8 @@ main(int argc, char **argv)
         {"help", no_argument, NULL, 'h'}, {0}
     };
     unsigned ncases = sizeof(xqc_interop_cases) / sizeof(xqc_interop_cases[0]);
-    int c;
-    while ((c = getopt_long(argc, argv, "r:t:lvksp:c:K:T:h",
+    int c, list = 0;
+    while ((c = getopt_long(argc, argv, "r:t:lvksRop:c:K:T:h",
                            opts, NULL)) != -1)
     {
         switch (c) {
@@ -1627,36 +1839,50 @@ main(int argc, char **argv)
         case 'v': app.verbose = 1; break;
         case 'k': app.verify = 0; break;
         case 's': app.server = 1; break;
+        case 'R': app.server = 2; break;
+        case 'o': app.origin = 1; break;
         case 'p': port = strtoul(optarg, NULL, 10); break;
         case 'c': app.cert = optarg; break;
         case 'K': app.key = optarg; break;
         case 'T': transport = optarg; break;
-        case 'l':
-            for (unsigned i = 0; i < ncases; i++) {
-                puts(xqc_interop_cases[i]);
-            }
-            return 0;
+        case 'l': list = 1; break;
         case 'h':
             puts("moqt_interop --relay URL [--test NAME]\n"
                  "  --list --tls-disable-verify --verbose\n"
                  "  --transport quic|webtransport (HTTPS selects WT)\n"
-                 "  --server [--port 4443 --cert FILE --key FILE]");
+                 "  --origin (direct endpoint control/object probes)\n"
+                 "  --server | --relay-server [--transport dual] [--port 4443 "
+                 "--cert FILE --key FILE]");
             return 0;
         default: return 1;
         }
     }
+    unsigned available = 0;
+    for (unsigned i = 0; i < ncases; i++) {
+        if (!app.origin || xqc_interop_origin_case(xqc_interop_cases[i])) {
+            available++;
+            if (list) {
+                puts(xqc_interop_cases[i]);
+            }
+        }
+    }
+    if (list) {
+        return 0;
+    }
     signal(SIGINT, xqc_interop_signal);
     signal(SIGTERM, xqc_interop_signal);
     if (transport && strcmp(transport, "quic")
-        && strcmp(transport, "webtransport"))
+        && strcmp(transport, "webtransport")
+        && !(app.server && !strcmp(transport, "dual")))
     {
         fprintf(stderr, "invalid transport: %s\n", transport);
         return 1;
     }
     app.webtransport = transport && !strcmp(transport, "webtransport");
+    app.dual = transport && !strcmp(transport, "dual");
     if (app.server) {
 #ifndef XQC_ENABLE_WEBTRANSPORT
-        if (app.webtransport) {
+        if (app.webtransport || app.dual) {
             fprintf(stderr, "WebTransport is disabled in this build\n");
             return 127;
         }
@@ -1665,9 +1891,10 @@ main(int argc, char **argv)
             xqc_interop_release(&app);
             return 1;
         }
-        fprintf(stderr, "endpoint server moqt-22 transport=%s UDP/%u "
-                "(no relay)\n", app.webtransport ? "webtransport" : "quic",
-                port);
+        fprintf(stderr, "%s server moqt-22 transport=%s UDP/%u\n",
+                app.relay ? "relay" : "endpoint",
+                app.dual ? "dual" : app.webtransport ? "webtransport"
+                                                      : "quic", port);
         while (!xqc_interop_stop) {
             xqc_interop_pump(&app, 10);
         }
@@ -1676,14 +1903,15 @@ main(int argc, char **argv)
     }
     setvbuf(stdout, NULL, _IOLBF, 0);
     puts("TAP version 14");
-    unsigned count = test ? 1 : ncases;
+    unsigned count = test ? 1 : available;
     printf("1..%u\n", count);
     if (!url) {
         url = "moqt://localhost:4443/";
     }
     int found = !test;
     for (unsigned i = 0; i < ncases; i++) {
-        found |= test && !strcmp(test, xqc_interop_cases[i]);
+        found |= test && !strcmp(test, xqc_interop_cases[i])
+            && (!app.origin || xqc_interop_origin_case(xqc_interop_cases[i]));
     }
     if (!found) {
         puts("ok 1 - unsupported # SKIP test not implemented");
@@ -1703,7 +1931,10 @@ main(int argc, char **argv)
     if (app.webtransport) {
         unsigned index = 0;
         for (unsigned i = 0; i < ncases; i++) {
-            if (!test || !strcmp(test, xqc_interop_cases[i])) {
+            if ((!test || !strcmp(test, xqc_interop_cases[i]))
+                && (!app.origin
+                    || xqc_interop_origin_case(xqc_interop_cases[i])))
+            {
                 printf("ok %u - %s # SKIP WebTransport disabled in build\n",
                        ++index, xqc_interop_cases[i]);
             }
@@ -1714,11 +1945,14 @@ main(int argc, char **argv)
     unsigned failed = 0, index = 0;
     for (unsigned i = 0; i < ncases; i++) {
         const char *name = xqc_interop_cases[i];
-        if (test && strcmp(test, name)) {
+        if ((test && strcmp(test, name))
+            || (app.origin && !xqc_interop_origin_case(name)))
+        {
             continue;
         }
         xqc_usec_t started = xqc_complex_case_now_us();
-        int rc = xqc_interop_init(&app, 0) ? -1 : xqc_interop_run(&app, name);
+        int rc = xqc_interop_init(&app, 0) ? -1 : app.origin
+            ? xqc_interop_origin(&app, name) : xqc_interop_run(&app, name);
         unsigned ready[XQC_INTEROP_MAX_PEERS] = {0};
         const char *roles[XQC_INTEROP_MAX_PEERS] = {0};
         unsigned peers = 0;

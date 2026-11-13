@@ -25,9 +25,19 @@ class InteropCLI(unittest.TestCase):
         self.assertIn("setup-only", result.stdout.splitlines())
         self.assertIn("moq-test-datagram", result.stdout.splitlines())
         for name in ("publish-namespace-multi-publisher-retention",
-                     "fetch", "join"):
+                     "fetch", "join", "namespace-discovery"):
             self.assertIn(name, result.stdout.splitlines())
+        self.assertEqual(len(result.stdout.splitlines()), 23)
+
+    def test_origin_capabilities(self):
+        result = self.run_cli("--list", "--origin")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(len(result.stdout.splitlines()), 13)
+        self.assertIn("moq-test-extensions", result.stdout.splitlines())
         self.assertNotIn("namespace-discovery", result.stdout.splitlines())
+        result = self.run_cli("--origin", "--test", "namespace-discovery")
+        self.assertEqual(result.returncode, 127)
+        self.assertIn("# SKIP", result.stdout)
 
     def test_history_and_retention_are_supported_cases(self):
         for name in ("publish-namespace-multi-publisher-retention",
@@ -58,7 +68,7 @@ class InteropCLI(unittest.TestCase):
         self.assertIn("--transport quic|webtransport", result.stdout)
 
     def test_invalid_transport_is_not_a_skip(self):
-        for value in ("udp", "https", ""):
+        for value in ("udp", "https", "dual", ""):
             result = self.run_cli("--transport", value, "--test", "setup-only")
             self.assertEqual(result.returncode, 1)
             self.assertIn("invalid transport", result.stderr)

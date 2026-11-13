@@ -1921,3 +1921,44 @@ xqc_test_retire_prior_to_unacked_limit()
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+/*
+ * xqc_test_retire_prior_to_unacked_limit after a handshake: the server's
+ * first Initial has given its connection ID (xqc_conn_confirm_cid()), the
+ * only one of path ID 0 then. At a limit of 2, the server rotates it four
+ * times and acknowledges none of the RETIRE_CONNECTION_ID frames: the four
+ * retirements are allowed (RFC 9000 Section 5.1.2: "at least twice the
+ * value of the active_connection_id_limit"), each with one frame, and the
+ * fifth is a CONNECTION_ID_LIMIT_ERROR.
+ */
+void
+xqc_test_retire_prior_to_unacked_limit_after_handshake()
+{
+    uint64_t            n;
+    xqc_packet_t        pkt;
+    xqc_connection_t   *conn;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->local_settings.active_connection_id_limit = 2;
+
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.pkt_scid.cid_len = XQC_DEFAULT_CID_LEN;
+    memset(pkt.pkt_scid.cid_buf, 0x5c, XQC_DEFAULT_CID_LEN);
+    CU_ASSERT(xqc_conn_confirm_cid(conn, &pkt) == XQC_OK);
+
+    for (n = 1; n <= 4; n++) {
+        CU_ASSERT(xqc_test_cid_recv_new_cid0(conn, n, n) == XQC_OK);
+    }
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(xqc_cid_set_get_retired_cnt(&conn->dcid_set,
+                                          XQC_INITIAL_PATH_ID) == 4);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_RETIRE_CONNECTION_ID) == 4);
+
+    CU_ASSERT(xqc_test_cid_recv_new_cid0(conn, 5, 5) == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_CONNECTION_ID_LIMIT_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}

@@ -106,5 +106,8 @@ void xqc_test_mp_retire_prior_to_rotation_bounded();
 /* too many retired connection IDs awaiting an acknowledgment is an error */
 void xqc_test_retire_prior_to_unacked_limit();
 
+/* the same, once the server's connection ID is confirmed by a handshake */
+void xqc_test_retire_prior_to_unacked_limit_after_handshake();
+
 #endif
 

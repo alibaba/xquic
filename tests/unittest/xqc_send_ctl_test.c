@@ -696,6 +696,109 @@ xqc_test_send_ctl_granularity_defers_before_boundary(void)
 
 
 /*
+ * RFC 9002 Section 5.1: an ACK frame gives an RTT sample when its Largest
+ * Acknowledged is newly acknowledged, measured from that packet, and only
+ * then. Packets 1 and 3 leave at T and T + 10 us; srtt starts at 100 ms.
+ */
+#define XQC_TEST_RTT_T  1000000000
+
+static xqc_connection_t *
+xqc_test_rtt_ack_conn(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    send_ctl->ctl_srtt = 100000;
+    send_ctl->ctl_rttvar = 50000;
+    send_ctl->ctl_minrtt = 30000;
+    send_ctl->ctl_latest_rtt = 90000;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+
+    CU_ASSERT_FATAL(xqc_test_send_ctl_seed_lost_packet(conn, 1, XQC_TEST_RTT_T) != NULL);
+    CU_ASSERT_FATAL(xqc_test_send_ctl_seed_lost_packet(conn, 3, XQC_TEST_RTT_T + 10) != NULL);
+    conn->conn_initial_path->path_pn_ctl->ctl_largest_sent[XQC_PNS_APP_DATA] = 3;
+    return conn;
+}
+
+/* an ACK frame of the ranges low1-high1 and, if high2 > 0, low2-high2 */
+static void
+xqc_test_rtt_ack(xqc_connection_t *conn, xqc_usec_t now,
+    xqc_packet_number_t low1, xqc_packet_number_t high1,
+    xqc_packet_number_t low2, xqc_packet_number_t high2)
+{
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_ack_info_t ack_info;
+
+    memset(&ack_info, 0, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_APP_DATA;
+    ack_info.n_ranges = high2 > 0 ? 2 : 1;
+    ack_info.ranges[0].low = low1;
+    ack_info.ranges[0].high = high1;
+    ack_info.ranges[1].low = low2;
+    ack_info.ranges[1].high = high2;
+    ack_info.largest_acked = high1;
+    CU_ASSERT_EQUAL(xqc_send_ctl_on_ack_received(send_ctl,
+        conn->conn_initial_path->path_pn_ctl, conn->conn_send_queue,
+        &ack_info, now, XQC_TRUE), XQC_OK);
+}
+
+/* in order: packet 1 acknowledged at T + 40 ms, packet 3 at T + 60 ms */
+void
+xqc_test_send_ctl_rtt_sample_in_order(void)
+{
+    xqc_connection_t *conn = xqc_test_rtt_ack_conn();
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    xqc_test_rtt_ack(conn, XQC_TEST_RTT_T + 40000, 1, 1, 0, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, 40000);
+    xqc_test_rtt_ack(conn, XQC_TEST_RTT_T + 60000, 3, 3, 0, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, 59990);
+    CU_ASSERT_EQUAL(send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA], 3);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * reordered: the frame acknowledging 3 arrives first, at T + 50 ms; the
+ * frame acknowledging only 1, sent before it, arrives at T + 60 ms and
+ * newly acknowledges its Largest Acknowledged
+ */
+void
+xqc_test_send_ctl_rtt_sample_reordered_ack(void)
+{
+    xqc_connection_t *conn = xqc_test_rtt_ack_conn();
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    xqc_test_rtt_ack(conn, XQC_TEST_RTT_T + 50000, 3, 3, 0, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, 49990);
+    xqc_test_rtt_ack(conn, XQC_TEST_RTT_T + 60000, 1, 1, 0, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, 60000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA], 3);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * a frame whose Largest Acknowledged (3) was acknowledged before gives no
+ * sample, even though it newly acknowledges packet 1
+ */
+void
+xqc_test_send_ctl_rtt_no_sample_old_largest(void)
+{
+    xqc_connection_t *conn = xqc_test_rtt_ack_conn();
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+
+    xqc_test_rtt_ack(conn, XQC_TEST_RTT_T + 50000, 3, 3, 0, 0);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, 49990);
+    xqc_test_rtt_ack(conn, XQC_TEST_RTT_T + 60000, 3, 3, 1, 1);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, 49990);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
  * Build a send_ctl state that satisfies xqc_send_ctl_in_persistent_congestion:
  *   - pto_count == XQC_CONSECUTIVE_PTO_THRESH
  *   - srtt/rttvar small so duration is bounded and easy to exceed

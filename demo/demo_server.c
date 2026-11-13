@@ -1802,13 +1802,17 @@ xqc_demo_svr_free_ctx(xqc_demo_svr_ctx_t *ctx)
 }
 
 
-void
-th3_demo_proxy_sig_hndlr(int signo)
+/*
+ * SIGTERM, delivered by the event loop. A signal handler that breaks the
+ * loop itself loses a SIGTERM that comes before the event base is set, or
+ * between the loop's check of its break flag and its wait for events.
+ */
+static void
+xqc_demo_svr_stop(int fd, short what, void *arg)
 {
-    if (signo == SIGTERM) {
-        xqc_demo_svr_ctx_t *ctx = &svr_ctx;
-        event_base_loopbreak(ctx->eb);
-    }
+    xqc_demo_svr_ctx_t *ctx = (xqc_demo_svr_ctx_t *)arg;
+
+    event_base_loopbreak(ctx->eb);
 }
 
 
@@ -1827,8 +1831,6 @@ main(int argc, char *argv[])
     }
 #endif
 
-    signal(SIGTERM, th3_demo_proxy_sig_hndlr);
-
     /* get input server args */
     xqc_demo_svr_args_t *args = calloc(1, sizeof(xqc_demo_svr_args_t));
     xqc_demo_svr_init_args(args);
@@ -1842,6 +1844,11 @@ main(int argc, char *argv[])
     struct event_base *eb = event_base_new();
     ctx->ev_engine = event_new(eb, -1, 0, xqc_demo_svr_engine_callback, ctx);
     ctx->eb = eb;
+
+    /* SIGTERM ends the event loop; until now, it ends the process */
+    struct event *ev_sigterm = evsignal_new(eb, SIGTERM, xqc_demo_svr_stop,
+                                            ctx);
+    event_add(ev_sigterm, NULL);
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
     if (xqc_demo_wt_app_is_interop()) {
         ctx->ev_wt_datagram = event_new(eb, -1, 0,
@@ -1876,6 +1883,7 @@ main(int argc, char *argv[])
 
     event_base_dispatch(eb);
 
+    event_free(ev_sigterm);
     xqc_engine_destroy(ctx->engine);
     // xqc_demo_svr_free_ctx(ctx);
 

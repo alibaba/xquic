@@ -782,6 +782,234 @@ xqc_test_rebinding_new_port_keeps_cc()
 }
 
 
+/* the packet size PMTUD found toward the old address, and a larger probe */
+#define XQC_TEST_REBINDING_PMTU_FOUND   1400
+#define XQC_TEST_REBINDING_PMTU_PROBE   1416
+/* a probe that gets through at the new address */
+#define XQC_TEST_REBINDING_PMTU_NEW     1300
+
+typedef struct {
+    int     count;
+    size_t  mss;
+} xqc_test_rebinding_mss_t;
+
+static void
+xqc_test_rebinding_mss_notify(xqc_connection_t *conn, size_t mss,
+    void *user_data)
+{
+    xqc_test_rebinding_mss_t *notified = user_data;
+
+    notified->count++;
+    notified->mss = mss;
+}
+
+/*
+ * A server connection that sends datagrams, with PMTUD on or off, whose path
+ * found that the peer at the old address takes packets of the found size
+ */
+static xqc_connection_t *
+xqc_test_rebinding_pmtu_conn(xqc_bool_t pmtud,
+    xqc_test_rebinding_mss_t *notified)
+{
+    xqc_connection_t *conn = test_engine_connect_cc(&xqc_cubic_cb);
+    xqc_path_ctx_t *path;
+    struct sockaddr_in old_addr;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    path = conn->conn_initial_path;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED
+                       | XQC_CONN_FLAG_CAN_SEND_1RTT
+                       | XQC_CONN_FLAG_UPPER_CONN_EXIST;
+    conn->enable_pmtud = pmtud;
+    conn->remote_settings.max_datagram_frame_size = 65535;
+    conn->app_proto_cbs.dgram_cbs.datagram_mss_updated_notify =
+        xqc_test_rebinding_mss_notify;
+    conn->dgram_data = notified;
+
+    xqc_test_rebinding_set_addr(&old_addr, XQC_TEST_REBINDING_IP_A, 4433);
+    xqc_memcpy(path->peer_addr, &old_addr, sizeof(old_addr));
+    path->peer_addrlen = sizeof(old_addr);
+
+    path->curr_pkt_out_size = XQC_TEST_REBINDING_PMTU_FOUND;
+    path->path_max_pkt_out_size = XQC_TEST_REBINDING_PMTU_FOUND + 4;
+    xqc_conn_try_to_update_mss(conn);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, XQC_TEST_REBINDING_PMTU_FOUND);
+
+    /* the search is over */
+    conn->probing_cnt = 3;
+    conn->conn_flag &= ~XQC_CONN_FLAG_PMTUD_PROBING;
+    return conn;
+}
+
+/* a PMTU probe of size, in flight on path since sent_time */
+static xqc_packet_out_t *
+xqc_test_rebinding_pmtu_probe(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_number_t pn, size_t size, xqc_usec_t sent_time)
+{
+    xqc_packet_out_t *po = test_send_packet(conn, path, pn,
+        XQC_FRAME_BIT_PING | XQC_FRAME_BIT_PADDING, sent_time);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+    po->po_flag |= XQC_POF_PMTUD_PROBING;
+    po->po_buf_size = size;
+    po->po_max_pkt_out_size = conn->conn_settings.probing_pkt_out_size;
+    return po;
+}
+
+/*
+ * RFC 9000 Section 14.2: each pair of addresses can have a PMTU of its own.
+ * Once the server has validated the peer at a new IP address, the path goes
+ * back to the size the connection started from, the connection with it, and
+ * PMTUD searches the whole range again; the application learns the smaller
+ * datagram MSS. A probe that the old address acknowledges then raises
+ * nothing, and one sent to the new address does.
+ */
+void
+xqc_test_rebinding_new_ip_resets_pmtu(void)
+{
+    xqc_test_rebinding_mss_t notified = {0, 0};
+    xqc_connection_t *conn = xqc_test_rebinding_pmtu_conn(XQC_TRUE,
+                                                          &notified);
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    size_t base = conn->conn_settings.max_pkt_out_size;
+    size_t cap = conn->conn_settings.probing_pkt_out_size;
+    struct sockaddr_in new_addr;
+    uint16_t mss;
+    xqc_usec_t now;
+
+    CU_ASSERT(base < XQC_TEST_REBINDING_PMTU_NEW);
+    CU_ASSERT(cap > XQC_TEST_REBINDING_PMTU_PROBE);
+    mss = conn->dgram_mss;
+    CU_ASSERT(mss > 0);
+    CU_ASSERT_EQUAL(notified.mss, mss);
+
+    now = xqc_monotonic_timestamp();
+    xqc_test_rebinding_pmtu_probe(conn, path, 150,
+                                  XQC_TEST_REBINDING_PMTU_PROBE, now - 5000);
+
+    xqc_test_rebinding_set_addr(&new_addr, XQC_TEST_REBINDING_IP_B, 5555);
+    xqc_test_rebinding_commit(conn, path, &new_addr,
+                              XQC_TEST_REBINDING_CHALLENGE_RTT);
+
+    CU_ASSERT_EQUAL(path->curr_pkt_out_size, base);
+    CU_ASSERT_EQUAL(path->path_max_pkt_out_size, cap);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, base);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, cap);
+    CU_ASSERT_EQUAL(conn->probing_pkt_out_size, cap);
+    CU_ASSERT_EQUAL(conn->probing_cnt, 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_PMTUD_PROBING) != 0);
+    CU_ASSERT(conn->dgram_mss < mss);
+    CU_ASSERT_EQUAL(notified.mss, conn->dgram_mss);
+
+    /* the probe sent to the old address gets acknowledged */
+    xqc_test_rebinding_ack(conn, path, 150, 150, xqc_monotonic_timestamp());
+    CU_ASSERT_EQUAL(path->curr_pkt_out_size, base);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, base);
+
+    /* one sent to the new address */
+    xqc_test_rebinding_pmtu_probe(conn, path, 151,
+                                  XQC_TEST_REBINDING_PMTU_NEW,
+                                  xqc_monotonic_timestamp());
+    xqc_test_rebinding_ack(conn, path, 151, 151,
+                           xqc_monotonic_timestamp() + 1000);
+    CU_ASSERT_EQUAL(path->curr_pkt_out_size, XQC_TEST_REBINDING_PMTU_NEW);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, XQC_TEST_REBINDING_PMTU_NEW);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A path on which PMTUD found nothing above the base size at the old address
+ * keeps its size at the new one, but PMTUD searches the whole range again
+ * there; the datagram MSS stays, and the application hears nothing.
+ */
+void
+xqc_test_rebinding_new_ip_searches_again(void)
+{
+    xqc_test_rebinding_mss_t notified = {0, 0};
+    xqc_connection_t *conn = xqc_test_rebinding_pmtu_conn(XQC_TRUE,
+                                                          &notified);
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    size_t base = conn->conn_settings.max_pkt_out_size;
+    size_t cap = conn->conn_settings.probing_pkt_out_size;
+    struct sockaddr_in new_addr;
+    uint16_t mss;
+    int count;
+
+    path->curr_pkt_out_size = base;
+    path->path_max_pkt_out_size = base + 4;
+    xqc_conn_try_to_update_mss(conn);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, base);
+    conn->max_pkt_out_size = base + 4;
+    conn->probing_pkt_out_size = base + 4;
+    conn->probing_cnt = 3;
+    conn->conn_flag &= ~XQC_CONN_FLAG_PMTUD_PROBING;
+    mss = conn->dgram_mss;
+    count = notified.count;
+
+    xqc_test_rebinding_set_addr(&new_addr, XQC_TEST_REBINDING_IP_B, 5555);
+    xqc_test_rebinding_commit(conn, path, &new_addr,
+                              XQC_TEST_REBINDING_CHALLENGE_RTT);
+
+    CU_ASSERT_EQUAL(path->curr_pkt_out_size, base);
+    CU_ASSERT_EQUAL(path->path_max_pkt_out_size, cap);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, base);
+    CU_ASSERT_EQUAL(conn->max_pkt_out_size, cap);
+    CU_ASSERT_EQUAL(conn->probing_pkt_out_size, cap);
+    CU_ASSERT_EQUAL(conn->probing_cnt, 0);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_PMTUD_PROBING) != 0);
+    CU_ASSERT_EQUAL(conn->dgram_mss, mss);
+    CU_ASSERT_EQUAL(notified.count, count);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * The path keeps its size when only the port of the peer changes (RFC 9000
+ * Section 9.4 lets a NAT rebinding keep the path state), or when PMTUD is
+ * off, without which nothing would find the size again.
+ */
+static void
+xqc_test_rebinding_keeps_pmtu_case(xqc_bool_t pmtud, uint32_t new_ip)
+{
+    xqc_test_rebinding_mss_t notified = {0, 0};
+    xqc_connection_t *conn = xqc_test_rebinding_pmtu_conn(pmtud, &notified);
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    struct sockaddr_in new_addr;
+    uint16_t mss = conn->dgram_mss;
+    int count = notified.count;
+
+    xqc_test_rebinding_set_addr(&new_addr, new_ip, 5555);
+    xqc_test_rebinding_commit(conn, path, &new_addr,
+                              XQC_TEST_REBINDING_CHALLENGE_RTT);
+
+    CU_ASSERT_EQUAL(path->curr_pkt_out_size, XQC_TEST_REBINDING_PMTU_FOUND);
+    CU_ASSERT_EQUAL(path->path_max_pkt_out_size,
+                    XQC_TEST_REBINDING_PMTU_FOUND + 4);
+    CU_ASSERT_EQUAL(conn->pkt_out_size, XQC_TEST_REBINDING_PMTU_FOUND);
+    CU_ASSERT_EQUAL(conn->probing_cnt, 3);
+    CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_PMTUD_PROBING) == 0);
+    CU_ASSERT_EQUAL(conn->dgram_mss, mss);
+    CU_ASSERT_EQUAL(notified.count, count);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_rebinding_new_port_keeps_pmtu(void)
+{
+    xqc_test_rebinding_keeps_pmtu_case(XQC_TRUE, XQC_TEST_REBINDING_IP_A);
+}
+
+void
+xqc_test_rebinding_pmtud_off_keeps_size(void)
+{
+    xqc_test_rebinding_keeps_pmtu_case(XQC_FALSE, XQC_TEST_REBINDING_IP_B);
+}
+
+
 void
 xqc_test_engine_packet_process()
 {

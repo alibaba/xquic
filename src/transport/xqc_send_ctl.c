@@ -1732,8 +1732,17 @@ xqc_send_ctl_on_pmtud_ping_acked(xqc_send_ctl_t *send_ctl,
         xqc_log(conn->log, XQC_LOG_WARN, 
                 "|PMTUD probe acked on invalid path|path:%ui|", 
                 po->po_path_id);
+        return;
     }
     
+    /*
+     * RFC 9000 Section 14.2: a probe sent before the peer moved to a new IP
+     * address tells nothing of the path MTU toward the new one.
+     */
+    if (xqc_send_ctl_sent_on_old_path(path->path_send_ctl, po->po_sent_time)) {
+        return;
+    }
+
     if (po->po_buf_size > path->curr_pkt_out_size) {
         /* update path MTU */
         path->curr_pkt_out_size = po->po_buf_size;

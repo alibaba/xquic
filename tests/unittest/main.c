@@ -365,6 +365,8 @@ main(int argc, char *argv[])
                         xqc_test_mp_retire_prior_to_rotation_bounded)
         || !CU_add_test(pSuite, "xqc_test_retire_prior_to_unacked_limit",
                         xqc_test_retire_prior_to_unacked_limit)
+        || !CU_add_test(pSuite, "xqc_test_retire_prior_to_unacked_limit_after_handshake",
+                        xqc_test_retire_prior_to_unacked_limit_after_handshake)
         || !CU_add_test(pSuite, "xqc_test_get_random", xqc_test_get_random)
         || !CU_add_test(pSuite, "xqc_test_engine_create", xqc_test_engine_create)
         || !CU_add_test(pSuite, "xqc_test_engine_drop_small_initial", xqc_test_engine_drop_small_initial)

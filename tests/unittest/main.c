@@ -104,6 +104,8 @@ main(int argc, char *argv[])
                         xqc_test_client_connect_active_queue_full)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_notify_last",
                         xqc_test_reset_stream_frame_notify_last)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_final_size_checks",
+                        xqc_test_reset_stream_frame_final_size_checks)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_closing_destroys_stream",
                         xqc_test_reset_stream_frame_closing_destroys_stream)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_duplicate",
@@ -567,6 +569,7 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)
         || !CU_add_test(pSuite, "xqc_test_stream_frame", xqc_test_stream_frame)
                 || !CU_add_test(pSuite, "xqc_test_stream_frame_buffered_limit", xqc_test_stream_frame_buffered_limit)
+                || !CU_add_test(pSuite, "xqc_test_stream_frame_final_size", xqc_test_stream_frame_final_size)
         || !CU_add_test(pSuite,
                         "xqc_test_stop_sending_drops_queued_stream_packets",
                         xqc_test_stop_sending_drops_queued_stream_packets)

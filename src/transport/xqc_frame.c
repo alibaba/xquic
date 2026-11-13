@@ -647,6 +647,27 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         goto free;
     }
 
+    /*
+     * RFC 9000 Section 4.5: a final size cannot change once known, and a FIN
+     * cannot end the stream below data already received (FINAL_SIZE_ERROR,
+     * Section 20). Check it before data received earlier is skipped.
+     */
+    if (stream_frame->fin
+        && (stream->stream_data_in.stream_determined
+            ? stream->stream_data_in.stream_length
+                != stream_frame->data_offset + stream_frame->data_length
+            : stream_frame->data_offset + stream_frame->data_length
+                < stream->stream_max_recv_offset))
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|final size changed|stream_id:%ui|final_size:%ui|"
+                "stream_length:%ui|max_recv_offset:%ui|", stream_id,
+                stream_frame->data_offset + stream_frame->data_length,
+                stream->stream_data_in.stream_length, stream->stream_max_recv_offset);
+        XQC_CONN_ERR(conn, TRA_FINAL_SIZE_ERROR);
+        ret = -XQC_EPROTO;
+        goto error;
+    }
+
     stream->stream_stats.final_packet_time = xqc_monotonic_timestamp();
     if (stream_frame->data_offset + stream_frame->data_length <= stream->stream_data_in.merged_offset_end) {
         if (!(stream_frame->fin && stream_frame->data_length == 0 && stream->stream_data_in.stream_length == 0)) {
@@ -657,15 +678,6 @@ xqc_process_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
     }
 
     if (stream_frame->fin) {
-        if (stream->stream_data_in.stream_determined
-            && stream->stream_data_in.stream_length != stream_frame->data_offset + stream_frame->data_length) 
-        {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|final size changed|stream_id:%ui|", stream_id);
-            XQC_CONN_ERR(conn, TRA_FINAL_SIZE_ERROR);
-            ret = -XQC_EPROTO;
-            goto error;
-        }
-
         if (!stream->stream_stats.peer_fin_rcv_time) {
             stream->stream_stats.peer_fin_rcv_time = xqc_monotonic_timestamp();
         }
@@ -1549,6 +1561,40 @@ xqc_process_reset_stream_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
                 stream_id, final_size, stream->stream_max_recv_offset);
         XQC_CONN_ERR(conn, TRA_FINAL_SIZE_ERROR);
         return -XQC_EPROTO;
+    }
+
+    if (stream->stream_state_recv < XQC_RECV_STREAM_ST_RESET_RECVD) {
+        /* RFC 9000 Section 4.5: a final size cannot change once known */
+        if (stream->stream_data_in.stream_determined
+            && final_size != stream->stream_data_in.stream_length)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|RESET_STREAM final size changed|stream_id:%ui|"
+                    "final_size:%ui|stream_length:%ui|",
+                    stream_id, final_size, stream->stream_data_in.stream_length);
+            XQC_CONN_ERR(conn, TRA_FINAL_SIZE_ERROR);
+            return -XQC_EPROTO;
+        }
+
+        /*
+         * RFC 9000 Sections 4.1 and 4.5: the final size consumes the flow
+         * control credit of the stream and of the connection.
+         */
+        uint64_t increase = final_size - stream->stream_max_recv_offset;
+        if (final_size > stream->stream_flow_ctl.fc_max_stream_data_can_recv
+            || conn->conn_flow_ctl.fc_data_recved
+                > conn->conn_flow_ctl.fc_max_data_can_recv
+            || increase > conn->conn_flow_ctl.fc_max_data_can_recv
+                - conn->conn_flow_ctl.fc_data_recved)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|RESET_STREAM final size exceeds flow control|stream_id:%ui|"
+                    "final_size:%ui|max_stream_data:%ui|",
+                    stream_id, final_size,
+                    stream->stream_flow_ctl.fc_max_stream_data_can_recv);
+            XQC_CONN_ERR(conn, TRA_FLOW_CONTROL_ERROR);
+            return -XQC_EPROTO;
+        }
     }
 
     stream->stream_err = err_code;

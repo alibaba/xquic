@@ -20,6 +20,7 @@ void xqc_test_pto_remote_default_when_unset(void);
 void xqc_test_pn_ctl_create_alloc_failures(void);
 
 /* RFC 9000 Section 8.2.4 path-validation timeout behavior. */
+void xqc_test_path_validation_timeout_initial_rtt(void);
 void xqc_test_path_validation_timeout_current_pto_dominates(void);
 void xqc_test_path_validation_timeout_new_path_pto_dominates(void);
 void xqc_test_path_validation_timer_not_extended_by_packet(void);

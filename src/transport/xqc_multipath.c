@@ -225,11 +225,12 @@ xqc_path_rebinding_is_same_candidate(xqc_path_rebinding_t *rebinding,
 }
 
 
+/* the validation of the peer's new address, whose RTT is not known yet */
 static void
 xqc_path_rebinding_set_timer(xqc_path_ctx_t *path, xqc_usec_t now)
 {
     xqc_timer_set(&path->path_send_ctl->path_timer_manager, XQC_TIMER_NAT_REBINDING,
-                  now, 3 * xqc_conn_get_max_pto(path->parent_conn));
+                  now, xqc_path_get_validation_timeout(path));
 }
 
 
@@ -1422,13 +1423,18 @@ xqc_path_get_idle_timeout(xqc_path_ctx_t *path)
     return xqc_conn_get_idle_timeout(path->parent_conn);
 }
 
+/*
+ * RFC 9000 Section 8.2.4: three times the larger of the current PTO and the
+ * PTO of the new path with the initial RTT, as the new path can have a
+ * longer RTT than the current one. A new path_ctx has no RTT sample yet,
+ * but a path whose peer address changed keeps the samples of the old one.
+ */
 xqc_usec_t
 xqc_path_get_validation_timeout(xqc_path_ctx_t *path)
 {
     xqc_usec_t current_pto = xqc_conn_get_max_pto(path->parent_conn);
-    xqc_usec_t new_path_pto = xqc_send_ctl_calc_pto(path->path_send_ctl);
+    xqc_usec_t new_path_pto = xqc_send_ctl_calc_initial_pto(path->parent_conn);
 
-    /* RFC 9000 Section 8.2.4: allow multiple PTOs before abandoning. */
     return 3 * xqc_max(current_pto, new_path_pto);
 }
 

@@ -196,6 +196,62 @@ xqc_test_path_validation_destroy_path(xqc_path_ctx_t *path)
 }
 
 
+/*
+ * A path whose peer address changed, as after a NAT rebinding, keeps the RTT
+ * of the old address. The new address is still validated within three times
+ * the PTO of a new path, from the initial RTT, when that PTO is the larger.
+ */
+void
+xqc_test_path_validation_timeout_initial_rtt(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    CU_ASSERT_FATAL(path != NULL);
+
+    conn->remote_settings.max_ack_delay = 25;
+    conn->conn_settings.initial_rtt = 250000;
+
+    /* the RTT of the old address: 10 ms */
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 5000;
+
+    xqc_usec_t current_pto = 10000 + 4 * 5000 + 25 * 1000;
+    xqc_usec_t new_path_pto = 250000 + 4 * 125000 + 25 * 1000;
+    CU_ASSERT(new_path_pto > current_pto);
+    CU_ASSERT_EQUAL(xqc_path_get_validation_timeout(path), 3 * new_path_pto);
+
+    /* the server validates the MTU of the client's new address */
+    struct sockaddr_in addr;
+    xqc_memzero(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    conn->conn_flag &= ~XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    CU_ASSERT_EQUAL(xqc_memcpy_with_cap(path->rebinding.addr,
+                                        sizeof(path->rebinding.addr), &addr,
+                                        sizeof(addr)), XQC_OK);
+    path->rebinding.addrlen = sizeof(addr);
+    path->rebinding.recv_bytes = 400;
+    path->rebinding.state = XQC_REBINDING_MTU_VALIDATING;
+
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_path_rebinding_on_timeout(conn, path, now);
+    xqc_timer_t *timer = &send_ctl->path_timer_manager
+                          .timer[XQC_TIMER_NAT_REBINDING];
+    CU_ASSERT_EQUAL(path->rebinding.state, XQC_REBINDING_MTU_VALIDATING);
+    CU_ASSERT(timer->timer_is_set);
+    CU_ASSERT_EQUAL(timer->expire_time, now + 3 * new_path_pto);
+
+    /* a current PTO above that of a new path still sets the window */
+    send_ctl->ctl_srtt = 2000000;
+    current_pto = 2000000 + 4 * 5000 + 25 * 1000;
+    CU_ASSERT_EQUAL(xqc_path_get_validation_timeout(path), 3 * current_pto);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_path_validation_timeout_current_pto_dominates(void)
 {

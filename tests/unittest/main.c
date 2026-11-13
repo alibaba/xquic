@@ -841,6 +841,8 @@ main(int argc, char *argv[])
                         xqc_test_pto_remote_default_when_unset)
         || !CU_add_test(pSuite, "xqc_test_pn_ctl_create_alloc_failures",
                         xqc_test_pn_ctl_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_path_validation_timeout_initial_rtt",
+                        xqc_test_path_validation_timeout_initial_rtt)
         || !CU_add_test(pSuite,
                         "xqc_test_path_validation_timeout_"
                         "current_pto_dominates",

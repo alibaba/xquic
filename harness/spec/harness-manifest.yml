@@ -377,6 +377,7 @@ modules:
       - cmake/*
       - xqc_configure.h.in
       - scripts/validate.sh
+      - scripts/cunit_summary.awk
     read:
       - harness/spec/validation.md
     update_when:

@@ -305,13 +305,7 @@ jobs:
     - name: Check Test Result
       run: |
         log_file=xquic_test_ubuntu_24_babassl.log
-        unit_summary=$(awk '
-          $1 == "tests" && NF == 6 && $2 ~ /^[0-9]+$/ \
-            && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/ {
-            summary = $2 " " $3 " " $4 " " $5
-          }
-          END {print summary}
-        ' "$log_file")
+        unit_summary=$(awk -f scripts/cunit_summary.awk "$log_file")
         read -r unit_total unit_ran unit_passed unit_failed \
           <<< "${unit_summary:-0 0 0 1}"
         case_result=1

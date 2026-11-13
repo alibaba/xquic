@@ -162,7 +162,22 @@ xqc_wt_session_is_writable(xqc_wt_session_t *session)
 const xqc_webtransport_stream_callbacks_t *
 xqc_wt_session_get_stream_callbacks(xqc_wt_session_t *session)
 {
-    return &session->wt_conn->ctx->stream_cbs;
+    return session->binding ? &session->binding->stream_cbs
+                            : &session->wt_conn->ctx->stream_cbs;
+}
+
+const xqc_webtransport_dgram_callbacks_t *
+xqc_wt_session_get_dgram_callbacks(xqc_wt_session_t *session)
+{
+    return session->binding ? &session->binding->dgram_cbs
+                            : &session->wt_conn->ctx->dgram_cbs;
+}
+
+void *
+xqc_wt_session_get_binding_user_data(xqc_wt_session_t *session)
+{
+    return session->binding ? session->binding_data
+                            : xqc_wt_session_get_callback_user_data(session);
 }
 
 void *
@@ -243,10 +258,17 @@ xqc_wt_session_flush(xqc_wt_session_t *session)
         return session->send_len ? -XQC_ESTATE : XQC_OK;
     }
     for (;;) {
-        if (session->send_offset == session->send_len && !session->send_fin
-            && !xqc_wt_session_prepare_flow_credit(session))
-        {
-            return XQC_OK;
+        if (session->send_offset == session->send_len && !session->send_fin) {
+            if (!session->closed && session->binding
+                && session->binding->writable)
+            {
+                session->binding->writable(session, session->binding_data);
+            }
+            if (session->closed
+                || !xqc_wt_session_prepare_flow_credit(session))
+            {
+                return XQC_OK;
+            }
         }
         ssize_t sent = xqc_h3_request_send_body(
             session->request, session->send_buf + session->send_offset,

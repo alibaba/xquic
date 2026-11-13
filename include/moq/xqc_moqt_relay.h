@@ -6,6 +6,9 @@
 #define _XQC_MOQT_RELAY_H_INCLUDED_
 
 #include <moq/xqc_moqt.h>
+#ifdef XQC_ENABLE_WEBTRANSPORT
+#include <moq/xqc_moqt_webtransport.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,6 +81,19 @@ XQC_EXPORT_PUBLIC_API
 xqc_moqt_relay_peer_t *xqc_moqt_relay_peer_create(xqc_moqt_relay_t *relay,
     xqc_connection_t *connection, const xqc_moqt_config_t *config,
     const struct iovec *scope, void *peer_data);
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+/*
+ * Same scope, policy, and bounds as a native peer. Bind at WT ready after
+ * CONNECT authorization and moqt-22 selection; start peer_session() there.
+ * Destroy the peer at WT close before H3 teardown. The endpoint WT
+ * constructor's transport and SETUP restrictions also apply.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_moqt_relay_peer_t *xqc_moqt_relay_peer_create_webtransport(
+    xqc_moqt_relay_t *relay, xqc_wt_session_t *transport,
+    const xqc_moqt_config_t *config, const struct iovec *scope, void *peer_data);
+#endif
 
 XQC_EXPORT_PUBLIC_API
 xqc_moqt_session_t *xqc_moqt_relay_peer_session(xqc_moqt_relay_peer_t *peer);

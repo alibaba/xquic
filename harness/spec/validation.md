@@ -121,7 +121,7 @@ its case is retired so later changes cannot reuse it.
 | `[1150, 1199]` | HTTP priority | None |
 | `[1200, 1299]` | QUIC DATAGRAM | `1201-1202` |
 | `[1300, 1399]` | Multipath QUIC | `1302` |
-| `[1400, 1499]` | MoQT | `1441-1451`, `1453-1456`, `1466-1470`, `1473-1480` |
+| `[1400, 1499]` | MoQT | `1441-1451`, `1453-1456`, `1466-1480`, `1491-1492` |
 | `[1500, 1599]` | LOC and MSF application protocols | None |
 | `[1600, 1699]` | FEC and experimental transport extensions | None |
 | `[1700, 1799]` | Common runtime, public API, and test harness | `1702-1703` |

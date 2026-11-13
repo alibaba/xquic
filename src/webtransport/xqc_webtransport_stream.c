@@ -166,7 +166,7 @@ xqc_wt_stream_attach(xqc_wt_stream_base_t *stream,
     stream->session_id = session->session_id;
     stream->session_id_complete = XQC_TRUE;
     stream->user_data = user_data ? user_data
-        : xqc_wt_session_get_callback_user_data(session);
+        : xqc_wt_session_get_binding_user_data(session);
     xqc_list_add_tail(&stream->list, &session->stream_list);
     stream->listed = XQC_TRUE;
     if (!stream->outgoing && stream->can_send && stream->h3_stream->stream
@@ -555,6 +555,12 @@ xqc_wt_stream_buffer(xqc_wt_conn_t *conn, xqc_wt_stream_base_t *stream)
 void
 xqc_wt_session_close_streams(xqc_wt_session_t *session)
 {
+    if (session->binding && !session->binding_closed) {
+        session->binding_closed = XQC_TRUE;
+        if (session->binding->closed) {
+            session->binding->closed(session, session->binding_data);
+        }
+    }
     xqc_wt_dgram_purge(session);
     while (!xqc_list_empty(&session->stream_list)) {
         xqc_wt_stream_base_t *stream = xqc_list_entry(
@@ -572,6 +578,8 @@ xqc_wt_session_close_streams(xqc_wt_session_t *session)
             xqc_wt_stream_terminate(stream);
         }
     }
+    session->binding = NULL;
+    session->binding_data = NULL;
 }
 
 ssize_t

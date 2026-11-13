@@ -5,6 +5,12 @@
 #include "src/common/xqc_time.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 
+struct xqc_webtransport_session_s;
+static xqc_moqt_relay_peer_t *xqc_moqt_relay_peer_create_internal(
+    xqc_moqt_relay_t *r, xqc_connection_t *conn,
+    struct xqc_webtransport_session_s *wt, const xqc_moqt_config_t *config,
+    const struct iovec *scope, void *data);
+
 void *
 xqc_moqt_relay_alloc(xqc_moqt_relay_t *r, size_t size)
 {
@@ -1339,8 +1345,9 @@ xqc_moqt_relay_create(const xqc_moqt_relay_config_t *config,
     return r;
 }
 
-xqc_moqt_relay_peer_t *
-xqc_moqt_relay_peer_create(xqc_moqt_relay_t *r, xqc_connection_t *conn,
+static xqc_moqt_relay_peer_t *
+xqc_moqt_relay_peer_create_internal(xqc_moqt_relay_t *r,
+    xqc_connection_t *conn, struct xqc_webtransport_session_s *wt,
     const xqc_moqt_config_t *config, const struct iovec *scope, void *data)
 {
     if (r == NULL || scope == NULL || config == NULL) {
@@ -1404,7 +1411,16 @@ xqc_moqt_relay_peer_create(xqc_moqt_relay_t *r, xqc_connection_t *conn,
     options[pos].value.integer = XQC_MOQT_RELAY_UPDATE_CREDIT;
     endpoint.setup_options = options;
     endpoint.setup_option_count = count + 1;
-    peer->session = xqc_moqt_session_create(conn, &endpoint, &callbacks, peer);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (wt != NULL) {
+        peer->session = xqc_moqt_session_create_webtransport(wt, &endpoint,
+                                                            &callbacks, peer);
+    } else
+#endif
+    {
+        peer->session = xqc_moqt_session_create(conn, &endpoint, &callbacks,
+                                                peer);
+    }
     if (peer->session == NULL) {
         xqc_moqt_relay_buffer_free(r, peer->scope);
         xqc_moqt_relay_free(r, peer, sizeof(*peer));
@@ -1415,6 +1431,27 @@ xqc_moqt_relay_peer_create(xqc_moqt_relay_t *r, xqc_connection_t *conn,
     r->stats.peers++;
     return peer;
 }
+
+xqc_moqt_relay_peer_t *
+xqc_moqt_relay_peer_create(xqc_moqt_relay_t *r, xqc_connection_t *conn,
+    const xqc_moqt_config_t *config, const struct iovec *scope, void *data)
+{
+    return xqc_moqt_relay_peer_create_internal(r, conn, NULL, config, scope,
+                                                data);
+}
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+xqc_moqt_relay_peer_t *
+xqc_moqt_relay_peer_create_webtransport(xqc_moqt_relay_t *r,
+    xqc_wt_session_t *wt, const xqc_moqt_config_t *config,
+    const struct iovec *scope, void *data)
+{
+    if (wt == NULL) {
+        return NULL;
+    }
+    return xqc_moqt_relay_peer_create_internal(r, NULL, wt, config, scope, data);
+}
+#endif
 
 xqc_moqt_session_t *
 xqc_moqt_relay_peer_session(xqc_moqt_relay_peer_t *peer)

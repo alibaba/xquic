@@ -350,6 +350,24 @@ modules:
       level: targeted
       hints: [moq, moqt, alpn, legacy, audio]
     features:
+      moqt_webtransport:
+        paths:
+          - include/moq/xqc_moqt_webtransport.h
+          - moq/moqt/xqc_moqt_webtransport.c
+          - tests/unittest/xqc_moqt_webtransport_test.*
+          - tests/complex_case/test_moqt_webtransport.c
+        feature_flags:
+          - XQC_ENABLE_MOQ=ON
+          - XQC_ENABLE_WEBTRANSPORT=ON
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_moqt_webtransport
+            - xqc_test_moqt_webtransport_errors
+            - xqc_test_moqt_webtransport_streams
+            - xqc_test_moqt_webtransport_setup_errors
+            - xqc_test_moqt_webtransport_relay
+            - xqc_test_moqt_webtransport_relay_errors
       moqt:
         paths:
           - include/moq/xqc_moqt.h

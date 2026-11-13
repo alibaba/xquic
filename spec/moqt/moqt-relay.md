@@ -9,8 +9,9 @@ Protocol basis: [draft-ietf-moq-transport-22 §7][s7], depending on the
 
 ## Minimum Supported Scope
 
-The first version is a single-process, single-node Native QUIC relay between
-original publishers and final subscribers. It terminates independent
+The first version is a single-process, single-node relay over Native QUIC or
+optional WebTransport between original publishers and final subscribers.
+It terminates independent
 transport Sessions on both sides and routes/forwards Objects through public
 protocol APIs. It depends on no private proxy format and performs no
 cross-draft wire translation.
@@ -94,6 +95,13 @@ application hop policy supplies outbound credentials.
 Applications explicitly provide SETUP policy, request authorization, and
 Scope. Peer creation/destruction follows connection creation/closure; start
 its Session after handshake. Relay creates neither threads nor an event loop.
+With `XQC_ENABLE_WEBTRANSPORT`, create a peer through
+`xqc_moqt_relay_peer_create_webtransport` in WT session readiness after the
+application authorizes CONNECT and selects `moqt-22`. It shares the native
+peer's admission, policy, scope, and forwarding logic. The endpoint WT binding
+requires draft-16 and forbids AUTHORITY/PATH SETUP Options (draft-22 §6.2.1,
+§9.1.1/§9.1.2). Start its Session there and destroy the peer in WT session
+close before H3 destruction. Peers on sibling WT Sessions remain independent.
 Call its processing entry point after QUIC events and at the returned next
 deadline. Closure callbacks immediately clear invalid handles; defer mapping
 reclamation during callback traversal to prevent cross-Session dangling

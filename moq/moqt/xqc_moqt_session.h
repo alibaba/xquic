@@ -202,6 +202,9 @@ struct xqc_moqt_stream_s {
     xqc_moqt_session_t         *session;
     struct xqc_moqt_stream_s   *next;
     xqc_stream_t               *transport_stream;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    struct xqc_wt_stream_base_s *wt_stream;
+#endif
     xqc_moqt_stream_kind_t      kind;
     xqc_var_buf_t               rx;
     xqc_list_head_t             tx;
@@ -223,6 +226,11 @@ struct xqc_moqt_stream_s {
 
 struct xqc_moqt_session_s {
     xqc_connection_t           *conn;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    struct xqc_webtransport_session_s *wt_session;
+    uint32_t                    wt_close_error;
+    unsigned                    wt_close_pending:1;
+#endif
     xqc_moqt_config_t           config;
     xqc_moqt_callbacks_t        callbacks;
     void                       *user_data;
@@ -256,7 +264,28 @@ struct xqc_moqt_session_s {
     unsigned                    closed:1;
     unsigned                    goaway_sent:1;
     unsigned                    goaway_received:1;
+    unsigned                    webtransport:1;
 };
+
+xqc_moqt_session_t *xqc_moqt_session_create_transport(xqc_connection_t *conn,
+    const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks,
+    void *data, xqc_bool_t webtransport);
+void xqc_moqt_notify_closed(xqc_moqt_session_t *s, uint64_t error);
+xqc_moqt_stream_t *xqc_moqt_stream_allocate(xqc_moqt_session_t *s,
+    xqc_stream_t *transport);
+xqc_moqt_stream_t *xqc_moqt_transport_open(xqc_moqt_session_t *s,
+    xqc_stream_direction_t direction);
+ssize_t xqc_moqt_transport_send(xqc_moqt_stream_t *st, const void *data,
+    size_t len, uint8_t fin);
+uint64_t xqc_moqt_transport_offset(xqc_moqt_stream_t *st);
+void xqc_moqt_transport_reset(xqc_moqt_stream_t *st, uint64_t error);
+size_t xqc_moqt_transport_mss(xqc_moqt_session_t *s);
+xqc_int_t xqc_moqt_transport_datagram(xqc_moqt_session_t *s,
+    const void *data, size_t len);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+void xqc_moqt_webtransport_close(xqc_moqt_session_t *s, uint64_t error);
+void xqc_moqt_webtransport_detach(xqc_moqt_session_t *s);
+#endif
 
 xqc_moqt_track_t *xqc_moqt_track_get(xqc_moqt_session_t *s,
     const xqc_moqt_message_t *message, xqc_int_t publisher);

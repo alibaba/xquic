@@ -195,6 +195,7 @@ xqc_moqt_token_check(const xqc_moqt_token_t *tokens, size_t count,
 
 static uint64_t
 xqc_moqt_setup_decode(const struct iovec *body, xqc_int_t from_client,
+    xqc_bool_t webtransport,
     xqc_moqt_setup_t *setup, xqc_moqt_kv_t *options, xqc_moqt_token_t *tokens)
 {
     size_t pos = 0;
@@ -225,8 +226,9 @@ xqc_moqt_setup_decode(const struct iovec *body, xqc_int_t from_client,
         setup->option_count++;
         pos += n;
         switch (kv->type) {
+        /* Draft-22 9.1.1/9.1.2: CONNECT already carries WT authority/path. */
         case XQC_MOQT_OPT_PATH:
-            if (!from_client) {
+            if (!from_client || webtransport) {
                 return XQC_MOQT_INVALID_PATH;
             }
             if ((kv->value.bytes.iov_len
@@ -240,7 +242,7 @@ xqc_moqt_setup_decode(const struct iovec *body, xqc_int_t from_client,
             }
             break;
         case XQC_MOQT_OPT_AUTHORITY:
-            if (!from_client) {
+            if (!from_client || webtransport) {
                 return XQC_MOQT_INVALID_AUTHORITY;
             }
             if (xqc_moqt_authority_check(&kv->value.bytes) != XQC_OK) {
@@ -278,7 +280,7 @@ xqc_moqt_setup_decode(const struct iovec *body, xqc_int_t from_client,
     return XQC_MOQT_NO_ERROR;
 }
 
-static void
+void
 xqc_moqt_notify_closed(xqc_moqt_session_t *s, uint64_t error)
 {
     if (!s->closed) {
@@ -295,6 +297,16 @@ xqc_moqt_session_close(xqc_moqt_session_t *s, uint64_t error)
     if (s == NULL || s->closed) {
         return;
     }
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (s->webtransport) {
+        if (error > UINT32_MAX) {
+            error = XQC_MOQT_INTERNAL_ERROR;
+        }
+        xqc_moqt_notify_closed(s, error);
+        xqc_moqt_webtransport_close(s, error);
+        return;
+    }
+#endif
     xqc_conn_close_with_error(s->conn, error);
     /* close_with_error records the error; wake an otherwise idle connection. */
     xqc_engine_remove_wakeup_queue(s->conn->engine, s->conn);
@@ -423,11 +435,11 @@ xqc_moqt_stream_flush_one(xqc_moqt_stream_t *stream)
         {
             /* A cancelled Fill sends only its identifying reliable prefix. */
             size_t prefix = stream->state.data.prefix_length
-                            - stream->transport_stream->stream_send_offset;
+                            - xqc_moqt_transport_offset(stream);
             len = xqc_min(len, prefix);
         }
-        ssize_t n = xqc_stream_send(
-            stream->transport_stream,
+        ssize_t n = xqc_moqt_transport_send(
+            stream,
             buf->data + buf->consumed_len, len,
             buf->fin_flag);
         if (n == -XQC_EAGAIN
@@ -469,7 +481,7 @@ xqc_moqt_stream_flush_one(xqc_moqt_stream_t *stream)
     {
         if (stream->state.data.reset_pending
             && stream->transport_stream != NULL
-            && stream->transport_stream->stream_send_offset
+            && xqc_moqt_transport_offset(stream)
                >= stream->state.data.prefix_length)
         {
             stream->state.data.reset_pending = 0;
@@ -667,6 +679,7 @@ xqc_moqt_control_message(xqc_moqt_stream_t *stream,
         xqc_moqt_setup_t setup;
         uint64_t error = xqc_moqt_setup_decode(
             &msg->body, s->conn->conn_type == XQC_CONN_TYPE_SERVER,
+            s->webtransport,
             &setup, options, tokens);
         if (error) {
             return error;
@@ -995,7 +1008,8 @@ xqc_moqt_session_timeout(xqc_gp_timer_id_t id, xqc_usec_t now, void *data)
 
 static xqc_int_t
 xqc_moqt_session_check_params(xqc_connection_t *conn,
-    const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks)
+    const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks,
+    xqc_bool_t webtransport)
 {
     /* No connection logger is available for a NULL connection. */
     if (conn == NULL) {
@@ -1009,9 +1023,13 @@ xqc_moqt_session_check_params(xqc_connection_t *conn,
         reason = "config is NULL";
     } else if (alpn == NULL) {
         reason = "unsupported protocol version";
-    } else if (conn->alpn == NULL || strcmp(conn->alpn, alpn) != 0) {
+    } else if (!webtransport
+               && (conn->alpn == NULL || strcmp(conn->alpn, alpn) != 0))
+    {
         reason = "connection ALPN does not match configured version";
-    } else if (conn->proto_data != NULL || conn->dgram_data != NULL) {
+    } else if (!webtransport
+               && (conn->proto_data != NULL || conn->dgram_data != NULL))
+    {
         reason = "connection already has application data";
     } else if (callbacks == NULL || callbacks->on_setup == NULL) {
         reason = "on_setup callback is required";
@@ -1027,31 +1045,32 @@ xqc_moqt_session_check_params(xqc_connection_t *conn,
         reason = "too many SETUP options";
     } else if (config->setup_option_count && config->setup_options == NULL) {
         reason = "SETUP options are NULL with a nonzero count";
-    } else if (cbs->stream_read_notify
+    } else if (!webtransport && cbs->stream_read_notify
                != xqc_moqt_stream_callbacks.stream_read_notify)
     {
         reason = "stream_read_notify is not the MoQT adapter";
-    } else if (cbs->stream_create_notify
+    } else if (!webtransport && cbs->stream_create_notify
                != xqc_moqt_stream_callbacks.stream_create_notify)
     {
         reason = "stream_create_notify is not the MoQT adapter";
-    } else if (cbs->stream_close_notify
+    } else if (!webtransport && cbs->stream_close_notify
                != xqc_moqt_stream_callbacks.stream_close_notify)
     {
         reason = "stream_close_notify is not the MoQT adapter";
-    } else if (cbs->stream_write_notify
+    } else if (!webtransport && cbs->stream_write_notify
                != xqc_moqt_stream_callbacks.stream_write_notify)
     {
         reason = "stream_write_notify is not the MoQT adapter";
-    } else if (cbs->stream_closing_notify
+    } else if (!webtransport && cbs->stream_closing_notify
                != xqc_moqt_stream_callbacks.stream_closing_notify)
     {
         reason = "stream_closing_notify is not the MoQT adapter";
-    } else if (cbs->stream_stop_sending_notify
+    } else if (!webtransport && cbs->stream_stop_sending_notify
                != xqc_moqt_stream_callbacks.stream_stop_sending_notify)
     {
         reason = "stream_stop_sending_notify is not the MoQT adapter";
-    } else if (conn->app_proto_cbs.dgram_cbs.datagram_read_notify
+    } else if (!webtransport
+               && conn->app_proto_cbs.dgram_cbs.datagram_read_notify
                != xqc_moqt_datagram_callbacks.datagram_read_notify)
     {
         reason = "datagram_read_notify is not the MoQT adapter";
@@ -1065,11 +1084,13 @@ xqc_moqt_session_check_params(xqc_connection_t *conn,
 }
 
 xqc_moqt_session_t *
-xqc_moqt_session_create(xqc_connection_t *conn,
+xqc_moqt_session_create_transport(xqc_connection_t *conn,
     const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks,
-    void *user_data)
+    void *user_data, xqc_bool_t webtransport)
 {
-    if (xqc_moqt_session_check_params(conn, config, callbacks) != XQC_OK) {
+    if (xqc_moqt_session_check_params(conn, config, callbacks, webtransport)
+        != XQC_OK)
+    {
         return NULL;
     }
     xqc_moqt_session_t *s = xqc_calloc(1, sizeof(*s));
@@ -1077,6 +1098,7 @@ xqc_moqt_session_create(xqc_connection_t *conn,
         return NULL;
     }
     s->conn = conn;
+    s->webtransport = webtransport;
     s->next_request_id = conn->conn_type == XQC_CONN_TYPE_CLIENT
         ? XQC_MOQT_CLIENT_FIRST_REQUEST_ID : XQC_MOQT_SERVER_FIRST_REQUEST_ID;
     s->config = *config;
@@ -1137,7 +1159,8 @@ xqc_moqt_session_create(xqc_connection_t *conn,
     xqc_moqt_token_t tokens[XQC_MOQT_MAX_OPTIONS];
     xqc_moqt_setup_t setup;
     if (xqc_moqt_setup_decode(
-        &body, conn->conn_type == XQC_CONN_TYPE_CLIENT, &setup, options, tokens)
+        &body, conn->conn_type == XQC_CONN_TYPE_CLIENT, webtransport,
+        &setup, options, tokens)
         || setup.limits.max_auth_token_cache
         || setup.limits.max_filter_ranges)
     {
@@ -1151,8 +1174,10 @@ xqc_moqt_session_create(xqc_connection_t *conn,
     }
     s->setup_deadline = xqc_monotonic_timestamp() + config->timeout;
     xqc_moqt_timer_update(s);
-    xqc_conn_set_alp_user_data(conn, s);
-    xqc_datagram_set_user_data(conn, s);
+    if (!webtransport) {
+        xqc_conn_set_alp_user_data(conn, s);
+        xqc_datagram_set_user_data(conn, s);
+    }
     return s;
 fail:
     xqc_moqt_buffer_free(s, s->setup, sizeof(xqc_var_buf_t));
@@ -1176,15 +1201,13 @@ xqc_moqt_session_start(xqc_moqt_session_t *s)
         xqc_moqt_session_close(s, XQC_MOQT_PROTOCOL_VIOLATION);
         return -XQC_EPARAM;
     }
-    xqc_stream_t *transport = xqc_stream_create_with_direction(s->conn,
-                                                               XQC_STREAM_UNI,
-                                                               NULL);
-    if (transport == NULL || s->closed) {
+    xqc_moqt_stream_t *stream = xqc_moqt_transport_open(s, XQC_STREAM_UNI);
+    if (stream == NULL || s->closed) {
         xqc_moqt_session_close(s, XQC_MOQT_INTERNAL_ERROR);
         return -XQC_EMALLOC;
     }
     /* The adapter allocates the context in stream_create_notify. */
-    s->control_tx = s->streams;
+    s->control_tx = stream;
     s->control_tx->kind = XQC_MOQT_STREAM_CONTROL;
     if (xqc_moqt_queue(s, &s->control_tx->tx, s->setup) != XQC_OK) {
         xqc_moqt_session_close(s, XQC_MOQT_INTERNAL_ERROR);
@@ -1250,7 +1273,14 @@ xqc_moqt_session_destroy(xqc_moqt_session_t *s)
         return;
     }
     xqc_moqt_notify_closed(s, xqc_conn_get_errno(s->conn));
-    xqc_conn_unregister_gp_timer(s->conn, s->timer);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (s->webtransport) {
+        xqc_moqt_webtransport_detach(s);
+    }
+#endif
+    if (s->timer >= 0) {
+        xqc_conn_unregister_gp_timer(s->conn, s->timer);
+    }
     while (s->streams != NULL) {
         xqc_moqt_stream_t *st = s->streams;
         xqc_moqt_stream_callbacks.stream_close_notify(st->transport_stream, st);
@@ -1263,7 +1293,18 @@ xqc_moqt_session_destroy(xqc_moqt_session_t *s)
         xqc_moqt_fetch_cancel(s->fetches, XQC_MOQT_RESET_SESSION_CLOSED);
     }
     xqc_moqt_buffer_free(s, s->setup, sizeof(xqc_var_buf_t));
-    xqc_conn_set_alp_user_data(s->conn, NULL);
-    xqc_datagram_set_user_data(s->conn, NULL);
+    if (!s->webtransport) {
+        xqc_conn_set_alp_user_data(s->conn, NULL);
+        xqc_datagram_set_user_data(s->conn, NULL);
+    }
     xqc_free(s);
+}
+
+xqc_moqt_session_t *
+xqc_moqt_session_create(xqc_connection_t *conn,
+    const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks,
+    void *data)
+{
+    return xqc_moqt_session_create_transport(conn, config, callbacks, data,
+                                             XQC_FALSE);
 }

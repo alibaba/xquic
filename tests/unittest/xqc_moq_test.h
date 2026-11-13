@@ -7,5 +7,7 @@
 
 void xqc_test_moq_msg_params_decoded(void);
 void xqc_test_moq_msg_params_over_limit(void);
+void xqc_test_moq_msg_strings_split(void);
+void xqc_test_moq_msg_empty_string_split(void);
 
 #endif

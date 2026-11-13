@@ -805,7 +805,8 @@ xqc_moq_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin, x
             DEBUG_PRINTF("==>track_alias:%d\n",(int)subscribe->track_alias);
             msg_ctx->cur_field_idx = 2;
         case 2: //Track Namespace (b)
-            if (subscribe->track_namespace_len == 0) {
+            /* the length is read once, before the buffer of the string */
+            if (subscribe->track_namespace == NULL) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t *)&subscribe->track_namespace_len);
                 if (ret < 0) {
                     *wait_more_data = 1;
@@ -839,7 +840,7 @@ xqc_moq_msg_decode_subscribe(uint8_t *buf, size_t buf_len, uint8_t stream_fin, x
             DEBUG_PRINTF("==>track_namespace:%s\n",subscribe->track_namespace);
             msg_ctx->cur_field_idx = 3;
         case 3: //Track Name (b)
-            if (subscribe->track_name_len == 0) {
+            if (subscribe->track_name == NULL) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t *)&subscribe->track_name_len);
                 if (ret < 0) {
                     *wait_more_data = 1;
@@ -1406,7 +1407,8 @@ xqc_moq_msg_decode_subscribe_error(uint8_t *buf, size_t buf_len, uint8_t stream_
 
             msg_ctx->cur_field_idx = 2;
         case 2: //Reason Phrase (b)
-            if (subscribe_error->reason_phrase_len == 0) {
+            /* the length is read once, before the buffer of the string */
+            if (subscribe_error->reason_phrase == NULL) {
                 ret = xqc_vint_read(buf + processed, buf + buf_len, (uint64_t *)&subscribe_error->reason_phrase_len);
                 if (ret < 0) {
                     *wait_more_data = 1;

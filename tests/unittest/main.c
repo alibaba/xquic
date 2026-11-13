@@ -837,6 +837,10 @@ main(int argc, char *argv[])
                         xqc_test_moq_msg_params_decoded)
         || !CU_add_test(pSuite, "xqc_test_moq_msg_params_over_limit",
                         xqc_test_moq_msg_params_over_limit)
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_strings_split",
+                        xqc_test_moq_msg_strings_split)
+        || !CU_add_test(pSuite, "xqc_test_moq_msg_empty_string_split",
+                        xqc_test_moq_msg_empty_string_split)
 #endif
 #ifdef XQC_ENABLE_FEC
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)

@@ -429,6 +429,14 @@ xqc_h3_frm_parse_setting(xqc_var_buf_t *data, void *user_data)
             }
         }
 
+        /*
+         * a setting takes two bytes or more: capacity entries hold every
+         * setting that data_len bytes can carry
+         */
+        if (count >= capacity) {
+            goto frame_error;
+        }
+
         entries[count].identifier = identifier.vi;
         entries[count].value = value.vi;
         count++;

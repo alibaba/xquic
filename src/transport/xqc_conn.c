@@ -4894,6 +4894,48 @@ xqc_conn_record_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 }
 
 
+/*
+ * RFC 9000 Section 7.2: once the server's Initial gives its connection ID, the
+ * client sends with it. The connection ID the client chose for its first
+ * Initial was not issued by the server (Section 5.1.1 gives it no sequence
+ * number), so it goes: no RETIRE_CONNECTION_ID frame is due for it, and it no
+ * longer has to be left out of the active_connection_id_limit count. A server
+ * may keep it as its own connection ID; then it is the server's handshake
+ * connection ID, which the limit counts (Section 18.2).
+ */
+static void
+xqc_conn_drop_client_first_dcid(xqc_connection_t *c, xqc_cid_t *server_cid)
+{
+    xqc_cid_t            first_dcid;
+    xqc_cid_inner_t     *inner_cid;
+    xqc_list_head_t     *pos, *next;
+    xqc_cid_set_inner_t *inner_set;
+
+    inner_set = xqc_get_path_cid_set(&c->dcid_set, XQC_INITIAL_PATH_ID);
+    if (inner_set == NULL) {
+        return;
+    }
+
+    xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if (!inner_cid->is_original) {
+            continue;
+        }
+
+        if (xqc_cid_is_equal(&inner_cid->cid, server_cid) == XQC_OK) {
+            inner_cid->is_original = 0;
+            if (inner_set->original_cid_cnt > 0) {
+                inner_set->original_cid_cnt--;
+            }
+            continue;
+        }
+
+        xqc_cid_copy(&first_dcid, &inner_cid->cid);
+        xqc_cid_set_delete_cid(&c->dcid_set, &first_dcid, XQC_INITIAL_PATH_ID);
+    }
+}
+
+
 xqc_int_t
 xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
 {
@@ -4928,6 +4970,8 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
             xqc_cid_copy(&c->conn_initial_path->path_dcid, &pkt->pkt_scid);
             xqc_datagram_record_mss(c);
         }
+
+        xqc_conn_drop_client_first_dcid(c, &pkt->pkt_scid);
 
         if (xqc_insert_conns_hash(c->engine->conns_hash_dcid, c,
                                   c->dcid_set.current_dcid.cid_buf,

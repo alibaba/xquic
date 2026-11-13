@@ -17,6 +17,12 @@
 #define XQC_CUBIC_TIME_SCALE        10u
 #define XQC_CUBIC_MAX_SSTHRESH      0xFFFFFFFF
 
+/*
+ * Largest |t - K| (in 1/1024 s) whose C * |t - K|^3 fits in 64 bits:
+ * floor(cbrt((2^64 - 1) / 410)), 347 s.
+ */
+#define XQC_CUBIC_MAX_OFFS          355668
+
 #define XQC_CUBIC_MIN_WIN           (4 * XQC_CUBIC_MSS)
 #define XQC_CUBIC_MAX_MIN_WIN       (16 * XQC_CUBIC_MSS)
 #define XQC_CUBIC_MAX_INIT_WIN      (100 * XQC_CUBIC_MSS)
@@ -84,6 +90,12 @@ xqc_cubic_update(void *cong_ctl, uint32_t acked_bytes, xqc_usec_t now)
     } else {
         offs = t - cubic->bic_K;
     }
+
+    /*
+     * Past 347 s from K, C * offs^3 wraps around 2^64 and the target falls
+     * back to the origin point; hold it 24 GB above the origin instead.
+     */
+    offs = xqc_min(offs, XQC_CUBIC_MAX_OFFS);
 
     /* 410/1024 * off/1024 * off/1024 * off/1024 * MSS */
     delta = (XQC_CUBIC_C * offs * offs * offs) >> XQC_CUBE_SCALE;

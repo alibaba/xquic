@@ -227,3 +227,74 @@ xqc_test_cubic_reordered_ack_in_recovery()
 
     CU_ASSERT_EQUAL(cubic.cwnd, cwnd);
 }
+
+
+/*
+ * Congestion avoidance from a loss at time 0, with an ACK every 1 ms up to
+ * 290 s. Then returns the window after one ACK at elapsed time `elapsed`.
+ */
+static uint64_t
+xqc_test_cubic_epoch_cwnd(xqc_cubic_t *cubic, xqc_usec_t elapsed)
+{
+    xqc_cc_params_t   params;
+    xqc_packet_out_t  po;
+    xqc_usec_t        t0;
+
+    memset(&params, 0, sizeof(params));
+    memset(&po, 0, sizeof(po));
+    xqc_cubic_cb.xqc_cong_ctl_init(cubic, NULL, params);
+
+    /* a loss starts congestion avoidance; the next ACK starts the epoch */
+    xqc_cubic_cb.xqc_cong_ctl_on_lost(cubic, 1);
+    CU_ASSERT_FATAL(cubic->congestion_recovery_start_time != 0);
+    t0 = cubic->congestion_recovery_start_time + 1000;
+
+    po.po_sent_time = t0 - 1000 + 1;
+    po.po_used_size = XQC_CUBIC_TEST_MSS;
+    xqc_cubic_cb.xqc_cong_ctl_on_ack(cubic, &po, t0);
+    CU_ASSERT_FATAL(cubic->epoch_start == t0);
+
+    for (xqc_usec_t t = 1000; t <= 290000000; t += 1000) {
+        po.po_sent_time = t0 + t - 1000;
+        xqc_cubic_cb.xqc_cong_ctl_on_ack(cubic, &po, t0 + t);
+    }
+
+    uint64_t cwnd = cubic->cwnd;
+    po.po_sent_time = t0 + elapsed - 1000;
+    xqc_cubic_cb.xqc_cong_ctl_on_ack(cubic, &po, t0 + elapsed);
+    CU_ASSERT(cubic->cwnd >= cwnd);
+    return cubic->cwnd;
+}
+
+/* Within 347 s of K, W_cubic(t) keeps the window growing. */
+void
+xqc_test_cubic_epoch_growth()
+{
+    xqc_cubic_t cubic;
+    uint64_t    cwnd = xqc_test_cubic_epoch_cwnd(&cubic, 300000000);
+
+    CU_ASSERT(cwnd > 100 * XQC_CUBIC_TEST_MSS);
+}
+
+/*
+ * Past 347 s, C * |t - K|^3 must not wrap and drop the target back to the
+ * origin point: the window keeps growing at every elapsed time.
+ */
+void
+xqc_test_cubic_epoch_past_347s()
+{
+    xqc_cubic_t cubic;
+    xqc_usec_t  k, elapsed;
+    uint64_t    cwnd_300s = xqc_test_cubic_epoch_cwnd(&cubic, 300000000);
+
+    /* the first ACKs past |t - K| = 355668, where the cube wraps */
+    k = cubic.bic_K;
+    elapsed = ((k + 355669) * 1000000 + 1023) / 1024 - cubic.min_rtt;
+    for (int i = 0; i < 3; i++) {
+        uint64_t cwnd = xqc_test_cubic_epoch_cwnd(&cubic, elapsed + i * 1000);
+        CU_ASSERT(cwnd >= cwnd_300s);
+    }
+
+    /* and long after it */
+    CU_ASSERT(xqc_test_cubic_epoch_cwnd(&cubic, 1000000000ULL) >= cwnd_300s);
+}

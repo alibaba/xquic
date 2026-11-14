@@ -144,6 +144,52 @@ xqc_packet_out_remove_ack_frame(xqc_packet_out_t *po)
     }
 }
 
+/*
+ * RFC 10069 Section 4.3: a lost status frame is sent again only if it has
+ * the last status sent for its path, and draft-10 Section 7.2 forbids it
+ * for a path being abandoned. The frame is read back from the packet.
+ */
+static xqc_bool_t
+xqc_packet_out_path_status_superseded(xqc_connection_t *conn,
+    const xqc_packet_out_t *po)
+{
+    xqc_packet_in_t  pi;
+    xqc_path_ctx_t  *path;
+    uint64_t         path_id, seq, status;
+
+    xqc_memzero(&pi, sizeof(pi));
+    pi.pos = po->po_buf + po->po_path_status_offset;
+    pi.last = po->po_buf + po->po_used_size;
+    if (xqc_parse_path_status_frame(&pi, &path_id, &seq, &status) != XQC_OK) {
+        /* not the frame recorded: send the packet again as before */
+        return XQC_FALSE;
+    }
+
+    path = xqc_conn_find_path_by_path_id(conn, path_id);
+    if (path != NULL && path->path_state < XQC_PATH_STATE_CLOSING
+        && seq == path->local_status.send_seq)
+    {
+        return XQC_FALSE;
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|path status superseded|path:%ui|seq:%ui|", path_id, seq);
+    return XQC_TRUE;
+}
+
+xqc_frame_type_bit_t
+xqc_packet_out_frames_to_repair(xqc_connection_t *conn,
+    const xqc_packet_out_t *po)
+{
+    if ((po->po_frame_types & XQC_FRAME_BITS_PATH_STATUS)
+        && xqc_packet_out_path_status_superseded(conn, po))
+    {
+        return po->po_frame_types & ~XQC_FRAME_BITS_PATH_STATUS;
+    }
+
+    return po->po_frame_types;
+}
+
 void
 xqc_packet_out_copy(xqc_packet_out_t *dst, xqc_packet_out_t *src)
 {
@@ -1600,6 +1646,32 @@ xqc_write_retire_conn_id_frame_to_packet(xqc_connection_t *conn, uint64_t seq_nu
 }
 
 
+/*
+ * Write the status this endpoint indicates for the path, with the next Path
+ * Status Sequence Number (RFC 10069 Section 4.3), and record it as sent.
+ */
+static ssize_t
+xqc_write_local_path_status(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out, xqc_path_ctx_t *path)
+{
+    xqc_path_local_status_t *local = &path->local_status;
+    unsigned int             offset = packet_out->po_used_size;
+    ssize_t                  ret;
+
+    ret = xqc_gen_path_status_frame(conn, packet_out, path->path_id,
+                                    local->send_seq + 1, local->wanted);
+    if (ret < 0) {
+        return ret;
+    }
+
+    packet_out->po_path_status_offset = offset;
+    packet_out->po_used_size += ret;
+    local->send_seq++;
+    local->advertised = local->wanted;
+    return ret;
+}
+
+
 xqc_int_t
 xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn, 
     xqc_path_ctx_t *path, xqc_bool_t attach_path_status)
@@ -1624,10 +1696,7 @@ xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn,
     packet_out->po_path_id = path->path_id;
 
     if (attach_path_status) {
-        path->app_path_status_send_seq_num++;
-        ret = xqc_gen_path_status_frame(conn, packet_out, path->path_id,
-                                        path->app_path_status_send_seq_num,
-                                        path->app_path_status);
+        ret = xqc_write_local_path_status(conn, packet_out, path);
         if (ret < 0) {
             /* ignore */
             xqc_log(conn->log, XQC_LOG_ERROR, "|attach status error|%d|", ret);
@@ -1635,9 +1704,8 @@ xqc_write_path_challenge_frame_to_packet(xqc_connection_t *conn,
         } else {
             xqc_log(conn->log, XQC_LOG_DEBUG, 
                     "|initial_path_status|status:%d|frames:%s|",
-                    path->app_path_status, 
+                    path->local_status.advertised,
                     xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types));
-            packet_out->po_used_size += ret;
         }        
     }
 
@@ -1779,20 +1847,16 @@ xqc_write_path_status_frame_to_packet(xqc_connection_t *conn, xqc_path_ctx_t *pa
         return -XQC_EWRITE_PKT;
     }
 
-    path->app_path_status_send_seq_num++;
-
-    ret = xqc_gen_path_status_frame(conn, packet_out, path->path_id,
-                                    path->app_path_status_send_seq_num,
-                                    path->app_path_status);
+    ret = xqc_write_local_path_status(conn, packet_out, path);
     if (ret < 0) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|error|%d|", ret);
         goto error;
     }
 
-    packet_out->po_used_size += ret;
     xqc_send_queue_move_to_high_pri(&packet_out->po_list, conn->conn_send_queue);
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|status=%d|", path->app_path_status);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|status=%d|seq:%ui|",
+            path->local_status.advertised, path->local_status.send_seq);
 
     return XQC_OK;
 

@@ -113,6 +113,8 @@ typedef struct xqc_packet_out_s {
     uint8_t                 po_path_flag;
     uint64_t                po_path_id;
     unsigned int            po_cc_size; /* TODO: check cc size != send size */
+    /* offset of the path status frame in po_buf, if the packet has one */
+    unsigned int            po_path_status_offset;
 
     /* Reinjection */
     uint64_t                po_stream_offset;
@@ -134,6 +136,11 @@ typedef struct xqc_packet_out_s {
     uint32_t                po_new_cid_path;
 } xqc_packet_out_t;
 
+/* the frames that carry a path status (RFC 10069 Section 4.3) */
+#define XQC_FRAME_BITS_PATH_STATUS  (XQC_FRAME_BIT_PATH_STANDBY            \
+                                     | XQC_FRAME_BIT_PATH_AVAILABLE        \
+                                     | XQC_FRAME_BIT_PATH_FROZEN)
+
 xqc_bool_t xqc_packet_out_on_specific_path(xqc_connection_t *conn, 
     xqc_packet_out_t *po, xqc_path_ctx_t **path);
 
@@ -143,6 +150,13 @@ xqc_bool_t xqc_packet_out_can_attach_ack(xqc_packet_out_t *po,
 xqc_bool_t xqc_packet_out_can_pto_probe(xqc_packet_out_t *po, uint64_t path_id);
 
 void xqc_packet_out_remove_ack_frame(xqc_packet_out_t *po);
+
+/*
+ * The frames of a lost packet that are to be sent again: all but a path
+ * status frame that a later one superseded (RFC 10069 Section 4.3).
+ */
+xqc_frame_type_bit_t xqc_packet_out_frames_to_repair(xqc_connection_t *conn,
+    const xqc_packet_out_t *po);
 
 xqc_packet_out_t *xqc_packet_out_create(size_t po_buf_cap);
 

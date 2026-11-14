@@ -47,6 +47,7 @@
 #include "xqc_qpack_test.h"
 #include "xqc_prefixed_str_test.h"
 #include "xqc_cid_test.h"
+#include "xqc_path_status_test.h"
 #include "xqc_alloc_fail_test.h"
 #include "xqc_id_hash_test.h"
 #include "xqc_retry_test.h"
@@ -578,6 +579,14 @@ main(int argc, char *argv[])
                         xqc_test_multipath_frames_require_negotiation)
         || !CU_add_test(pSuite, "xqc_test_multipath_version_requires_negotiation",
                         xqc_test_multipath_version_requires_negotiation)
+        || !CU_add_test(pSuite, "xqc_test_path_status_first_seq_zero",
+                        xqc_test_path_status_first_seq_zero)
+        || !CU_add_test(pSuite, "xqc_test_path_status_lost_superseded",
+                        xqc_test_path_status_lost_superseded)
+        || !CU_add_test(pSuite, "xqc_test_path_status_local_and_peer_apart",
+                        xqc_test_path_status_local_and_peer_apart)
+        || !CU_add_test(pSuite, "xqc_test_path_status_before_validation",
+                        xqc_test_path_status_before_validation)
         || !CU_add_test(pSuite, "xqc_test_negotiated_multipath_frozen_frame",
                         xqc_test_negotiated_multipath_frozen_frame)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
@@ -877,6 +886,12 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_interval_log",
                         xqc_test_send_ctl_lost_interval_log)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_obsolete_lost_copy_not_scheduled",
+                        xqc_test_send_ctl_obsolete_lost_copy_not_scheduled)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_obsolete_scheduled_copy_dropped",
+                        xqc_test_send_ctl_obsolete_scheduled_copy_dropped)
         /* RFC 9000 14.4: no congestion reaction to a lost PMTU probe */
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction",
                         xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)

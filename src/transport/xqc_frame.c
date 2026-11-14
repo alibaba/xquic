@@ -2315,27 +2315,8 @@ xqc_process_path_status_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
         return -XQC_EILLEGAL_FRAME;
     }
 
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, path_id);
-
-    if (path == NULL) {
-        xqc_log(conn->log, XQC_LOG_WARN,
-                "|invalid path|path_id:%ui|pi_path_id:%ui|",
-                path_id, packet_in->pi_path_id);
-        return XQC_OK; /* ignore */
-    }
-
-    if (path_status_seq_num > path->app_path_status_recv_seq_num) {
-        path->app_path_status_recv_seq_num = path_status_seq_num;
-        path->next_app_path_state = path_status;
-
-        if (path->path_state < XQC_PATH_STATE_ACTIVE) {
-            path->path_flag |= XQC_PATH_FLAG_RECV_STATUS;
-
-        } else {
-            xqc_set_application_path_status(path, path->next_app_path_state, XQC_FALSE);
-        }
-    }
-
+    xqc_conn_on_peer_path_status(conn, path_id, path_status_seq_num,
+                                 (xqc_app_path_status_t) path_status);
     return XQC_OK;
 }
 

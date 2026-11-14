@@ -580,6 +580,24 @@ main(int argc, char *argv[])
                         xqc_test_multipath_version_requires_negotiation)
         || !CU_add_test(pSuite, "xqc_test_negotiated_multipath_frozen_frame",
                         xqc_test_negotiated_multipath_frozen_frame)
+        || !CU_add_test(pSuite,
+                        "xqc_test_mp_server_delays_path_without_peer_cid",
+                        xqc_test_mp_server_delays_path_without_peer_cid)
+        || !CU_add_test(pSuite, "xqc_test_mp_server_path_cid_after_challenge",
+                        xqc_test_mp_server_path_cid_after_challenge)
+        || !CU_add_test(pSuite,
+                        "xqc_test_mp_server_path_frames_after_challenge",
+                        xqc_test_mp_server_path_frames_after_challenge)
+        || !CU_add_test(pSuite, "xqc_test_mp_server_ignores_abandoned_path_id",
+                        xqc_test_mp_server_ignores_abandoned_path_id)
+        || !CU_add_test(pSuite,
+                        "xqc_test_mp_server_path_limit_keeps_connection",
+                        xqc_test_mp_server_path_limit_keeps_connection)
+        || !CU_add_test(pSuite,
+                        "xqc_test_mp_server_path_alloc_failure_delays",
+                        xqc_test_mp_server_path_alloc_failure_delays)
+        || !CU_add_test(pSuite, "xqc_test_mp_path_create_result",
+                        xqc_test_mp_path_create_result)
         || !CU_add_test(pSuite, "xqc_test_parse_padding_frame", xqc_test_parse_padding_frame)
 #ifdef XQC_PING_ATTACK_PROTECT
         || !CU_add_test(pSuite,
@@ -877,6 +895,12 @@ main(int argc, char *argv[])
                         xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return)
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_interval_log",
                         xqc_test_send_ctl_lost_interval_log)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_obsolete_lost_copy_not_scheduled",
+                        xqc_test_send_ctl_obsolete_lost_copy_not_scheduled)
+        || !CU_add_test(pSuite,
+                        "xqc_test_send_ctl_obsolete_scheduled_copy_dropped",
+                        xqc_test_send_ctl_obsolete_scheduled_copy_dropped)
         /* RFC 9000 14.4: no congestion reaction to a lost PMTU probe */
         || !CU_add_test(pSuite, "xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction",
                         xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction)

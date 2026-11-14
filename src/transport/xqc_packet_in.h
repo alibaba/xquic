@@ -36,6 +36,15 @@ struct xqc_packet_in_s {
 
     xqc_usec_t              pi_fec_process_time;
     xqc_stream_id_t         stream_id;
+
+    /*
+     * the PATH_CHALLENGE of a new path ID that a server can only set up once
+     * the rest of the packet is processed
+     */
+    struct {
+        xqc_bool_t          set;
+        unsigned char       data[XQC_PATH_CHALLENGE_DATA_LEN];
+    }                       pi_new_path_challenge;
 };
 
 

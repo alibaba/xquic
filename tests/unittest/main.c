@@ -636,6 +636,10 @@ main(int argc, char *argv[])
                         xqc_test_moqt_webtransport_session_gone)
         || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_control_reset",
                         xqc_test_moqt_webtransport_control_reset)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_close_reentrancy",
+                        xqc_test_moqt_webtransport_close_reentrancy)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_close_reentrancy_errors",
+                        xqc_test_moqt_webtransport_close_reentrancy_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_setup_errors",
                         xqc_test_moqt_webtransport_setup_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay",

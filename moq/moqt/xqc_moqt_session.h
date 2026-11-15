@@ -230,6 +230,7 @@ struct xqc_moqt_session_s {
 #ifdef XQC_ENABLE_WEBTRANSPORT
     struct xqc_webtransport_session_s *wt_session;
     uint32_t                    wt_close_error;
+    unsigned                    wt_callback_depth;
     unsigned                    wt_close_pending:1;
 #endif
     xqc_moqt_config_t           config;

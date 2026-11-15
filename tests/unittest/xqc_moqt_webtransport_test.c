@@ -22,7 +22,7 @@ typedef struct {
     xqc_wt_session_t wt[2];
     xqc_moqt_session_t *session[2];
     xqc_moqt_config_t config;
-    unsigned setups, ready, closed;
+    unsigned setups, ready, closed, destroyed;
     uint64_t error, reset_error;
     size_t sent;
     uint8_t bytes[64];
@@ -63,6 +63,7 @@ moqt_wt_init(moqt_wt_fixture_t *f)
     CU_ASSERT_PTR_NOT_NULL_FATAL(f->conn);
     f->conn->engine->eng_flag |= XQC_ENG_FLAG_RUNNING;
     f->h3.conn = f->conn;
+    f->h3.log = f->conn->log;
     f->h3.user_data = f;
     f->connection.h3_conn = &f->h3;
     f->connection.ctx = &f->ctx;
@@ -313,6 +314,125 @@ moqt_wt_stream(moqt_wt_fixture_t *f, xqc_wt_stream_base_t *wt,
         .can_recv = receive, .can_send = !receive};
     CU_ASSERT_EQUAL(f->wt[0].binding->stream_cbs.wt_unistream_create_notify(
         (void *)wt, &f->wt[0], NULL), XQC_OK);
+}
+
+static xqc_int_t
+moqt_wt_destroy_on_close(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
+    const xqc_cid_t *cid, void *data)
+{
+    moqt_wt_fixture_t *f = data;
+    xqc_moqt_session_t *s = f->session[0];
+    CU_ASSERT_PTR_NOT_NULL(s);
+    if (!s) {
+        return XQC_ERROR;
+    }
+    for (xqc_moqt_stream_t *st = s->streams; st; st = st->next) {
+        CU_ASSERT(!st->reading && !st->writing && !st->active);
+        if (st->reading || st->writing || st->active) {
+            /* Fail the old implementation without spinning its destructor. */
+            return XQC_ERROR;
+        }
+    }
+    xqc_moqt_session_destroy(s);
+    f->session[0] = NULL;
+    f->destroyed++;
+    return XQC_OK;
+}
+
+void
+xqc_test_moqt_webtransport_close_reentrancy(void)
+{
+    for (unsigned draft07 = 0; draft07 < 2; draft07++) {
+        moqt_wt_fixture_t f;
+        moqt_wt_init(&f);
+        f.connection.negotiated_version = draft07
+            ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
+            : XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+        f.session[0] = xqc_moqt_session_create_webtransport_compat(&f.wt[0],
+            &f.config, &moqt_wt_callbacks, &f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(f.session[0]);
+        xqc_stream_t raw;
+        xqc_h3_stream_t h3;
+        xqc_wt_stream_base_t wt;
+        moqt_wt_stream(&f, &wt, &h3, &raw, XQC_TRUE);
+        xqc_moqt_stream_t *st = wt.user_data;
+        st->kind = XQC_MOQT_STREAM_CONTROL;
+        f.session[0]->control_rx = st;
+        f.session[0]->ready = 1;
+        f.conn->engine->config->manually_triggered_send = 1;
+        f.conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_COMPLETED
+            | XQC_CONN_FLAG_CAN_SEND_1RTT;
+        f.conn->remote_settings.max_stream_data_bidi_remote = 4096;
+        f.conn->conn_flow_ctl.fc_max_data_can_send = 4096;
+        xqc_stream_t *transport = xqc_create_stream_with_conn(f.conn, 1,
+            XQC_SVR_BID, NULL, NULL);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(transport);
+        transport->stream_flow_ctl.fc_max_stream_data_can_send = 4096;
+        xqc_h3_stream_t connect = {.stream = transport, .h3c = &f.h3,
+            .log = f.conn->log};
+        xqc_init_list_head(&connect.send_buf);
+        xqc_h3_request_t request = {.h3_stream = &connect};
+        f.wt[0].request = &request;
+        wt.recv_fin = 1;
+        /* Draft-22 6.3: FIN on the live control closes only this session. */
+        CU_ASSERT_EQUAL(f.wt[0].binding->stream_cbs.wt_unistream_read_notify(
+            (void *)&wt, &f.wt[0], NULL, 0, NULL), XQC_OK);
+        CU_ASSERT(f.session[0]->closed && f.wt[0].closed);
+        CU_ASSERT_EQUAL(f.error, XQC_MOQT_PROTOCOL_VIOLATION);
+        CU_ASSERT_EQUAL(f.wt[0].close_error, XQC_MOQT_PROTOCOL_VIOLATION);
+        CU_ASSERT_EQUAL(f.wt[0].send_len, 0);
+        CU_ASSERT_EQUAL(f.closed, 1);
+        CU_ASSERT(!st->reading && !st->active);
+        CU_ASSERT_EQUAL(xqc_conn_get_errno(f.conn), 0);
+        moqt_wt_destroy(&f);
+    }
+}
+
+void
+xqc_test_moqt_webtransport_close_reentrancy_errors(void)
+{
+    for (unsigned queued = 0; queued < 2; queued++) {
+        moqt_wt_fixture_t f;
+        moqt_wt_init(&f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(moqt_wt_create(&f, 0));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(moqt_wt_create(&f, 1));
+        f.ctx.session_cbs.webtransport_session_close_notify =
+            moqt_wt_destroy_on_close;
+        xqc_stream_t raw;
+        xqc_h3_stream_t h3;
+        xqc_wt_stream_base_t wt;
+        moqt_wt_stream(&f, &wt, &h3, &raw, XQC_TRUE);
+        xqc_moqt_stream_t *st = wt.user_data;
+        st->kind = XQC_MOQT_STREAM_CONTROL;
+        f.session[0]->control_rx = st;
+        f.session[0]->ready = 1;
+        xqc_h3_stream_t connect = {.flags = XQC_HTTP3_STREAM_FLAG_FIN_SENT};
+        xqc_h3_request_t request = {.h3_stream = &connect};
+        f.wt[0].request = &request;
+        f.wt[0].send_len = queued;
+        f.session[0]->wt_callback_depth = queued;
+        wt.recv_fin = 1;
+        CU_ASSERT_EQUAL(f.wt[0].binding->stream_cbs.wt_unistream_read_notify(
+            (void *)&wt, &f.wt[0], NULL, 0, NULL), XQC_OK);
+        if (queued) {
+            /* A nested writable must not bypass the enclosing binding hold. */
+            CU_ASSERT(f.session[0]->wt_close_pending && !f.wt[0].closed);
+            f.wt[0].binding->writable(&f.wt[0], f.session[0]);
+            CU_ASSERT_EQUAL(f.destroyed, 0);
+            CU_ASSERT(!f.wt[0].closed);
+            f.session[0]->wt_callback_depth = 0;
+            f.wt[0].binding->dgram_cbs.dgram_write_notify(&f.wt[0],
+                f.session[0]);
+        }
+        CU_ASSERT_EQUAL(f.destroyed, 1);
+        CU_ASSERT_PTR_NULL(f.session[0]);
+        CU_ASSERT(f.wt[0].close_notified);
+        CU_ASSERT_EQUAL(f.closed, 1);
+        CU_ASSERT_EQUAL(f.error, XQC_MOQT_PROTOCOL_VIOLATION);
+        CU_ASSERT(!f.session[1]->closed);
+        CU_ASSERT_EQUAL(xqc_conn_get_errno(f.conn), 0);
+        moqt_wt_destroy(&f);
+    }
 }
 
 void

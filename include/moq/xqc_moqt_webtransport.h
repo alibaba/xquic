@@ -21,6 +21,8 @@ extern "C" {
  * Use MoQT APIs for this WT session's streams/datagrams after binding.
  * Destroy in WT session_close_notify, before the H3 connection is destroyed.
  * MoQT callbacks may close/send, but must not destroy the MoQT session.
+ * Local transport close is deferred until nested MoQT binding callbacks have
+ * returned, so even a failed CLOSE write can safely notify WT destruction.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_moqt_session_t *xqc_moqt_session_create_webtransport(

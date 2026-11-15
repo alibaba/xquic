@@ -155,6 +155,43 @@ case_test_case "moqt_demo_relay_fill" --id 1497 \
 case_test_case "moqt_demo_relay_fill_errors" --id 1498 \
     --run case_moqt_demo_relay_fill_errors
 
+case_moqt_demo_relay_close()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode round
+    moqt_demo_start --moqt-relay || return 1
+    for mode in quic wt07 wt; do
+        for round in 1 2; do
+            XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" \
+                "${binary}" "${mode}" > "close-${mode}-${round}.log" 2>&1 \
+                || return 1
+            grep -Fq 'close=0/0' "close-${mode}-${round}.log" || return 1
+        done
+    done
+    grep -Fq 'WT CLOSED status=200 error=0' demo-server.log
+}
+
+case_moqt_demo_relay_close_errors()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode
+    moqt_demo_start --moqt-relay || return 1
+    for mode in wt07 wt quic; do
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" \
+            "${binary}" "${mode}" close-errors \
+            > "close-errors-${mode}.log" 2>&1 || return 1
+        grep -Fq 'close=0/0 close_recovery=1' \
+            "close-errors-${mode}.log" || return 1
+    done
+    grep -Fq 'WT CLOSED status=200 error=258' demo-server.log || return 1
+    grep -Fq 'MOQT CLOSED transport=webtransport error=3' demo-server.log
+}
+
+case_test_case "moqt_demo_relay_close" --id 1481 \
+    --run case_moqt_demo_relay_close
+case_test_case "moqt_demo_relay_close_errors" --id 1482 \
+    --run case_moqt_demo_relay_close_errors
+
 if case_test_is_discovery; then
     case_test_run
     exit 0

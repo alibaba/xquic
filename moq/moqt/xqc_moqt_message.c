@@ -7,6 +7,45 @@
 /* Internal scope, never serialized as a message type. */
 #define XQC_MOQT_PARAMETER_SCOPE_FILL UINT64_MAX
 
+xqc_int_t
+xqc_moqt_publish_forward(xqc_moqt_message_t *publish,
+    const xqc_moqt_message_t *interest, uint8_t *forward)
+{
+    xqc_bool_t explicit = XQC_FALSE;
+    *forward = 1;
+    for (size_t i = 0; i < interest->parameter_count; i++) {
+        if (interest->parameters[i].type == XQC_MOQT_PARAM_FORWARD) {
+            *forward = interest->parameters[i].value[0];
+            explicit = XQC_TRUE;
+            break;
+        }
+    }
+    size_t position = 0;
+    while (position < publish->parameter_count
+           && publish->parameters[position].type < XQC_MOQT_PARAM_FORWARD)
+    {
+        position++;
+    }
+    if (position < publish->parameter_count
+        && publish->parameters[position].type == XQC_MOQT_PARAM_FORWARD)
+    {
+        publish->parameters[position] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_FORWARD, 1, forward};
+    } else if (explicit) {
+        if (publish->parameter_count == XQC_MOQT_MAX_PARAMETERS) {
+            return -XQC_ELIMIT;
+        }
+        memmove(publish->parameters + position + 1,
+            publish->parameters + position,
+            (publish->parameter_count - position)
+                * sizeof(publish->parameters[0]));
+        publish->parameters[position] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_FORWARD, 1, forward};
+        publish->parameter_count++;
+    }
+    return XQC_OK;
+}
+
 static xqc_int_t
 xqc_moqt_read_uint(const uint8_t **p, const uint8_t *end, uint64_t *value)
 {

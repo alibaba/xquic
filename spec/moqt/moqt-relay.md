@@ -88,8 +88,14 @@ This version does not aggregate Object subscriptions. Each downstream demand
 creates an independent SUBSCRIBE to each matching publisher, retaining that
 demand's filters and delivery parameters. Direct PUBLISH may fan out to
 multiple authorized downstreams. Each downstream pauses/resumes independently;
-pause direct PUBLISH only when all matching demands are paused. This avoids
-premature filter-union/shared-update scheduling. Incoming Tokens are removed;
+pause direct PUBLISH only when all matching demands are paused. For
+St-created subscriptions, each resulting PUBLISH inherits St FORWARD,
+defaulting to 1 (draft-22 §3.6.2,
+§9.20.18). The Relay snapshot and endpoint use the same initial value;
+updates without FORWARD retain it. Each resulting subscription resumes
+through its own REQUEST_UPDATE; PUBLISH_OK does not carry FORWARD (§9.3).
+Independent demand avoids premature filter-union/shared-update scheduling.
+Incoming Tokens are removed;
 application hop policy supplies outbound credentials.
 
 Applications explicitly provide SETUP policy, request authorization, and

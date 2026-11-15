@@ -491,6 +491,10 @@ main(int argc, char *argv[])
                         xqc_test_moqt_relay_limits)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks",
                         xqc_test_moqt_relay_tracks)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks_forward",
+                        xqc_test_moqt_relay_tracks_forward)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks_forward_errors",
+                        xqc_test_moqt_relay_tracks_forward_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_rendezvous_tracks",
                         xqc_test_moqt_relay_rendezvous_tracks)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks_errors",

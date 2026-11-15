@@ -33,6 +33,7 @@ struct xqc_interop_peer_s {
 #ifdef XQC_ENABLE_WEBTRANSPORT
     xqc_h3_conn_t *h3;
     xqc_wt_session_t *wt;
+    xqc_cid_t h3_cid;
 #endif
     xqc_moqt_request_t *request, *sending;
     xqc_moqt_request_t *join_sending;
@@ -658,7 +659,9 @@ xqc_interop_closing(xqc_connection_t *conn, const xqc_cid_t *cid,
 static xqc_int_t
 xqc_interop_h3_created(xqc_h3_conn_t *h3, const xqc_cid_t *cid, void *data)
 {
-    ((xqc_interop_peer_t *)data)->h3 = h3;
+    xqc_interop_peer_t *p = data;
+    p->h3 = h3;
+    p->h3_cid = *cid;
     return XQC_OK;
 }
 
@@ -1226,6 +1229,18 @@ xqc_interop_release(xqc_interop_app_t *app)
     }
     if (app->base.engine) {
         xqc_interop_pump(app, 100);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+        /*
+         * Each fixture peer owns its HTTP/3 connection; WT close only
+         * closes its Session (draft-22 Section 6.2.1).
+         */
+        for (xqc_interop_peer_t *p = app->peers; p; p = p->next) {
+            if (p->h3) {
+                xqc_h3_conn_close(app->base.engine, &p->h3_cid);
+            }
+        }
+        xqc_interop_pump(app, 100);
+#endif
     }
     xqc_complex_case_engine_release(&app->base);
     xqc_moqt_relay_destroy(app->relay);

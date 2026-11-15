@@ -11,6 +11,9 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/transport/xqc_engine.h"
 #include "src/webtransport/xqc_webtransport_session.h"
+#include "src/webtransport/xqc_webtransport_conn.h"
+
+static xqc_bool_t draft07_compat;
 
 #define MOQT_WT_PAYLOAD 8192
 #define CHECK(expr) do {                                                      \
@@ -30,7 +33,7 @@ typedef struct {
     xqc_moqt_subscription_t *subscription;
     unsigned ready, ok, objects, datagrams, bytes, history, history_bytes;
     unsigned fin, fetch_fin, done, errors, closed, wt_closed, wt_ready, setups;
-    uint64_t error, request_error;
+    uint64_t error, moqt_error, request_error;
 } moqt_wt_channel_t;
 
 struct moqt_wt_endpoint_s {
@@ -60,6 +63,7 @@ moqt_closed(xqc_moqt_session_t *session, uint64_t error, void *data)
     moqt_wt_channel_t *c = data;
     c->closed++;
     c->error = error;
+    c->moqt_error = error;
 }
 
 static xqc_int_t
@@ -277,7 +281,9 @@ wt_ready(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
                                                           &config, &scope, c);
         c->session = xqc_moqt_relay_peer_session(c->peer);
     } else {
-        c->session = xqc_moqt_session_create_webtransport(wt, &config, &cbs, c);
+        c->session = draft07_compat
+            ? xqc_moqt_session_create_webtransport_compat(wt, &config, &cbs, c)
+            : xqc_moqt_session_create_webtransport(wt, &config, &cbs, c);
     }
     if (!c->session || xqc_moqt_session_start(c->session) != XQC_OK
         || protocol_data != ep->h3->conn->proto_data
@@ -393,7 +399,8 @@ engine_init(moqt_wt_endpoint_t *ep, int server, unsigned bad)
         return -1;
     }
     xqc_webtransport_conn_settings_t settings = {.max_sessions_count = 2,
-        .draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_16,
+        .draft_version = draft07_compat ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
+                                       : XQC_WEBTRANSPORT_DRAFT_VERSION_16,
         .max_bidi_streams = 64, .max_uni_streams = 64,
         .init_recv_window = 1024, .enable_datagram = XQC_TRUE};
     return xqc_wt_engine_set_default_settings(ep->base.engine, &settings);
@@ -561,14 +568,22 @@ run(unsigned bad)
         server.base.locallen, &client) != NULL);
     const char *protocols[] = {"moqt-22"};
     for (unsigned i = 0; i < 2; i++) {
-        CHECK(xqc_wt_client_open_session_with_protocols(client.h3,
-            "localhost", i ? "/moqt/b" : "/moqt/a", NULL,
-            protocols, 1, &error) != NULL);
+        xqc_wt_session_t *wt = draft07_compat
+            ? xqc_wt_client_open_session_with_protocols_compat(client.h3,
+                "localhost", i ? "/moqt/b" : "/moqt/a", NULL,
+                protocols, 1, &error)
+            : xqc_wt_client_open_session_with_protocols(client.h3,
+                "localhost", i ? "/moqt/b" : "/moqt/a", NULL,
+                protocols, 1, &error);
+        CHECK(wt != NULL);
         /* Peer transport parameters supply credit for a second CONNECT. */
         CHECK(!wait_for(&client, &server, &client.channel[i].wt_ready, 1));
     }
     CHECK(!wait_for(&client, &server, &client.channel[1].ready, 1));
     CHECK(!wait_for(&client, &server, &server.channel[1].ready, 1));
+    CHECK(xqc_wt_get_conn_from_h3(client.h3)->negotiated_version
+        == (draft07_compat ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
+                          : XQC_WEBTRANSPORT_DRAFT_VERSION_16));
     if (bad) {
         moqt_wt_channel_t *c = &client.channel[0];
         uint64_t expected = bad == 1 ? XQC_MOQT_INVALID_PATH
@@ -596,6 +611,7 @@ run(unsigned bad)
         CHECK(!wait_for(&client, &server, &server.channel[0].wt_closed, 1));
         CHECK(c->error == expected && server.channel[0].error == expected);
         CHECK(server.channel[0].closed == 1);
+        CHECK(server.channel[0].moqt_error == expected);
         CHECK(!exercise(&client, &server, 1));
     } else {
         CHECK(!wait_for(&client, &server, &client.channel[0].ready, 1));
@@ -604,6 +620,12 @@ run(unsigned bad)
         CHECK(!exercise(&client, &server, 1));
         xqc_moqt_session_close(client.channel[0].session, XQC_MOQT_NO_ERROR);
         CHECK(!wait_for(&client, &server, &server.channel[0].wt_closed, 1));
+        CHECK(!wait_for(&client, &server, &client.channel[0].wt_closed, 1));
+        CHECK(client.channel[0].closed == 1 && server.channel[0].closed == 1);
+        CHECK(client.channel[0].moqt_error == XQC_MOQT_NO_ERROR);
+        CHECK(server.channel[0].moqt_error == XQC_MOQT_NO_ERROR);
+        CHECK(client.channel[0].error == XQC_MOQT_NO_ERROR);
+        CHECK(server.channel[0].error == XQC_MOQT_NO_ERROR);
     }
     unsigned ok = client.channel[1].ok;
     CHECK(request_open(&client.channel[1], XQC_MOQT_MSG_PUBLISH_NAMESPACE,
@@ -624,6 +646,14 @@ fail:
 int
 main(int argc, char **argv)
 {
+    if (argc == 2 && !strcmp(argv[1], "draft07")) {
+        draft07_compat = XQC_TRUE;
+        return run(0);
+    }
+    if (argc == 2 && !strcmp(argv[1], "draft07-errors")) {
+        draft07_compat = XQC_TRUE;
+        argv[1] = "errors";
+    }
     if (argc == 2 && !strcmp(argv[1], "relay")) {
         return run_relay(0);
     }

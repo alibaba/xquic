@@ -81,7 +81,12 @@ malformed responses and unsupported prerequisites
 never trigger a successful session notification. Section 3.3 application
 protocol negotiation uses Structured Fields strings with bounded list sizes.
 A nonempty application-protocol requirement fails locally when -07 is
-selected, including a CONNECT queued before peer SETTINGS. The private msg
+selected, including a CONNECT queued before peer SETTINGS. The explicit
+`xqc_wt_client_open_session_with_protocols_compat` API permits those headers
+on -07 as an application compatibility extension. Its copied opt-in survives
+queued CONNECT and still requires an exact, offered selection. It does not
+change draft-07 tokens, settings, pooling limits or ordinary reset behavior.
+The private msg
 wrapper requires no such negotiation and works with either revision.
 Terminal CONNECT send failures log the cause and notify session closure once.
 The negotiated application-protocol getter exposes the validated selection on

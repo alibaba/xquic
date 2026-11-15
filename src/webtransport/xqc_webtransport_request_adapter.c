@@ -50,6 +50,10 @@ static xqc_int_t xqc_wt_negotiate_protocol(xqc_wt_session_t *session,
 static xqc_int_t xqc_wt_notify_ready(xqc_wt_session_t *session,
     xqc_http_headers_t *headers);
 static xqc_wt_session_t *xqc_wt_request_session(xqc_h3_request_t *request);
+static xqc_wt_session_t *xqc_wt_client_open_protocols(xqc_h3_conn_t *h3c,
+    const char *authority, const char *path, const char *origin,
+    const char *const *protocols, size_t protocol_count,
+    xqc_bool_t draft07_compat, int *err);
 static xqc_int_t xqc_wt_adapter_create(xqc_h3_request_t *request,
     void *user_data);
 static xqc_int_t xqc_wt_adapter_classify(xqc_h3_request_t *request,
@@ -608,6 +612,24 @@ xqc_wt_client_open_session_with_protocols(xqc_h3_conn_t *h3c,
     const char *authority, const char *path, const char *origin,
     const char *const *protocols, size_t protocol_count, int *err)
 {
+    return xqc_wt_client_open_protocols(h3c, authority, path, origin, protocols,
+                                       protocol_count, XQC_FALSE, err);
+}
+
+xqc_wt_session_t *
+xqc_wt_client_open_session_with_protocols_compat(xqc_h3_conn_t *h3c,
+    const char *authority, const char *path, const char *origin,
+    const char *const *protocols, size_t protocol_count, int *err)
+{
+    return xqc_wt_client_open_protocols(h3c, authority, path, origin, protocols,
+                                       protocol_count, XQC_TRUE, err);
+}
+
+static xqc_wt_session_t *
+xqc_wt_client_open_protocols(xqc_h3_conn_t *h3c, const char *authority,
+    const char *path, const char *origin, const char *const *protocols,
+    size_t protocol_count, xqc_bool_t draft07_compat, int *err)
+{
     if (err) {
         *err = -XQC_EPARAM;
     }
@@ -628,7 +650,7 @@ xqc_wt_client_open_session_with_protocols(xqc_h3_conn_t *h3c,
     if (!conn || conn->closing || !h3c->conn
         || h3c->conn->conn_type != XQC_CONN_TYPE_CLIENT
         || (h3c->flags & XQC_H3_CONN_FLAG_GOAWAY_RECVD)
-        || (protocol_count
+        || (protocol_count && !draft07_compat
             && (conn->ctx->settings.draft_version
                     == XQC_WEBTRANSPORT_DRAFT_VERSION_7
                 || conn->negotiated_version
@@ -693,6 +715,7 @@ xqc_wt_client_open_session_with_protocols(xqc_h3_conn_t *h3c,
         return NULL;
     }
     session->client = XQC_TRUE;
+    session->draft07_protocols = draft07_compat;
     session->client_authority = strings;
     session->client_path = strings + alen;
     session->client_origin = olen ? strings + alen + plen : NULL;
@@ -725,7 +748,7 @@ xqc_wt_client_send_request(xqc_wt_session_t *session)
         xqc_wt_request_fail(session, XQC_WT_REQUIREMENTS_NOT_MET);
         return XQC_OK;
     }
-    if (session->client_protocols
+    if (session->client_protocols && !session->draft07_protocols
         && conn->negotiated_version == XQC_WEBTRANSPORT_DRAFT_VERSION_7)
     {
         xqc_wt_request_fail(session, H3_REQUEST_REJECTED);

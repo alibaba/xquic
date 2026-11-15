@@ -47,6 +47,7 @@ struct xqc_webtransport_session_s {
     xqc_bool_t            binding_closed;
     xqc_bool_t            client;
     xqc_bool_t            request_sent;
+    xqc_bool_t            draft07_protocols;
     xqc_bool_t            peer_closed;
     xqc_bool_t            flow_control;
     uint64_t              send_stream_limit[2];

@@ -10,6 +10,9 @@
 #include "src/webtransport/xqc_webtransport_request_adapter.h"
 
 static void xqc_moqt_wt_session_closed(xqc_wt_session_t *wt, void *data);
+static xqc_moqt_session_t *xqc_moqt_wt_bind(xqc_wt_session_t *wt,
+    const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks,
+    void *data, xqc_bool_t draft07_compat);
 
 static xqc_int_t
 xqc_moqt_wt_created(xqc_wt_stream_base_t *wt)
@@ -89,6 +92,11 @@ xqc_moqt_wt_closing(xqc_wt_stream_base_t *wt)
     uint64_t error = wt->recv_error_valid ? wt->recv_error_code
                                         : XQC_MOQT_RESET_SESSION_CLOSED;
     if (st->kind == XQC_MOQT_STREAM_CONTROL) {
+        if (wt->recv_session_gone) {
+            /* WT draft-16 section 6: this is transport session cleanup. */
+            st->session_cleanup = 1;
+            return XQC_OK;
+        }
         xqc_moqt_session_close(st->session, XQC_MOQT_PROTOCOL_VIOLATION);
     } else if (st->kind == XQC_MOQT_STREAM_REQUEST) {
         xqc_moqt_request_cancel(&st->state.request, error);
@@ -205,9 +213,26 @@ xqc_moqt_session_create_webtransport(xqc_wt_session_t *wt,
     const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks,
     void *data)
 {
+    return xqc_moqt_wt_bind(wt, config, callbacks, data, XQC_FALSE);
+}
+
+xqc_moqt_session_t *
+xqc_moqt_session_create_webtransport_compat(xqc_wt_session_t *wt,
+    const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks,
+    void *data)
+{
+    return xqc_moqt_wt_bind(wt, config, callbacks, data, XQC_TRUE);
+}
+
+static xqc_moqt_session_t *
+xqc_moqt_wt_bind(xqc_wt_session_t *wt, const xqc_moqt_config_t *config,
+    const xqc_moqt_callbacks_t *callbacks, void *data, xqc_bool_t draft07_compat)
+{
     if (!xqc_wt_session_is_writable(wt) || wt->binding
         || !xqc_list_empty(&wt->stream_list)
-        || wt->wt_conn->negotiated_version != XQC_WEBTRANSPORT_DRAFT_VERSION_16
+        || (wt->wt_conn->negotiated_version != XQC_WEBTRANSPORT_DRAFT_VERSION_16
+            && (!draft07_compat || wt->wt_conn->negotiated_version
+                != XQC_WEBTRANSPORT_DRAFT_VERSION_7))
         || !wt->application_protocol
         || strcmp(wt->application_protocol, XQC_MOQT_ALPN_DRAFT_22))
     {

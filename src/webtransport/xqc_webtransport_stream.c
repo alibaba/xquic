@@ -444,6 +444,7 @@ xqc_wt_stream_notify_closing(xqc_wt_stream_base_t *stream,
         }
     }
     stream->stop_sending = stop_sending;
+    stream->recv_session_gone |= wire_error == XQC_WT_SESSION_GONE;
     /* draft-ietf-webtrans-http3-16 §4.4 skips every 31st wire code. */
     stream->recv_error_valid = wire_error >= XQC_WT_APP_ERROR_FIRST
         && wire_error <= XQC_WT_APP_ERROR_LAST

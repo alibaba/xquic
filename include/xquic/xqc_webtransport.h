@@ -211,6 +211,18 @@ xqc_wt_session_t *xqc_wt_client_open_session_with_protocols(
     int *err);
 
 /*
+ * Opt into the same application-protocol headers on draft-07, where they are
+ * a compatibility extension. The peer must explicitly select an offered
+ * protocol. Copies strings and retains the choice across pending CONNECT.
+ * Ordinary draft-07 reset and stream/session limits still apply.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_wt_session_t *xqc_wt_client_open_session_with_protocols_compat(
+    xqc_h3_conn_t *h3_conn, const char *authority, const char *path,
+    const char *origin, const char *const *protocols, size_t protocol_count,
+    int *err);
+
+/*
  * Selects the first client-offered application protocol supported locally.
  * Repeated WT-Available-Protocols fields form one list, at most 4096 bytes.
  * Local strings use the same size/character limits as the client API above.

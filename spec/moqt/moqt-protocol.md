@@ -1033,8 +1033,14 @@ WebTransport uses the guarded interface in
 Applications convert moqt URI to https, authorize extended CONNECT and select
 `moqt-22` through WT-Available-Protocols/WT-Protocol. The constructor requires
 an open WT draft-16 session with that negotiated protocol and no existing
-streams or binding. WT draft-07 compatibility remains available independently;
-it cannot satisfy this binding's required application-protocol negotiation.
+streams or binding. The explicit
+`xqc_moqt_session_create_webtransport_compat` entry point also admits draft-07
+peers that negotiate the same application-protocol headers. Missing or wrong
+protocols and other WT revisions remain rejected. This is application
+compatibility over the draft-07 transport, not draft-16 wire negotiation.
+Draft-07 section 4.3 provides best-effort reset association rather than
+reliable identifying prefixes; this mode does not promise draft-16 reset
+delivery guarantees. The default constructor retains its draft-16 requirement.
 CONNECT supplies authority/path/query; MOQT SETUP rejects AUTHORITY/PATH on
 both send and receive. Both MOQT SETUPs are still required after CONNECT;
 H3 ALPN or WT success is not MOQT readiness. Native QUIC ticket/0-RTT policy
@@ -1050,6 +1056,13 @@ detaches the binding after its streams are cleaned up. Other sessions and the
 shared H3 connection remain usable. Error values beyond WT's 32-bit range
 map to the corresponding MoQT INTERNAL_ERROR.
 
+WT_SESSION_GONE on a control stream is transport session cleanup, not a
+MoQT control-stream violation (WT draft-16 section 6; MoQT section 6.3).
+Cleanup RESET or STOP_SENDING can precede CONNECT close metadata. Retain a
+detached control until the WT session supplies the final application error;
+do not replace that error with PROTOCOL_VIOLATION. Application resets and
+FIN on a live control stream still terminate MoQT with PROTOCOL_VIOLATION.
+
 Build and validate both feature gates with
 `./scripts/validate.sh test --feature moqt_webtransport`. The native endpoint
 example in `tests/complex_case/test_moqt_webtransport.c` demonstrates CONNECT,
@@ -1061,6 +1074,12 @@ WT-specific tests cover two WT sessions on one H3 connection, requests,
 partial object I/O, datagrams, FETCH, reset mapping, missing SETUP, control FIN,
 invalid AUTHORITY/PATH and continued operation of the unaffected session.
 Runner transport glue and external WT interoperability remain separate evidence.
+
+The POSIX `demo_server --moqt` mode demonstrates the compatibility constructor,
+native QUIC and a bounded parser/sink policy. See
+[the demo guide](../../demo/moqt.md) for setup, accepted operations and Origin
+configuration. Native cases 1493/1494 cover opt-in draft-07 transfer and errors,
+including the shipped demo's normal and rejected CONNECT paths.
 
 <a id="wire-codec"></a>
 

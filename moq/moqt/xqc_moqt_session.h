@@ -219,6 +219,7 @@ struct xqc_moqt_stream_s {
     unsigned                    tx_fin:1;
     unsigned                    tx_fin_sent:1;
     unsigned                    rx_fin:1;
+    unsigned                    session_cleanup:1;
     unsigned                    discarded:1;
     unsigned                    reading:1;
     unsigned                    writing:1;

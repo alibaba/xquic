@@ -397,6 +397,10 @@ xqc_int_t xqc_moqt_session_goaway(xqc_moqt_session_t *session,
 XQC_EXPORT_PUBLIC_API
 void xqc_moqt_session_close(xqc_moqt_session_t *session, uint64_t error);
 
+/* True if the Session is missing or it or its QUIC transport is closing. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_session_is_closing(const xqc_moqt_session_t *session);
+
 XQC_EXPORT_PUBLIC_API
 void xqc_moqt_session_destroy(xqc_moqt_session_t *session);
 

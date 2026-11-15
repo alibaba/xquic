@@ -79,6 +79,10 @@ associates handles and never copies hop-local IDs/Aliases into responses.
 Discovery registrations are counted by source Request. Notify DONE only when
 the final source for that Namespace disappears. Direct PUBLISH associates a
 specific Track without registering its Namespace.
+New requests skip Namespace routes whose publisher transport has entered
+closing or draining, even while the Session close callback is pending
+(RFC 9000 §10.2.2 and draft-22 §6.6). Other usable publishers remain
+eligible.
 
 This version advertises one update credit per Request and returns downstream
 OK after the corresponding upstream update completes. Reuse the endpoint

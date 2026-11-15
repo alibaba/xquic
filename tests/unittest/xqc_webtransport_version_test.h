@@ -26,6 +26,8 @@ void xqc_test_wt_draft16_credit_renewal(void);
 void xqc_test_wt_application_protocol(void);
 void xqc_test_wt_application_protocol_errors(void);
 void xqc_test_wt_application_protocol_inputs(void);
+void xqc_test_wt_draft07_protocol_compat(void);
+void xqc_test_wt_draft07_protocol_compat_errors(void);
 void xqc_test_wt_handshake_request_result(void);
 void xqc_test_wt_server_response_status(void);
 void xqc_test_wt_pending_session_limit(void);

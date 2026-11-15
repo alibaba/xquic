@@ -1049,3 +1049,17 @@ The [Relay specification](../spec/moqt/moqt-relay.md) defines hop-local IDs,
 source/interest/delivery lifetimes, resource bounds, and acceptance gaps.
 The endpoint's read-only subscription and stream queries expose existing
 filter, Largest, termination, END_OF_GROUP, and Object-arrival state.
+
+## MoQT over WebTransport compatibility
+
+With both features enabled, the default
+`xqc_moqt_session_create_webtransport()` and nonempty-protocol
+`xqc_wt_client_open_session_with_protocols()` APIs require WT draft-16.
+Their `_compat` variants explicitly permit draft-07 peers using the same
+WT-Available-Protocols/WT-Protocol header extension. A missing or unoffered
+selection remains an error. No existing public structure or default changes.
+Draft-07 retains its ordinary reset and best-effort association semantics.
+
+See the [MoQT binding contract](../spec/moqt/moqt-protocol.md#scope-and-webtransport),
+[WT contract](../harness/spec/webtransport/spec.md) and
+[parser demo](../demo/moqt.md) for ownership, policy and execution details.

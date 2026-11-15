@@ -1385,6 +1385,73 @@ xqc_test_wt_application_protocol_inputs(void)
     xqc_engine_destroy(h3c->conn->engine);
 }
 
+void
+xqc_test_wt_draft07_protocol_compat(void)
+{
+    for (unsigned pending = 0; pending < 2; pending++) {
+        xqc_h3_conn_t *h3 = version_engine(XQC_WEBTRANSPORT_DRAFT_VERSION_7,
+                                            XQC_TRUE);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3);
+        xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(h3);
+        if (!pending) {
+            version_peer_settings(conn, XQC_TRUE, XQC_FALSE);
+        }
+        const char *protocols[] = {"moqt-22"};
+        int error;
+        CU_ASSERT_PTR_NULL(xqc_wt_client_open_session_with_protocols(h3,
+            "localhost", "/moqt", NULL, protocols, 1, &error));
+        xqc_wt_session_t *session =
+            xqc_wt_client_open_session_with_protocols_compat(h3, "localhost",
+                "/moqt", NULL, protocols, 1, &error);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+        CU_ASSERT(session->draft07_protocols);
+        CU_ASSERT_EQUAL(error, XQC_OK);
+        if (pending) {
+            CU_ASSERT_EQUAL(session->request->header_sent, 0);
+            version_peer_settings(conn, XQC_TRUE, XQC_FALSE);
+        }
+        CU_ASSERT(session->request->header_sent > 0);
+        CU_ASSERT_EQUAL(conn->negotiated_version,
+                        XQC_WEBTRANSPORT_DRAFT_VERSION_7);
+        const char *names[] = {":status", "wt-protocol"};
+        const char *values[] = {"200", "\"moqt-22\""};
+        version_headers(session->request, names, values, 2);
+        CU_ASSERT_EQUAL(xqc_h3_request_on_recv_header(session->request), XQC_OK);
+        CU_ASSERT(session->open && !session->closed);
+        CU_ASSERT_STRING_EQUAL(session->application_protocol, "moqt-22");
+        xqc_engine_destroy(h3->conn->engine);
+        CU_ASSERT_EQUAL(version_closes, 1);
+    }
+}
+
+void
+xqc_test_wt_draft07_protocol_compat_errors(void)
+{
+    const char *values[] = {NULL, "moqt-22", "\"other\""};
+    for (unsigned i = 0; i < 3; i++) {
+        xqc_h3_conn_t *h3 = version_engine(XQC_WEBTRANSPORT_DRAFT_VERSION_7,
+                                            XQC_TRUE);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3);
+        const char *protocols[] = {"moqt-22"};
+        int error;
+        xqc_wt_session_t *session =
+            xqc_wt_client_open_session_with_protocols_compat(h3, "localhost",
+                "/moqt", NULL, protocols, 1, &error);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+        version_peer_settings(session->wt_conn, XQC_TRUE, XQC_FALSE);
+        const char *names[] = {":status", "wt-protocol"};
+        const char *fields[] = {"200", values[i]};
+        version_headers(session->request, names, fields, values[i] ? 2 : 1);
+        CU_ASSERT_EQUAL(xqc_h3_request_on_recv_header(session->request), XQC_OK);
+        CU_ASSERT(!session->open && session->closed);
+        CU_ASSERT_EQUAL(version_creates, 0);
+        CU_ASSERT_EQUAL(version_closes, 1);
+        CU_ASSERT_PTR_NULL(session->application_protocol);
+        CU_ASSERT_EQUAL(h3->conn->conn_err, 0);
+        xqc_engine_destroy(h3->conn->engine);
+    }
+}
+
 static unsigned version_send_errors, version_handshake_errors;
 
 static void version_error_log(xqc_log_level_t level, const void *buf,

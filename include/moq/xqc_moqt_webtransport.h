@@ -27,6 +27,18 @@ xqc_moqt_session_t *xqc_moqt_session_create_webtransport(
     xqc_wt_session_t *transport, const xqc_moqt_config_t *config,
     const xqc_moqt_callbacks_t *callbacks, void *user_data);
 
+/*
+ * Explicit compatibility with WT draft-07 peers that also negotiate moqt-22
+ * through WT-Available-Protocols/WT-Protocol. All other binding requirements
+ * above remain in force. Draft-07 has ordinary, best-effort reset association
+ * (draft-ietf-webtrans-http3-07 section 4.3), not draft-16 reliable prefixes.
+ * Draft-16 remains accepted. Other WT versions and missing protocols fail.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_moqt_session_t *xqc_moqt_session_create_webtransport_compat(
+    xqc_wt_session_t *transport, const xqc_moqt_config_t *config,
+    const xqc_moqt_callbacks_t *callbacks, void *user_data);
+
 #ifdef __cplusplus
 }
 #endif

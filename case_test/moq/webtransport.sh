@@ -192,6 +192,44 @@ case_test_case "moqt_demo_relay_close" --id 1481 \
 case_test_case "moqt_demo_relay_close_errors" --id 1482 \
     --run case_moqt_demo_relay_close_errors
 
+case_moqt_demo_relay_tracks()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode scenario
+    moqt_demo_start --moqt-relay || return 1
+    for mode in quic wt07 wt; do
+        for scenario in tracks-default tracks-explicit; do
+            XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" \
+                "${binary}" "${mode}" "${scenario}" \
+                > "${scenario}-${mode}.log" 2>&1 || return 1
+            grep -Fq 'objects=1 datagrams=1' \
+                "${scenario}-${mode}.log" || return 1
+        done
+    done
+}
+
+case_moqt_demo_relay_tracks_errors()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode scenario
+    moqt_demo_start --moqt-relay || return 1
+    for mode in quic wt07 wt; do
+        for scenario in tracks-paused tracks-invalid; do
+            XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" \
+                "${binary}" "${mode}" "${scenario}" \
+                > "${scenario}-${mode}.log" 2>&1 || return 1
+            grep -Fq 'objects=1 datagrams=1' \
+                "${scenario}-${mode}.log" || return 1
+        done
+    done
+    grep -Fq 'MOQT CLOSED transport=webtransport error=3' demo-server.log
+}
+
+case_test_case "moqt_demo_relay_tracks" --id 1483 \
+    --run case_moqt_demo_relay_tracks
+case_test_case "moqt_demo_relay_tracks_errors" --id 1484 \
+    --run case_moqt_demo_relay_tracks_errors
+
 if case_test_is_discovery; then
     case_test_run
     exit 0

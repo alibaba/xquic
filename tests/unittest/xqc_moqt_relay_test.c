@@ -1205,6 +1205,120 @@ xqc_test_moqt_relay_tracks(void)
     xqc_test_relay_destroy(&f);
 }
 
+static unsigned
+xqc_test_relay_forward_value(const xqc_moqt_message_t *m)
+{
+    for (size_t i = 0; i < m->parameter_count; i++) {
+        if (m->parameters[i].type == XQC_MOQT_PARAM_FORWARD) {
+            return m->parameters[i].value[0];
+        }
+    }
+    return 1;
+}
+
+static void
+xqc_test_relay_tracks_forward(unsigned variant)
+{
+    xqc_test_relay_t f;
+    xqc_test_relay_init(&f);
+    uint8_t forward = variant == 2;
+    xqc_moqt_message_t m = xqc_test_relay_message(XQC_MOQT_MSG_PUBLISH);
+    m.track_alias = 42;
+    m.parameter_count = 1;
+    m.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_FORWARD, 1, &forward};
+    xqc_moqt_request_t *pub = xqc_test_relay_receive(
+        &f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
+    xqc_moqt_relay_request_t *source = xqc_test_relay_record(f.relay, pub);
+    xqc_moqt_message_t ok = {.type = XQC_MOQT_MSG_REQUEST_OK};
+    if (source->waiting_update) {
+        xqc_test_relay_input(pub->stream, &ok, XQC_MOQT_MSG_PUBLISH);
+    }
+    m = xqc_test_relay_message(XQC_MOQT_MSG_SUBSCRIBE_TRACKS);
+    forward = variant != 2;
+    if (variant) {
+        m.parameter_count = 1;
+        m.parameters[0] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_FORWARD, 1, &forward};
+    }
+    xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
+    xqc_moqt_relay_request_t *down = NULL;
+    for (xqc_moqt_relay_request_t *q = f.relay->requests; q; q = q->next) {
+        if (!q->upstream && q->type == XQC_MOQT_MSG_PUBLISH) {
+            down = q;
+        }
+    }
+    CU_ASSERT_PTR_NOT_NULL_FATAL(down);
+    xqc_moqt_message_t snapshot;
+    CU_ASSERT(xqc_moqt_relay_message_read(down->state, 0, &snapshot) > 0);
+    CU_ASSERT_EQUAL(xqc_test_relay_forward_value(&snapshot), forward);
+    CU_ASSERT_EQUAL(xqc_test_relay_forward_value(
+        (void *)down->request->state->data), forward);
+    xqc_test_relay_input(down->request->stream, &ok, XQC_MOQT_MSG_PUBLISH);
+    if (source->waiting_update) {
+        xqc_test_relay_input(pub->stream, &ok, XQC_MOQT_MSG_PUBLISH);
+    }
+    CU_ASSERT_EQUAL(down->subscription->forward, forward);
+    uint8_t payload = 42;
+    xqc_moqt_object_t object = {.group_id = 1, .datagram = 1,
+        .payload = {&payload, 1}, .payload_length = 1};
+    xqc_moqt_relay_object(source->subscription, NULL, &object, source->peer);
+    CU_ASSERT_EQUAL(f.relay->stats.forwarded, forward);
+    uint8_t priority = 64, resume = 1;
+    m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+        .request_id = f.peers[XQC_TEST_RELAY_SUBSCRIBER].next_request,
+        .parameter_count = 1};
+    m.parameters[0] = (xqc_moq_message_parameter_t){
+        variant == 2 ? XQC_MOQT_PARAM_FORWARD
+                     : XQC_MOQT_PARAM_SUBSCRIBER_PRIORITY,
+        1, variant == 2 ? &resume : &priority};
+    /* Draft-22 9.20.18: an unrelated update retains Pc's FORWARD. */
+    xqc_test_relay_input(down->request->stream, &m, XQC_MOQT_MSG_PUBLISH);
+    if (source->waiting_update) {
+        xqc_test_relay_input(pub->stream, &ok, XQC_MOQT_MSG_PUBLISH);
+    }
+    CU_ASSERT_TRUE(down->forward && down->subscription->forward);
+    CU_ASSERT_TRUE(source->forward);
+    object.group_id++;
+    xqc_moqt_relay_object(source->subscription, NULL, &object, source->peer);
+    CU_ASSERT_EQUAL(f.relay->stats.forwarded, forward + 1);
+    xqc_test_relay_destroy(&f);
+}
+
+void
+xqc_test_moqt_relay_tracks_forward(void)
+{
+    /* Draft-22 3.6.2: default and explicit St=1 override a paused source. */
+    xqc_test_relay_tracks_forward(0);
+    xqc_test_relay_tracks_forward(1);
+}
+
+void
+xqc_test_moqt_relay_tracks_forward_errors(void)
+{
+    xqc_test_relay_tracks_forward(2);
+    uint8_t paused = 0;
+    xqc_moqt_message_t interest = {.parameter_count = 1};
+    interest.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_FORWARD, 1, &paused};
+    xqc_moqt_message_t pub = {.parameter_count = XQC_MOQT_MAX_PARAMETERS};
+    for (size_t i = 0; i < pub.parameter_count; i++) {
+        pub.parameters[i] = (xqc_moq_message_parameter_t){2 * i + 1, 0, NULL};
+    }
+    xqc_moqt_message_t before = pub;
+    uint8_t forward;
+    CU_ASSERT_EQUAL(xqc_moqt_publish_forward(&pub, &interest, &forward),
+                    -XQC_ELIMIT);
+    CU_ASSERT_EQUAL(memcmp(&pub, &before, sizeof(pub)), 0);
+    interest.parameter_count = 0;
+    CU_ASSERT_EQUAL(xqc_moqt_publish_forward(&pub, &interest, &forward), XQC_OK);
+    CU_ASSERT_EQUAL(pub.parameter_count, XQC_MOQT_MAX_PARAMETERS);
+    /* Section 9.3: PUBLISH_OK cannot carry FORWARD; use REQUEST_UPDATE. */
+    const uint8_t bad[] = {7, 0, 3, 1, 0x10, 1};
+    CU_ASSERT(xqc_moqt_message_decode(bad, sizeof(bad),
+        XQC_MOQT_MSG_PUBLISH, &pub) < 0);
+}
+
 void
 xqc_test_moqt_relay_rendezvous_tracks(void)
 {

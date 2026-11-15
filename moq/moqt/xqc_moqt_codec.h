@@ -15,6 +15,9 @@
 
 xqc_int_t xqc_moqt_is_initial_request(uint64_t type);
 xqc_int_t xqc_moqt_is_namespace_request(uint64_t type);
+/* Draft-22 3.6.2/9.20.18: apply St FORWARD, borrowing caller-owned storage. */
+xqc_int_t xqc_moqt_publish_forward(xqc_moqt_message_t *publish,
+    const xqc_moqt_message_t *interest, uint8_t *forward);
 xqc_int_t xqc_moqt_fill_parameters_decode(
     const xqc_moq_message_parameter_t *parameter, xqc_moqt_message_t *message);
 uint64_t xqc_moqt_error_normalize(xqc_moqt_error_context_t context,

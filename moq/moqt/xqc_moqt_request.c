@@ -949,7 +949,7 @@ xqc_moqt_request_send(xqc_moqt_request_t *r, const xqc_moqt_message_t *message)
     return ret;
 }
 
-/* Draft-22 sections 3.6.2/9.18: inherit only the explicit message subset. */
+/* Draft-22 3.6.2/9.20.18: St supplies FORWARD, including its default. */
 static xqc_int_t
 xqc_moqt_publish_track(xqc_moqt_request_t *r, uint64_t publication_id,
     const xqc_moqt_message_t *publish, xqc_moqt_request_t **publication)
@@ -976,14 +976,17 @@ xqc_moqt_publish_track(xqc_moqt_request_t *r, uint64_t publication_id,
         return XQC_OK;
     }
     xqc_moqt_message_t m = *publish;
+    uint8_t forward;
+    if (xqc_moqt_publish_forward(&m, state, &forward) != XQC_OK) {
+        publication = NULL;
+    }
     xqc_moqt_message_t inherited = {0};
     for (size_t i = 0; i < state->parameter_count; i++) {
         const xqc_moq_message_parameter_t *p = &state->parameters[i];
         if (p->type == XQC_MOQT_PARAM_INCLUDE_PROPERTIES && !p->value[0]) {
             xqc_memzero(&m.properties, sizeof(m.properties));
         }
-        if (p->type == XQC_MOQT_PARAM_FORWARD
-            || p->type == XQC_MOQT_PARAM_GROUP_ORDER)
+        if (p->type == XQC_MOQT_PARAM_GROUP_ORDER)
         {
             inherited.parameters[inherited.parameter_count++] = *p;
         }

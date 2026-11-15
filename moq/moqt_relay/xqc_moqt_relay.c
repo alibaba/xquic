@@ -644,6 +644,13 @@ xqc_moqt_relay_publish(xqc_moqt_relay_request_t *watch,
     {
         return;
     }
+    /* Store the same independent-hop FORWARD that endpoint enumeration uses. */
+    uint8_t forward;
+    if (xqc_moqt_publish_forward(&publication, &interest, &forward) != XQC_OK) {
+        xqc_moqt_request_skip(watch->request, source->publication_id,
+                              &publication);
+        return;
+    }
     uint8_t largest[2 * XQC_VI64_MAX_LEN];
     if (xqc_moqt_relay_largest(&publication, source->subscription, largest)
         != XQC_OK)

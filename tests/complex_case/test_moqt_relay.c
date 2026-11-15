@@ -180,6 +180,8 @@ xqc_test_relay_offer(xqc_test_relay_node_t *node, const char *name,
     }
 }
 
+static uint8_t xqc_test_relay_ordinary_properties[] = {0xb8, 0, 7};
+
 static void
 xqc_test_relay_message(xqc_moqt_request_t *request,
     const xqc_moqt_message_t *m, void *data)
@@ -192,6 +194,17 @@ xqc_test_relay_message(xqc_moqt_request_t *request,
         xqc_test_relay_offer(node, "video", 1, XQC_FALSE);
         return;
     case XQC_MOQT_MSG_PUBLISH:
+        if (m->track_name.iov_len == sizeof("property-publish") - 1
+            && memcmp(m->track_name.iov_base, "property-publish",
+                      m->track_name.iov_len) == 0
+            && (m->properties.iov_len
+                != sizeof(xqc_test_relay_ordinary_properties)
+                || memcmp(m->properties.iov_base,
+                          xqc_test_relay_ordinary_properties,
+                          sizeof(xqc_test_relay_ordinary_properties)) != 0))
+        {
+            node->invalid++;
+        }
         node->publications++;
         xqc_test_relay_reply(node, request, m->type);
         return;
@@ -1253,6 +1266,33 @@ xqc_test_relay_tracks_run(xqc_test_relay_fixture_t *f, xqc_bool_t errors)
         XQC_TEST_RELAY_SMALL_OBJECT, 0) == XQC_OK);
     xqc_test_relay_check(f->clients[2].objects == objects + 1);
     xqc_test_relay_check(f->clients[2].subscription_closed == 0);
+    xqc_test_relay_node_t *publisher = &f->clients[0];
+    m = xqc_test_relay_message_create(XQC_MOQT_MSG_PUBLISH);
+    m.track_name = (struct iovec){(void *)"property-publish",
+                                  sizeof("property-publish") - 1};
+    m.track_alias = 32;
+    unsigned responses = publisher->responses;
+    active = f->clients[3].publications;
+    if (errors) {
+        /* Draft-22 3.7: reject type 0x4000 and leave the session usable. */
+        uint8_t mandatory[] = {0xc0, 0x40, 0, 7};
+        m.properties = (struct iovec){mandatory, sizeof(mandatory)};
+        xqc_test_relay_check(xqc_moqt_request_open(
+            publisher->connection.session, &m) != NULL);
+        xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
+        xqc_test_relay_check(publisher->errors == 1);
+        xqc_test_relay_check(publisher->last_error
+                             == XQC_MOQT_REQUEST_UNSUPPORTED_EXTENSION);
+        xqc_test_relay_check(publisher->responses == responses);
+        xqc_test_relay_check(f->clients[3].publications == active);
+    }
+    m.properties = (struct iovec){xqc_test_relay_ordinary_properties,
+                                  sizeof(xqc_test_relay_ordinary_properties)};
+    xqc_test_relay_check(xqc_moqt_request_open(
+        publisher->connection.session, &m) != NULL);
+    xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
+    xqc_test_relay_check(publisher->responses == responses + 1);
+    xqc_test_relay_check(f->clients[3].publications == active + 1);
     xqc_moqt_request_cancel(interests[1], XQC_MOQT_RESET_CANCELLED);
     for (unsigned waited = 0; waited < XQC_TEST_RELAY_WAIT_MS;
          waited += XQC_TEST_RELAY_PUMP_MS)

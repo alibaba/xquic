@@ -111,7 +111,7 @@ xqc_moqt_fetch_apply(xqc_moqt_request_t *r, const xqc_moqt_message_t *m)
     xqc_moqt_track_t defaults = *f->track;
     size_t count = 0;
     if (xqc_moqt_track_properties_read(&m->properties, &defaults,
-                                       &count) != XQC_OK)
+                                       &count, NULL) != XQC_OK)
     {
         return XQC_MOQT_PROTOCOL_VIOLATION;
     }

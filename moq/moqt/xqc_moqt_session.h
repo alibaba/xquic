@@ -296,7 +296,7 @@ xqc_int_t xqc_moqt_location_filter_apply(xqc_moqt_location_t *start,
     const xqc_moq_message_parameter_t *parameter,
     const xqc_moqt_location_t *largest, xqc_int_t has_largest);
 xqc_int_t xqc_moqt_track_properties_read(const struct iovec *bytes,
-    xqc_moqt_track_t *defaults, size_t *count);
+    xqc_moqt_track_t *defaults, size_t *count, xqc_bool_t *unsupported);
 uint64_t xqc_moqt_fetch_create(xqc_moqt_request_t *request,
     const xqc_moqt_message_t *message);
 uint64_t xqc_moqt_fetch_apply(xqc_moqt_request_t *request,

@@ -350,6 +350,56 @@ xqc_test_moqt_relay_routes(void)
     xqc_test_relay_draining_publisher();
 }
 
+static void
+xqc_test_relay_publish_properties(void)
+{
+    xqc_test_relay_t f;
+    xqc_test_relay_init(&f);
+    xqc_test_relay_peer_t *publisher = &f.peers[XQC_TEST_RELAY_PUBLISHER];
+    xqc_moqt_message_t m = xqc_test_relay_message(XQC_MOQT_MSG_PUBLISH);
+
+    /* Draft-22 3.7 and 10.7: reject unsupported mutable or immutable keys. */
+    uint8_t mandatory[] = {0x0e, 0x80, 0xc8, 0xbf, 0xf2, 0x90, 0x92,
+                           1, 2, 0xca, 0xfe};
+    uint8_t immutable[] = {0x0b, 4, 0xc0, 0x40, 0x00, 1};
+    struct iovec rejected[] = {{mandatory, sizeof(mandatory)},
+                               {immutable, sizeof(immutable)}};
+    for (size_t i = 0; i < sizeof(rejected) / sizeof(rejected[0]); i++) {
+        m.properties = rejected[i];
+        xqc_moqt_request_t *request = xqc_test_relay_receive(publisher, &m);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(request);
+        CU_ASSERT_TRUE(request->responded);
+        CU_ASSERT_FALSE(request->established);
+        CU_ASSERT_EQUAL(request->error.code,
+                        XQC_MOQT_REQUEST_UNSUPPORTED_EXTENSION);
+        CU_ASSERT_PTR_NULL(request->subscription);
+        CU_ASSERT_PTR_NULL(xqc_test_relay_record(f.relay, request));
+        CU_ASSERT_FALSE(publisher->session->closed);
+        if (request->established) {
+            xqc_test_relay_destroy(&f);
+            return;
+        }
+    }
+
+    /* Section 8.4: the same session still accepts ordinary unknown keys. */
+    uint8_t ordinary[] = {0x0e, 0x80, 0xc8, 0xb7, 0xf2, 0x90, 0x92,
+                          1, 2, 0xca, 0xfe};
+    m.properties = (struct iovec){ordinary, sizeof(ordinary)};
+    xqc_moqt_request_t *request = xqc_test_relay_receive(publisher, &m);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(request);
+    CU_ASSERT_TRUE(request->established);
+    xqc_moqt_relay_request_t *source = xqc_test_relay_record(f.relay, request);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(source);
+    xqc_moqt_message_t forwarded = {0};
+    CU_ASSERT(xqc_moqt_relay_message_read(source->state, 0, &forwarded) > 0);
+    CU_ASSERT_EQUAL(forwarded.properties.iov_len, sizeof(ordinary));
+    if (forwarded.properties.iov_len == sizeof(ordinary)) {
+        CU_ASSERT_EQUAL(xqc_memcmp(forwarded.properties.iov_base, ordinary,
+                                  sizeof(ordinary)), 0);
+    }
+    xqc_test_relay_destroy(&f);
+}
+
 void
 xqc_test_moqt_relay_errors(void)
 {
@@ -422,6 +472,7 @@ xqc_test_moqt_relay_errors(void)
     CU_ASSERT_FALSE(st->session->closed);
     CU_ASSERT_EQUAL(st->session->conn->conn_err, 0);
     xqc_test_relay_destroy(&f);
+    xqc_test_relay_publish_properties();
 }
 
 void

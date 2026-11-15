@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>XQUIC · 摄像头 Relay 回环</title>
+<link rel="stylesheet" href="style.css">
+<body>
+<main>
+  <header><span class="brand">XQUIC <b>LAB</b></span><span class="pill">MoQT draft-22 · WebTransport</span></header>
+  <h1>采集在左，Relay 播放在右。</h1>
+  <p class="intro">摄像头 → MoQT 发布 → Relay → 独立订阅端 → 播放器。</p>
+  <section class="controls">
+    <label class="url">Relay URL<input id="relay" type="url" placeholder="https://relay.example/moqt"></label>
+    <label>视频来源<select id="source"><option value="camera">摄像头</option><option value="test">动态测试画面</option></select></label>
+    <button id="start">开始采集并发布</button><button id="stop" disabled class="secondary">停止</button>
+  </section>
+  <div class="session"><span id="state" class="pill">尚未连接</span><span id="track">640 × 360 · 15 fps · VP8 · 无音频</span></div>
+  <section class="previews">
+    <article><div class="caption"><h2>采集预览</h2><span id="device">等待视频源</span></div><div class="screen"><video id="preview" autoplay muted playsinline></video></div></article>
+    <article><div class="caption"><h2>Relay 订阅播放器</h2><span>只解码远端回传的视频对象</span></div><div class="screen"><canvas id="decoded" width="640" height="360"></canvas></div></article>
+  </section>
+  <section class="stats">
+    <article><span>写入的视频对象</span><strong id="sent">0</strong></article>
+    <article><span>写入载荷</span><strong id="bytes">0 KB</strong></article>
+    <article><span>编码 / 订阅解码</span><strong id="frames">0 / 0</strong></article>
+    <article><span>订阅收到的对象</span><strong id="received">0</strong></article>
+    <article><span>SHA-256 匹配</span><strong id="matched">0</strong></article>
+    <article><span>最近对象往返</span><strong id="latency">0 ms</strong></article>
+    <article><span>写入速率</span><strong id="rate">0 kbps</strong></article>
+    <article><span>采集帧丢弃</span><strong id="dropped">0</strong></article>
+  </section>
+  <section class="details">
+    <article><h2>协议进度</h2><ul id="checks"><li id="check-tls">WebTransport / 证书：等待连接</li><li id="check-setup">MoQT SETUP：等待</li><li id="check-publish">PUBLISH / REQUEST_OK：等待</li><li id="check-subscribe">SUBSCRIBE / 播放：等待</li><li id="check-close">正常关闭：等待</li></ul>
+    <button id="subscribe" class="secondary" disabled>暂停订阅</button><p id="subscribe-result">播放器只解码独立订阅端收到的视频对象。</p></article>
+    <article><div class="caption"><h2>会话日志</h2><button id="export" class="text-button">导出结果</button></div><pre id="log" aria-live="polite">点击开始后请求视频权限；不会采集音频。</pre></article>
+  </section>
+  <footer>点击开始后请求摄像头权限，无音频。播放器只使用独立订阅会话收到的数据；暂停订阅时采集预览继续。每个回传对象与原始载荷进行 SHA-256 比较。视频载荷使用测试格式 XQV1 + VP8，不代表 LOC / MSF 兼容性。</footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

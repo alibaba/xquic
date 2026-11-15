@@ -1052,6 +1052,11 @@ filter, Largest, termination, END_OF_GROUP, and Object-arrival state.
 
 ## MoQT over WebTransport compatibility
 
+Relay applications can make the same explicit opt-in through
+`xqc_moqt_relay_peer_create_webtransport_compat`; the strict Relay constructor
+remains draft-16-only. Scope, authorization, budgets and peer lifetimes are
+unchanged. See the [Relay contract](../spec/moqt/moqt-relay.md).
+
 With both features enabled, the default
 `xqc_moqt_session_create_webtransport()` and nonempty-protocol
 `xqc_wt_client_open_session_with_protocols()` APIs require WT draft-16.

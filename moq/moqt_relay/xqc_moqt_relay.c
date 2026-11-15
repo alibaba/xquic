@@ -9,7 +9,7 @@ struct xqc_webtransport_session_s;
 static xqc_moqt_relay_peer_t *xqc_moqt_relay_peer_create_internal(
     xqc_moqt_relay_t *r, xqc_connection_t *conn,
     struct xqc_webtransport_session_s *wt, const xqc_moqt_config_t *config,
-    const struct iovec *scope, void *data);
+    const struct iovec *scope, void *data, xqc_bool_t draft07_compat);
 
 void *
 xqc_moqt_relay_alloc(xqc_moqt_relay_t *r, size_t size)
@@ -1348,7 +1348,8 @@ xqc_moqt_relay_create(const xqc_moqt_relay_config_t *config,
 static xqc_moqt_relay_peer_t *
 xqc_moqt_relay_peer_create_internal(xqc_moqt_relay_t *r,
     xqc_connection_t *conn, struct xqc_webtransport_session_s *wt,
-    const xqc_moqt_config_t *config, const struct iovec *scope, void *data)
+    const xqc_moqt_config_t *config, const struct iovec *scope, void *data,
+    xqc_bool_t draft07_compat)
 {
     if (r == NULL || scope == NULL || config == NULL) {
         return NULL;
@@ -1413,8 +1414,11 @@ xqc_moqt_relay_peer_create_internal(xqc_moqt_relay_t *r,
     endpoint.setup_option_count = count + 1;
 #ifdef XQC_ENABLE_WEBTRANSPORT
     if (wt != NULL) {
-        peer->session = xqc_moqt_session_create_webtransport(wt, &endpoint,
-                                                            &callbacks, peer);
+        peer->session = draft07_compat
+            ? xqc_moqt_session_create_webtransport_compat(wt, &endpoint,
+                &callbacks, peer)
+            : xqc_moqt_session_create_webtransport(wt, &endpoint,
+                &callbacks, peer);
     } else
 #endif
     {
@@ -1437,7 +1441,7 @@ xqc_moqt_relay_peer_create(xqc_moqt_relay_t *r, xqc_connection_t *conn,
     const xqc_moqt_config_t *config, const struct iovec *scope, void *data)
 {
     return xqc_moqt_relay_peer_create_internal(r, conn, NULL, config, scope,
-                                                data);
+                                                data, XQC_FALSE);
 }
 
 #ifdef XQC_ENABLE_WEBTRANSPORT
@@ -1449,7 +1453,20 @@ xqc_moqt_relay_peer_create_webtransport(xqc_moqt_relay_t *r,
     if (wt == NULL) {
         return NULL;
     }
-    return xqc_moqt_relay_peer_create_internal(r, NULL, wt, config, scope, data);
+    return xqc_moqt_relay_peer_create_internal(r, NULL, wt, config, scope, data,
+                                                XQC_FALSE);
+}
+
+xqc_moqt_relay_peer_t *
+xqc_moqt_relay_peer_create_webtransport_compat(xqc_moqt_relay_t *r,
+    xqc_wt_session_t *wt, const xqc_moqt_config_t *config,
+    const struct iovec *scope, void *data)
+{
+    if (wt == NULL) {
+        return NULL;
+    }
+    return xqc_moqt_relay_peer_create_internal(r, NULL, wt, config, scope, data,
+                                                XQC_TRUE);
 }
 #endif
 

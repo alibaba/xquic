@@ -14,6 +14,7 @@
 #include <xquic/xqc_http3.h>
 #include <xquic/xqc_webtransport.h>
 #include <moq/xqc_moqt_webtransport.h>
+#include <moq/xqc_moqt_relay.h>
 #include "tests/complex_case/complex_case_common.h"
 
 typedef struct app_s app_t;
@@ -24,6 +25,7 @@ struct channel_s {
     connection_t          *connection;
     xqc_wt_session_t      *wt;
     xqc_moqt_session_t    *session;
+    xqc_moqt_relay_peer_t *peer;
     channel_t            *next;
 };
 
@@ -43,6 +45,9 @@ struct app_s {
     struct event            *term;
     struct event            *interrupt;
     struct event            *limit;
+    struct event            *relay_timer;
+    xqc_moqt_relay_t         *relay;
+    xqc_usec_t               relay_log_time;
     xqc_moqt_config_t         config;
     xqc_conn_settings_t      settings;
     connection_t             client;
@@ -73,6 +78,18 @@ static void engine_tick(evutil_socket_t fd, short flags, void *data);
 static void read_packets(evutil_socket_t fd, short flags, void *data);
 static void stop(evutil_socket_t fd, short flags, void *data);
 static void expired(evutil_socket_t fd, short flags, void *data);
+static void relay_tick(evutil_socket_t fd, short flags, void *data);
+static void process_relay(app_t *app);
+static void release_channel(channel_t *channel);
+static uint64_t relay_setup(xqc_moqt_relay_peer_t *peer,
+    const xqc_moqt_setup_t *setup, void *data);
+static xqc_int_t relay_authorize(xqc_moqt_relay_peer_t *peer,
+    const xqc_moqt_message_t *message, const xqc_moqt_message_t *candidate,
+    uint64_t *error, void *data);
+static xqc_int_t relay_forward(xqc_moqt_relay_peer_t *peer,
+    xqc_moqt_message_t *message, void *data);
+static void relay_closed(xqc_moqt_relay_peer_t *peer, uint64_t error,
+    void *data);
 static void log_error(xqc_log_level_t level, const void *buf, size_t size,
     void *data);
 static int verify(const unsigned char **certs, const size_t *lengths,
@@ -159,6 +176,37 @@ engine_tick(evutil_socket_t fd, short flags, void *data)
 {
     app_t *app = data;
     xqc_engine_main_logic(app->base.engine);
+    process_relay(app);
+}
+
+static void
+relay_tick(evutil_socket_t fd, short flags, void *data)
+{
+    process_relay(data);
+}
+
+static void
+process_relay(app_t *app)
+{
+    if (!app->relay) {
+        return;
+    }
+    xqc_usec_t now = xqc_complex_case_now_us();
+    xqc_usec_t next = xqc_moqt_relay_process(app->relay, now);
+    evtimer_del(app->relay_timer);
+    if (next) {
+        xqc_usec_t delay = next > now ? next - now : 1;
+        struct timeval timeout = {delay / 1000000, delay % 1000000};
+        evtimer_add(app->relay_timer, &timeout);
+    }
+    if (now - app->relay_log_time >= 1000000) {
+        const xqc_moqt_relay_stats_t *stats = xqc_moqt_relay_stats(app->relay);
+        printf("RELAY peers=%zu requests=%zu streams=%zu bytes=%zu "
+               "forwarded=%" PRIu64 " rejected=%" PRIu64 "\n",
+               stats->peers, stats->requests, stats->streams, stats->bytes,
+               stats->forwarded, stats->rejected);
+        app->relay_log_time = now;
+    }
 }
 
 static void
@@ -184,6 +232,7 @@ read_packets(evutil_socket_t fd, short flags, void *data)
     }
     xqc_engine_finish_recv(app->base.engine);
     xqc_engine_main_logic(app->base.engine);
+    process_relay(app);
 }
 
 static void
@@ -391,8 +440,16 @@ native_create(xqc_connection_t *conn, const xqc_cid_t *cid, void *data,
     connection_t *connection = data;
     channel_t *channel = &connection->native;
     channel->connection = connection;
-    channel->session = xqc_moqt_session_create(conn,
-        &connection->app->config, &callbacks, channel);
+    app_t *app = connection->app;
+    if (app->relay) {
+        struct iovec scope = {"moqt-demo", 9};
+        channel->peer = xqc_moqt_relay_peer_create(app->relay, conn,
+            &app->config, &scope, channel);
+        channel->session = xqc_moqt_relay_peer_session(channel->peer);
+    } else {
+        channel->session = xqc_moqt_session_create(conn,
+            &app->config, &callbacks, channel);
+    }
     return channel->session ? XQC_OK : XQC_ERROR;
 }
 
@@ -415,15 +472,26 @@ native_handshake(xqc_connection_t *conn, void *data, void *protocol_data)
 }
 
 static void
+release_channel(channel_t *channel)
+{
+    if (channel->peer) {
+        xqc_moqt_relay_peer_destroy(channel->peer);
+        channel->peer = NULL;
+    } else {
+        xqc_moqt_session_destroy(channel->session);
+    }
+    channel->session = NULL;
+}
+
+static void
 release_connection(connection_t *connection)
 {
     app_t *app = connection->app;
-    xqc_moqt_session_destroy(connection->native.session);
-    connection->native.session = NULL;
+    release_channel(&connection->native);
     while (connection->channels) {
         channel_t *channel = connection->channels;
         connection->channels = channel->next;
-        xqc_moqt_session_destroy(channel->session);
+        release_channel(channel);
         free(channel);
     }
     if (app->server) {
@@ -518,8 +586,15 @@ wt_create(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
     channel->wt = wt;
     channel->next = connection->channels;
     connection->channels = channel;
-    channel->session = xqc_moqt_session_create_webtransport_compat(wt,
-        &app->config, &callbacks, channel);
+    if (app->relay) {
+        struct iovec scope = {"moqt-demo", 9};
+        channel->peer = xqc_moqt_relay_peer_create_webtransport_compat(
+            app->relay, wt, &app->config, &scope, channel);
+        channel->session = xqc_moqt_relay_peer_session(channel->peer);
+    } else {
+        channel->session = xqc_moqt_session_create_webtransport_compat(wt,
+            &app->config, &callbacks, channel);
+    }
     printf("WT READY status=%u protocol=%s compat_draft07=1\n",
         xqc_wt_session_get_response_status(wt), selected);
     if (!channel->session) {
@@ -554,7 +629,7 @@ wt_close(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
         channel_t *channel = *link;
         if (channel->wt == wt) {
             *link = channel->next;
-            xqc_moqt_session_destroy(channel->session);
+            release_channel(channel);
             free(channel);
             break;
         }
@@ -587,6 +662,12 @@ initialize(app_t *app, unsigned port)
     app->events = event_base_new();
     if (!app->events) {
         return -1;
+    }
+    if (app->relay) {
+        app->relay_timer = evtimer_new(app->events, relay_tick, app);
+        if (!app->relay_timer) {
+            return -1;
+        }
     }
     app->timer = evtimer_new(app->events, engine_tick, app);
     struct sockaddr_in local = {.sin_family = AF_INET,
@@ -678,6 +759,17 @@ xqc_demo_moqt_main(int argc, char **argv)
     setvbuf(stdout, NULL, _IOLBF, 0);
     setvbuf(stderr, NULL, _IOLBF, 0);
     signal(SIGPIPE, SIG_IGN);
+    if (!strcmp(argv[0], "--moqt-relay")) {
+        xqc_moqt_relay_config_t config;
+        xqc_moqt_relay_config_init(&config);
+        const xqc_moqt_relay_callbacks_t policy = {.on_setup = relay_setup,
+            .on_authorize = relay_authorize, .on_forward = relay_forward,
+            .on_closed = relay_closed};
+        app.relay = xqc_moqt_relay_create(&config, &policy);
+        if (!app.relay) {
+            return 1;
+        }
+    }
     unsigned port = 8443;
     const char *port_env = getenv("XQC_MOQT_DEMO_PORT");
     if (port_env) {
@@ -832,10 +924,16 @@ xqc_demo_moqt_main(int argc, char **argv)
         app.failed = !success;
     } else {
         printf("LISTEN udp=0.0.0.0:%u native_alpn=moqt-22 "
-               "wt_path=/moqt wt_protocol=moqt-22 draft=22\n", port);
+               "wt_path=/moqt wt_protocol=moqt-22 draft=22 role=%s\n",
+               port, app.relay ? "relay" : "parser");
         event_base_dispatch(app.events);
     }
     xqc_complex_case_engine_release(&app.base);
+    if (app.relay) {
+        process_relay(&app);
+        xqc_moqt_relay_destroy(app.relay);
+        event_free(app.relay_timer);
+    }
     event_free(app.reader);
     event_free(app.timer);
     event_free(app.term);
@@ -845,4 +943,37 @@ xqc_demo_moqt_main(int argc, char **argv)
     }
     event_base_free(app.events);
     return app.failed ? 1 : 0;
+}
+
+static uint64_t
+relay_setup(xqc_moqt_relay_peer_t *peer, const xqc_moqt_setup_t *value,
+    void *data)
+{
+    return setup(xqc_moqt_relay_peer_session(peer), value, data);
+}
+
+static xqc_int_t
+relay_authorize(xqc_moqt_relay_peer_t *peer, const xqc_moqt_message_t *value,
+    const xqc_moqt_message_t *candidate, uint64_t *error, void *data)
+{
+    /* Public test scope: anonymous namespace and Track grants are explicit. */
+    printf("RELAY AUTHORIZE type=0x%" PRIx64 " namespace_fields=%zu\n",
+        value->type, candidate->track_namespace.count);
+    return XQC_OK;
+}
+
+static xqc_int_t
+relay_forward(xqc_moqt_relay_peer_t *peer, xqc_moqt_message_t *value,
+    void *data)
+{
+    /* Draft-22 section 7.6: the core owns registration/Track routing. */
+    printf("RELAY FORWARD type=0x%" PRIx64 " namespace_fields=%zu\n",
+        value->type, value->track_namespace.count);
+    return XQC_OK;
+}
+
+static void
+relay_closed(xqc_moqt_relay_peer_t *peer, uint64_t error, void *data)
+{
+    closed(xqc_moqt_relay_peer_session(peer), error, data);
 }

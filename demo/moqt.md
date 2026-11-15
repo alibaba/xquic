@@ -1,4 +1,4 @@
-# MoQT parser demo
+# MoQT parser and relay demo
 
 On POSIX hosts with MoQ and WebTransport enabled, `demo_server --moqt` runs a
 bounded MoQT draft-22 parser/sink. It accepts native QUIC ALPN `moqt-22` and
@@ -7,12 +7,28 @@ compatibility for browsers while also accepting draft-16. Both require
 WT-Available-Protocols/WT-Protocol to select `moqt-22`; there is no draft-02
 or absent-protocol fallback.
 
+`demo_server --moqt-relay` selects the bounded Relay core instead of the
+parser/sink. Native QUIC and WT-07/WT-16 peers share the same explicitly public
+demo scope. Anonymous namespace and Track access is authorized separately by
+the demo policy. It is a test service with no tenant isolation or durable
+storage. Existing Origin checks, 64-connection admission and the Relay/Session
+peer, request, stream and byte limits apply. Payload bytes are not logged in
+relay mode.
+
+The Relay registers PUBLISH_NAMESPACE and routes matching SUBSCRIBE upstream,
+and forwards exact-Track PUBLISH Objects to established subscribers. This
+reuses draft-22 sections 7.4, 7.6 and 7.8 in the existing Relay implementation;
+no browser-only forwarding path or transport translation is added. Timers and
+deferred peer reclamation run outside callbacks after engine processing.
+
 Build through the repository entry point:
 
 ```sh
 ./scripts/validate.sh build --feature moqt_webtransport
 cd build/validation
 ./demo/demo_server --moqt -p 8443
+# To route publications/subscriptions instead of only parsing:
+./demo/demo_server --moqt-relay -p 8443
 ```
 
 The process reads `server.crt` (complete PEM chain) and `server.key` from its
@@ -58,4 +74,15 @@ XQC_MOQT_DEMO_PORT=8443 ./demo/demo_server --moqt --probe wt07 127.0.0.1
 `bad-path07`, `bad-protocol07` and `bad-origin07`. PASS requires readiness,
 REQUEST_OK, both objects and a final zero-error WT close; rejection PASS
 requires HTTP 403 without readiness. Native endpoint cases 1493/1494 exercise
-these paths and the two-session compatibility fixture.
+these parser paths and the two-session compatibility fixture. Cases 1495/1496
+connect two independent clients to the actual Relay demo for namespace and
+direct-Track delivery, rejection/recovery, fragmented stream Objects,
+datagrams and zero-error close. They cover native QUIC, WT07, WT16 and both
+mixed directions. The test client can target another instance with
+`MOQT_CONNECT_IP`, `XQC_MOQT_DEMO_PORT`, `MOQT_SERVER_NAME`, `MOQT_CERT_FILE`
+(DER leaf) and `MOQT_CA_FILE` (trust anchors). Loopback fixtures use an exact
+leaf pin and localhost hostname validation; a CA file keeps normal chain
+verification enabled for public deployments.
+
+See [camera relay echo](moqt-camera/README.md) for a capture window and a
+separate subscriber/player window using real Relay delivery.

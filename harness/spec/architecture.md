@@ -55,6 +55,11 @@ core transport          QUIC Transport, Recovery, QUIC DATAGRAM, Multipath
 network                 UDP/IP
 ```
 
+The [LOC/MSF minimum profile](loc-msf/spec.md) provides optional application
+format codecs in `moq/loc/` and `moq/msf/`. They reuse MoQT KVP/vi64 and cJSON
+without changing Session, Relay, transport, or legacy draft-05 media policy.
+Public `xqc_loc_*`/`xqc_msf_*` APIs do not decode or display media.
+
 These views describe protocol relationships, not compile-time dependency
 direction. The published standards below map only to capabilities represented
 in the repository; they do not imply support for every RFC produced by the

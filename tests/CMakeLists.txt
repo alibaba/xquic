@@ -92,6 +92,12 @@ if(XQC_ENABLE_MOQ)
             complex_case/complex_case_common.c)
         target_link_libraries(test_moqt_demo_relay ${APP_DEPEND_LIBS})
     endif()
+    add_executable(moqt_interop
+        ../interop/moqt/endpoint.c
+        ../interop/moqt/fixture.c
+        ../interop/moqt/media.c
+        complex_case/complex_case_common.c)
+    target_link_libraries(moqt_interop ${APP_DEPEND_LIBS})
 endif()
 if(XQC_ENABLE_WEBTRANSPORT)
     add_executable(test_webtransport
@@ -165,8 +171,12 @@ if(HAVE_CUNIT)
 
     if(XQC_ENABLE_MOQ)
         list(APPEND test_SOURCES
+            ${UNIT_TEST_DIR}/xqc_loc_msf_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_relay_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_codec_test.c
+            ${UNIT_TEST_DIR}/xqc_moqt_interop_test.c
+            ${CMAKE_SOURCE_DIR}/interop/moqt/fixture.c
+            ${CMAKE_SOURCE_DIR}/interop/moqt/media.c
             ${UNIT_TEST_DIR}/xqc_moqt_quic_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_session_test.c)
         if(XQC_ENABLE_WEBTRANSPORT)

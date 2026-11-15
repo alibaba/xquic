@@ -11,7 +11,12 @@
 #include <moq/xqc_moqt_webtransport.h>
 #include "complex_case_common.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_engine.h"
 #include "src/tls/xqc_tls.h"
+#include "src/http3/xqc_h3_request.h"
+#include "src/http3/xqc_h3_stream.h"
+#include "src/transport/xqc_packet_out.h"
+#include "src/webtransport/xqc_webtransport_session.h"
 #include "moq/moqt/xqc_moqt_session.h"
 #include "moq/moqt/xqc_moqt_codec.h"
 
@@ -579,8 +584,9 @@ main(int argc, char **argv)
     unsigned errors = argc == 3 && !strcmp(argv[2], "errors");
     unsigned direct = argc == 3 && !strcmp(argv[2], "direct");
     unsigned fill_errors = argc == 3 && !strcmp(argv[2], "fill-errors");
+    unsigned close_errors = argc == 3 && !strcmp(argv[2], "close-errors");
     f.fill = fill_errors || (argc == 3 && !strcmp(argv[2], "fill"));
-    if (argc == 3 && !errors && !direct && !f.fill) {
+    if (argc == 3 && !errors && !direct && !f.fill && !close_errors) {
         return 2;
     }
     snprintf(f.namespace, sizeof(f.namespace), "fill-%llu",
@@ -618,15 +624,25 @@ main(int argc, char **argv)
     CHECK(request(p, direct ? XQC_MOQT_MSG_PUBLISH
         : XQC_MOQT_MSG_PUBLISH_NAMESPACE, direct ? "interop-track" : NULL));
     CHECK(!wait_for(&f, &p->responses, 1));
-    if (fill_errors) {
-        s->expected_close = XQC_MOQT_PROTOCOL_VIOLATION;
+    if (fill_errors || close_errors) {
+        s->expected_close = close_errors && s->transport
+            ? H3_REQUEST_CANCELLED : XQC_MOQT_PROTOCOL_VIOLATION;
+        if (close_errors && s->transport) {
+            /* WT draft-16 6: a failed CLOSE must not stall other sessions. */
+            xqc_stream_t *connect = s->session->wt_session->request
+                ->h3_stream->stream;
+            f.base.engine->config->manually_triggered_send = 1;
+            CHECK(xqc_write_stop_sending_to_packet(connect->stream_conn,
+                connect, H3_REQUEST_CANCELLED) == XQC_OK);
+        }
         CHECK(!malformed_fill(s));
+        f.base.engine->config->manually_triggered_send = 0;
         CHECK(!wait_for(&f, &s->closed, 1));
-        CHECK(s->close_error == XQC_MOQT_PROTOCOL_VIOLATION);
+        CHECK(s->close_error == s->expected_close);
         CHECK(p->upstream == 0 && p->fetches == 0 && !p->closed);
         if (s->transport) {
             CHECK(!wait_for(&f, &s->wt_closed, 1));
-            CHECK(s->wt_error == XQC_MOQT_PROTOCOL_VIOLATION);
+            CHECK(s->wt_error == s->expected_close);
             CHECK(xqc_h3_conn_close(f.base.engine, &s->cid) == XQC_OK);
         }
         CHECK(!wait_for(&f, &s->connection_closed, 1));
@@ -689,10 +705,10 @@ main(int argc, char **argv)
     }
     printf("RELAY PROBE PASS mode=%s direct=%u errors=%u bytes=%zu "
            "objects=%u datagrams=%u upstream=%u fill=%u fill_bytes=%zu "
-           "fetches=%u malformed_close=%u close=0/0\n", mode,
+           "fetches=%u malformed_close=%u close=0/0 close_recovery=%u\n", mode,
            direct, errors, s->bytes, s->objects, s->datagrams, p->upstream,
            s->fill_objects, s->fill_bytes, p->fetches,
-           fill_errors ? XQC_MOQT_PROTOCOL_VIOLATION : 0);
+           fill_errors ? XQC_MOQT_PROTOCOL_VIOLATION : 0, close_errors);
     result = 0;
 done:
     if (f.base.engine) {

@@ -97,6 +97,9 @@ create/start a MoQT Session from the successful WT session notification using
 before the H3 connection is destroyed; MoQT callbacks must not destroy it.
 The binding preserves connection-level application data and callbacks. Each
 WT session owns independent MoQT controls, requests, aliases and budgets.
+Local WT close emission waits for the outermost MoQT binding callback to
+return. This keeps application destruction in the WT close notification safe
+even when writing the CLOSE capsule fails; independent sessions keep running.
 
 The required `on_setup` callback supplies authority/path/token policy after
 library format and direction checks. Initial requests and updates invoke

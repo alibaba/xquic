@@ -10,6 +10,7 @@
 #include "src/webtransport/xqc_webtransport_request_adapter.h"
 
 static void xqc_moqt_wt_session_closed(xqc_wt_session_t *wt, void *data);
+static void xqc_moqt_wt_close_pending(xqc_moqt_session_t *s);
 static xqc_moqt_session_t *xqc_moqt_wt_bind(xqc_wt_session_t *wt,
     const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks,
     void *data, xqc_bool_t draft07_compat);
@@ -126,35 +127,66 @@ xqc_moqt_wt_closed(xqc_wt_stream_base_t *wt)
     return XQC_OK;
 }
 
+static void
+xqc_moqt_wt_callback_release(xqc_moqt_session_t *s)
+{
+    if (--s->wt_callback_depth == 0 && s->wt_close_pending && s->wt_session) {
+        /* The application may destroy s in the resulting WT close callback. */
+        xqc_moqt_wt_close_pending(s);
+    }
+}
+
 /* WT exposes distinct typed callbacks for its two raw stream directions. */
+#define XQC_MOQT_WT_CALLBACK(call)                                            \
+    xqc_moqt_session_t *moqt = s->binding_data;                              \
+    if (!moqt) {                                                            \
+        xqc_moqt_stream_t *stream =                                         \
+            ((xqc_wt_stream_base_t *)st)->user_data;                         \
+        moqt = stream ? stream->session : NULL;                             \
+    }                                                                      \
+    if (!moqt) {                                                            \
+        return XQC_OK;                                                      \
+    }                                                                      \
+    moqt->wt_callback_depth++;                                              \
+    xqc_int_t ret = (call);                                                 \
+    xqc_moqt_wt_callback_release(moqt);                                      \
+    return ret
+
 #define XQC_MOQT_WT_CALLBACKS(name, type)                                      \
     static xqc_int_t name##_create(type *st, xqc_wt_session_t *s, void *data)   \
-    { return xqc_moqt_wt_created((void *)st); }                                \
+    { XQC_MOQT_WT_CALLBACK(xqc_moqt_wt_created((void *)st)); }                 \
     static xqc_int_t name##_write(type *st, xqc_wt_session_t *s, void *data)    \
-    { return xqc_moqt_wt_write((void *)st); }                                  \
+    { XQC_MOQT_WT_CALLBACK(xqc_moqt_wt_write((void *)st)); }                   \
     static xqc_int_t name##_close(type *st, xqc_wt_session_t *s, void *data)    \
-    { return xqc_moqt_wt_closed((void *)st); }                                 \
+    { XQC_MOQT_WT_CALLBACK(xqc_moqt_wt_closed((void *)st)); }                  \
     static xqc_int_t name##_closing(type *st, xqc_wt_session_t *s, void *data)  \
-    { return xqc_moqt_wt_closing((void *)st); }                                \
+    { XQC_MOQT_WT_CALLBACK(xqc_moqt_wt_closing((void *)st)); }                 \
     static xqc_int_t name##_read(type *st, xqc_wt_session_t *s, void *bytes,    \
         size_t len, void *data)                                              \
-    { return xqc_moqt_wt_read((void *)st, bytes, len); }
+    { XQC_MOQT_WT_CALLBACK(xqc_moqt_wt_read((void *)st, bytes, len)); }
 
 XQC_MOQT_WT_CALLBACKS(xqc_moqt_wt_uni, xqc_wt_unistream_t)
 XQC_MOQT_WT_CALLBACKS(xqc_moqt_wt_bidi, xqc_wt_bidistream_t)
 #undef XQC_MOQT_WT_CALLBACKS
+#undef XQC_MOQT_WT_CALLBACK
 
 static void
 xqc_moqt_wt_datagram(xqc_wt_session_t *wt, const void *bytes, size_t len,
     void *data, uint64_t timestamp)
 {
-    xqc_moqt_datagram_input(data, bytes, len);
+    xqc_moqt_session_t *s = data;
+    s->wt_callback_depth++;
+    xqc_moqt_datagram_input(s, bytes, len);
+    xqc_moqt_wt_callback_release(s);
 }
 
 static void
 xqc_moqt_wt_datagram_write(xqc_wt_session_t *wt, void *data)
 {
-    xqc_moqt_datagram_writable(data);
+    xqc_moqt_session_t *s = data;
+    s->wt_callback_depth++;
+    xqc_moqt_datagram_writable(s);
+    xqc_moqt_wt_callback_release(s);
 }
 
 static void
@@ -174,7 +206,7 @@ static void
 xqc_moqt_wt_session_writable(xqc_wt_session_t *wt, void *data)
 {
     xqc_moqt_session_t *s = data;
-    if (!s->wt_close_pending) {
+    if (!s->wt_close_pending || s->wt_callback_depth) {
         return;
     }
     s->wt_close_pending = 0;
@@ -254,6 +286,14 @@ xqc_moqt_webtransport_close(xqc_moqt_session_t *s, uint64_t error)
 {
     s->wt_close_error = error <= UINT32_MAX ? error : XQC_MOQT_INTERNAL_ERROR;
     s->wt_close_pending = 1;
+    if (!s->wt_callback_depth) {
+        xqc_moqt_wt_close_pending(s);
+    }
+}
+
+static void
+xqc_moqt_wt_close_pending(xqc_moqt_session_t *s)
+{
     xqc_wt_session_t *wt = s->wt_session;
     if (wt->send_len) {
         if (xqc_wt_session_flush(wt) < 0) {

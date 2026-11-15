@@ -9,6 +9,8 @@ void xqc_test_moqt_demo_origin_errors(void);
 void xqc_test_moqt_webtransport_streams(void);
 void xqc_test_moqt_webtransport_session_gone(void);
 void xqc_test_moqt_webtransport_control_reset(void);
+void xqc_test_moqt_webtransport_close_reentrancy(void);
+void xqc_test_moqt_webtransport_close_reentrancy_errors(void);
 void xqc_test_moqt_webtransport_setup_errors(void);
 void xqc_test_moqt_webtransport_relay(void);
 void xqc_test_moqt_webtransport_relay_errors(void);

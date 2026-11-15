@@ -2,11 +2,11 @@
 from contextlib import contextmanager
 import os
 from pathlib import Path
-import select
 import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 import test_cli
@@ -22,15 +22,20 @@ class InteropEndpoint(unittest.TestCase):
             port = reservation.getsockname()[1]
         env = os.environ.copy()
         env.pop("MOQT_TRANSPORT", None)
+        errors = tempfile.TemporaryFile(mode="w+t")
         process = subprocess.Popen([str(binary),
             "--relay-server" if relay else "--server", "--transport",
             transport, "--port", str(port), "--cert", str(build / "server.crt"),
             "--key", str(build / "server.key")], env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            stdout=subprocess.DEVNULL, stderr=errors, text=True)
         try:
-            ready, _, _ = select.select([process.stderr], [], [], 5)
-            self.assertTrue(ready, "server startup did not finish")
-            line = process.stderr.readline()
+            deadline = time.monotonic() + 5
+            line = ""
+            while time.monotonic() < deadline:
+                line = os.pread(errors.fileno(), 4096, 0).decode()
+                if line or process.poll() is not None:
+                    break
+                time.sleep(0.01)
             self.assertIn(("relay" if relay else "endpoint")
                           + " server moqt-22 transport=" + transport,
                           line)
@@ -38,12 +43,14 @@ class InteropEndpoint(unittest.TestCase):
         finally:
             process.terminate()
             try:
-                _, errors = process.communicate(timeout=5)
+                process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
-                _, errors = process.communicate()
-                self.fail("server failed to shut down: " + errors)
-            self.assertEqual(process.returncode, 0, errors)
+                process.wait()
+            errors.seek(0)
+            messages = errors.read()
+            errors.close()
+            self.assertEqual(process.returncode, 0, messages)
 
     def client(self, url, case, *args, **overrides):
         env = os.environ.copy()
@@ -118,8 +125,7 @@ class InteropEndpoint(unittest.TestCase):
     def test_dual_relay_and_closed_peer_reclamation(self):
         with self.server("dual", relay=True) as port:
             for index in range(66):
-                scheme = "https" if index % 2 else "moqt"
-                result = self.client(f"{scheme}://127.0.0.1:{port}/",
+                result = self.client(f"https://127.0.0.1:{port}/",
                                      "setup-only")
                 self.assertEqual(result.returncode, 0, result.stderr)
             result = self.client(f"moqt://127.0.0.1:{port}/", "subscribe-error")

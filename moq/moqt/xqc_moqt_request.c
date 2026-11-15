@@ -1190,6 +1190,18 @@ xqc_moqt_authorize(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
                                      s->user_data);
 }
 
+static void
+xqc_moqt_request_reject(xqc_moqt_request_t *r, uint64_t code)
+{
+    xqc_moqt_message_t response;
+    xqc_memzero(&response, sizeof(response));
+    response.type = XQC_MOQT_MSG_REQUEST_ERROR;
+    response.error.code = code;
+    if (xqc_moqt_request_send(r, &response) != XQC_OK) {
+        xqc_moqt_request_cancel(r, XQC_MOQT_RESET_EXCESSIVE_LOAD);
+    }
+}
+
 uint64_t
 xqc_moqt_request_input(xqc_moqt_stream_t *st, const uint8_t *data, size_t len)
 {
@@ -1231,6 +1243,22 @@ xqc_moqt_request_input(xqc_moqt_stream_t *st, const uint8_t *data, size_t len)
         }
         if (initial) {
             xqc_moqt_request_init(st, &m, 0);
+            if (m.type == XQC_MOQT_MSG_PUBLISH && m.properties.iov_len) {
+                xqc_moqt_track_t defaults = {0};
+                size_t count = 0;
+                xqc_bool_t unsupported = XQC_FALSE;
+                if (xqc_moqt_track_properties_read(&m.properties, &defaults,
+                    &count, &unsupported) != XQC_OK)
+                {
+                    return XQC_MOQT_PROTOCOL_VIOLATION;
+                }
+                if (unsupported) {
+                    /* Draft-22 section 3.7: reject before creating the Track. */
+                    xqc_moqt_request_reject(
+                        r, XQC_MOQT_REQUEST_UNSUPPORTED_EXTENSION);
+                    return XQC_MOQT_NO_ERROR;
+                }
+            }
             r->state = xqc_moqt_request_snapshot(s, &m);
             if (r->state == NULL) {
                 xqc_moqt_request_cancel(r, XQC_MOQT_RESET_EXCESSIVE_LOAD);
@@ -1282,13 +1310,7 @@ xqc_moqt_request_input(xqc_moqt_stream_t *st, const uint8_t *data, size_t len)
             request_error = XQC_MOQT_REQUEST_NOT_SUPPORTED;
         }
         if (rejected) {
-            xqc_moqt_message_t response;
-            xqc_memzero(&response, sizeof(response));
-            response.type = XQC_MOQT_MSG_REQUEST_ERROR;
-            response.error.code = request_error;
-            if (xqc_moqt_request_send(r, &response) != XQC_OK) {
-                xqc_moqt_request_cancel(r, XQC_MOQT_RESET_EXCESSIVE_LOAD);
-            }
+            xqc_moqt_request_reject(r, request_error);
             return XQC_MOQT_NO_ERROR;
         }
     } else if (m.type == XQC_MOQT_MSG_REQUEST_OK

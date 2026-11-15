@@ -16,7 +16,7 @@ xqc_moqt_location_compare(const xqc_moqt_location_t *a,
 
 xqc_int_t
 xqc_moqt_track_properties_read(const struct iovec *bytes,
-    xqc_moqt_track_t *defaults, size_t *count)
+    xqc_moqt_track_t *defaults, size_t *count, xqc_bool_t *unsupported)
 {
     const uint8_t *data = bytes->iov_base;
     size_t pos = 0;
@@ -34,7 +34,7 @@ xqc_moqt_track_properties_read(const struct iovec *bytes,
         case XQC_MOQT_PROPERTY_IMMUTABLE:
             /* Section 10.7: one budget bounds both lists and nesting. */
             if (xqc_moqt_track_properties_read(&kv.value.bytes, defaults,
-                                               count) != XQC_OK)
+                                               count, unsupported) != XQC_OK)
             {
                 return XQC_ERROR;
             }
@@ -60,6 +60,11 @@ xqc_moqt_track_properties_read(const struct iovec *bytes,
             defaults->group_order = kv.value.integer;
             break;
         default:
+            /* Draft-22 section 3.7 reserves this range for mandatory keys. */
+            if (unsupported != NULL && kv.type >= 0x4000 && kv.type <= 0x7fff)
+            {
+                *unsupported = XQC_TRUE;
+            }
             break;
         }
     }
@@ -170,7 +175,7 @@ xqc_moqt_subscription_apply(xqc_moqt_request_t *r,
     }
     size_t count = 0;
     if (xqc_moqt_track_properties_read(&m->properties, &defaults,
-                                       &count) != XQC_OK)
+                                       &count, NULL) != XQC_OK)
     {
         return XQC_MOQT_PROTOCOL_VIOLATION;
     }

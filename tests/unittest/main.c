@@ -174,6 +174,8 @@ main(int argc, char *argv[])
                         xqc_test_wt_session_id_wire)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_reset_flow_accounting",
                         xqc_test_wt_h3_reset_flow_accounting)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_data_after_stop",
+                        xqc_test_wt_h3_data_after_stop)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_reset_credit",
                         xqc_test_wt_h3_reset_credit)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_reset_after_short_read",

@@ -4,6 +4,7 @@
 #ifndef XQC_WEBTRANSPORT_H3_STREAM_TEST_H
 #define XQC_WEBTRANSPORT_H3_STREAM_TEST_H
 void xqc_test_wt_h3_reset_flow_accounting(void);
+void xqc_test_wt_h3_data_after_stop(void);
 void xqc_test_wt_h3_reset_credit(void);
 void xqc_test_wt_h3_reset_after_short_read(void);
 void xqc_test_wt_draft07_reset_dispatch(void);

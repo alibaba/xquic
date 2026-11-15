@@ -963,6 +963,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_single_vint_frame_length_error",
                         xqc_test_h3_single_vint_frame_length_error)
+        || !CU_add_test(pSuite, "xqc_test_tls_default_ca_trusted",
+                        xqc_test_tls_default_ca_trusted)
+        || !CU_add_test(pSuite, "xqc_test_tls_default_ca_unknown",
+                        xqc_test_tls_default_ca_unknown)
+        || !CU_add_test(pSuite, "xqc_test_tls_default_ca_hostname_mismatch",
+                        xqc_test_tls_default_ca_hostname_mismatch)
         || !CU_add_test(pSuite, "xqc_test_tls_default_cert_with_sni",
                         xqc_test_tls_default_cert_with_sni)
         || !CU_add_test(pSuite, "xqc_test_tls_default_cert_without_sni",

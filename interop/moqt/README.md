@@ -36,6 +36,14 @@ reported as SKIP). URI resolution currently uses IPv4. A build without WT
 reports its unavailable transport as SKIP. Test certificates require the
 explicit TLS verification bypass. There is no session resumption.
 
+With verification enabled, the client uses the TLS backend's default CA
+file/directory, including `SSL_CERT_FILE` and `SSL_CERT_DIR` overrides. A
+container must install `ca-certificates` and expose it at the backend's
+configured paths. For a custom Tongsuo build on Debian/Ubuntu, set
+`SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt` and
+`SSL_CERT_DIR=/etc/ssl/certs` when its compiled defaults point elsewhere.
+Unknown issuers and hostname mismatches still fail before MoQT SETUP.
+
 The WT path selects `moqt-22` in CONNECT, then starts the existing MoQT
 session through its WT constructor. CONNECT carries authority/path/query;
 the WT SETUP omits those options. Both SETUPs still govern readiness.

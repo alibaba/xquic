@@ -1050,6 +1050,13 @@ detaches the binding after its streams are cleaned up. Other sessions and the
 shared H3 connection remain usable. Error values beyond WT's 32-bit range
 map to the corresponding MoQT INTERNAL_ERROR.
 
+WT_SESSION_GONE on a control stream is transport session cleanup, not a
+MoQT control-stream violation (WT draft-16 section 6; MoQT section 6.3).
+Cleanup RESET or STOP_SENDING can precede CONNECT close metadata. Retain a
+detached control until the WT session supplies the final application error;
+do not replace that error with PROTOCOL_VIOLATION. Application resets and
+FIN on a live control stream still terminate MoQT with PROTOCOL_VIOLATION.
+
 Build and validate both feature gates with
 `./scripts/validate.sh test --feature moqt_webtransport`. The native endpoint
 example in `tests/complex_case/test_moqt_webtransport.c` demonstrates CONNECT,

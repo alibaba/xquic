@@ -30,7 +30,7 @@ typedef struct {
     xqc_moqt_subscription_t *subscription;
     unsigned ready, ok, objects, datagrams, bytes, history, history_bytes;
     unsigned fin, fetch_fin, done, errors, closed, wt_closed, wt_ready, setups;
-    uint64_t error, request_error;
+    uint64_t error, moqt_error, request_error;
 } moqt_wt_channel_t;
 
 struct moqt_wt_endpoint_s {
@@ -60,6 +60,7 @@ moqt_closed(xqc_moqt_session_t *session, uint64_t error, void *data)
     moqt_wt_channel_t *c = data;
     c->closed++;
     c->error = error;
+    c->moqt_error = error;
 }
 
 static xqc_int_t
@@ -596,6 +597,7 @@ run(unsigned bad)
         CHECK(!wait_for(&client, &server, &server.channel[0].wt_closed, 1));
         CHECK(c->error == expected && server.channel[0].error == expected);
         CHECK(server.channel[0].closed == 1);
+        CHECK(server.channel[0].moqt_error == expected);
         CHECK(!exercise(&client, &server, 1));
     } else {
         CHECK(!wait_for(&client, &server, &client.channel[0].ready, 1));
@@ -604,6 +606,12 @@ run(unsigned bad)
         CHECK(!exercise(&client, &server, 1));
         xqc_moqt_session_close(client.channel[0].session, XQC_MOQT_NO_ERROR);
         CHECK(!wait_for(&client, &server, &server.channel[0].wt_closed, 1));
+        CHECK(!wait_for(&client, &server, &client.channel[0].wt_closed, 1));
+        CHECK(client.channel[0].closed == 1 && server.channel[0].closed == 1);
+        CHECK(client.channel[0].moqt_error == XQC_MOQT_NO_ERROR);
+        CHECK(server.channel[0].moqt_error == XQC_MOQT_NO_ERROR);
+        CHECK(client.channel[0].error == XQC_MOQT_NO_ERROR);
+        CHECK(server.channel[0].error == XQC_MOQT_NO_ERROR);
     }
     unsigned ok = client.channel[1].ok;
     CHECK(request_open(&client.channel[1], XQC_MOQT_MSG_PUBLISH_NAMESPACE,

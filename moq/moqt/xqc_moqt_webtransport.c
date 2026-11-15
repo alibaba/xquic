@@ -89,6 +89,11 @@ xqc_moqt_wt_closing(xqc_wt_stream_base_t *wt)
     uint64_t error = wt->recv_error_valid ? wt->recv_error_code
                                         : XQC_MOQT_RESET_SESSION_CLOSED;
     if (st->kind == XQC_MOQT_STREAM_CONTROL) {
+        if (wt->recv_session_gone) {
+            /* WT draft-16 section 6: this is transport session cleanup. */
+            st->session_cleanup = 1;
+            return XQC_OK;
+        }
         xqc_moqt_session_close(st->session, XQC_MOQT_PROTOCOL_VIOLATION);
     } else if (st->kind == XQC_MOQT_STREAM_REQUEST) {
         xqc_moqt_request_cancel(&st->state.request, error);

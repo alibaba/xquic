@@ -95,6 +95,10 @@ moqt_wt_destroy(moqt_wt_fixture_t *f)
         }
         while (s->streams) {
             xqc_wt_stream_base_t *wt = s->streams->wt_stream;
+            if (!wt || !binding) {
+                xqc_moqt_stream_callbacks.stream_close_notify(NULL, s->streams);
+                continue;
+            }
             const xqc_webtransport_stream_callbacks_t *cbs =
                 &binding->stream_cbs;
             if (wt->bidi) {
@@ -230,6 +234,87 @@ moqt_wt_stream(moqt_wt_fixture_t *f, xqc_wt_stream_base_t *wt,
         .can_recv = receive, .can_send = !receive};
     CU_ASSERT_EQUAL(f->wt[0].binding->stream_cbs.wt_unistream_create_notify(
         (void *)wt, &f->wt[0], NULL), XQC_OK);
+}
+
+void
+xqc_test_moqt_webtransport_session_gone(void)
+{
+    /* WT draft-16 section 6: cleanup is not an application control reset. */
+    for (unsigned variant = 0; variant < 8; variant++) {
+        moqt_wt_fixture_t f;
+        moqt_wt_init(&f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(moqt_wt_create(&f, 0));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(moqt_wt_create(&f, 1));
+        xqc_stream_t raw;
+        xqc_h3_stream_t h3;
+        xqc_wt_stream_base_t wt;
+        xqc_bool_t stop = variant & 1;
+        xqc_bool_t early_close = variant & 2;
+        uint32_t error = variant & 4 ? XQC_MOQT_UNAUTHORIZED : 0;
+        moqt_wt_stream(&f, &wt, &h3, &raw, !stop);
+        xqc_moqt_stream_t *control = wt.user_data;
+        control->kind = XQC_MOQT_STREAM_CONTROL;
+        const xqc_webtransport_stream_callbacks_t *cbs =
+            &f.wt[0].binding->stream_cbs;
+        xqc_h3_stream_t connect = {.flags = XQC_HTTP3_STREAM_FLAG_FIN_SENT};
+        xqc_h3_request_t request = {.h3_stream = &connect};
+        f.wt[0].request = &request;
+        xqc_wt_stream_notify_closing(&wt, stop, UINT64_C(0x170d7b68));
+        CU_ASSERT(!f.session[0]->closed && !f.session[1]->closed);
+        CU_ASSERT_EQUAL(f.closed, 0);
+        if (f.session[0]->closed) {
+            moqt_wt_destroy(&f);
+            continue;
+        }
+        if (early_close) {
+            CU_ASSERT_EQUAL(cbs->wt_unistream_close_notify(
+                (void *)&wt, &f.wt[0], NULL), XQC_OK);
+            CU_ASSERT(!f.session[0]->closed);
+            CU_ASSERT_PTR_NULL(control->transport_stream);
+            CU_ASSERT_PTR_NULL(control->wt_stream);
+        }
+        /* A later CLOSE supplies the error even if the control is gone. */
+        unsigned char capsule[] = {0x68, 0x43, 4, 0, 0, 0, error};
+        CU_ASSERT_EQUAL(xqc_wt_session_recv_capsules(&f.wt[0], capsule,
+                            sizeof(capsule), XQC_TRUE), XQC_OK);
+        CU_ASSERT_EQUAL(f.closed, 1);
+        CU_ASSERT_EQUAL(f.error, error);
+        CU_ASSERT(f.session[0]->closed && !f.session[1]->closed);
+        CU_ASSERT_EQUAL(xqc_conn_get_errno(f.conn), 0);
+        if (!early_close) {
+            CU_ASSERT_EQUAL(cbs->wt_unistream_close_notify(
+                (void *)&wt, &f.wt[0], NULL), XQC_OK);
+        }
+        xqc_wt_session_close_streams(&f.wt[0]);
+        CU_ASSERT_EQUAL(f.closed, 1);
+        moqt_wt_destroy(&f);
+    }
+}
+
+void
+xqc_test_moqt_webtransport_control_reset(void)
+{
+    /* MoQT draft-22 section 6.3: a live control still cannot be reset. */
+    for (unsigned stop = 0; stop < 2; stop++) {
+        moqt_wt_fixture_t f;
+        moqt_wt_init(&f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(moqt_wt_create(&f, 0));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(moqt_wt_create(&f, 1));
+        xqc_stream_t raw;
+        xqc_h3_stream_t h3;
+        xqc_wt_stream_base_t wt;
+        moqt_wt_stream(&f, &wt, &h3, &raw, !stop);
+        ((xqc_moqt_stream_t *)wt.user_data)->kind = XQC_MOQT_STREAM_CONTROL;
+        /* Suppress capsule I/O in this parser-only fixture. */
+        f.wt[0].closed = XQC_TRUE;
+        xqc_wt_stream_notify_closing(&wt, stop,
+            UINT64_C(0x52e4a40fa8db) + XQC_MOQT_RESET_SESSION_CLOSED);
+        CU_ASSERT_EQUAL(f.closed, 1);
+        CU_ASSERT_EQUAL(f.error, XQC_MOQT_PROTOCOL_VIOLATION);
+        CU_ASSERT(f.session[0]->closed && !f.session[1]->closed);
+        CU_ASSERT_EQUAL(xqc_conn_get_errno(f.conn), 0);
+        moqt_wt_destroy(&f);
+    }
 }
 
 void

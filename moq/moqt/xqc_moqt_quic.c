@@ -230,6 +230,13 @@ xqc_moqt_stream_closed(xqc_stream_t *transport, void *data)
         return XQC_OK;
     }
     xqc_moqt_session_t *s = st->session;
+    if (st->session_cleanup && !s->closed) {
+        /*
+         * WT draft-16 section 6: RESET can precede CONNECT close metadata.
+         * Keep the detached control until session closure supplies its error.
+         */
+        return XQC_OK;
+    }
     if (!s->closed && st->kind == XQC_MOQT_STREAM_CONTROL
         && s->conn->conn_state < XQC_CONN_STATE_CLOSING)
     {

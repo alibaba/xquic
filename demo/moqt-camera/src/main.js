@@ -38,15 +38,16 @@ function resetStats() {
     paused = changing = false;
     forwarding = true;
     $('log').textContent = '';
-    const labels = { tls: 'WebTransport / 证书：等待连接',
-        setup: 'MoQT SETUP：等待', publish: 'PUBLISH / REQUEST_OK：等待',
-        subscribe: 'SUBSCRIBE / 播放：等待', close: '正常关闭：等待' };
+    const labels = { tls: 'WebTransport / certificate: awaiting connection',
+        setup: 'MoQT SETUP: pending', publish: 'PUBLISH / REQUEST_OK: pending',
+        subscribe: 'SUBSCRIBE / playback: pending', close: 'Normal close: pending' };
     for (const id of ['tls', 'setup', 'publish', 'subscribe', 'close']) {
         $('check-' + id).className = '';
         $('check-' + id).textContent = labels[id];
     }
-    $('subscribe').textContent = '暂停订阅';
-    $('subscribe-result').textContent = '播放器只解码独立订阅端收到的视频对象。';
+    $('subscribe').textContent = 'Pause subscription';
+    $('subscribe-result').textContent =
+        'The player decodes video Objects received by an independent subscriber.';
 }
 
 function log(message) {
@@ -82,7 +83,7 @@ function controls() {
 function timeout(promise, ms, label) {
     let timer;
     return Promise.race([promise, new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(label + '超时')), ms);
+        timer = setTimeout(() => reject(new Error(label + ' timed out')), ms);
     })]).finally(() => clearTimeout(timer));
 }
 
@@ -120,8 +121,8 @@ function syntheticStream() {
 function failure(error) {
     const message = error?.message || String(error);
     if (!stats.errors.includes(message)) stats.errors.push(message);
-    log('错误：' + message);
-    state('failed', '失败 · 查看日志');
+    log('Error: ' + message);
+    state('failed', 'Failed · See session log');
     releaseCapture();
     if (active && !closing) void stop();
 }
@@ -133,11 +134,11 @@ async function start() {
     controls();
     try {
         const url = new URL($('relay').value);
-        if (url.protocol !== 'https:') throw new Error('Relay 必须使用 HTTPS');
+        if (url.protocol !== 'https:') throw new Error('Relay URL must use HTTPS');
         stats.relay = url.href;
         if (!globalThis.WebTransport || !globalThis.VideoEncoder
-            || !globalThis.VideoDecoder) throw new Error('浏览器缺少 WT / WebCodecs 支持');
-        state('capture', '等待视频权限');
+            || !globalThis.VideoDecoder) throw new Error('Browser requires WT / WebCodecs support');
+        state('capture', 'Waiting for camera permission');
         stream = $('source').value === 'test' ? syntheticStream()
             : await navigator.mediaDevices.getUserMedia({ audio: false,
                 video: { width: { ideal: WIDTH }, height: { ideal: HEIGHT },
@@ -146,24 +147,24 @@ async function start() {
         stats.device = track.label;
         stats.audioTracks = stream.getAudioTracks().length;
         stats.cameraSettings = track.getSettings();
-        $('device').textContent = track.label || '视频源已就绪';
+        $('device').textContent = track.label || 'Video source ready';
         $('preview').srcObject = stream;
         await $('preview').play();
         const config = { codec: 'vp8', width: WIDTH, height: HEIGHT,
             bitrate: 400000, framerate: FPS, latencyMode: 'realtime' };
         if (!(await VideoEncoder.isConfigSupported(config)).supported) {
-            throw new Error('此 Chrome 不支持 VP8 编码');
+            throw new Error('This Chrome does not support VP8 encoding');
         }
-        state('connecting', '连接 relay');
+        state('connecting', 'Connecting to Relay');
         transport = new MOQTransport({ draft: 'draft-22', connectionTimeout: 8000 });
         closePromise = new Promise(resolve => transport.on('closed', info => {
             stats.closeCode = info.closeCode;
             log(`WebTransport closed: code=${info.closeCode} ${info.reason || ''}`);
             resolve(info);
-            if (active && !closing) failure(new Error('Relay 提前关闭会话'));
+            if (active && !closing) failure(new Error('Relay closed the session unexpectedly'));
         }));
         await transport.connect(url.href);
-        step('tls', 'WebTransport 已连接 · Chrome 正常证书校验');
+        step('tls', 'WebTransport connected · Certificate validated by Chrome');
         session = new MOQTSession(transport);
         session.on('error', e => { if (active && !closing) failure(e); });
         session.on('forward-state-change', ({ forward }) => {
@@ -171,12 +172,12 @@ async function start() {
             if (forwarding) captureCount = 0;
         });
         await timeout(session.setup(), 8000, 'MoQT SETUP');
-        if (session.draft !== 'draft-22') throw new Error('MoQT draft 不匹配');
-        step('setup', 'MoQT draft-22 SETUP 成功');
+        if (session.draft !== 'draft-22') throw new Error('MoQT draft version mismatch');
+        step('setup', 'MoQT draft-22 SETUP succeeded');
         alias = await timeout(session.publish(namespace, 'vp8', {
             deliveryMode: 'stream', priority: 128, skipForwardWait: true,
         }), 8000, 'PUBLISH');
-        step('publish', `PUBLISH 成功 · REQUEST_OK · alias=${alias}`);
+        step('publish', `PUBLISH accepted · REQUEST_OK · alias=${alias}`);
         $('track').textContent = namespace.join('/') + '/vp8';
         decoder = new VideoDecoder({ output: frame => {
             decodeContext.drawImage(frame, 0, 0, WIDTH, HEIGHT);
@@ -191,22 +192,22 @@ async function start() {
                 stats.subscriberCloseCode = info.closeCode;
                 log(`Subscriber closed: code=${info.closeCode}`);
                 resolve(info);
-                if (active && !closing) failure(new Error('订阅会话提前关闭'));
+                if (active && !closing) failure(new Error('Subscriber session closed unexpectedly'));
             }));
         await subscriberTransport.connect(url.href);
         subscriber = new MOQTSession(subscriberTransport);
         subscriber.on('error', e => { if (active && !closing) failure(e); });
-        await timeout(subscriber.setup(), 8000, '订阅端 SETUP');
+        await timeout(subscriber.setup(), 8000, 'Subscriber SETUP');
         subscriptionId = await timeout(subscriber.subscribe(namespace, 'vp8',
             {}, receiveFrame), 8000, 'SUBSCRIBE');
         stats.subscribe = { status: 'accepted', subscriptionId };
-        step('subscribe', 'SUBSCRIBE_OK · 播放器等待 relay 视频');
+        step('subscribe', 'SUBSCRIBE_OK · Waiting for Relay video');
         encoder = new VideoEncoder({ output: queueChunk, error: failure });
         encoder.configure(config);
         stats.startedAt = new Date().toISOString();
         const clockStart = performance.now();
         active = true;
-        state('publishing', '视频发布中');
+        state('publishing', 'Publishing video');
         captureTimer = setInterval(() => {
             if (!active || closing || $('preview').readyState < 2) return;
             stats.captureTicks++;
@@ -223,7 +224,7 @@ async function start() {
             encoder.encode(frame, { keyFrame: captureCount++ % (FPS * 2) === 0 });
             frame.close();
         }, 1000 / FPS);
-        log('采集 → 发布端 → relay → 独立订阅端 → 播放器');
+        log('Capture → Publisher → Relay → Independent subscriber → Player');
     } catch (error) {
         failure(error);
         try { await subscriber?.close(); } catch {}
@@ -251,7 +252,7 @@ function queueChunk(chunk) {
     sendQueue = sendQueue.then(async () => {
         const hash = await digest(data);
         const key = metadata.groupId + '/' + metadata.objectId;
-        if (pendingEcho.size >= 300) throw new Error('Relay 回传积压超过限制');
+        if (pendingEcho.size >= 300) throw new Error('Relay echo backlog limit exceeded');
         pendingEcho.set(key, { hash, at: performance.now() });
         await session.sendObject(alias, data, metadata);
         stats.sent++;
@@ -277,7 +278,7 @@ function receiveFrame(bytes, groupId, objectId) {
         const expected = pendingEcho.get(key);
         const hash = await digest(data);
         if (!expected || expected.hash !== hash) {
-            throw new Error('Relay 回传对象身份或 SHA-256 不匹配');
+            throw new Error('Relay Object identity or SHA-256 mismatch');
         }
         pendingEcho.delete(key);
         stats.received++;
@@ -288,14 +289,14 @@ function receiveFrame(bytes, groupId, objectId) {
             const frame = unpackFrame(data);
             decoder.decode(new EncodedVideoChunk(frame));
         }
-        if (stats.received === 1) step('subscribe', '正在播放 relay 订阅视频');
+        if (stats.received === 1) step('subscribe', 'Playing video received from Relay');
     }).catch(failure);
 }
 
 async function drainEcho() {
     const deadline = performance.now() + 6000;
     while (pendingEcho.size) {
-        if (performance.now() >= deadline) throw new Error('等待 relay 回传超时');
+        if (performance.now() >= deadline) throw new Error('Waiting for Relay echo timed out');
         await new Promise(resolve => setTimeout(resolve, 20));
     }
     await receiveQueue;
@@ -308,18 +309,18 @@ async function stop() {
     controls();
     try {
         if (encoder?.state === 'configured') await encoder.flush();
-        await timeout(sendQueue, 6000, '发送队列');
+        await timeout(sendQueue, 6000, 'Send queue');
         await drainEcho();
         if (decoder?.state === 'configured') await decoder.flush();
-        await timeout(subscriber.close(), 6000, '订阅会话关闭');
-        const subInfo = await timeout(subscriberClose, 6000, '订阅 WT 关闭');
-        await timeout(session.close(), 6000, 'MoQT 关闭');
-        const info = await timeout(closePromise, 6000, 'WT 关闭');
+        await timeout(subscriber.close(), 6000, 'Subscriber session close');
+        const subInfo = await timeout(subscriberClose, 6000, 'Subscriber WT close');
+        await timeout(session.close(), 6000, 'MoQT close');
+        const info = await timeout(closePromise, 6000, 'WT close');
         const ok = info.closeCode === 0 && subInfo.closeCode === 0;
-        step('close', `WT 关闭：发布=${info.closeCode} 订阅=${subInfo.closeCode}`, ok);
-        if (!ok) throw new Error('WT 关闭码异常');
+        step('close', `WT closed: publisher=${info.closeCode} subscriber=${subInfo.closeCode}`, ok);
+        if (!ok) throw new Error('Unexpected WT close code');
         stats.stoppedAt = new Date().toISOString();
-        if (!stats.errors.length) state('stopped', '已正常停止');
+        if (!stats.errors.length) state('stopped', 'Stopped normally');
     } catch (error) {
         failure(error);
     } finally {
@@ -345,23 +346,25 @@ async function toggleSubscribe() {
             await encoder.flush();
             await sendQueue;
             await drainEcho();
-            await timeout(subscriber.unsubscribe(subscriptionId), 6000, '取消订阅');
+            await timeout(subscriber.unsubscribe(subscriptionId), 6000, 'Unsubscribe');
             await decoder.flush();
             decoder.reset();
             decoder.configure({ codec: 'vp8', codedWidth: WIDTH, codedHeight: HEIGHT });
             stats.paused = true;
-            $('subscribe').textContent = '恢复订阅';
-            $('subscribe-result').textContent = '订阅已暂停；采集预览继续，播放器停止。';
-            log('取消 SUBSCRIBE，播放器已暂停');
+            $('subscribe').textContent = 'Resume subscription';
+            $('subscribe-result').textContent =
+                'Subscription paused; capture preview continues and the player is frozen.';
+            log('Unsubscribed; player paused');
         } else {
             subscriptionId = await timeout(subscriber.subscribe(namespace, 'vp8',
-                {}, receiveFrame), 8000, '恢复订阅');
+                {}, receiveFrame), 8000, 'Resume subscription');
             captureCount = 0;
             paused = false;
             stats.paused = false;
-            $('subscribe').textContent = '暂停订阅';
-            $('subscribe-result').textContent = '订阅已恢复，等待新的关键帧。';
-            log('新的 SUBSCRIBE_OK，恢复 relay 视频');
+            $('subscribe').textContent = 'Pause subscription';
+            $('subscribe-result').textContent =
+                'Subscription resumed; waiting for a new keyframe.';
+            log('New SUBSCRIBE_OK; resuming Relay video');
         }
     } catch (error) {
         failure(error);

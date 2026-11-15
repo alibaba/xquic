@@ -68,3 +68,22 @@ Native endpoint cases 1495/1496 separately exercise namespace registration
 and direct PUBLISH against the actual demo over native QUIC, WT07, WT16 and
 both mixed directions. Browser success alone does not establish native MoQT
 interoperability or compatibility with other media payload formats.
+
+## HTTPS hosting
+
+Serve the contents of `dist/` as static files over trusted HTTPS to use the
+camera from a remote page. Controls and diagnostics are in English; the
+capture/player heading is in Chinese. Without a
+build-time or query override, the Relay URL defaults to the page's hostname
+with the `/moqt` path. Add the page's exact HTTPS Origin to the Relay's
+`XQC_MOQT_ALLOWED_ORIGIN` list.
+
+A static web server can listen on TCP 443 while `demo_server --moqt-relay`
+listens on UDP 443 for the same hostname. Do not advertise the MoQT-only
+UDP endpoint with an HTTP `Alt-Svc` header for static page requests. Keep
+certificate keys outside the static document root and disable directory
+listing. Unknown static paths should return HTTP 404.
+
+Validate the hosted page by setting `PAGE_URL=https://relay.example/` for
+the browser fixture above. Its independent publish/subscribe and error
+checks then run with the remote page's HTTPS Origin.

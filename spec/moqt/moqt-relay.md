@@ -102,6 +102,12 @@ peer's admission, policy, scope, and forwarding logic. The endpoint WT binding
 requires draft-16 and forbids AUTHORITY/PATH SETUP Options (draft-22 §6.2.1,
 §9.1.1/§9.1.2). Start its Session there and destroy the peer in WT session
 close before H3 destruction. Peers on sibling WT Sessions remain independent.
+The explicit `xqc_moqt_relay_peer_create_webtransport_compat` entry point also
+admits draft-07 under the endpoint's opt-in compatibility contract, including
+exact `moqt-22` selection and best-effort reset association. The original
+constructor remains draft-16-only. Both share the same peer/configuration
+admission, scope, routing, queues, accounting and destruction path; no
+transport-specific Relay state machine is introduced.
 Call its processing entry point after QUIC events and at the returned next
 deadline. Closure callbacks immediately clear invalid handles; defer mapping
 reclamation during callback traversal to prevent cross-Session dangling

@@ -301,8 +301,9 @@ xqc_moqt_fill_parameters_decode(const xqc_moq_message_parameter_t *parameter,
         return XQC_ERROR;
     }
     xqc_memzero(message, sizeof(*message));
+    /* Draft-22 9.20/9.20.15: the byte length encloses a counted block. */
     if (xqc_moqt_parameters_decode(&p, end, message,
-                                   XQC_MOQT_PARAMETER_SCOPE_FILL, 0) != XQC_OK)
+                                   XQC_MOQT_PARAMETER_SCOPE_FILL, 1) != XQC_OK)
     {
         return XQC_ERROR;
     }

@@ -44,7 +44,7 @@ moqt_demo_start()
         > demo-certificate.log 2>&1 || return 1
     openssl x509 -in server.crt -outform DER -out server.der || return 1
     XQC_MOQT_ALLOWED_ORIGIN=http://localhost:8080,https://example.test \
-        "${binary}" --moqt \
+        "${binary}" "${1:---moqt}" \
         -p "${CASE_TEST_PORT:-8443}" > demo-server.log 2>&1 &
     CASE_TEST_SERVER_PID="$!"
     sleep 0.2
@@ -91,6 +91,69 @@ case_test_case "moqt_webtransport_draft07" --id 1493 \
     --run case_moqt_webtransport_draft07
 case_test_case "moqt_webtransport_draft07_errors" --id 1494 \
     --run case_moqt_webtransport_draft07_errors
+
+case_moqt_demo_relay_echo()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode
+    moqt_demo_start --moqt-relay || return 1
+    for mode in quic wt07 wt mixed mixed-reverse; do
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
+            > "relay-${mode}.log" 2>&1 || return 1
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
+            direct > "relay-direct-${mode}.log" 2>&1 || return 1
+    done
+    grep -Fq 'RELAY FORWARD type=0x3' demo-server.log
+}
+
+case_moqt_demo_relay_errors()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode
+    moqt_demo_start --moqt-relay || return 1
+    for mode in quic wt07 wt mixed mixed-reverse; do
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
+            errors > "relay-errors-${mode}.log" 2>&1 || return 1
+    done
+}
+
+case_test_case "moqt_demo_relay_echo" --id 1495 \
+    --run case_moqt_demo_relay_echo
+case_test_case "moqt_demo_relay_errors" --id 1496 \
+    --run case_moqt_demo_relay_errors
+
+case_moqt_demo_relay_fill()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode
+    moqt_demo_start --moqt-relay || return 1
+    for mode in quic wt07 wt; do
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
+            fill > "relay-fill-${mode}.log" 2>&1 || return 1
+        grep -Fq 'fill=1 fill_bytes=6 fetches=1' \
+            "relay-fill-${mode}.log" || return 1
+    done
+    grep -Fq 'RELAY FORWARD type=0x3' demo-server.log || return 1
+    grep -Fq 'RELAY FORWARD type=0x16' demo-server.log
+}
+
+case_moqt_demo_relay_fill_errors()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode
+    moqt_demo_start --moqt-relay || return 1
+    for mode in quic wt07 wt; do
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
+            fill-errors > "relay-fill-errors-${mode}.log" 2>&1 || return 1
+        grep -Fq 'malformed_close=3 close=0/0' \
+            "relay-fill-errors-${mode}.log" || return 1
+    done
+}
+
+case_test_case "moqt_demo_relay_fill" --id 1497 \
+    --run case_moqt_demo_relay_fill
+case_test_case "moqt_demo_relay_fill_errors" --id 1498 \
+    --run case_moqt_demo_relay_fill_errors
 
 if case_test_is_discovery; then
     case_test_run

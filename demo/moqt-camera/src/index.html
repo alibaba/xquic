@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MOQ Relay Validation</title>
+<link rel="stylesheet" href="style.css">
+<body>
+<main>
+  <header><span class="brand">XQUIC <b>LAB</b></span><span class="pill">MoQT draft-22 · WebTransport</span></header>
+  <h1>MOQ Relay Validation</h1>
+  <p class="intro">Camera → MoQT publisher → Relay → Independent subscriber → Player.</p>
+  <section class="controls">
+    <label class="url">Relay URL<input id="relay" type="url" placeholder="https://relay.example/moqt"></label>
+    <label>Video source<select id="source"><option value="camera">Camera</option><option value="test">Animated test pattern</option></select></label>
+    <button id="start">Start capture &amp; publish</button><button id="stop" disabled class="secondary">Stop</button>
+  </section>
+  <div class="session"><span id="state" class="pill">Not connected</span><span id="track">640 × 360 · 15 fps · VP8 · No audio</span></div>
+  <section class="previews">
+    <article><div class="caption"><h2>Capture preview</h2><span id="device">Waiting for a video source</span></div><div class="screen"><video id="preview" autoplay muted playsinline></video></div></article>
+    <article><div class="caption"><h2>Relay subscriber player</h2><span>Decodes video Objects received from the Relay</span></div><div class="screen"><canvas id="decoded" width="640" height="360"></canvas></div></article>
+  </section>
+  <section class="stats">
+    <article><span>Video Objects sent</span><strong id="sent">0</strong></article>
+    <article><span>Payload sent</span><strong id="bytes">0 KB</strong></article>
+    <article><span>Encoded / decoded frames</span><strong id="frames">0 / 0</strong></article>
+    <article><span>Objects received</span><strong id="received">0</strong></article>
+    <article><span>SHA-256 matches</span><strong id="matched">0</strong></article>
+    <article><span>Latest Object round trip</span><strong id="latency">0 ms</strong></article>
+    <article><span>Send rate</span><strong id="rate">0 kbps</strong></article>
+    <article><span>Capture frames dropped</span><strong id="dropped">0</strong></article>
+  </section>
+  <section class="details">
+    <article><h2>Protocol progress</h2><ul id="checks"><li id="check-tls">WebTransport / certificate: awaiting connection</li><li id="check-setup">MoQT SETUP: pending</li><li id="check-publish">PUBLISH / REQUEST_OK: pending</li><li id="check-subscribe">SUBSCRIBE / playback: pending</li><li id="check-close">Normal close: pending</li></ul>
+    <button id="subscribe" class="secondary" disabled>Pause subscription</button><p id="subscribe-result">The player decodes video Objects received by an independent subscriber.</p></article>
+    <article><div class="caption"><h2>Session log</h2><button id="export" class="text-button">Export results</button></div><pre id="log" aria-live="polite">Click Start to request camera permission. No audio is captured.</pre></article>
+  </section>
+  <footer>Start requests camera permission; no audio is captured. The player uses only data received by an independent subscriber. Pausing the subscription keeps the capture preview running. Every returned Object is compared with its original payload using SHA-256. Video uses the XQV1 + VP8 example format; LOC / MSF compatibility is not tested.</footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

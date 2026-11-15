@@ -12,4 +12,6 @@ void xqc_test_moqt_webtransport_control_reset(void);
 void xqc_test_moqt_webtransport_setup_errors(void);
 void xqc_test_moqt_webtransport_relay(void);
 void xqc_test_moqt_webtransport_relay_errors(void);
+void xqc_test_moqt_webtransport_relay_compat(void);
+void xqc_test_moqt_webtransport_relay_compat_errors(void);
 #endif

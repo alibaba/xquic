@@ -501,6 +501,10 @@ main(int argc, char *argv[])
                         xqc_test_moqt_fill_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_parameters",
                         xqc_test_moqt_fill_parameters)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_counted",
+                        xqc_test_moqt_fill_counted)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_counted_errors",
+                        xqc_test_moqt_fill_counted_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_snapshots",
                         xqc_test_moqt_fill_snapshots)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_suppressed",
@@ -638,6 +642,10 @@ main(int argc, char *argv[])
                         xqc_test_moqt_webtransport_relay)
         || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay_errors",
                         xqc_test_moqt_webtransport_relay_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay_compat",
+                        xqc_test_moqt_webtransport_relay_compat)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay_compat_errors",
+                        xqc_test_moqt_webtransport_relay_compat_errors)
 #endif
         || !CU_add_test(pSuite, "xqc_test_moqt_padding_and_goaway_errors",
                         xqc_test_moqt_padding_and_goaway_errors)

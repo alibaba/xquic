@@ -357,6 +357,7 @@ modules:
           - moq/moqt/xqc_moqt_webtransport.c
           - tests/unittest/xqc_moqt_webtransport_test.*
           - tests/complex_case/test_moqt_webtransport.c
+          - tests/complex_case/test_moqt_demo_relay.c
         feature_flags:
           - XQC_ENABLE_MOQ=ON
           - XQC_ENABLE_WEBTRANSPORT=ON
@@ -369,6 +370,8 @@ modules:
             - xqc_test_moqt_webtransport_setup_errors
             - xqc_test_moqt_webtransport_relay
             - xqc_test_moqt_webtransport_relay_errors
+            - xqc_test_moqt_webtransport_relay_compat
+            - xqc_test_moqt_webtransport_relay_compat_errors
       moqt:
         paths:
           - include/moq/xqc_moqt.h

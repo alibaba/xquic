@@ -87,6 +87,10 @@ if(XQC_ENABLE_MOQ)
             complex_case/test_moqt_webtransport.c
             complex_case/complex_case_common.c)
         target_link_libraries(test_moqt_webtransport ${APP_DEPEND_LIBS})
+        add_executable(test_moqt_demo_relay
+            complex_case/test_moqt_demo_relay.c
+            complex_case/complex_case_common.c)
+        target_link_libraries(test_moqt_demo_relay ${APP_DEPEND_LIBS})
     endif()
 endif()
 if(XQC_ENABLE_WEBTRANSPORT)

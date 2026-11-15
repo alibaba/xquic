@@ -93,6 +93,16 @@ XQC_EXPORT_PUBLIC_API
 xqc_moqt_relay_peer_t *xqc_moqt_relay_peer_create_webtransport(
     xqc_moqt_relay_t *relay, xqc_wt_session_t *transport,
     const xqc_moqt_config_t *config, const struct iovec *scope, void *peer_data);
+
+/*
+ * Explicit WT draft-07 compatibility; also accepts draft-16. Uses the same
+ * scope, policy, limits and lifetime as the strict constructor above, with
+ * xqc_moqt_session_create_webtransport_compat() binding requirements.
+ */
+XQC_EXPORT_PUBLIC_API
+xqc_moqt_relay_peer_t *xqc_moqt_relay_peer_create_webtransport_compat(
+    xqc_moqt_relay_t *relay, xqc_wt_session_t *transport,
+    const xqc_moqt_config_t *config, const struct iovec *scope, void *peer_data);
 #endif
 
 XQC_EXPORT_PUBLIC_API

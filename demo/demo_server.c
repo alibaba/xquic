@@ -1819,7 +1819,9 @@ int
 main(int argc, char *argv[])
 {
 #ifdef XQC_ENABLE_MOQT_DEMO
-    if (argc > 1 && !strcmp(argv[1], "--moqt")) {
+    if (argc > 1 && (!strcmp(argv[1], "--moqt")
+                    || !strcmp(argv[1], "--moqt-relay")))
+    {
         return xqc_demo_moqt_main(argc - 1, argv + 1);
     }
 #endif

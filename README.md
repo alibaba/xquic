@@ -169,7 +169,8 @@ for disabled local validation. See
 demos and endpoint checks.
 
 With MoQ also enabled, POSIX builds provide `demo_server --moqt`, a draft-22
-parser/sink with explicit WT draft-07 browser compatibility. See
+parser/sink with explicit WT draft-07 browser compatibility; `--moqt-relay`
+enables the bounded Relay core on the same native/WT endpoints. See
 [the MoQT demo guide](demo/moqt.md).
 
 ## Documentation

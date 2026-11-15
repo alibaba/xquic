@@ -197,6 +197,7 @@ groups:
   - include/moq/xqc_moqt*
   - demo/xqc_moqt_demo.*
   - tests/complex_case/test_moqt_webtransport.c
+  - tests/complex_case/test_moqt_demo_relay.c
   runner: case_test/moq/webtransport.sh
   execution: implemented
   port_offset: 180

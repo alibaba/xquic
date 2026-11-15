@@ -109,6 +109,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_create_alloc_failures", xqc_test_conn_create_alloc_failures)
         || !CU_add_test(pSuite, "xqc_test_engine_create_alloc_failures",
                         xqc_test_engine_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_client_trust_store_failure",
+                        xqc_test_client_trust_store_failure)
         || !CU_add_test(pSuite, "xqc_test_conn_destroy_frees_crypto_data",
                         xqc_test_conn_destroy_frees_crypto_data)
         || !CU_add_test(pSuite, "xqc_test_client_connect_active_queue_full",

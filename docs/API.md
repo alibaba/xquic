@@ -69,6 +69,23 @@ Install a CA bundle at those locations or select trusted roots with the
 backend's `SSL_CERT_FILE` and `SSL_CERT_DIR` environment variables. These are
 filesystem trust stores; a platform's native certificate store is not loaded.
 Certificate-chain and hostname verification remain enabled by this flag.
+If the backend reports a failure initializing its default trust paths,
+client engine creation fails and frees the TLS context. A missing CA file
+may be tolerated by the backend; it does not disable peer verification.
+
+For Ubuntu with BoringSSL, select the system-managed bundle and hashed
+certificate directory before creating the engine:
+
+```bash
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_DIR=/etc/ssl/certs
+```
+
+The bundle and directory are maintained by Ubuntu's
+[`update-ca-certificates`](https://manpages.ubuntu.com/manpages/noble/man8/update-ca-certificates.8.html).
+This also avoids relying on BoringSSL's default `/etc/ssl/cert.pem`, which
+Ubuntu does not normally provide. For a systemd service, set these variables
+in its `Environment=` configuration.
 
 #### XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED (0x02)
 Self-signed certificates is allowed.

@@ -254,10 +254,13 @@ if(HAVE_CUNIT)
     # BabaSSL itself crashes when some of its own allocations fail
     # (EVP_KDF_CTX_new_id(), which every connection's key derivation
     # reaches). The sweep wraps xqc_gen_reset_token() to leave out the
-    # allocations made inside it.
+    # allocations made inside it. The default CA loader also has an unsafe
+    # internal OOM path in BoringSSL's ByDirEntry::Create; test its returned
+    # failure separately while retaining live-allocation accounting.
     if(CMAKE_SYSTEM_NAME MATCHES "Linux" AND ${SSL_TYPE} MATCHES "boringssl")
         target_compile_definitions(run_tests PRIVATE XQC_TEST_ALLOC_SWEEP)
-        target_link_libraries(run_tests "-Wl,--wrap=xqc_gen_reset_token")
+        target_link_libraries(run_tests "-Wl,--wrap=xqc_gen_reset_token"
+            "-Wl,--wrap=SSL_CTX_set_default_verify_paths")
     endif()
 
     add_test(NAME run_tests COMMAND run_tests)

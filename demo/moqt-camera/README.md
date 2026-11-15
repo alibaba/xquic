@@ -72,11 +72,10 @@ interoperability or compatibility with other media payload formats.
 ## HTTPS hosting
 
 Serve the contents of `dist/` as static files over trusted HTTPS to use the
-camera from a remote page. Controls and diagnostics are in English; the
-capture/player heading is in Chinese. Without a
-build-time or query override, the Relay URL defaults to the page's hostname
-with the `/moqt` path. Add the page's exact HTTPS Origin to the Relay's
-`XQC_MOQT_ALLOWED_ORIGIN` list.
+camera from a remote page. The heading, controls and diagnostics are in
+English. Without a build-time or query override, the Relay URL defaults to
+the page's hostname with the `/moqt` path. Add the page's exact HTTPS Origin
+to the Relay's `XQC_MOQT_ALLOWED_ORIGIN` list.
 
 A static web server can listen on TCP 443 while `demo_server --moqt-relay`
 listens on UDP 443 for the same hostname. Do not advertise the MoQT-only

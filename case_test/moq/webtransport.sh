@@ -122,6 +122,39 @@ case_test_case "moqt_demo_relay_echo" --id 1495 \
 case_test_case "moqt_demo_relay_errors" --id 1496 \
     --run case_moqt_demo_relay_errors
 
+case_moqt_demo_relay_fill()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode
+    moqt_demo_start --moqt-relay || return 1
+    for mode in quic wt07 wt; do
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
+            fill > "relay-fill-${mode}.log" 2>&1 || return 1
+        grep -Fq 'fill=1 fill_bytes=6 fetches=1' \
+            "relay-fill-${mode}.log" || return 1
+    done
+    grep -Fq 'RELAY FORWARD type=0x3' demo-server.log || return 1
+    grep -Fq 'RELAY FORWARD type=0x16' demo-server.log
+}
+
+case_moqt_demo_relay_fill_errors()
+{
+    local binary="$(case_test_build_dir "${ROOT_DIR}")/tests/test_moqt_demo_relay"
+    local mode
+    moqt_demo_start --moqt-relay || return 1
+    for mode in quic wt07 wt; do
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
+            fill-errors > "relay-fill-errors-${mode}.log" 2>&1 || return 1
+        grep -Fq 'malformed_close=3 close=0/0' \
+            "relay-fill-errors-${mode}.log" || return 1
+    done
+}
+
+case_test_case "moqt_demo_relay_fill" --id 1497 \
+    --run case_moqt_demo_relay_fill
+case_test_case "moqt_demo_relay_fill_errors" --id 1498 \
+    --run case_moqt_demo_relay_fill_errors
+
 if case_test_is_discovery; then
     case_test_run
     exit 0

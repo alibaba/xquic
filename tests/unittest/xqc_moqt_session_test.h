@@ -42,6 +42,8 @@ void xqc_test_moqt_fetch_send(void);
 void xqc_test_moqt_fetch_errors(void);
 void xqc_test_moqt_fill_errors(void);
 void xqc_test_moqt_fill_parameters(void);
+void xqc_test_moqt_fill_counted(void);
+void xqc_test_moqt_fill_counted_errors(void);
 void xqc_test_moqt_fill_snapshots(void);
 void xqc_test_moqt_fill_suppressed(void);
 void xqc_test_moqt_fill_lifecycle(void);

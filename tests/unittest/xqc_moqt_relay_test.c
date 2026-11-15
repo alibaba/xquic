@@ -258,6 +258,37 @@ xqc_test_moqt_relay_config(void)
     xqc_moqt_relay_destroy(r);
 }
 
+static void
+xqc_test_relay_draining_publisher(void)
+{
+    xqc_test_relay_t f;
+    xqc_test_relay_init(&f);
+    xqc_test_relay_peer_t *old = &f.peers[XQC_TEST_RELAY_PUBLISHER];
+    xqc_test_relay_peer_t *replacement =
+        &f.peers[XQC_TEST_RELAY_OTHER_PUBLISHER];
+    xqc_test_relay_peer_t *subscriber = &f.peers[XQC_TEST_RELAY_SUBSCRIBER];
+    xqc_moqt_message_t m = xqc_test_relay_message(
+        XQC_MOQT_MSG_PUBLISH_NAMESPACE);
+    xqc_moqt_request_t *publication = xqc_test_relay_receive(old, &m);
+    CU_ASSERT_TRUE(publication->established);
+
+    /* RFC 9000 §10.2.2: the transport drains before the close callback. */
+    old->conn->conn_state = XQC_CONN_STATE_DRAINING;
+    CU_ASSERT_FALSE(old->peer->closed);
+    m.type = XQC_MOQT_MSG_SUBSCRIBE;
+    xqc_moqt_request_t *missing = xqc_test_relay_receive(subscriber, &m);
+    CU_ASSERT_EQUAL(missing->error.code, XQC_MOQT_REQUEST_DOES_NOT_EXIST);
+
+    m.type = XQC_MOQT_MSG_PUBLISH_NAMESPACE;
+    xqc_test_relay_receive(replacement, &m);
+    m.type = XQC_MOQT_MSG_SUBSCRIBE;
+    xqc_moqt_request_t *down = xqc_test_relay_receive(subscriber, &m);
+    CU_ASSERT_FALSE(down->responded);
+    xqc_test_relay_establish(f.relay);
+    CU_ASSERT_TRUE(down->established);
+    xqc_test_relay_destroy(&f);
+}
+
 void
 xqc_test_moqt_relay_routes(void)
 {
@@ -316,6 +347,7 @@ xqc_test_moqt_relay_routes(void)
     xqc_moqt_subscription_cancel(down->subscription, XQC_MOQT_RESET_CANCELLED);
     CU_ASSERT_FALSE(other->subscription->stopped);
     xqc_test_relay_destroy(&f);
+    xqc_test_relay_draining_publisher();
 }
 
 void

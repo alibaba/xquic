@@ -315,6 +315,13 @@ xqc_moqt_session_close(xqc_moqt_session_t *s, uint64_t error)
     xqc_moqt_notify_closed(s, error);
 }
 
+xqc_bool_t
+xqc_moqt_session_is_closing(const xqc_moqt_session_t *s)
+{
+    return s == NULL || s->closed || s->conn == NULL
+        || s->conn->conn_state >= XQC_CONN_STATE_CLOSING;
+}
+
 static void
 xqc_moqt_ready(xqc_moqt_session_t *s)
 {

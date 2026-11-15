@@ -323,7 +323,10 @@ static xqc_int_t
 xqc_moqt_relay_namespace_matches(xqc_moqt_relay_request_t *source,
     xqc_moqt_relay_request_t *destination)
 {
-    if (!source->registered || source->peer->closed) {
+    /* RFC 9000 §10.2.2: draining can precede the Session close callback. */
+    if (!source->registered || source->peer->closed
+        || xqc_moqt_session_is_closing(source->peer->session))
+    {
         return XQC_FALSE;
     }
     if (source->peer == destination->peer

@@ -14,9 +14,9 @@ import test_cli
 
 class InteropEndpoint(unittest.TestCase):
     @contextmanager
-    def server(self, transport, relay=False):
+    def server(self, transport, relay=False, certificates=None):
         binary = Path(test_cli.InteropCLI.binary).resolve()
-        build = binary.parent.parent
+        build = certificates or binary.parent.parent
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]
@@ -55,7 +55,7 @@ class InteropEndpoint(unittest.TestCase):
     def client(self, url, case, *args, **overrides):
         env = os.environ.copy()
         for name in ("RELAY_URL", "TESTCASE", "TLS_DISABLE_VERIFY", "VERBOSE",
-                     "MOQT_TRANSPORT"):
+                     "MOQT_TRANSPORT", "SSL_CERT_FILE", "SSL_CERT_DIR"):
             env.pop(name, None)
         env["TLS_DISABLE_VERIFY"] = "1"
         env.update(overrides)
@@ -91,6 +91,73 @@ class InteropEndpoint(unittest.TestCase):
                 self.assertIn("not ok 1 - setup-only", result.stdout)
                 self.assertNotIn("# SKIP", result.stdout)
                 self.assertNotIn("SETUP ready", result.stderr)
+
+    @contextmanager
+    def ca_certificates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            commands = (
+                ("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                 "-subj", "/CN=XQUIC test CA", "-keyout", "ca.key",
+                 "-out", "ca.pem", "-addext", "basicConstraints=critical,CA:TRUE"),
+                ("req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=localhost",
+                 "-keyout", "server.key", "-out", "server.csr"),
+                ("x509", "-req", "-in", "server.csr", "-CA", "ca.pem",
+                 "-CAkey", "ca.key", "-set_serial", "2", "-days", "1",
+                 "-extfile", "leaf.ext", "-out", "server.crt"),
+            )
+            (path / "leaf.ext").write_text(
+                "subjectAltName=DNS:localhost\n"
+                "basicConstraints=critical,CA:FALSE\n"
+                "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                "extendedKeyUsage=serverAuth\n")
+            (path / "empty").mkdir()
+            for command in commands:
+                subprocess.run(["openssl", *command], cwd=path, check=True,
+                               capture_output=True, text=True)
+            digest = subprocess.run(
+                ["openssl", "x509", "-in", "ca.pem", "-hash", "-noout"],
+                cwd=path, check=True, capture_output=True, text=True).stdout.strip()
+            (path / "hashed").mkdir()
+            (path / "hashed" / f"{digest}.0").write_bytes(
+                (path / "ca.pem").read_bytes())
+            yield path
+
+    def test_ca_chain_trusted_and_rejected(self):
+        # RFC 9001 Section 4.4: trust and server identity are both required.
+        with self.ca_certificates() as certificates:
+            for transport, scheme in (("quic", "moqt"),
+                                      ("webtransport", "https")):
+                with self.subTest(transport=transport), self.server(
+                        transport, relay=True, certificates=certificates) as port:
+                    env = {"TLS_DISABLE_VERIFY": "0",
+                           "SSL_CERT_FILE": str(certificates / "ca.pem"),
+                           "SSL_CERT_DIR": str(certificates / "empty")}
+                    url = f"{scheme}://localhost:{port}/"
+                    for ca_file, ca_dir in (("ca.pem", "empty"),
+                                            ("absent.pem", "hashed")):
+                        env["SSL_CERT_FILE"] = str(certificates / ca_file)
+                        env["SSL_CERT_DIR"] = str(certificates / ca_dir)
+                        result = self.client(url, "setup-only", **env)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("ok 1 - setup-only", result.stdout)
+                        self.assertIn("SETUP ready", result.stderr)
+
+                    env["SSL_CERT_FILE"] = str(certificates / "absent.pem")
+                    env["SSL_CERT_DIR"] = str(certificates / "empty")
+                    result = self.client(url, "setup-only", **env)
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn("not ok 1 - setup-only", result.stdout)
+                    self.assertNotIn("SETUP ready", result.stderr)
+                    self.assertIn("alert:48", result.stderr)
+
+                    env["SSL_CERT_FILE"] = str(certificates / "ca.pem")
+                    result = self.client(f"{scheme}://127.0.0.1:{port}/",
+                                         "setup-only", **env)
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn("not ok 1 - setup-only", result.stdout)
+                    self.assertNotIn("SETUP ready", result.stderr)
+                    self.assertIn("err_code:62", result.stderr)
 
     def test_native_setup_regression(self):
         with self.server("quic") as port:

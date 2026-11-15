@@ -65,6 +65,9 @@ xqc_create_client_ssl_ctx(xqc_tls_ctx_t *ctx)
     /* set the lifetime of session */
     xqc_ssl_ctx_set_timeout(ssl_ctx, ctx->cfg.session_timeout);
 
+    /* Use the backend's default trust anchors (RFC 9001, Section 4.4). */
+    SSL_CTX_set_default_verify_paths(ssl_ctx);
+
     ctx->ssl_ctx = ssl_ctx;
     return XQC_OK;
 

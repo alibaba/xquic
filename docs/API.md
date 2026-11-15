@@ -64,6 +64,12 @@ Certificate verify flag.
 #### XQC_TLS_CERT_FLAG_NEED_VERIFY (0x01)
 Verify certificate.
 
+Client TLS contexts load the TLS backend's default CA file and directory.
+Install a CA bundle at those locations or select trusted roots with the
+backend's `SSL_CERT_FILE` and `SSL_CERT_DIR` environment variables. These are
+filesystem trust stores; a platform's native certificate store is not loaded.
+Certificate-chain and hostname verification remain enabled by this flag.
+
 #### XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED (0x02)
 Self-signed certificates is allowed.
 

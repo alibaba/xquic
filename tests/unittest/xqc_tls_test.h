@@ -6,6 +6,9 @@
 #define _XQC_TLS_TEST_INCLUDE_
 
 void xqc_test_tls(void);
+void xqc_test_tls_default_ca_trusted(void);
+void xqc_test_tls_default_ca_unknown(void);
+void xqc_test_tls_default_ca_hostname_mismatch(void);
 void xqc_test_tls_default_cert_with_sni(void);
 void xqc_test_tls_default_cert_without_sni(void);
 void xqc_test_tls_session_ticket_timeout(void);

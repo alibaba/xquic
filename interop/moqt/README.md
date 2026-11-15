@@ -55,14 +55,25 @@ readiness, independently of successful HTTP/3/CONNECT establishment.
 The client implements SETUP, namespace publication/withdrawal, subscription
 errors and rendezvous timeout, publisher/subscriber ordering, namespace
 discovery lifecycle, direct PUBLISH and PUBLISH/subscription,
-`data-subgroup-basic`, eight `moq-test-*` scenarios, multi-publisher namespace
-retention, standalone `fetch`, and `join` with draft-22 Fill. Case definitions
-come from runner `2afe7b428e9ebf7277fef0d6b9701af4aefe60b0`; deterministic vectors
-follow aiomoqt 0.14.1. `--list` exposes 26 implemented cases: C01–C22,
-FETCH/Join and two media rejection/recovery extensions, including
-SUBSCRIBE_TRACKS-based `namespace-discovery`. It publishes a namespace and
+`data-subgroup-basic`, eighteen `moq-test-*` scenarios, Track completion before
+namespace withdrawal, live subscription cancellation, multi-publisher namespace
+retention, three standalone FETCH scenarios, and `join` with draft-22 Fill. Case
+definitions come from runner `2afe7b428e9ebf7277fef0d6b9701af4aefe60b0`;
+deterministic vectors follow aiomoqt 0.14.1. `--list` exposes 40 implemented
+cases: C01–C22, FETCH/Join, lifecycle extensions, and two media
+rejection/recovery extensions, including SUBSCRIBE_TRACKS-based
+`namespace-discovery`. It publishes a namespace and
 Track, discovers the namespace, then verifies the complete Track name offered
 on an independent PUBLISH.
+
+`moq-test-extensions-integer-only` and
+`moq-test-extensions-variable-only` split the Test -00 Object Property KVP
+encoding checks for integer type 2 and byte-sequence type 5; the original
+`moq-test-extensions` case keeps both properties together (Test -00 §§2.14–2.15).
+`moq-test-object-fragmentation` delivers one 96-byte Object in four ordered
+24-byte fragments and checks complete reassembly.
+`moq-test-object-large-id` sends two Groups and sparse Object IDs above 2^40,
+checking the decoded 64-bit identities end to end.
 
 `publish-subscribe-media` adds a bounded C22 VP8 profile. Independent
 publisher/subscriber Sessions first exchange an MSF-01 independent catalog
@@ -113,10 +124,19 @@ uses SUBSCRIBE with FILL_PARAMETERS: six historical objects and nineteen
 subsequent live objects have independent oracles and completion conditions.
 Both cases require the original live observer to receive all thirty objects;
 an OK response or a partial history stream is insufficient.
+`fetch-descending` requests two complete Groups in descending order and checks
+that Group IDs decrease while Object IDs increase within each Group.
+`fetch-error-recovery` first requests a range beyond Largest and requires
+INVALID_RANGE, then completes a valid FETCH on that Session.
 The bounded history publisher retains two independent upstream subscriptions
 for the live observer and joiner. A new Join does not restart the source or
 replace the original delivery; each demand has its own stream and completion
 count. Historical data remains available while both live deliveries progress.
+`publish-namespace-done-track` completes an observed Track with
+PUBLISH_DONE with the stream count of each Subscription, withdraws its Namespace, then requires the
+independent namespace observer to see the removal. `subscribe-cancel-live`
+cancels after two Objects and verifies that later Objects do not reach that
+subscriber.
 
 Data cases use fresh random namespaces, independent publisher and subscriber
 sessions, bounded phase/delivery deadlines and paced objects. The oracle
@@ -133,7 +153,7 @@ complete property encoding while allowing random values, as specified by
 connection independently accepts PUBLISH_NAMESPACE/PUBLISH, rejects unknown
 SUBSCRIBE with DOES_NOT_EXIST, and serves bounded MoQT Test tuples.
 Direct-origin probes use client `--origin`, whose `--list` contains five
-control cases and eight deterministic data vectors. These 13 probes reuse
+control cases and eighteen deterministic data vectors. These 23 probes reuse
 the full object oracle and require PUBLISH_DONE and all declared stream FINs.
 They are recorded separately from relay scenarios.
 
@@ -149,19 +169,21 @@ Scope is intended for controlled local interoperability testing.
 The origin accepts at most 256 objects per tuple, payloads at most 1024 bytes,
 and pacing at most 100 ms. Dense subgroup fixtures without markers/properties
 also supply finite history through FETCH/Fill; FETCH supports both group
-orders and rejects invalid ranges without ending the session. This history
+orders and rejects invalid ranges without ending the session. Valid empty
+historical ranges return a FETCH header and FIN, preserving the requested
+range End up to Largest Object (draft-22 §§3.2.1 and 9.12). This history
 is deterministic application data rather than a relay cache. It supports
 the vector property IDs 2 and 5 with
 fixed integer/byte values. It is an anonymous local test fixture; deployment
 authorization belongs to an application.
 
-The Fill codec is shared by both transports: FILL_PARAMETERS contains a
-length-delimited sequence of inner parameters. aiomoqt 0.14.1's default Join sender includes an
-inner parameter count, which this codec rejects. Record that reverse-direction
-encoding mismatch separately; manually adjusted wire diagnostics do not count
-as unmodified-peer interoperability passes.
+The Fill codec is shared by both transports. Draft-22 encodes
+FILL_PARAMETERS as a length-prefixed, counted parameter sequence. The decoder
+validates that count and rejects malformed and legacy uncounted encodings;
+Join in this fixture sends the counted form.
 
-The runner builds current draft-22 role images from `dev/moqt-interop`:
+The runner builds current draft-22 role images from
+`dev/moqt-interop-40-cases`:
 `xquic-client:latest` starts the client, and `xquic-relay:latest` starts the
 relay with both transports. Append `--server` for direct-origin mode. In a
 runner checkout:
@@ -180,7 +202,8 @@ docker run --rm -e MOQT_TRANSPORT=webtransport -p 4443:4443/udp \
 ```
 
 The test certificate directory contains disposable `cert.pem` and `priv.key`.
-The runner registry key is `xquic`, with draft-22 only. Its build configuration
+The runner registry keys are `xquic-client` and `xquic-relay`,
+with draft-22 only. Its build configuration
 and image workflows use the same development branch; previous draft-14/18
 image definitions are retired. Use `--target client` or `--target relay` to
 build one role. Direct-origin probes remain separate from relay cases.

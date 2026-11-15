@@ -170,8 +170,24 @@ class InteropEndpoint(unittest.TestCase):
                                   ("webtransport", "https")):
             with self.subTest(transport=transport), \
                     self.server(transport, relay=True) as port:
-                for case in ("namespace-discovery", "data-subgroup-basic",
-                             "fetch", "join", "subscribe-error", "announce-only"):
+                for case in ("namespace-discovery",
+                             "publish-namespace-done-track",
+                             "subscribe-cancel-live",
+                             "data-subgroup-basic",
+                             "moq-test-subgroup-per-group-no-eog",
+                             "moq-test-subgroup-per-group-nonzero-start",
+                             "moq-test-subgroup-per-object-sparse-ids",
+                             "moq-test-two-subgroups-no-eog",
+                             "moq-test-datagram-nonzero-start",
+                             "moq-test-datagram-sparse-ids",
+                             "moq-test-extensions-integer-only",
+                             "moq-test-extensions-variable-only",
+                             "moq-test-object-fragmentation",
+                             "moq-test-object-large-id",
+                             "moq-test-datagram",
+                             "fetch", "fetch-descending",
+                             "fetch-error-recovery", "join", "subscribe-error",
+                             "announce-only"):
                     result = self.client(f"{scheme}://127.0.0.1:{port}/", case)
                     self.assertEqual(result.returncode, 0,
                                      case + ": " + result.stderr)
@@ -182,6 +198,16 @@ class InteropEndpoint(unittest.TestCase):
                                   ("webtransport", "https")):
             with self.subTest(transport=transport), self.server(transport) as port:
                 for case in ("moq-test-subgroup-per-group-eog",
+                             "moq-test-subgroup-per-group-no-eog",
+                             "moq-test-subgroup-per-group-nonzero-start",
+                             "moq-test-subgroup-per-object-sparse-ids",
+                             "moq-test-two-subgroups-no-eog",
+                             "moq-test-datagram-nonzero-start",
+                             "moq-test-datagram-sparse-ids",
+                             "moq-test-extensions-integer-only",
+                             "moq-test-extensions-variable-only",
+                             "moq-test-object-fragmentation",
+                             "moq-test-object-large-id",
                              "moq-test-datagram", "moq-test-extensions",
                              "subscribe-error"):
                     result = self.client(f"{scheme}://127.0.0.1:{port}/", case,

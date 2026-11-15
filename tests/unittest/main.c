@@ -515,6 +515,14 @@ main(int argc, char *argv[])
                         xqc_test_moqt_interop_oracle)
         || !CU_add_test(pSuite, "xqc_test_moqt_interop_oracle_errors",
                         xqc_test_moqt_interop_oracle_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_fragmentation",
+                        xqc_test_moqt_interop_fragmentation)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_fragmentation_errors",
+                        xqc_test_moqt_interop_fragmentation_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_large_id",
+                        xqc_test_moqt_interop_large_id)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_large_id_errors",
+                        xqc_test_moqt_interop_large_id_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_interop_properties",
                         xqc_test_moqt_interop_properties)
         || !CU_add_test(pSuite, "xqc_test_moqt_interop_properties_errors",

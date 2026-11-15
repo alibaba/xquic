@@ -24,18 +24,40 @@ class InteropCLI(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("setup-only", result.stdout.splitlines())
         self.assertIn("moq-test-datagram", result.stdout.splitlines())
-        for name in ("publish-namespace-multi-publisher-retention",
-                     "fetch", "join", "namespace-discovery"):
+        self.assertIn("moq-test-subgroup-per-group-no-eog",
+                      result.stdout.splitlines())
+        self.assertIn("moq-test-subgroup-per-group-nonzero-start",
+                      result.stdout.splitlines())
+        self.assertIn("moq-test-subgroup-per-object-sparse-ids",
+                      result.stdout.splitlines())
+        self.assertIn("moq-test-two-subgroups-no-eog",
+                      result.stdout.splitlines())
+        self.assertIn("moq-test-datagram-nonzero-start",
+                      result.stdout.splitlines())
+        self.assertIn("moq-test-datagram-sparse-ids",
+                      result.stdout.splitlines())
+        self.assertIn("moq-test-extensions-integer-only",
+                      result.stdout.splitlines())
+        self.assertIn("moq-test-extensions-variable-only",
+                      result.stdout.splitlines())
+        self.assertIn("moq-test-object-fragmentation",
+                      result.stdout.splitlines())
+        self.assertIn("moq-test-object-large-id",
+                      result.stdout.splitlines())
+        for name in ("publish-namespace-done-track", "subscribe-cancel-live",
+                     "publish-namespace-multi-publisher-retention", "fetch",
+                     "fetch-descending", "fetch-error-recovery", "join",
+                     "namespace-discovery"):
             self.assertIn(name, result.stdout.splitlines())
         for name in ("publish-subscribe-media", "media-catalog-error",
                      "media-loc-error"):
             self.assertIn(name, result.stdout.splitlines())
-        self.assertEqual(len(result.stdout.splitlines()), 26)
+        self.assertEqual(len(result.stdout.splitlines()), 40)
 
     def test_origin_capabilities(self):
         result = self.run_cli("--list", "--origin")
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(len(result.stdout.splitlines()), 13)
+        self.assertEqual(len(result.stdout.splitlines()), 23)
         self.assertIn("moq-test-extensions", result.stdout.splitlines())
         self.assertNotIn("namespace-discovery", result.stdout.splitlines())
         result = self.run_cli("--origin", "--test", "namespace-discovery")
@@ -43,8 +65,8 @@ class InteropCLI(unittest.TestCase):
         self.assertIn("# SKIP", result.stdout)
 
     def test_history_and_retention_are_supported_cases(self):
-        for name in ("publish-namespace-multi-publisher-retention",
-                     "fetch", "join"):
+        for name in ("publish-namespace-multi-publisher-retention", "fetch",
+                     "fetch-descending", "fetch-error-recovery", "join"):
             result = self.run_cli("--relay", "invalid", "--test", name)
             self.assertEqual(result.returncode, 1)
             self.assertIn("Bail out!", result.stdout)

@@ -5,9 +5,12 @@
 #include <moq/xqc_moqt.h>
 
 #define XQC_INTEROP_MAX_OBJECTS 256
+#define XQC_INTEROP_MODE_FRAGMENTED 4u
+#define XQC_INTEROP_FRAGMENT_SIZE 24u
 
 typedef struct {
-    unsigned mode, first_group, first_object, last_group, last_object;
+    unsigned mode;
+    uint64_t first_group, first_object, last_group, last_object;
     unsigned objects_per_group, size0, size, pace_ms, group_step, object_step;
     unsigned markers, extensions, priority;
 } xqc_interop_fixture_t;

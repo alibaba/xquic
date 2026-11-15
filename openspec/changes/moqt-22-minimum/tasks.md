@@ -1,5 +1,64 @@
 # MoQT Draft-22 Implementation Outline
 
+## Draft-22 Interoperability Case Plan
+
+### Acceptance and counting
+
+- XQUIC self-pair target: 40 client scenarios over Native QUIC and
+  WebTransport, for 80/80 passing results. The latest report has 26
+  scenarios and 52/52 results.
+- aiomoqt target: aiomoqt's 20 default standard scenarios shared with XQUIC, in both client/relay
+  directions and over both transports, for 80/80 passing results. Do not add
+  unsupported scenarios to this denominator.
+- Keep every scenario draft-22 only. Ignore draft-18 and draft-14 results.
+- Complete one scenario at a time: run it against xquic-relay, then inspect the
+  same scenario against available draft-22 peers. Fix XQUIC-caused wire or
+  lifecycle mismatches. Mark a peer `SKIP` only when its unsupported behavior
+  is confirmed by its capability list, an explicit protocol response, or its
+  own TAP `SKIP`; a timeout or unexplained failure is not evidence of lack of
+  support.
+- Record per-peer evidence by scenario and transport in the runner PR. Do not
+  count SKIP or unrelated draft versions as passes.
+
+### Existing cases: preserve and triage (01–26)
+
+| Range | Cases | Work |
+| --- | --- | --- |
+| 01–07 | setup-only; announce-only; publish-namespace-done; subscribe-error; rendezvous-timeout; announce-subscribe; subscribe-before-announce | Re-run control and namespace request lifecycles; compare the same case in both transports. |
+| 08–11 | data-subgroup-basic; subscribe-namespace-lifecycle; publish-track-only; publish-track-subscribe | Verify complete delivery, PUBLISH completion, discovery removal, and session reuse. |
+| 12–19 | moq-test-subgroup-per-group-eog; moq-test-subgroup-per-object; moq-test-two-subgroups-eog; moq-test-datagram; moq-test-datagram-eog; moq-test-extensions; moq-test-increments; moq-test-forward-zero | Re-run the complete Object oracle and separate relay limitations from client encoding or receive defects. |
+| 20–23 | publish-namespace-multi-publisher-retention; fetch; join; namespace-discovery | Diagnose source retention, historical delivery, Fill/live concurrency, and namespace/Track discovery independently. |
+| 24–26 | publish-subscribe-media; media-catalog-error; media-loc-error | Preserve the bounded media case and rejection/recovery behavior; require real decoder output. |
+
+### New cases: expand from 26 to 40
+
+Each new scenario uses the existing draft-22 endpoint and fixture paths where
+possible. Add no optional protocol framework solely to increase the count.
+
+| Case | Scenario | Primary assertions |
+| --- | --- | --- |
+| 27 | moq-test-subgroup-per-group-no-eog | Complete Object set and Subgroup FIN without End-of-Group markers. |
+| 28 | moq-test-subgroup-per-group-nonzero-start | Nonzero initial Group/Object IDs with one Subgroup per Group. |
+| 29 | moq-test-subgroup-per-object-sparse-ids | Nonzero and incremented Object IDs across Subgroups. |
+| 30 | moq-test-two-subgroups-no-eog | Odd/even Subgroup mapping and complete delivery without markers. |
+| 31 | moq-test-datagram-nonzero-start | Datagram identity and completeness from nonzero initial IDs. |
+| 32 | moq-test-datagram-sparse-ids | Datagram identity across sparse Group/Object IDs. |
+| 33 | moq-test-extensions-integer-only | Integer Object Property encoding and byte-exact value. |
+| 34 | moq-test-extensions-variable-only | Variable-length Object Property encoding and byte-exact value. |
+| 35 | moq-test-object-fragmentation | Reassemble a multi-fragment Object and reject truncation. |
+| 36 | moq-test-object-large-id | Round-trip large Group/Object IDs through draft-22 delta encoding. |
+| 37 | publish-namespace-done-track | Complete a Track, withdraw its Namespace, then verify the independent observer sees the final removal. |
+| 38 | subscribe-cancel-live | Cancel during live delivery and verify no post-cancel Objects reach the subscriber. |
+| 39 | fetch-descending | FETCH a multi-Group range in descending order and verify every Object and completion boundary. |
+| 40 | fetch-error-recovery | Reject an invalid FETCH range, then complete a valid FETCH on the same Session. |
+
+After each case, run its targeted XQUIC self-pair case in QUIC and WebTransport,
+then run the same case against aiomoqt and other registered draft-22 peers.
+For a peer that explicitly does not support the operation, record the evidence
+and skip that peer/case; keep the XQUIC self-pair requirement unchanged. After
+case 40, run the full 40-case self-pair matrix and the 20-case, four-lane
+aiomoqt matrix before preparing the runner update PR.
+
 The [protocol specification][protocol] governs entities/lifetimes; the
 [relay specification][relay] governs Relay. The [capability table][completeness]
 is the sole status/gap/interop-dependency index. This outline repeats neither

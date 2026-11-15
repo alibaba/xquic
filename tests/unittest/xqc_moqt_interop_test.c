@@ -20,10 +20,94 @@ xqc_test_moqt_interop_fixture(void)
     CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 15);
     CU_ASSERT_EQUAL(f.size0, 64);
     CU_ASSERT_EQUAL(f.mode, 0);
+    ns.fields[13] = (struct iovec){"1", 1};
+    ns.fields[14] = (struct iovec){"-1", 2};
+    CU_ASSERT_EQUAL(xqc_interop_fixture_parse(&ns, &f), 0);
+    CU_ASSERT_EQUAL(f.extensions, 1);
+    ns.fields[13] = (struct iovec){"-1", 2};
+    ns.fields[14] = (struct iovec){"2", 1};
+    CU_ASSERT_EQUAL(xqc_interop_fixture_parse(&ns, &f), 0);
+    CU_ASSERT_EQUAL(f.extensions, 2);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-object-fragmentation", &f), 0);
+    CU_ASSERT_EQUAL(f.mode, 4);
+    CU_ASSERT_EQUAL(f.size0, 96);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 1);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-object-large-id", &f), 0);
+    CU_ASSERT_EQUAL(f.first_group, UINT64_C(1) << 40);
+    CU_ASSERT_EQUAL(f.first_object, (UINT64_C(1) << 40) + 5);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 6);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case("subscribe-cancel-live", &f), 0);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 18);
+    CU_ASSERT_EQUAL(f.pace_ms, 20);
+    f.first_group = 0;
+    f.last_group = UINT64_MAX;
+    f.first_object = 0;
+    f.last_object = UINT64_MAX;
+    f.group_step = 1;
+    f.object_step = 1;
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 0);
+    ns.fields[13] = (struct iovec){"1", 1};
+    ns.fields[14] = (struct iovec){"2", 1};
+    CU_ASSERT_EQUAL(xqc_interop_fixture_parse(&ns, &f), 0);
+    CU_ASSERT_EQUAL(f.extensions, 3);
     CU_ASSERT_EQUAL(xqc_interop_fixture_case("moq-test-increments", &f), 0);
     CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 9);
     CU_ASSERT_EQUAL(f.first_object, 3);
     CU_ASSERT_EQUAL(f.object_step, 2);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-extensions-integer-only", &f), 0);
+    CU_ASSERT_EQUAL(f.extensions, 1);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-extensions-variable-only", &f), 0);
+    CU_ASSERT_EQUAL(f.extensions, 2);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-subgroup-per-group-no-eog", &f), 0);
+    CU_ASSERT_EQUAL(f.mode, 0);
+    CU_ASSERT_EQUAL(f.markers, 0);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 18);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-subgroup-per-group-nonzero-start", &f), 0);
+    CU_ASSERT_EQUAL(f.mode, 0);
+    CU_ASSERT_EQUAL(f.first_group, 6);
+    CU_ASSERT_EQUAL(f.last_group, 8);
+    CU_ASSERT_EQUAL(f.first_object, 3);
+    CU_ASSERT_EQUAL(f.last_object, 5);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 9);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-datagram-sparse-ids", &f), 0);
+    CU_ASSERT_EQUAL(f.mode, 3);
+    CU_ASSERT_EQUAL(f.first_group, 10);
+    CU_ASSERT_EQUAL(f.last_group, 24);
+    CU_ASSERT_EQUAL(f.first_object, 3);
+    CU_ASSERT_EQUAL(f.last_object, 7);
+    CU_ASSERT_EQUAL(f.group_step, 7);
+    CU_ASSERT_EQUAL(f.object_step, 2);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 9);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-subgroup-per-object-sparse-ids", &f), 0);
+    CU_ASSERT_EQUAL(f.mode, 1);
+    CU_ASSERT_EQUAL(f.first_group, 4);
+    CU_ASSERT_EQUAL(f.first_object, 2);
+    CU_ASSERT_EQUAL(f.last_object, 8);
+    CU_ASSERT_EQUAL(f.object_step, 3);
+    CU_ASSERT_EQUAL(f.markers, 0);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 3);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-two-subgroups-no-eog", &f), 0);
+    CU_ASSERT_EQUAL(f.mode, 2);
+    CU_ASSERT_EQUAL(f.objects_per_group, 6);
+    CU_ASSERT_EQUAL(f.markers, 0);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 21);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-datagram-nonzero-start", &f), 0);
+    CU_ASSERT_EQUAL(f.mode, 3);
+    CU_ASSERT_EQUAL(f.first_group, 6);
+    CU_ASSERT_EQUAL(f.first_object, 3);
+    CU_ASSERT_EQUAL(f.last_group, 8);
+    CU_ASSERT_EQUAL(f.last_object, 5);
+    CU_ASSERT_EQUAL(xqc_interop_fixture_count(&f), 9);
 
     xqc_interop_fixture_case("data-subgroup-basic", &f);
     xqc_moqt_location_t start = {1, 0}, end = {1, UINT64_MAX};
@@ -36,6 +120,15 @@ xqc_test_moqt_interop_fixture(void)
     CU_ASSERT_EQUAL(xqc_interop_history_window(&f, 12, &start, &end,
                                                &first, &last), 0);
     CU_ASSERT_EQUAL(last, 11);
+    start = (xqc_moqt_location_t){0, 5};
+    end = (xqc_moqt_location_t){0, UINT64_MAX};
+    CU_ASSERT_EQUAL(xqc_interop_history_window(&f, 11, &start, &end,
+                                               &first, &last), 0);
+    CU_ASSERT_TRUE(first > last);
+    xqc_interop_oracle_t empty = {.fixture = f};
+    CU_ASSERT_TRUE(xqc_interop_history_complete(&empty, &start, &end));
+    empty.objects = 1;
+    CU_ASSERT_FALSE(xqc_interop_history_complete(&empty, &start, &end));
 
     xqc_interop_retention_t state = {.run = "run"};
     const char *names[] = {"moq-test",
@@ -73,6 +166,9 @@ xqc_test_moqt_interop_fixture_errors(void)
     }
     CU_ASSERT_NOT_EQUAL(xqc_interop_fixture_parse(&ns, &f), 0);
     ns.fields[10] = (struct iovec){"1", 1};
+    ns.fields[13] = (struct iovec){"3", 1};
+    CU_ASSERT_NOT_EQUAL(xqc_interop_fixture_parse(&ns, &f), 0);
+    ns.fields[13] = (struct iovec){"-1", 2};
     ns.fields[7] = (struct iovec){"4096", 4};
     CU_ASSERT_NOT_EQUAL(xqc_interop_fixture_parse(&ns, &f), 0);
     ns.fields[7] = (struct iovec){"1x", 2};
@@ -88,7 +184,8 @@ xqc_test_moqt_interop_fixture_errors(void)
                                                    &first, &last), 0);
     CU_ASSERT_NOT_EQUAL(xqc_interop_history_window(&f, 16, &start, &end,
                                                    &first, &last), 0);
-    start.object_id = 5;
+    start = (xqc_moqt_location_t){2, 5};
+    end = (xqc_moqt_location_t){2, UINT64_MAX};
     CU_ASSERT_NOT_EQUAL(xqc_interop_history_window(&f, 15, &start, &end,
                                                    &first, &last), 0);
 
@@ -146,6 +243,105 @@ xqc_test_moqt_interop_oracle(void)
 }
 
 void
+xqc_test_moqt_interop_fragmentation(void)
+{
+    xqc_interop_oracle_t oracle = {0};
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-object-fragmentation", &oracle.fixture), 0);
+    unsigned char bytes[96];
+    memset(bytes, 't', sizeof(bytes));
+    xqc_moqt_object_t object = {.priority = 200, .payload_length = 96};
+    for (size_t offset = 0; offset < sizeof(bytes); offset += 24) {
+        object.payload_offset = offset;
+        object.payload = (struct iovec){bytes + offset, 24};
+        xqc_interop_oracle_object(&oracle, &object);
+        if (offset + 24 < sizeof(bytes)) {
+            CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+        }
+    }
+    CU_ASSERT_TRUE(xqc_interop_oracle_complete(&oracle, 0));
+    CU_ASSERT_EQUAL(oracle.objects, 1);
+}
+
+void
+xqc_test_moqt_interop_fragmentation_errors(void)
+{
+    xqc_interop_oracle_t oracle = {0};
+    xqc_interop_fixture_case("moq-test-object-fragmentation",
+                             &oracle.fixture);
+    unsigned char bytes[96];
+    memset(bytes, 't', sizeof(bytes));
+    xqc_moqt_object_t object = {.priority = 200, .payload_length = 96};
+    object.payload = (struct iovec){bytes, 24};
+    xqc_interop_oracle_object(&oracle, &object);
+    object.payload_offset = 24;
+    object.payload = (struct iovec){bytes + 24, 24};
+    xqc_interop_oracle_object(&oracle, &object);
+    object.payload_offset = 48;
+    object.payload = (struct iovec){bytes + 48, 24};
+    xqc_interop_oracle_object(&oracle, &object);
+    CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+
+    oracle = (xqc_interop_oracle_t){0};
+    xqc_interop_fixture_case("moq-test-object-fragmentation",
+                             &oracle.fixture);
+    object = (xqc_moqt_object_t){.priority = 200, .payload_length = 96,
+        .payload_offset = 24, .payload = {bytes + 24, 24}};
+    xqc_interop_oracle_object(&oracle, &object);
+    CU_ASSERT_TRUE(oracle.failed);
+    CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+}
+
+void
+xqc_test_moqt_interop_large_id(void)
+{
+    xqc_interop_oracle_t oracle = {0};
+    CU_ASSERT_EQUAL(xqc_interop_fixture_case(
+        "moq-test-object-large-id", &oracle.fixture), 0);
+    const char *tuple[] = {"moq-test-00", "0", "1099511627776",
+        "1099511627781", "1099511627777", "1099511627785", "5",
+        "64", "32", "2", "1", "2", "0", "-1", "-1", "0"};
+    xqc_moqt_namespace_t ns = {0};
+    for (unsigned i = 0; i < 16; i++) {
+        ns.fields[ns.count++] = (struct iovec){(void *)tuple[i],
+                                               strlen(tuple[i])};
+    }
+    xqc_interop_fixture_t parsed;
+    CU_ASSERT_EQUAL(xqc_interop_fixture_parse(&ns, &parsed), 0);
+    CU_ASSERT_EQUAL(parsed.first_group, UINT64_C(1) << 40);
+    CU_ASSERT_EQUAL(parsed.last_object, (UINT64_C(1) << 40) + 9);
+
+    unsigned char bytes[64];
+    memset(bytes, 't', sizeof(bytes));
+    const xqc_interop_fixture_t *f = &oracle.fixture;
+    for (uint64_t group = f->first_group; group <= f->last_group; group++) {
+        for (uint64_t id = f->first_object; id <= f->last_object;
+             id += f->object_step)
+        {
+            unsigned size = id == f->first_object ? f->size0 : f->size;
+            xqc_moqt_object_t object = {.group_id = group,
+                .object_id = id, .priority = 200 + group % 2,
+                .payload = {bytes, size}, .payload_length = size};
+            xqc_interop_oracle_object(&oracle, &object);
+        }
+    }
+    CU_ASSERT_TRUE(xqc_interop_oracle_complete(&oracle, 0));
+    CU_ASSERT_EQUAL(oracle.objects, 6);
+}
+
+void
+xqc_test_moqt_interop_large_id_errors(void)
+{
+    xqc_interop_oracle_t oracle = {0};
+    xqc_interop_fixture_case("moq-test-object-large-id", &oracle.fixture);
+    xqc_moqt_object_t object = {.group_id = oracle.fixture.first_group,
+        .object_id = oracle.fixture.first_object - 1, .priority = 200};
+    xqc_interop_oracle_object(&oracle, &object);
+    CU_ASSERT_TRUE(oracle.failed);
+    CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+}
+
+void
 xqc_test_moqt_interop_oracle_errors(void)
 {
     xqc_interop_oracle_t oracle = {0};
@@ -194,6 +390,31 @@ xqc_test_moqt_interop_properties(void)
     xqc_interop_oracle_object(&oracle, &object);
     CU_ASSERT_FALSE(oracle.failed);
     CU_ASSERT_EQUAL(oracle.objects, 1);
+
+    const char *cases[] = {"moq-test-extensions-integer-only",
+                           "moq-test-extensions-variable-only"};
+    unsigned char integer[] = {2, 1};
+    unsigned char variable[] = {5, 1, 'x'};
+    unsigned char variable_random[] = {5, 3, 'a', 'b', 'c'};
+    for (unsigned i = 0; i < 2; i++) {
+        oracle = (xqc_interop_oracle_t){0};
+        CU_ASSERT_EQUAL(xqc_interop_fixture_case(cases[i], &oracle.fixture), 0);
+        object.properties = i == 0
+            ? (struct iovec){integer, sizeof(integer)}
+            : (struct iovec){variable, sizeof(variable)};
+        xqc_interop_oracle_object(&oracle, &object);
+        CU_ASSERT_FALSE(oracle.failed);
+        CU_ASSERT_EQUAL(oracle.objects, 1);
+
+        oracle = (xqc_interop_oracle_t){.origin = 1};
+        CU_ASSERT_EQUAL(xqc_interop_fixture_case(cases[i], &oracle.fixture), 0);
+        object.properties = i == 0
+            ? (struct iovec){props, 2}
+            : (struct iovec){variable_random, sizeof(variable_random)};
+        xqc_interop_oracle_object(&oracle, &object);
+        CU_ASSERT_FALSE(oracle.failed);
+        CU_ASSERT_EQUAL(oracle.objects, 1);
+    }
 }
 
 void
@@ -209,6 +430,24 @@ xqc_test_moqt_interop_properties_errors(void)
             .payload = {bytes, 64},
             .properties = {props, i == 1 ? sizeof(props) - 1
                                     : i == 2 ? 1 : sizeof(props)}};
+        xqc_interop_oracle_object(&oracle, &object);
+        CU_ASSERT_TRUE(oracle.failed);
+    }
+
+    const char *cases[] = {"moq-test-extensions-integer-only",
+                           "moq-test-extensions-variable-only"};
+    unsigned char integer[] = {2, 1};
+    unsigned char variable[] = {5, 1, 'x'};
+    for (unsigned i = 0; i < 2; i++) {
+        xqc_interop_oracle_t oracle = {.origin = 1};
+        xqc_interop_fixture_case(cases[i], &oracle.fixture);
+        char bytes[64];
+        memset(bytes, 't', sizeof(bytes));
+        xqc_moqt_object_t object = {.priority = 200, .payload_length = 64,
+            .payload = {bytes, 64},
+            .properties = i == 0
+                ? (struct iovec){variable, sizeof(variable)}
+                : (struct iovec){integer, sizeof(integer)}};
         xqc_interop_oracle_object(&oracle, &object);
         CU_ASSERT_TRUE(oracle.failed);
     }

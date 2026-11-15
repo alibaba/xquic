@@ -2,7 +2,9 @@
 
 `moqt_interop` adapts the public draft-22 endpoint APIs to the
 [MoQ interop runner interface][interface]. It negotiates only `moqt-22` over
-Native QUIC or WebTransport draft-16. Build both with
+Native QUIC or WebTransport. The fixture prefers WebTransport draft-16
+and also accepts draft-07 peers that explicitly negotiate `moqt-22` through
+the application-protocol headers. Build both with
 `./scripts/validate.sh build --feature moqt_webtransport`.
 
 ```sh

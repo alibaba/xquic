@@ -610,7 +610,7 @@ xqc_interop_session_create(xqc_interop_peer_t *p, xqc_connection_t *conn)
         struct iovec scope = {"interop", 7};
 #ifdef XQC_ENABLE_WEBTRANSPORT
         if (p->wt) {
-            p->relay_peer = xqc_moqt_relay_peer_create_webtransport(
+            p->relay_peer = xqc_moqt_relay_peer_create_webtransport_compat(
                 p->app->relay, p->wt, &config, &scope, p);
         } else
 #endif
@@ -648,7 +648,7 @@ xqc_interop_session_create(xqc_interop_peer_t *p, xqc_connection_t *conn)
 #ifdef XQC_ENABLE_WEBTRANSPORT
     if (p->wt) {
         /* Draft-22 6.2.1/9.1: CONNECT supplies authority/path for WT. */
-        p->session = xqc_moqt_session_create_webtransport(p->wt,
+        p->session = xqc_moqt_session_create_webtransport_compat(p->wt,
             &config, &cbs, p);
     } else
 #endif
@@ -894,7 +894,7 @@ xqc_interop_connect(xqc_interop_app_t *app, const char *role)
         const char *protocols[] = {XQC_MOQT_ALPN_DRAFT_22};
         int error;
         if (!cid || !p->h3
-            || !xqc_wt_client_open_session_with_protocols(p->h3,
+            || !xqc_wt_client_open_session_with_protocols_compat(p->h3,
                 app->authority, app->path, NULL, protocols, 1, &error))
         {
             return NULL;

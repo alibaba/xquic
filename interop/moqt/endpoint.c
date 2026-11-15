@@ -1,6 +1,7 @@
 /* Copyright (c) 2026, Alibaba Group Holding Limited. */
 #include <errno.h>
 #include <getopt.h>
+#include <inttypes.h>
 #include <netdb.h>
 #include <signal.h>
 #include <stdio.h>
@@ -56,13 +57,18 @@ struct xqc_interop_peer_s {
     xqc_moqt_namespace_t discovery;
     unsigned history, available, paused, pause_at, has_largest;
     unsigned fetch_ready, fetch_closed, fetch_first, fetch_index, fetch_last;
-    unsigned fetch_finished;
+    unsigned fetch_finished, expected_fetch_error;
     unsigned join_streams;
+    unsigned cancel_after, cancelled, post_cancel_objects;
+    uint64_t previous_fetch_group, previous_fetch_object;
+    unsigned has_previous_fetch, fetch_order_bad;
     unsigned ready, response, response_type, incoming, error, closed;
     unsigned done, streams_closed, streams_reset, namespaces, removals;
     unsigned transport_closed, offered;
     uint64_t response_error, done_code, stream_count, next_alias;
-    unsigned group, object, sent_streams, generating, forward, basic;
+    uint64_t group, object;
+    unsigned object_offset, sent_streams;
+    unsigned generating, forward, basic;
     xqc_usec_t next_send;
     const char *role;
 };
@@ -86,10 +92,23 @@ static const char *xqc_interop_cases[] = {
     "subscribe-before-announce", "data-subgroup-basic",
     "subscribe-namespace-lifecycle", "publish-track-only",
     "publish-track-subscribe", "moq-test-subgroup-per-group-eog",
-    "moq-test-subgroup-per-object", "moq-test-two-subgroups-eog",
-    "moq-test-datagram", "moq-test-datagram-eog", "moq-test-extensions",
+    "moq-test-subgroup-per-group-no-eog",
+    "moq-test-subgroup-per-group-nonzero-start",
+    "moq-test-subgroup-per-object",
+    "moq-test-subgroup-per-object-sparse-ids",
+    "moq-test-two-subgroups-eog",
+    "moq-test-two-subgroups-no-eog",
+    "moq-test-datagram", "moq-test-datagram-nonzero-start",
+    "moq-test-datagram-sparse-ids",
+    "moq-test-datagram-eog", "moq-test-extensions",
+    "moq-test-extensions-integer-only",
+    "moq-test-extensions-variable-only",
+    "moq-test-object-fragmentation",
+    "moq-test-object-large-id",
     "moq-test-increments", "moq-test-forward-zero",
-    "publish-namespace-multi-publisher-retention", "fetch", "join",
+    "publish-namespace-done-track", "subscribe-cancel-live",
+    "publish-namespace-multi-publisher-retention", "fetch",
+    "fetch-descending", "fetch-error-recovery", "join",
     "namespace-discovery", "publish-subscribe-media",
     "media-catalog-error", "media-loc-error"
 };
@@ -166,6 +185,8 @@ static xqc_int_t xqc_interop_relay_authorize(xqc_moqt_relay_peer_t *peer,
 static xqc_int_t xqc_interop_relay_forward(xqc_moqt_relay_peer_t *peer,
     xqc_moqt_message_t *message, void *data);
 static int xqc_interop_discovery(xqc_interop_app_t *app, const char *run);
+static int xqc_interop_publish_done_track(xqc_interop_app_t *app,
+    const char *run);
 static int xqc_interop_origin_case(const char *name);
 static int xqc_interop_origin(xqc_interop_app_t *app, const char *name);
 static void xqc_interop_media_generate(xqc_interop_peer_t *p);
@@ -427,11 +448,11 @@ xqc_interop_message(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
                 }
             }
             if (p->history && p->available) {
-                unsigned width = p->fixture.last_object
+                uint64_t width = p->fixture.last_object
                     - p->fixture.first_object + 1;
-                unsigned g = p->fixture.first_group
+                uint64_t g = p->fixture.first_group
                     + (p->available - 1) / width;
-                unsigned o = p->fixture.first_object
+                uint64_t o = p->fixture.first_object
                     + (p->available - 1) % width;
                 int n = xqc_vi64_write(largest, largest + sizeof(largest), g);
                 n += xqc_vi64_write(largest + n,
@@ -515,9 +536,34 @@ xqc_interop_object(xqc_moqt_subscription_t *sub,
         xqc_interop_media_receive(&p->media, object);
         return;
     }
+    if (p->cancelled) {
+        p->post_cancel_objects++;
+        return;
+    }
+    if (stream && xqc_moqt_stream_fetch(stream)
+        && p->fetched.group_order == XQC_MOQT_GROUP_DESCENDING)
+    {
+        if (p->has_previous_fetch
+            && (object->group_id > p->previous_fetch_group
+                || (object->group_id == p->previous_fetch_group
+                    && object->object_id <= p->previous_fetch_object)))
+        {
+            p->fetch_order_bad = 1;
+        }
+        p->previous_fetch_group = object->group_id;
+        p->previous_fetch_object = object->object_id;
+        p->has_previous_fetch = 1;
+    }
     xqc_interop_oracle_t *oracle = stream && xqc_moqt_stream_fetch(stream)
         ? &p->fetch_oracle : &p->oracle;
     xqc_interop_oracle_object(oracle, object);
+    if (p->cancel_after && oracle == &p->oracle
+        && oracle->objects == p->cancel_after)
+    {
+        /* Draft-22 Section 3.1.3: stop this Subscription's live delivery. */
+        p->cancelled = 1;
+        xqc_moqt_subscription_cancel(sub, XQC_MOQT_RESET_CANCELLED);
+    }
 }
 
 static void
@@ -897,7 +943,7 @@ xqc_interop_fetch_ready(xqc_moqt_fetch_t *fetch,
         p->error = 1;
         return;
     }
-    unsigned width = p->fixture.last_object - p->fixture.first_object + 1;
+    uint64_t width = p->fixture.last_object - p->fixture.first_object + 1;
     p->fetch_index = info->group_order == XQC_MOQT_GROUP_DESCENDING
         ? p->fetch_last / width * width : p->fetch_first;
     if (p->fetch_index < p->fetch_first) {
@@ -913,7 +959,9 @@ xqc_interop_fetch_closed(xqc_moqt_fetch_t *fetch,
 {
     xqc_interop_peer_t *p = data;
     p->fetch_closed++;
-    p->error |= error != NULL;
+    p->error |= error != NULL
+        && (!p->expected_fetch_error
+            || error->normalized_code != XQC_MOQT_REQUEST_INVALID_RANGE);
     if (p->fetch_sending == fetch) {
         p->fetch_sending = NULL;
         p->fetch_stream = NULL;
@@ -926,10 +974,19 @@ xqc_interop_fetch_generate(xqc_interop_peer_t *p)
     if (!p->fetch_stream || p->fetch_finished) {
         return;
     }
+    if (p->fetch_first > p->fetch_last) {
+        /* Draft-22 3.2.1: FETCH_HEADER was queued by fetch_open. */
+        int rc = xqc_moqt_stream_finish(p->fetch_stream);
+        if (rc != -XQC_EAGAIN) {
+            p->fetch_finished = 1;
+            p->error |= rc != XQC_OK;
+        }
+        return;
+    }
     const xqc_interop_fixture_t *f = &p->fixture;
-    unsigned width = f->last_object - f->first_object + 1;
-    unsigned g = f->first_group + p->fetch_index / width;
-    unsigned id = f->first_object + p->fetch_index % width;
+    uint64_t width = f->last_object - f->first_object + 1;
+    uint64_t g = f->first_group + p->fetch_index / width;
+    uint64_t id = f->first_object + p->fetch_index % width;
     unsigned size = id == f->first_object ? f->size0 : f->size;
     unsigned char payload[1024];
     memset(payload, 't', size);
@@ -943,7 +1000,9 @@ xqc_interop_fetch_generate(xqc_interop_peer_t *p)
         return;
     }
     if (rc != XQC_OK) {
-        fprintf(stderr, "FETCH source send failed: %d at %u.%u\n", rc, g, id);
+        fprintf(stderr,
+            "FETCH source send failed: %d at %" PRIu64 ".%" PRIu64 "\n",
+            rc, g, id);
         p->error = 1;
         xqc_moqt_fetch_cancel(p->fetch_sending, XQC_MOQT_RESET_INTERNAL_ERROR);
         return;
@@ -983,7 +1042,7 @@ xqc_interop_fetch_end(xqc_interop_peer_t *p, const xqc_moqt_message_t *m,
     if (!p->available || f->mode || f->markers || f->extensions) {
         return -1;
     }
-    unsigned width = f->last_object - f->first_object + 1;
+    uint64_t width = f->last_object - f->first_object + 1;
     *end = (xqc_moqt_location_t){
         f->first_group + (p->available - 1) / width,
         f->first_object + (p->available - 1) % width};
@@ -1033,11 +1092,13 @@ xqc_interop_fetch_end(xqc_interop_peer_t *p, const xqc_moqt_message_t *m,
     if (xqc_interop_history_window(f, p->available, &start, end,
                                     &first, &last))
     {
+        fprintf(stderr, "FETCH range rejected available=%u start=%" PRIu64
+                ".%" PRIu64 " end=%" PRIu64 ".%" PRIu64 "\n",
+                p->available, start.group_id, start.object_id,
+                end->group_id, end->object_id);
         return -1;
     }
-    /* draft-22 9.12: a definite inclusive end, also for whole-group filters. */
-    *end = (xqc_moqt_location_t){f->first_group + last / width,
-                                f->first_object + last % width};
+    /* Draft-22 9.12: End covers gaps too, not just serialized Objects. */
     return 0;
 }
 
@@ -1072,20 +1133,36 @@ xqc_interop_generate(xqc_interop_peer_t *p)
         p->generating = 0;
         return;
     }
-    unsigned sg = f->mode == 1 ? p->object
+    uint64_t sg = f->mode == 1 ? p->object
         : f->mode == 2 ? p->object % 2 : 0;
     unsigned slot = f->mode == 2 ? sg : 0;
     unsigned size = p->object == f->first_object ? f->size0 : f->size;
-    unsigned char payload[1024], properties[] = {2, 1, 3, 1, 'x'};
+    /* draft-22 Section 11.3 requires a complete Object before graceful FIN. */
+    unsigned fragment_size = f->mode == XQC_INTEROP_MODE_FRAGMENTED
+        ? XQC_INTEROP_FRAGMENT_SIZE : size;
+    if (fragment_size > size - p->object_offset) {
+        fragment_size = size - p->object_offset;
+    }
+    unsigned char payload[1024], integer_properties[] = {2, 1};
+    unsigned char variable_properties[] = {5, 1, 'x'};
+    unsigned char both_properties[] = {2, 1, 3, 1, 'x'};
     memset(payload, 't', size);
     xqc_moqt_object_t object = {
         .group_id = p->group, .object_id = p->object, .subgroup_id = sg,
         .priority = f->priority == 128 ? 128 : 200 + p->group % 2,
         .datagram = f->mode == 3,
-        .payload = {payload, size}, .payload_length = size,
+        .payload = {payload + p->object_offset, fragment_size},
+        .payload_offset = p->object_offset, .payload_length = size,
     };
-    if (f->extensions) {
-        object.properties = (struct iovec){properties, sizeof(properties)};
+    if (f->extensions == 1) {
+        object.properties = (struct iovec){integer_properties,
+                                           sizeof(integer_properties)};
+    } else if (f->extensions == 2) {
+        object.properties = (struct iovec){variable_properties,
+                                           sizeof(variable_properties)};
+    } else if (f->extensions == 3) {
+        object.properties = (struct iovec){both_properties,
+                                           sizeof(both_properties)};
     }
     int last = p->object + f->object_step > f->last_object;
     if (last && f->markers) {
@@ -1113,12 +1190,18 @@ xqc_interop_generate(xqc_interop_peer_t *p)
         return;
     }
     if (rc != XQC_OK) {
-        fprintf(stderr, "object send failed: %d at %u.%u\n",
+        fprintf(stderr, "object send failed: %d at %" PRIu64 ".%" PRIu64 "\n",
                 rc, p->group, p->object);
         p->error = 1;
         p->generating = 0;
         return;
     }
+    if (p->object_offset + fragment_size < size) {
+        p->object_offset += fragment_size;
+        p->next_send = xqc_complex_case_now_us() + f->pace_ms * 1000;
+        return;
+    }
+    p->object_offset = 0;
     if (p->history) {
         /* The bounded Join fixture has independent live and joining demands. */
         if (p->join_subscription) {
@@ -1327,13 +1410,14 @@ static void
 xqc_interop_tuple(xqc_moqt_namespace_t *ns,
     const xqc_interop_fixture_t *f, char fields[15][24])
 {
-    const int values[] = {f->mode, f->first_group, f->first_object,
+    const long long values[] = {f->mode, f->first_group, f->first_object,
         f->last_group, f->last_object, f->objects_per_group, f->size0,
         f->size, f->pace_ms, f->group_step, f->object_step, f->markers,
-        f->extensions ? 1 : -1, f->extensions ? 2 : -1, 0};
+        (f->extensions & 1) ? 1 : -1,
+        (f->extensions & 2) ? 2 : -1, 0};
     ns->fields[ns->count++] = (struct iovec){"moq-test-00", 11};
     for (unsigned i = 0; i < 15; i++) {
-        int n = snprintf(fields[i], 24, "%d", values[i]);
+        int n = snprintf(fields[i], 24, "%lld", values[i]);
         ns->fields[ns->count++] = (struct iovec){fields[i], n};
     }
 }
@@ -1493,6 +1577,8 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
 {
     app->deadline = xqc_complex_case_now_us() + 15000000;
     int join = !strcmp(name, "join");
+    int descending = !strcmp(name, "fetch-descending");
+    int recover = !strcmp(name, "fetch-error-recovery");
     xqc_moqt_namespace_t ns;
     xqc_interop_name(&ns, "moq-test", name, run);
     xqc_interop_peer_t *pub = xqc_interop_connect(app, "publisher");
@@ -1517,12 +1603,18 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
         return -1;
     }
     live->oracle.fixture = pub->fixture;
-    if (xqc_interop_request(live, XQC_MOQT_MSG_SUBSCRIBE, &ns, "track", 0, 0)
+    if (xqc_interop_request(live, XQC_MOQT_MSG_SUBSCRIBE, &ns,
+                            "track", 0, 0)
         || xqc_interop_wait(app, &live->response, 1, 5000)
         || live->response_type != XQC_MOQT_MSG_SUBSCRIBE_OK
         || xqc_interop_wait(app, &live->oracle.objects, 11, 5000)
         || live->oracle.failed || pub->available != 11)
     {
+        fprintf(stderr,
+                "history live precondition failed: type=%u objects=%u "
+                "available=%u bad=%u\n",
+                live->response_type, live->oracle.objects,
+                pub->available, live->oracle.failed);
         return -1;
     }
     const char *role = join ? "joiner" : "fetcher";
@@ -1531,39 +1623,96 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
         return -1;
     }
     reader->oracle.fixture = reader->fetch_oracle.fixture = pub->fixture;
-    unsigned char order = 1, next = XQC_MOQT_FILTER_NEXT_OBJECT;
+    /* Draft-22 Sections 9.12 and 11.4 define Group Order per FETCH. */
+    unsigned char order = descending ? XQC_MOQT_GROUP_DESCENDING
+                                     : XQC_MOQT_GROUP_ASCENDING;
+    unsigned char next = XQC_MOQT_FILTER_NEXT_OBJECT;
     unsigned char range[] = {XQC_MOQT_FILTER_ABSOLUTE_RANGE, 1, 0, 0, 4};
-    /* draft-22 3.4/9.20.15: length + uncounted inner parameters. */
-    unsigned char fill[] = {3, XQC_MOQT_PARAM_LOCATION_FILTER,
+    unsigned char descending_range[] = {
+        XQC_MOQT_FILTER_ABSOLUTE_RANGE, 0, 0, 1, 4};
+    /* Draft-22 9.20.15: length-prefixed, counted inner parameter sequence. */
+    unsigned char fill[] = {4, 1, XQC_MOQT_PARAM_LOCATION_FILTER,
                             XQC_MOQT_FILTER_RELATIVE_START, 2};
     xqc_moqt_message_t m = {
         .type = join ? XQC_MOQT_MSG_SUBSCRIBE : XQC_MOQT_MSG_FETCH,
         .track_namespace = ns, .track_name = {"track", 5},
     };
+    if (recover) {
+        reader->expected_fetch_error = 1;
+        pub->expected_fetch_error = 1;
+        unsigned char invalid[] = {
+            XQC_MOQT_FILTER_ABSOLUTE_RANGE, 99, 0, 1, 0};
+        xqc_moqt_message_t bad = m;
+        bad.parameters[bad.parameter_count++] =
+            (xqc_moq_message_parameter_t){XQC_MOQT_PARAM_LOCATION_FILTER,
+                                           sizeof(invalid), invalid};
+        bad.parameters[bad.parameter_count++] =
+            (xqc_moq_message_parameter_t){XQC_MOQT_PARAM_GROUP_ORDER,
+                                           1, &order};
+        reader->response = 0;
+        reader->request = xqc_moqt_request_open(reader->session, &bad);
+        if (!reader->request
+            || xqc_interop_wait(app, &reader->response, 1, 5000)
+            || reader->response_type != XQC_MOQT_MSG_REQUEST_ERROR
+            || reader->response_error != XQC_MOQT_REQUEST_INVALID_RANGE)
+        {
+            fprintf(stderr,
+                    "invalid FETCH result: response=%u code=%" PRIu64 "\n",
+                    reader->response_type, reader->response_error);
+            return -1;
+        }
+        /* This Fetch-closed error is the expected INVALID_RANGE outcome. */
+        reader->expected_fetch_error = 0;
+        pub->expected_fetch_error = 0;
+        reader->fetch_closed = 0;
+        reader->fetch_ready = 0;
+        reader->fetch_oracle = (xqc_interop_oracle_t){
+            .fixture = reader->oracle.fixture,
+        };
+        pub->fetch_closed = 0;
+        pub->fetch_ready = 0;
+        pub->fetch_finished = 0;
+        pub->fetch_sending = NULL;
+        pub->fetch_stream = NULL;
+    }
     m.parameters[m.parameter_count++] = (xqc_moq_message_parameter_t){
-        XQC_MOQT_PARAM_LOCATION_FILTER, join ? 1 : sizeof(range),
-        join ? &next : range};
+        XQC_MOQT_PARAM_LOCATION_FILTER, join ? 1
+            : descending ? sizeof(descending_range) : sizeof(range),
+        join ? &next : descending ? descending_range : range};
     m.parameters[m.parameter_count++] = (xqc_moq_message_parameter_t){
         XQC_MOQT_PARAM_GROUP_ORDER, 1, &order};
     if (join) {
         m.parameters[m.parameter_count++] = (xqc_moq_message_parameter_t){
             XQC_MOQT_PARAM_FILL_PARAMETERS, sizeof(fill), fill};
     }
+    reader->response = 0;
     reader->request = xqc_moqt_request_open(reader->session, &m);
     if (!reader->request
         || xqc_interop_wait(app, &reader->response, 1, 5000)
         || reader->response_type != (join ? XQC_MOQT_MSG_SUBSCRIBE_OK
                                           : XQC_MOQT_MSG_FETCH_OK))
     {
+        fprintf(stderr,
+                "valid FETCH response failed: type=%u expected=%u code=%" PRIu64
+                "\n",
+                reader->response_type, join ? XQC_MOQT_MSG_SUBSCRIBE_OK
+                                            : XQC_MOQT_MSG_FETCH_OK,
+                reader->response_error);
         return -1;
     }
     pub->paused = 0;
     if (xqc_interop_wait(app, &reader->fetch_closed, 1, 5000)
         || reader->fetch_ready != 1)
     {
+        fprintf(stderr,
+                "FETCH completion failed: closed=%u ready=%u error=%u "
+                "objects=%u\n",
+                reader->fetch_closed, reader->fetch_ready, reader->error,
+                reader->fetch_oracle.objects);
         return -1;
     }
-    xqc_moqt_location_t start = {1, 0}, end = {1, 4};
+    xqc_moqt_location_t start = {descending ? 0 : 1, 0};
+    xqc_moqt_location_t end = {1, 4};
     if (join) {
         if (!reader->has_largest || reader->largest.group_id != 2
             || reader->largest.object_id != 0)
@@ -1577,9 +1726,23 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
         || reader->fetched.end.group_id != end.group_id
         || reader->fetched.end.object_id != end.object_id
         || !xqc_interop_history_complete(&reader->fetch_oracle, &start, &end)
-        || xqc_interop_wait(app, &live->done, 1, 5000)
-        || !xqc_interop_oracle_complete(&live->oracle, 0))
+        || (descending && (reader->fetch_order_bad
+            || !reader->has_previous_fetch
+            || reader->previous_fetch_group != start.group_id))
+        || (live && xqc_interop_wait(app, &live->done, 1, 5000))
+        || (live && !xqc_interop_oracle_complete(&live->oracle, 0)))
     {
+        fprintf(stderr,
+                "FETCH result mismatch: ready=%u order_bad=%u "
+                "previous=%" PRIu64 " fetched=%u expected=%u "
+                "fetched_range=%" PRIu64 ".%" PRIu64 "..%" PRIu64 ".%" PRIu64
+                " live_done=%u live_bad=%u\n",
+                reader->fetch_ready, reader->fetch_order_bad,
+                reader->previous_fetch_group, reader->fetch_oracle.objects,
+                xqc_interop_fixture_count(&reader->fetch_oracle.fixture),
+                reader->fetched.start.group_id, reader->fetched.start.object_id,
+                reader->fetched.end.group_id, reader->fetched.end.object_id,
+                live ? live->done : 0, live ? live->oracle.failed : 0);
         return -1;
     }
     if (join) {
@@ -1593,9 +1756,14 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
     }
     fprintf(stderr, "%s history=%u live=%u fetch_fin=%u bad=%u\n", name,
         reader->fetch_oracle.objects, join ? reader->oracle.objects
-                                          : live->oracle.objects,
+            : live ? live->oracle.objects : 0,
         reader->fetch_closed, reader->fetch_oracle.failed);
-    return reader->error || live->error || pub->error ? -1 : 0;
+    if (reader->error || (live && live->error) || pub->error) {
+        fprintf(stderr, "history endpoint errors reader=%u live=%u pub=%u\n",
+                reader->error, live ? live->error : 0, pub->error);
+        return -1;
+    }
+    return 0;
 }
 
 static int
@@ -1690,6 +1858,106 @@ xqc_interop_discovery(xqc_interop_app_t *app, const char *run)
     return sub->error || pub->error ? -1 : 0;
 }
 
+static int
+xqc_interop_publish_done_track(xqc_interop_app_t *app, const char *run)
+{
+    xqc_moqt_namespace_t ns;
+    xqc_interop_name(&ns, "moq-test", "publish-namespace-done-track", run);
+    xqc_interop_peer_t *pub = xqc_interop_connect(app, "publisher");
+    xqc_interop_peer_t *observer = xqc_interop_connect(app, "observer");
+    if (!pub || !observer) {
+        return -1;
+    }
+    if (xqc_interop_request(pub, XQC_MOQT_MSG_PUBLISH_NAMESPACE,
+                               &ns, NULL, 0, 0)
+        || xqc_interop_wait(app, &pub->response, 1, XQC_INTEROP_PHASE_MS)
+        || pub->response_type != XQC_MOQT_MSG_REQUEST_OK) {
+        fprintf(stderr, "namespace publish failed\n");
+        return -1;
+    }
+    pub->publications[0] = pub->request;
+    if (xqc_interop_request(observer, XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE,
+                            &ns, NULL, 0, 0)
+        || xqc_interop_wait(app, &observer->response, 1,
+                            XQC_INTEROP_PHASE_MS)
+        || observer->response_type != XQC_MOQT_MSG_REQUEST_OK
+        || xqc_interop_wait(app, &observer->namespaces, 1,
+                            XQC_INTEROP_PHASE_MS)
+        || xqc_interop_request(pub, XQC_MOQT_MSG_PUBLISH, &ns,
+                               "test-track", 0, 0)
+        || xqc_interop_wait(app, &pub->response, 1, XQC_INTEROP_PHASE_MS)
+        || pub->response_type != XQC_MOQT_MSG_REQUEST_OK
+        || xqc_interop_request(observer, XQC_MOQT_MSG_SUBSCRIBE, &ns,
+                               "test-track", 0, 0)
+        || xqc_interop_wait(app, &observer->response, 1,
+                            XQC_INTEROP_PHASE_MS)
+        || observer->response_type != XQC_MOQT_MSG_SUBSCRIBE_OK)
+    {
+        fprintf(stderr, "namespace observer or Track setup failed\n");
+        return -1;
+    }
+    observer->oracle.fixture = (xqc_interop_fixture_t){
+        .last_group = 0, .last_object = 0,
+        .objects_per_group = 1, .size0 = 1, .size = 1,
+        .group_step = 1, .object_step = 1, .priority = 128,
+    };
+    static const unsigned char payload[] = {'t'};
+    xqc_moqt_stream_t *stream = xqc_moqt_subgroup_open(
+        pub->subscription, 0, 0, 128, 0, 0);
+    xqc_moqt_object_t object = {
+        .group_id = 0, .object_id = 0, .subgroup_id = 0,
+        .priority = 128, .payload = {(void *)payload, sizeof(payload)},
+        .payload_length = sizeof(payload),
+    };
+    if (!stream || xqc_moqt_stream_send_object(stream, &object) != XQC_OK
+        || xqc_moqt_stream_finish(stream) != XQC_OK
+        || xqc_interop_wait(app, &observer->oracle.objects, 1,
+                            XQC_INTEROP_PHASE_MS)
+        || xqc_interop_wait(app, &observer->streams_closed, 1,
+                            XQC_INTEROP_PHASE_MS)
+        || observer->oracle.failed)
+    {
+        fprintf(stderr, "Track Object or Subgroup FIN send failed\n");
+        return -1;
+    }
+    xqc_moqt_message_t done = {
+        .type = XQC_MOQT_MSG_PUBLISH_DONE,
+        .error.code = XQC_MOQT_PUBLISH_TRACK_ENDED,
+        .stream_count = pub->sending && pub->sending != pub->request ? 0 : 1,
+    };
+    /* Draft-22 9.9: PUBLISH_DONE precedes Namespace withdrawal. */
+    if (xqc_moqt_request_send(pub->request, &done) != XQC_OK) {
+        fprintf(stderr, "PUBLISH_DONE send failed\n");
+        return -1;
+    }
+    if (pub->sending && pub->sending != pub->request) {
+        /* Draft-22 9.9 counts streams per Subscription, not per Track. */
+        done.stream_count = 1;
+        if (xqc_moqt_request_send(pub->sending, &done) != XQC_OK) {
+            fprintf(stderr, "SUBSCRIBE completion send failed\n");
+            return -1;
+        }
+    }
+    if (xqc_interop_wait(app, &observer->done, 1, XQC_INTEROP_PHASE_MS)
+        || observer->done_code != XQC_MOQT_PUBLISH_TRACK_ENDED)
+    {
+        fprintf(stderr, "Track completion was not observed\n");
+        return -1;
+    }
+    if (observer->request) {
+        xqc_moqt_request_cancel(observer->request, XQC_MOQT_RESET_CANCELLED);
+    }
+    xqc_moqt_request_cancel(pub->publications[0], XQC_MOQT_RESET_CANCELLED);
+    if (xqc_interop_wait(app, &observer->removals, 1, XQC_INTEROP_PHASE_MS)
+        || pub->error || observer->error)
+    {
+        fprintf(stderr, "Namespace removal was not observed\n");
+        return -1;
+    }
+    fprintf(stderr, "Track completed before Namespace removal observed\n");
+    return 0;
+}
+
 static void
 xqc_interop_media_generate(xqc_interop_peer_t *p)
 {
@@ -1724,7 +1992,7 @@ xqc_interop_media_generate(xqc_interop_peer_t *p)
         object.payload = (struct iovec){bytes, n};
         object.payload_length = n;
     } else {
-        if (xqc_interop_media_sample(p->group, &object,
+        if (xqc_interop_media_sample((unsigned)p->group, &object,
                                      properties, sizeof(properties)))
         {
             p->error = 1;
@@ -1893,8 +2161,14 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
         char run[33];
         return xqc_interop_run_id(run) ? -1 : xqc_interop_discovery(app, run);
     }
+    if (!strcmp(name, "publish-namespace-done-track")) {
+        char run[33];
+        return xqc_interop_run_id(run) ? -1
+            : xqc_interop_publish_done_track(app, run);
+    }
     if (!strcmp(name, "publish-namespace-multi-publisher-retention")
-        || !strcmp(name, "fetch") || !strcmp(name, "join"))
+        || !strcmp(name, "fetch") || !strcmp(name, "fetch-descending")
+        || !strcmp(name, "fetch-error-recovery") || !strcmp(name, "join"))
     {
         char run[33];
         if (xqc_interop_run_id(run)) {
@@ -1950,6 +2224,9 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
             return -1;
         }
         s->oracle.fixture = p->fixture;
+        if (!strcmp(name, "subscribe-cancel-live")) {
+            s->cancel_after = 2;
+        }
     }
     if (discovery) {
         if (xqc_interop_request(s, XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE,
@@ -2061,6 +2338,18 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
                 return -1;
             }
         }
+    }
+    if (!strcmp(name, "subscribe-cancel-live")) {
+        unsigned settle_ms = xqc_interop_fixture_count(&s->oracle.fixture)
+            * s->oracle.fixture.pace_ms + 500;
+        if (xqc_interop_wait(app, &s->cancelled, 1, XQC_INTEROP_DELIVERY_MS)) {
+            return -1;
+        }
+        xqc_interop_pump(app, settle_ms);
+        fprintf(stderr, "cancelled after=%u post_cancel=%u\n",
+                s->oracle.objects, s->post_cancel_objects);
+        return s->oracle.objects == s->cancel_after
+            && !s->post_cancel_objects && !s->error && !p->error ? 0 : -1;
     }
     if (data) {
         if (xqc_interop_wait(app, &s->done, 1, XQC_INTEROP_DELIVERY_MS)) {

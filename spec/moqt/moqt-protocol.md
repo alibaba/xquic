@@ -2034,6 +2034,18 @@ not repository endpoint case IDs.
 | C22 | publish-subscribe-media | Catalog→media Track→decode/display and normal exit |
 
 There are 22 target cases; extra nondefault cases are separate extensions.
+The endpoint fixture also exposes the `moq-test-subgroup-per-group-no-eog`
+extension: it verifies a complete Object set and graceful Subgroup FIN without
+the END_OF_GROUP flag; FIN closes the Subgroup but does not declare the final
+Object ID for its Group ([draft-22 Sections 11.3.1 and 11.3.2][draft]).
+The `moq-test-extensions-integer-only` and
+`moq-test-extensions-variable-only` extensions isolate the integer and
+byte-sequence Object Property KVP forms in MoQ Test -00 §§2.14–2.15.
+The `moq-test-object-fragmentation` extension verifies ordered fragment
+reassembly and rejects a sequence that starts at a nonzero offset.
+The `moq-test-object-large-id` extension exercises 64-bit Group and Object
+identities above 2^40 through the Subgroup header and Object ID delta encoding
+([draft-22 Sections 2.1, 2.3 and 11.3][draft]).
 Unimplemented WT is gap/skip, never filled by Native QUIC results. C22 requires
 an installed decoder and real rendered frames. FETCH/Fill, full updates/migration,
 0-RTT, dynamic Groups, renewal, complete filters, padding, congestion, and
@@ -2181,7 +2193,7 @@ padding probes.
 | F40 [Relay property fidelity and malformed/auth/slow-peer isolation](#properties-cache-and-malformed) | Complete | Core complete; property fidelity, malformed/authorization/slow-subscriber isolation, and cancellation propagation | No; C18 ordinary properties counted in F18/F35, not these abnormal cases |
 | F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Core complete; overlapping sources and subscription replacement; application-selected URI/credentials, no automatic reconnection | No; no migration case |
 | F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Complete for Native/WT endpoint CLI and role boundaries | Partial; Native/WT client, direct-origin and relay adapters with local role matrices and bounded media profile; shared-runner publication deferred | Yes; prerequisite of C01–C22 |
-| F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Partial; bounded C08/eight moq-test generator and identity/payload oracle in interop/moqt; broader delivery conformance remains separate | Yes; C08/C13–C20 |
+| F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Partial; bounded C08/eighteen moq-test fixtures and identity/payload oracle in interop/moqt; broader delivery conformance remains separate | Yes; C08/C13–C20 |
 | F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; bounded VP8/LOC catalog, decoder and terminal rendering profile defined; full media workflow separate | Partial; public LOC/MSF codecs plus catalog-driven bounded C22 adapter, paired rejection/recovery and real FFmpeg rendering; general player/live snapshot workflows remain gaps, legacy APIs unchanged | Yes; C22 requires real peer results |
 
 ### Completeness Counts

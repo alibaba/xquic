@@ -12,6 +12,8 @@
 #include "complex_case_common.h"
 #include "src/transport/xqc_conn.h"
 #include "src/tls/xqc_tls.h"
+#include "moq/moqt/xqc_moqt_session.h"
+#include "moq/moqt/xqc_moqt_codec.h"
 
 #define DEMO_RELAY_BYTES (64 * 1024)
 #define CHECK(value)                                                          \
@@ -36,8 +38,11 @@ typedef struct {
     unsigned                    ready, responses, upstream, subscribed;
     unsigned                    errors, objects, datagrams, closed, wt_closed;
     unsigned                    connection_closed;
+    unsigned                    fetches, fill_ready, fill_closed, fill_objects;
     size_t                      bytes;
+    size_t                      fill_bytes;
     uint64_t                    request_error, close_error;
+    uint64_t                    expected_close;
     uint32_t                    wt_error;
 } client_t;
 
@@ -51,6 +56,8 @@ struct fixture_s {
     unsigned                 wt_configured;
     unsigned char            certificate[8192];
     size_t                   certificate_length;
+    unsigned                 fill;
+    char                     namespace[64];
 };
 
 static int trust(SSL *ssl, fixture_t *f);
@@ -89,10 +96,16 @@ static xqc_moqt_request_t *request(client_t *client, uint64_t type,
     const char *name);
 static int initialize(fixture_t *f);
 static int connect_client(client_t *c, unsigned port, const char *address);
+static void fetch_ready(xqc_moqt_fetch_t *fetch,
+    xqc_moqt_subscription_t *subscription, void *data);
+static void fetch_closed(xqc_moqt_fetch_t *fetch,
+    const xqc_moqt_error_t *error, void *data);
+static int malformed_fill(client_t *c);
 
 static const xqc_moqt_callbacks_t callbacks = {.on_setup = setup,
     .on_ready = ready, .on_closed = closed, .on_authorize = authorize,
-    .on_message = message, .on_object = object};
+    .on_message = message, .on_object = object, .on_fetch_ready = fetch_ready,
+    .on_fetch_closed = fetch_closed};
 
 static int
 trust(SSL *ssl, fixture_t *f)
@@ -157,7 +170,7 @@ closed(xqc_moqt_session_t *session, uint64_t error, void *data)
     client_t *c = data;
     c->closed++;
     c->close_error = error;
-    c->fixture->failed |= error != XQC_MOQT_NO_ERROR;
+    c->fixture->failed |= error != c->expected_close;
 }
 
 static xqc_int_t
@@ -186,6 +199,12 @@ message(xqc_moqt_request_t *req, const xqc_moqt_message_t *m, void *data)
         /* Draft-22 sections 7.6/9.14: a registration must route upstream. */
         c->upstream++;
         xqc_moqt_message_t response = {.type = XQC_MOQT_MSG_SUBSCRIBE_OK};
+        uint8_t largest[] = {5, 0};
+        if (c->fixture->fill) {
+            response.parameter_count = 1;
+            response.parameters[0] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_LARGEST_OBJECT, sizeof(largest), largest};
+        }
         if (m->track_name.iov_len != 13
             || memcmp(m->track_name.iov_base, "interop-track", 13))
         {
@@ -198,6 +217,11 @@ message(xqc_moqt_request_t *req, const xqc_moqt_message_t *m, void *data)
         if (response.type == XQC_MOQT_MSG_SUBSCRIBE_OK) {
             c->subscription = xqc_moqt_request_subscription(req);
         }
+    } else if (m->type == XQC_MOQT_MSG_FETCH) {
+        c->fetches++;
+        xqc_moqt_message_t response = {.type = XQC_MOQT_MSG_FETCH_OK,
+            .end_group = 5, .end_object = 0};
+        c->fixture->failed |= xqc_moqt_request_send(req, &response) != XQC_OK;
     } else if (m->type == XQC_MOQT_MSG_REQUEST_UPDATE) {
         xqc_moqt_message_t response = {.type = XQC_MOQT_MSG_REQUEST_OK};
         c->fixture->failed |= xqc_moqt_request_send(req, &response) != XQC_OK;
@@ -211,6 +235,22 @@ object(xqc_moqt_subscription_t *subscription, xqc_moqt_stream_t *stream,
     client_t *c = data;
     if (c != &c->fixture->clients[1] || value->object_id != 0) {
         c->fixture->failed = 1;
+        return;
+    }
+    if (xqc_moqt_stream_fetch(stream)) {
+        const char payload[] = "fill22";
+        c->fixture->failed |= value->group_id != 5
+            || value->payload_length != sizeof(payload) - 1
+            || value->payload_offset > sizeof(payload) - 1
+            || value->payload.iov_len
+                > sizeof(payload) - 1 - value->payload_offset;
+        if (!c->fixture->failed) {
+            c->fixture->failed |= memcmp(value->payload.iov_base,
+                payload + value->payload_offset, value->payload.iov_len) != 0;
+        }
+        c->fill_bytes += value->payload.iov_len;
+        c->fill_objects += value->payload_offset + value->payload.iov_len
+            == value->payload_length;
         return;
     }
     if (value->datagram) {
@@ -229,6 +269,38 @@ object(xqc_moqt_subscription_t *subscription, xqc_moqt_stream_t *stream,
         c->objects += value->payload_offset + value->payload.iov_len
             == value->payload_length;
     }
+}
+
+static void
+fetch_ready(xqc_moqt_fetch_t *fetch, xqc_moqt_subscription_t *subscription,
+    void *data)
+{
+    client_t *c = data;
+    const xqc_moqt_fetch_info_t *info = xqc_moqt_fetch_info(fetch);
+    c->fill_ready++;
+    c->fixture->failed |= !info || info->start.group_id != 5
+        || info->start.object_id != 0 || info->end.group_id != 5
+        || info->end.object_id != 0;
+    if (c == &c->fixture->clients[1]) {
+        c->fixture->failed |= subscription == NULL;
+        return;
+    }
+    xqc_moqt_stream_t *stream = xqc_moqt_fetch_open(fetch);
+    xqc_moqt_object_t value = {.group_id = 5, .priority = 128,
+        .payload_length = 6, .payload = {"fill22", 6}};
+    c->fixture->failed |= !stream;
+    if (stream) {
+        c->fixture->failed |= xqc_moqt_stream_send_object(stream, &value)
+            != XQC_OK || xqc_moqt_stream_finish(stream) != XQC_OK;
+    }
+}
+
+static void
+fetch_closed(xqc_moqt_fetch_t *fetch, const xqc_moqt_error_t *error, void *data)
+{
+    client_t *c = data;
+    c->fill_closed++;
+    c->fixture->failed |= error && error->code != XQC_MOQT_NO_ERROR;
 }
 
 static xqc_int_t
@@ -307,7 +379,7 @@ wt_closed(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
     client_t *c = data;
     c->wt_closed++;
     c->wt_error = xqc_wt_session_get_close_error_code(wt);
-    c->fixture->failed |= c->wt_error != 0;
+    c->fixture->failed |= c->wt_error != c->expected_close;
     xqc_moqt_session_destroy(c->session);
     c->session = NULL;
     return XQC_OK;
@@ -343,7 +415,44 @@ request(client_t *c, uint64_t type, const char *name)
         .track_namespace = {.count = 2,
             .fields = {{"moq-test", 8}, {"interop", 7}}},
         .track_name = {(void *)name, name ? strlen(name) : 0}};
+    uint8_t next = XQC_MOQT_FILTER_NEXT_OBJECT;
+    uint8_t fill[] = {4, 1, 0x21, 1, 1};
+    if (c->fixture->fill) {
+        m.track_namespace.fields[1] = (struct iovec){c->fixture->namespace,
+            strlen(c->fixture->namespace)};
+        if (type == XQC_MOQT_MSG_SUBSCRIBE) {
+            /* Draft-22 3.5/9.20.15: current-group Fill and next-object live. */
+            m.parameter_count = 2;
+            m.parameters[0] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_LOCATION_FILTER, 1, &next};
+            m.parameters[1] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_FILL_PARAMETERS, sizeof(fill), fill};
+        }
+    }
     return xqc_moqt_request_open(c->session, &m);
+}
+
+static int
+malformed_fill(client_t *c)
+{
+    /* Bypass TX validation to inject an inner count/body mismatch. */
+    uint8_t fill[] = {4, 1, 0x21, 1, 1}, wire[256];
+    xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_SUBSCRIBE,
+        .request_id = c->session->next_request_id,
+        .track_namespace = {.count = 2, .fields = {{"moq-test", 8},
+            {c->fixture->namespace, strlen(c->fixture->namespace)}}},
+        .track_name = {"interop-track", 13}, .parameter_count = 1};
+    m.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_FILL_PARAMETERS, sizeof(fill), fill};
+    xqc_int_t n = xqc_moqt_message_encode(&m, m.type, wire, sizeof(wire));
+    if (n <= 4) {
+        return -1;
+    }
+    wire[n - 4] = 2;
+    xqc_moqt_stream_t *stream = xqc_moqt_transport_open(c->session,
+                                                       XQC_STREAM_BIDI);
+    return stream && xqc_moqt_transport_send(stream, wire, n, 0) == n
+        ? 0 : -1;
 }
 
 static int
@@ -469,9 +578,13 @@ main(int argc, char **argv)
     }
     unsigned errors = argc == 3 && !strcmp(argv[2], "errors");
     unsigned direct = argc == 3 && !strcmp(argv[2], "direct");
-    if (argc == 3 && !errors && !direct) {
+    unsigned fill_errors = argc == 3 && !strcmp(argv[2], "fill-errors");
+    f.fill = fill_errors || (argc == 3 && !strcmp(argv[2], "fill"));
+    if (argc == 3 && !errors && !direct && !f.fill) {
         return 2;
     }
+    snprintf(f.namespace, sizeof(f.namespace), "fill-%llu",
+             (unsigned long long)xqc_complex_case_now_us());
     f.hostname = getenv("MOQT_SERVER_NAME");
     if (!f.hostname) {
         f.hostname = "localhost";
@@ -505,6 +618,26 @@ main(int argc, char **argv)
     CHECK(request(p, direct ? XQC_MOQT_MSG_PUBLISH
         : XQC_MOQT_MSG_PUBLISH_NAMESPACE, direct ? "interop-track" : NULL));
     CHECK(!wait_for(&f, &p->responses, 1));
+    if (fill_errors) {
+        s->expected_close = XQC_MOQT_PROTOCOL_VIOLATION;
+        CHECK(!malformed_fill(s));
+        CHECK(!wait_for(&f, &s->closed, 1));
+        CHECK(s->close_error == XQC_MOQT_PROTOCOL_VIOLATION);
+        CHECK(p->upstream == 0 && p->fetches == 0 && !p->closed);
+        if (s->transport) {
+            CHECK(!wait_for(&f, &s->wt_closed, 1));
+            CHECK(s->wt_error == XQC_MOQT_PROTOCOL_VIOLATION);
+            CHECK(xqc_h3_conn_close(f.base.engine, &s->cid) == XQC_OK);
+        }
+        CHECK(!wait_for(&f, &s->connection_closed, 1));
+        /* The existing publisher must serve a replacement subscriber. */
+        memset(s, 0, sizeof(*s));
+        s->fixture = &f;
+        s->socket = f.base.socket;
+        s->transport = subscriber;
+        CHECK(!connect_client(s, port, address));
+        CHECK(!wait_for(&f, &s->ready, 1));
+    }
     if (errors) {
         CHECK(request(s, XQC_MOQT_MSG_SUBSCRIBE, "missing"));
         CHECK(!wait_for(&f, &s->errors, 1));
@@ -514,6 +647,11 @@ main(int argc, char **argv)
     CHECK(request(s, XQC_MOQT_MSG_SUBSCRIBE, "interop-track"));
     CHECK(!wait_for(&f, &s->subscribed, 1));
     CHECK(p->subscription && (direct || p->upstream == 1 + errors));
+    if (f.fill) {
+        CHECK(!wait_for(&f, &s->fill_closed, 1));
+        CHECK(p->fetches == 1 && p->fill_ready == 1);
+        CHECK(s->fill_ready == 1 && s->fill_objects == 1 && s->fill_bytes == 6);
+    }
     unsigned char payload[DEMO_RELAY_BYTES];
     for (size_t i = 0; i < sizeof(payload); i++) {
         payload[i] = i % 251;
@@ -550,8 +688,11 @@ main(int argc, char **argv)
         CHECK(!wait_for(&f, &f.clients[i].connection_closed, 1));
     }
     printf("RELAY PROBE PASS mode=%s direct=%u errors=%u bytes=%zu "
-           "objects=%u datagrams=%u upstream=%u close=0/0\n", mode,
-           direct, errors, s->bytes, s->objects, s->datagrams, p->upstream);
+           "objects=%u datagrams=%u upstream=%u fill=%u fill_bytes=%zu "
+           "fetches=%u malformed_close=%u close=0/0\n", mode,
+           direct, errors, s->bytes, s->objects, s->datagrams, p->upstream,
+           s->fill_objects, s->fill_bytes, p->fetches,
+           fill_errors ? XQC_MOQT_PROTOCOL_VIOLATION : 0);
     result = 0;
 done:
     if (f.base.engine) {

@@ -501,6 +501,10 @@ main(int argc, char *argv[])
                         xqc_test_moqt_fill_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_parameters",
                         xqc_test_moqt_fill_parameters)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_counted",
+                        xqc_test_moqt_fill_counted)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_counted_errors",
+                        xqc_test_moqt_fill_counted_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_snapshots",
                         xqc_test_moqt_fill_snapshots)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_suppressed",

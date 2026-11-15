@@ -873,7 +873,7 @@ xqc_test_moqt_relay_fill(void)
         XQC_MOQT_MSG_PUBLISH_NAMESPACE);
     xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
     /* Nested timeout and absolute range, independent of the live filter. */
-    uint8_t fill[] = {8, 0x0a, 0, 0x17, 4, 1, 0, 0, 2};
+    uint8_t fill[] = {9, 2, 0x0a, 0, 0x17, 4, 1, 0, 0, 2};
     m = xqc_test_relay_message(XQC_MOQT_MSG_SUBSCRIBE);
     m.parameter_count = 1;
     m.parameters[0] = (xqc_moq_message_parameter_t){
@@ -906,7 +906,7 @@ xqc_test_moqt_relay_fill(void)
     CU_ASSERT_EQUAL(output->state.data.object.range, XQC_MOQT_RANGE_TIMEOUT);
     CU_ASSERT_FALSE(down->subscription->stopped);
 
-    fill[2] = 100;
+    fill[3] = 100;
     down = xqc_test_relay_receive(
         &f.peers[XQC_TEST_RELAY_OTHER_SUBSCRIBER], &m);
     up = f.relay->requests;
@@ -1051,7 +1051,7 @@ xqc_test_moqt_relay_fill_boundaries(void)
         xqc_moqt_message_t m = xqc_test_relay_message(
             XQC_MOQT_MSG_PUBLISH_NAMESPACE);
         xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
-        uint8_t fill[] = {8, 0x0a, 100, 0x17, 4, 1, 0, 0, 2};
+        uint8_t fill[] = {9, 2, 0x0a, 100, 0x17, 4, 1, 0, 0, 2};
         m = xqc_test_relay_message(XQC_MOQT_MSG_SUBSCRIBE);
         m.parameter_count = 1;
         m.parameters[0] = (xqc_moq_message_parameter_t){

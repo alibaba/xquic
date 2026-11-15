@@ -1522,6 +1522,14 @@ unaffected by later live data. Inner parameters override outer values; omitted
 values inherit. Updates without FILL_PARAMETERS do not retrigger Fill.
 Each Fill completes/cancels independently.
 
+FILL_PARAMETERS contains a byte length followed by an inner parameter count
+and exactly that many Parameters. Both the count and byte length must be
+exhausted. Inner Type Deltas start from zero independently of the enclosing
+message. Empty Fill uses value bytes `01 00` (length 1, count 0); a current-group
+Location Filter uses `04 01 21 01 01`. Missing counts, trailing bytes and
+disallowed inner types are session protocol violations. [§9.20][s9.20],
+[§9.20.15][s9.20.15]
+
 `xqc_moqt_fetch_info_t` directly holds public locations, ID, order, priority,
 and timeout. `fetch_info()` returns a read-only view.
 `on_fetch_ready` notifies source/receiver after range confirmation, with

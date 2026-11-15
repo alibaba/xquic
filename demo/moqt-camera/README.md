@@ -69,6 +69,13 @@ and direct PUBLISH against the actual demo over native QUIC, WT07, WT16 and
 both mixed directions. Browser success alone does not establish native MoQT
 interoperability or compatibility with other media payload formats.
 
+Cases 1497/1498 use the same demo probe with `fill` and `fill-errors` over
+native QUIC, WT07 and WT16. They check counted current-group Fill parameters,
+SUBSCRIBE and FETCH reaching the publisher, historical payload delivery,
+continued live delivery and clean closure. A malformed inner count must close
+only its subscriber with PROTOCOL_VIOLATION before forwarding; the publisher
+then serves a replacement subscriber and its Fill normally.
+
 ## HTTPS hosting
 
 Serve the contents of `dist/` as static files over trusted HTTPS to use the

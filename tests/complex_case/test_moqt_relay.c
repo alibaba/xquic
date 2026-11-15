@@ -1082,7 +1082,7 @@ xqc_test_relay_run(xqc_test_relay_fixture_t *f, const char *mode)
             xqc_test_relay_check(f->clients[2].fetch_closed == 1);
         }
         /* A Fill update and live objects share only the subscription. */
-        uint8_t fill[] = {6, XQC_MOQT_PARAM_LOCATION_FILTER,
+        uint8_t fill[] = {7, 1, XQC_MOQT_PARAM_LOCATION_FILTER,
             XQC_MOQT_FILTER_ABSOLUTE_RANGE, 2, 0, 0, 1};
         xqc_memzero(&m, sizeof(m));
         m.type = XQC_MOQT_MSG_REQUEST_UPDATE;

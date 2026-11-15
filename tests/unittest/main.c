@@ -295,6 +295,10 @@ main(int argc, char *argv[])
                         xqc_test_wt_application_protocol_errors)
         || !CU_add_test(pSuite, "xqc_test_wt_application_protocol_inputs",
                         xqc_test_wt_application_protocol_inputs)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft07_protocol_compat",
+                        xqc_test_wt_draft07_protocol_compat)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft07_protocol_compat_errors",
+                        xqc_test_wt_draft07_protocol_compat_errors)
 #endif
         || !CU_add_test(pSuite, "xqc_test_reliable_reset_transport_params",
                         xqc_test_reliable_reset_transport_params)
@@ -614,6 +618,14 @@ main(int argc, char *argv[])
                         xqc_test_moqt_webtransport)
         || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_errors",
                         xqc_test_moqt_webtransport_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_compat",
+                        xqc_test_moqt_webtransport_compat)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_compat_errors",
+                        xqc_test_moqt_webtransport_compat_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_demo_origin",
+                        xqc_test_moqt_demo_origin)
+        || !CU_add_test(pSuite, "xqc_test_moqt_demo_origin_errors",
+                        xqc_test_moqt_demo_origin_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_streams",
                         xqc_test_moqt_webtransport_streams)
         || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_session_gone",

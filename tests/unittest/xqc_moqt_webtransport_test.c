@@ -4,6 +4,7 @@
 #include <CUnit/CUnit.h>
 #include "xqc_common_test.h"
 #include "xqc_moqt_webtransport_test.h"
+#include "demo/xqc_moqt_demo.h"
 #include "include/moq/xqc_moqt_webtransport.h"
 #include "include/moq/xqc_moqt_relay.h"
 #include "moq/moqt/xqc_moqt_session.h"
@@ -202,6 +203,84 @@ xqc_test_moqt_webtransport_errors(void)
     CU_ASSERT_PTR_NULL(xqc_moqt_session_create_webtransport(&f.wt[0], &f.config,
         &moqt_wt_callbacks, &f));
     moqt_wt_destroy(&f);
+}
+
+void
+xqc_test_moqt_webtransport_compat(void)
+{
+    for (unsigned draft07 = 0; draft07 < 2; draft07++) {
+        moqt_wt_fixture_t f;
+        moqt_wt_init(&f);
+        if (draft07) {
+            f.connection.negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
+            CU_ASSERT_PTR_NULL(moqt_wt_create(&f, 0));
+        }
+        f.session[0] = xqc_moqt_session_create_webtransport_compat(&f.wt[0],
+            &f.config, &moqt_wt_callbacks, &f);
+        f.session[1] = xqc_moqt_session_create_webtransport_compat(&f.wt[1],
+            &f.config, &moqt_wt_callbacks, &f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(f.session[0]);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(f.session[1]);
+        f.wt[0].close_error = XQC_MOQT_UNAUTHORIZED;
+        f.wt[0].closed = XQC_TRUE;
+        xqc_wt_session_close_streams(&f.wt[0]);
+        CU_ASSERT(f.session[0]->closed && !f.session[1]->closed);
+        CU_ASSERT_EQUAL(f.error, XQC_MOQT_UNAUTHORIZED);
+        CU_ASSERT_EQUAL(f.closed, 1);
+        CU_ASSERT_EQUAL(xqc_conn_get_errno(f.conn), 0);
+        moqt_wt_destroy(&f);
+    }
+}
+
+void
+xqc_test_moqt_webtransport_compat_errors(void)
+{
+    for (unsigned variant = 0; variant < 8; variant++) {
+        moqt_wt_fixture_t f;
+        moqt_wt_init(&f);
+        f.connection.negotiated_version = variant == 7 ? 0
+            : XQC_WEBTRANSPORT_DRAFT_VERSION_7;
+        f.wt[0].closed = variant == 0;
+        f.wt[0].open = variant != 1;
+        f.wt[0].application_protocol = variant == 2 ? NULL
+            : variant == 3 ? (char *)"moqt-18" : (char *)"moqt-22";
+        xqc_wt_session_binding_t binding = {0};
+        if (variant == 6) {
+            f.wt[0].binding = &binding;
+        }
+        f.session[0] = xqc_moqt_session_create_webtransport_compat(&f.wt[0],
+            variant == 4 ? NULL : &f.config,
+            variant == 5 ? NULL : &moqt_wt_callbacks, &f);
+        CU_ASSERT_PTR_NULL(f.session[0]);
+        CU_ASSERT_EQUAL(f.closed, 0);
+        CU_ASSERT_EQUAL(xqc_conn_get_errno(f.conn), 0);
+        f.wt[0].binding = NULL;
+        moqt_wt_destroy(&f);
+    }
+}
+
+void
+xqc_test_moqt_demo_origin(void)
+{
+    const char *origin = "https://moq.example";
+    CU_ASSERT(xqc_demo_moqt_origin_allowed(origin, strlen(origin), origin));
+    CU_ASSERT(xqc_demo_moqt_origin_allowed(origin, strlen(origin),
+        "http://localhost:8080, https://moq.example\t"));
+    CU_ASSERT(xqc_demo_moqt_origin_allowed("http://localhost:8080", 21,
+        "http://localhost:8080,https://moq.example"));
+}
+
+void
+xqc_test_moqt_demo_origin_errors(void)
+{
+    const char *origin = "https://moq.example";
+    CU_ASSERT(!xqc_demo_moqt_origin_allowed(origin, strlen(origin), "*"));
+    CU_ASSERT(!xqc_demo_moqt_origin_allowed("*", 1, "*"));
+    CU_ASSERT(!xqc_demo_moqt_origin_allowed(origin, strlen(origin), ""));
+    CU_ASSERT(!xqc_demo_moqt_origin_allowed(origin, strlen(origin), NULL));
+    CU_ASSERT(!xqc_demo_moqt_origin_allowed(NULL, 0, origin));
+    CU_ASSERT(!xqc_demo_moqt_origin_allowed("https://moq.example.evil", 24,
+        origin));
 }
 
 static ssize_t

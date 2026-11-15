@@ -2,6 +2,10 @@
 #define XQC_MOQT_WEBTRANSPORT_TEST_H
 void xqc_test_moqt_webtransport(void);
 void xqc_test_moqt_webtransport_errors(void);
+void xqc_test_moqt_webtransport_compat(void);
+void xqc_test_moqt_webtransport_compat_errors(void);
+void xqc_test_moqt_demo_origin(void);
+void xqc_test_moqt_demo_origin_errors(void);
 void xqc_test_moqt_webtransport_streams(void);
 void xqc_test_moqt_webtransport_session_gone(void);
 void xqc_test_moqt_webtransport_control_reset(void);

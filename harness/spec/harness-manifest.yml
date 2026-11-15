@@ -352,6 +352,7 @@ modules:
     features:
       moqt_webtransport:
         paths:
+          - demo/xqc_moqt_demo.*
           - include/moq/xqc_moqt_webtransport.h
           - moq/moqt/xqc_moqt_webtransport.c
           - tests/unittest/xqc_moqt_webtransport_test.*

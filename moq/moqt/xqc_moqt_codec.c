@@ -38,8 +38,18 @@ xqc_moqt_message_type_valid(uint64_t type)
     }
 }
 
+/* Draft-23 section 9 uses a vi64 body length. Draft-22 uses a uint16. */
+size_t
+xqc_moqt_frame_header_size(xqc_moqt_version_t version, uint64_t type,
+    size_t body_len)
+{
+    return xqc_vi64_len(type) + (version == XQC_MOQT_VERSION_DRAFT_23
+        ? xqc_vi64_len(body_len) : sizeof(uint16_t));
+}
+
 xqc_int_t
-xqc_moqt_frame_encode(const xqc_moqt_message_t *msg, uint8_t *buf, size_t cap)
+xqc_moqt_frame_encode_version(xqc_moqt_version_t version,
+    const xqc_moqt_message_t *msg, uint8_t *buf, size_t cap)
 {
     if (msg == NULL
         || !xqc_moqt_message_type_valid(msg->type)
@@ -52,7 +62,7 @@ xqc_moqt_frame_encode(const xqc_moqt_message_t *msg, uint8_t *buf, size_t cap)
         return -XQC_EPARAM;
     }
 
-    size_t len = xqc_vi64_len(msg->type) + sizeof(uint16_t)
+    size_t len = xqc_moqt_frame_header_size(version, msg->type, msg->body.iov_len)
                  + msg->body.iov_len;
     if (buf == NULL) {
         return (xqc_int_t)len;
@@ -62,7 +72,11 @@ xqc_moqt_frame_encode(const xqc_moqt_message_t *msg, uint8_t *buf, size_t cap)
     }
 
     uint8_t *p = buf + xqc_vi64_write(buf, buf + len, msg->type);
-    p = xqc_put_uint16be(p, (uint16_t)msg->body.iov_len);
+    if (version == XQC_MOQT_VERSION_DRAFT_23) {
+        p += xqc_vi64_write(p, buf + len, msg->body.iov_len);
+    } else {
+        p = xqc_put_uint16be(p, (uint16_t)msg->body.iov_len);
+    }
     if (msg->body.iov_len && msg->body.iov_base != p) {
         xqc_memcpy(p, msg->body.iov_base, msg->body.iov_len);
     }
@@ -70,7 +84,8 @@ xqc_moqt_frame_encode(const xqc_moqt_message_t *msg, uint8_t *buf, size_t cap)
 }
 
 xqc_int_t
-xqc_moqt_frame_decode(const uint8_t *buf, size_t len, xqc_moqt_message_t *msg)
+xqc_moqt_frame_decode_version(xqc_moqt_version_t version,
+    const uint8_t *buf, size_t len, xqc_moqt_message_t *msg)
 {
     if (msg == NULL || (buf == NULL && len)) {
         return -XQC_EPARAM;
@@ -85,17 +100,33 @@ xqc_moqt_frame_decode(const uint8_t *buf, size_t len, xqc_moqt_message_t *msg)
         return -XQC_EAGAIN;
     }
     /* Section 9: unknown and legacy reserved types cannot be skipped. */
-    if (!xqc_moqt_message_type_valid(type)) {
+    if (!xqc_moqt_message_type_valid(type)
+        || (version == XQC_MOQT_VERSION_DRAFT_23
+            && type == XQC_MOQT_MSG_FETCH_OK))
+    {
         return -XQC_EILLEGAL_FRAME;
     }
-    if (len - n < sizeof(uint16_t)) {
-        return -XQC_EAGAIN;
+    size_t header_len = n;
+    uint64_t body_len;
+    if (version == XQC_MOQT_VERSION_DRAFT_23) {
+        n = xqc_vi64_read(buf + header_len, buf + len, &body_len);
+        if (n < 0) {
+            return -XQC_EAGAIN;
+        }
+        if (body_len > XQC_MOQT_MESSAGE_MAX_BODY) {
+            return -XQC_ELIMIT;
+        }
+        header_len += n;
+    } else {
+        uint16_t wire_len;
+        if (len - header_len < sizeof(wire_len)) {
+            return -XQC_EAGAIN;
+        }
+        xqc_memcpy(&wire_len, buf + header_len, sizeof(wire_len));
+        body_len = ntohs(wire_len);
+        header_len += sizeof(wire_len);
     }
 
-    uint16_t body_len;
-    xqc_memcpy(&body_len, buf + n, sizeof(body_len));
-    body_len = ntohs(body_len);
-    size_t header_len = n + sizeof(body_len);
     if (len - header_len < body_len) {
         return -XQC_EAGAIN;
     }
@@ -104,6 +135,20 @@ xqc_moqt_frame_decode(const uint8_t *buf, size_t len, xqc_moqt_message_t *msg)
     msg->body.iov_base = (void *)(buf + header_len);
     msg->body.iov_len = body_len;
     return (xqc_int_t)(header_len + body_len);
+}
+
+xqc_int_t
+xqc_moqt_frame_encode(const xqc_moqt_message_t *msg, uint8_t *buf, size_t cap)
+{
+    return xqc_moqt_frame_encode_version(XQC_MOQT_VERSION_DRAFT_22,
+                                         msg, buf, cap);
+}
+
+xqc_int_t
+xqc_moqt_frame_decode(const uint8_t *buf, size_t len, xqc_moqt_message_t *msg)
+{
+    return xqc_moqt_frame_decode_version(XQC_MOQT_VERSION_DRAFT_22,
+                                         buf, len, msg);
 }
 
 xqc_int_t
@@ -706,9 +751,11 @@ xqc_moqt_fetch_history_update(xqc_moqt_fetch_history_t *h,
     const xqc_moqt_object_t *o)
 {
     h->location.group_id = o->group_id;
-    h->location.object_id = o->object_id;
+    h->location.object_id = o->status == XQC_MOQT_OBJECT_NORMAL
+        ? o->object_id : UINT64_MAX;
     h->has_location = 1;
-    if (!o->range) {
+    h->last_was_object = !o->range && o->status == XQC_MOQT_OBJECT_NORMAL;
+    if (h->last_was_object) {
         h->subgroup_id = o->subgroup_id;
         h->has_subgroup = !o->datagram;
         h->priority = o->priority;
@@ -731,8 +778,9 @@ xqc_moqt_fetch_order_check(uint8_t order,
 }
 
 xqc_int_t
-xqc_moqt_fetch_header_decode(const uint8_t *buf, size_t len, uint8_t order,
-    xqc_moqt_fetch_history_t *h, xqc_moqt_object_t *object)
+xqc_moqt_fetch_header_decode_version(xqc_moqt_version_t version,
+    const uint8_t *buf, size_t len, uint8_t order, xqc_moqt_fetch_history_t *h,
+    xqc_moqt_object_t *object)
 {
     if (!len) {
         return -XQC_EAGAIN;
@@ -746,6 +794,22 @@ xqc_moqt_fetch_header_decode(const uint8_t *buf, size_t len, uint8_t order,
     p += n;
     xqc_moqt_object_t o;
     xqc_memzero(&o, sizeof(o));
+    xqc_bool_t draft23 = version == XQC_MOQT_VERSION_DRAFT_23;
+    /* Draft-23 section 11.4.2.2: an indicator refers to the prior Object. */
+    if (draft23 && (flags == XQC_MOQT_FETCH_END_GROUP
+                    || flags == XQC_MOQT_FETCH_END_TRACK))
+    {
+        if (!h->last_was_object) {
+            return -XQC_EILLEGAL_FRAME;
+        }
+        o.group_id = h->location.group_id;
+        o.object_id = h->location.object_id;
+        o.status = flags == XQC_MOQT_FETCH_END_TRACK
+            ? XQC_MOQT_OBJECT_END_TRACK : XQC_MOQT_OBJECT_END_GROUP;
+        xqc_moqt_fetch_history_update(h, &o);
+        *object = o;
+        return n;
+    }
     if (flags >= XQC_MOQT_FETCH_RANGE_MIN) {
         switch (flags) {
         case XQC_MOQT_FETCH_NONEXISTENT:
@@ -757,10 +821,15 @@ xqc_moqt_fetch_header_decode(const uint8_t *buf, size_t len, uint8_t order,
         case XQC_MOQT_FETCH_TIMEOUT:
             o.range = XQC_MOQT_RANGE_TIMEOUT;
             break;
+        case XQC_MOQT_FETCH_GONE:
+            if (!draft23) {
+                return -XQC_EILLEGAL_FRAME;
+            }
+            o.range = XQC_MOQT_RANGE_GONE;
+            break;
         default:
             return -XQC_EILLEGAL_FRAME;
         }
-        /* Section 11.4.1.2: Range endpoints carry absolute locations. */
         n = xqc_vi64_read(p, end, &o.group_id);
         if (n < 0) {
             return -XQC_EAGAIN;
@@ -771,6 +840,26 @@ xqc_moqt_fetch_header_decode(const uint8_t *buf, size_t len, uint8_t order,
             return -XQC_EAGAIN;
         }
         p += n;
+        /* Draft-23 section 11.4.2.1: later range endpoints use deltas. */
+        if (draft23 && h->has_location) {
+            if (o.group_id == 0) {
+                if (o.object_id >= UINT64_MAX - h->location.object_id) {
+                    return -XQC_EILLEGAL_FRAME;
+                }
+                o.object_id += h->location.object_id + 1;
+            }
+            if (order == XQC_MOQT_GROUP_ASCENDING) {
+                if (o.group_id > UINT64_MAX - h->location.group_id) {
+                    return -XQC_EILLEGAL_FRAME;
+                }
+                o.group_id += h->location.group_id;
+            } else {
+                if (o.group_id > h->location.group_id) {
+                    return -XQC_EILLEGAL_FRAME;
+                }
+                o.group_id = h->location.group_id - o.group_id;
+            }
+        }
     } else {
         /* First record cannot inherit a location that does not exist. */
         if (!h->has_location
@@ -833,6 +922,13 @@ xqc_moqt_fetch_header_decode(const uint8_t *buf, size_t len, uint8_t order,
         if ((flags & XQC_MOQT_FETCH_OBJECT) && (flags & XQC_MOQT_FETCH_GROUP)) {
             o.object_id = delta;
         } else {
+            /* Draft-23 section 11.4.1.1: an explicit delta skips at least 2. */
+            if (draft23 && (flags & XQC_MOQT_FETCH_OBJECT)) {
+                if (delta > UINT64_MAX - 2) {
+                    return -XQC_EILLEGAL_FRAME;
+                }
+                delta += 2;
+            }
             if (delta > UINT64_MAX - h->location.object_id) {
                 return -XQC_EILLEGAL_FRAME;
             }
@@ -881,10 +977,28 @@ xqc_moqt_fetch_header_decode(const uint8_t *buf, size_t len, uint8_t order,
 }
 
 xqc_int_t
-xqc_moqt_fetch_header_encode(uint8_t order,
+xqc_moqt_fetch_header_encode_version(xqc_moqt_version_t version, uint8_t order,
     const xqc_moqt_fetch_history_t *h, const xqc_moqt_object_t *o,
     uint8_t *buf, size_t cap)
 {
+    xqc_bool_t draft23 = version == XQC_MOQT_VERSION_DRAFT_23;
+    if (draft23 && (o->status == XQC_MOQT_OBJECT_END_GROUP
+                    || o->status == XQC_MOQT_OBJECT_END_TRACK))
+    {
+        if (!h->last_was_object || o->group_id != h->location.group_id
+            || o->object_id != h->location.object_id || o->range
+            || o->payload_length || o->properties.iov_len)
+        {
+            return -XQC_EPARAM;
+        }
+        uint64_t flags = o->status == XQC_MOQT_OBJECT_END_TRACK
+            ? XQC_MOQT_FETCH_END_TRACK : XQC_MOQT_FETCH_END_GROUP;
+        size_t len = xqc_vi64_len(flags);
+        if (buf == NULL) {
+            return (xqc_int_t)len;
+        }
+        return cap < len ? -XQC_ENOBUF : xqc_vi64_write(buf, buf + len, flags);
+    }
     if (xqc_moqt_fetch_order_check(order, h, o) != XQC_OK) {
         return -XQC_EPARAM;
     }
@@ -895,8 +1009,9 @@ xqc_moqt_fetch_header_encode(uint8_t order,
     {
         return -XQC_EPARAM;
     }
-    /* Only the three defined range indicators may be serialized. */
-    if (o->range < XQC_MOQT_RANGE_NONE || o->range > XQC_MOQT_RANGE_TIMEOUT) {
+    if (o->range < XQC_MOQT_RANGE_NONE
+        || o->range > (draft23 ? XQC_MOQT_RANGE_GONE : XQC_MOQT_RANGE_TIMEOUT))
+    {
         return -XQC_EPARAM;
     }
     /* Range endpoints do not carry Object payload or properties. */
@@ -914,10 +1029,18 @@ xqc_moqt_fetch_header_encode(uint8_t order,
     size_t count = 1;
     if (o->range) {
         const uint64_t ranges[] = {0, XQC_MOQT_FETCH_NONEXISTENT,
-            XQC_MOQT_FETCH_UNKNOWN, XQC_MOQT_FETCH_TIMEOUT};
+            XQC_MOQT_FETCH_UNKNOWN, XQC_MOQT_FETCH_TIMEOUT, XQC_MOQT_FETCH_GONE};
         flags = ranges[o->range];
-        fields[count++] = o->group_id;
-        fields[count++] = o->object_id;
+        uint64_t group = o->group_id, object = o->object_id;
+        if (draft23 && h->has_location) {
+            group = order == XQC_MOQT_GROUP_ASCENDING
+                ? group - h->location.group_id : h->location.group_id - group;
+            if (group == 0) {
+                object -= h->location.object_id + 1;
+            }
+        }
+        fields[count++] = group;
+        fields[count++] = object;
     } else {
         if (!h->has_location || o->group_id != h->location.group_id) {
             flags |= XQC_MOQT_FETCH_GROUP;
@@ -932,8 +1055,16 @@ xqc_moqt_fetch_header_encode(uint8_t order,
             flags |= XQC_MOQT_FETCH_SUBGROUP_EXPLICIT;
             fields[count++] = o->subgroup_id;
         }
-        fields[count++] = flags & XQC_MOQT_FETCH_GROUP ? o->object_id
-            : o->object_id - h->location.object_id;
+        if (flags & XQC_MOQT_FETCH_GROUP) {
+            fields[count++] = o->object_id;
+        } else {
+            uint64_t delta = o->object_id - h->location.object_id;
+            if (draft23 && delta == 1) {
+                flags &= ~XQC_MOQT_FETCH_OBJECT;
+            } else {
+                fields[count++] = draft23 ? delta - 2 : delta;
+            }
+        }
         if (o->properties.iov_len) {
             flags |= XQC_MOQT_FETCH_PROPERTIES;
         }
@@ -969,4 +1100,20 @@ xqc_moqt_fetch_header_encode(uint8_t order,
         xqc_vi64_write(p, end, o->payload_length);
     }
     return (xqc_int_t)len;
+}
+
+xqc_int_t
+xqc_moqt_fetch_header_decode(const uint8_t *buf, size_t len, uint8_t order,
+    xqc_moqt_fetch_history_t *h, xqc_moqt_object_t *object)
+{
+    return xqc_moqt_fetch_header_decode_version(XQC_MOQT_VERSION_DRAFT_22,
+                                                buf, len, order, h, object);
+}
+
+xqc_int_t
+xqc_moqt_fetch_header_encode(uint8_t order, const xqc_moqt_fetch_history_t *h,
+    const xqc_moqt_object_t *o, uint8_t *buf, size_t cap)
+{
+    return xqc_moqt_fetch_header_encode_version(XQC_MOQT_VERSION_DRAFT_22,
+                                                order, h, o, buf, cap);
 }

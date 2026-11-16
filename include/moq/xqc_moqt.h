@@ -12,11 +12,14 @@
 extern "C" {
 #endif
 
-/* Native QUIC version selection: draft-22 section 6.2. */
+/* Native QUIC and WebTransport version selection, section 6.2. */
 #define XQC_MOQT_ALPN_DRAFT_22 "moqt-22"
+#define XQC_MOQT_ALPN_DRAFT_23 "moqt-23"
 
 typedef enum {
+    XQC_MOQT_VERSION_UNKNOWN = 0,
     XQC_MOQT_VERSION_DRAFT_22 = 22,
+    XQC_MOQT_VERSION_DRAFT_23 = 23,
 } xqc_moqt_version_t;
 
 typedef struct xqc_moqt_kv_s xqc_moqt_kv_t;
@@ -44,6 +47,18 @@ xqc_int_t xqc_moqt_config_init(xqc_moqt_config_t *config,
 XQC_EXPORT_PUBLIC_API
 const char *xqc_moqt_config_alpn(const xqc_moqt_config_t *config);
 
+/* Pass the application protocol selected by WebTransport CONNECT. */
+XQC_EXPORT_PUBLIC_API
+xqc_moqt_version_t xqc_moqt_version_from_alpn(const char *alpn);
+
+/* Returns the revision of the selected Native QUIC ALPN. */
+XQC_EXPORT_PUBLIC_API
+xqc_moqt_version_t xqc_moqt_conn_version(const xqc_connection_t *conn);
+
+/* Returns the revision bound to this MoQT Session. */
+XQC_EXPORT_PUBLIC_API
+xqc_moqt_version_t xqc_moqt_session_version(const xqc_moqt_session_t *session);
+
 /* Copies connection callbacks; legacy xqc_moq_* registrations are separate. */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moqt_init_alpn(xqc_engine_t *engine,
@@ -61,7 +76,7 @@ const xqc_cid_t *xqc_moqt_connect(xqc_engine_t *engine,
     const xqc_conn_ssl_config_t *ssl_config, const struct sockaddr *peer_addr,
     socklen_t peer_addrlen, void *user_data);
 
-/* Current wire contract: draft-ietf-moq-transport-22 sections 8 and 9. */
+/* Message types shared by the endpoint API, including draft-22 FETCH_OK. */
 #define XQC_MOQT_NAMESPACE_MAX_FIELDS 32
 #define XQC_MOQT_NAME_MAX_LEN 4096
 #define XQC_MOQT_MESSAGE_MAX_BODY UINT16_MAX
@@ -111,6 +126,7 @@ typedef enum {
     XQC_MOQT_RANGE_NONEXISTENT,
     XQC_MOQT_RANGE_UNKNOWN,
     XQC_MOQT_RANGE_TIMEOUT,
+    XQC_MOQT_RANGE_GONE,
 } xqc_moqt_range_t;
 
 /* Borrowed bytes. Datagram objects have no subgroup and carry one payload. */
@@ -192,6 +208,7 @@ typedef struct {
     uint64_t                    end_object;
     uint64_t                    stream_count;
     uint8_t                     end_of_track;
+    unsigned                    fill_parameters_counted:1; /* Bare count. */
 } xqc_moqt_message_t;
 
 typedef enum {
@@ -215,6 +232,7 @@ typedef enum {
     XQC_MOQT_PARAM_NEW_GROUP_REQUEST         = 0x32,
     XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX    = 0x34,
     XQC_MOQT_PARAM_INCLUDE_PROPERTIES        = 0x35,
+    XQC_MOQT_PARAM_SUBSCRIBE_TRACKS_ID       = 0x36,
 } xqc_moqt_parameter_type_t;
 
 typedef enum {
@@ -282,6 +300,7 @@ typedef enum {
     XQC_MOQT_OPT_MAX_FILTER_RANGES    = 0x06,
     XQC_MOQT_OPT_IMPLEMENTATION       = 0x07,
     XQC_MOQT_OPT_MAX_REQUEST_UPDATES  = 0x08,
+    XQC_MOQT_OPT_MAX_CONTROL_MESSAGE_SIZE = 0x09,
 } xqc_moqt_setup_option_t;
 
 typedef enum {
@@ -301,6 +320,13 @@ typedef enum {
     XQC_MOQT_INVALID_AUTHORITY          = 0x19,
     XQC_MOQT_MALFORMED_AUTHORITY        = 0x1a,
     XQC_MOQT_TOO_MANY_REQUEST_UPDATES   = 0x1b,
+    XQC_MOQT_MALFORMED_MESSAGE          = 0x300,
+    XQC_MOQT_INVALID_FIELD              = 0x301,
+    XQC_MOQT_UNEXPECTED_MESSAGE         = 0x303,
+    XQC_MOQT_ROLE_VIOLATION             = 0x304,
+    XQC_MOQT_INVALID_PARAMETER          = 0x305,
+    XQC_MOQT_CLOSED_CONTROL_STREAM      = 0x306,
+    XQC_MOQT_FIELD_LENGTH_EXCEEDED      = 0x401,
 } xqc_moqt_session_error_t;
 
 typedef struct {
@@ -545,7 +571,7 @@ XQC_EXPORT_PUBLIC_API
 xqc_usec_t xqc_moqt_stream_object_received_at(
     const xqc_moqt_stream_t *stream);
 
-/* Context is the initial request type, or REQUEST_UPDATE for its response. */
+/* Draft-22 wire codec. Context is the initial type or REQUEST_UPDATE. */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moqt_message_encode(const xqc_moqt_message_t *message,
     uint64_t context, uint8_t *buf, size_t cap);

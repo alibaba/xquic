@@ -10,7 +10,10 @@
 xqc_int_t
 xqc_moqt_config_init(xqc_moqt_config_t *config, xqc_moqt_version_t version)
 {
-    if (config == NULL || version != XQC_MOQT_VERSION_DRAFT_22) {
+    if (config == NULL
+        || (version != XQC_MOQT_VERSION_DRAFT_22
+            && version != XQC_MOQT_VERSION_DRAFT_23))
+    {
         return -XQC_EPARAM;
     }
 
@@ -25,8 +28,37 @@ xqc_moqt_config_init(xqc_moqt_config_t *config, xqc_moqt_version_t version)
 const char *
 xqc_moqt_config_alpn(const xqc_moqt_config_t *config)
 {
-    return config != NULL && config->version == XQC_MOQT_VERSION_DRAFT_22
-        ? XQC_MOQT_ALPN_DRAFT_22 : NULL;
+    if (config != NULL) {
+        switch (config->version) {
+        case XQC_MOQT_VERSION_DRAFT_22:
+            return XQC_MOQT_ALPN_DRAFT_22;
+        case XQC_MOQT_VERSION_DRAFT_23:
+            return XQC_MOQT_ALPN_DRAFT_23;
+        default:
+            break;
+        }
+    }
+    return NULL;
+}
+
+xqc_moqt_version_t
+xqc_moqt_version_from_alpn(const char *alpn)
+{
+    if (alpn != NULL) {
+        if (strcmp(alpn, XQC_MOQT_ALPN_DRAFT_22) == 0) {
+            return XQC_MOQT_VERSION_DRAFT_22;
+        }
+        if (strcmp(alpn, XQC_MOQT_ALPN_DRAFT_23) == 0) {
+            return XQC_MOQT_VERSION_DRAFT_23;
+        }
+    }
+    return XQC_MOQT_VERSION_UNKNOWN;
+}
+
+xqc_moqt_version_t
+xqc_moqt_conn_version(const xqc_connection_t *conn)
+{
+    return xqc_moqt_version_from_alpn(conn != NULL ? conn->alpn : NULL);
 }
 
 xqc_int_t

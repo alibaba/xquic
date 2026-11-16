@@ -63,6 +63,17 @@ xqc_test_moqt_frames(void)
     CU_ASSERT_EQUAL(xqc_moqt_frame_decode(large, sizeof(large), &decoded),
                     sizeof(large));
     CU_ASSERT_EQUAL(decoded.body.iov_len, sizeof(payload));
+
+    /* Draft-23 section 9 also uses the vi64 length for SETUP itself. */
+    const uint8_t setup23[] = {0xaf, 0x00, 0x03, 0x00, 0xff, 0x7f};
+    xqc_moqt_version_t version = XQC_MOQT_VERSION_DRAFT_23;
+    msg.body = (struct iovec){(void *)(wire + 4), 3};
+    CU_ASSERT_EQUAL(xqc_moqt_frame_encode_version(version, &msg, buf,
+        sizeof(buf)), sizeof(setup23));
+    CU_ASSERT_EQUAL(xqc_memcmp(buf, setup23, sizeof(setup23)), 0);
+    CU_ASSERT_EQUAL(xqc_moqt_frame_decode_version(version, setup23,
+        sizeof(setup23), &decoded), sizeof(setup23));
+    CU_ASSERT_EQUAL(decoded.body.iov_len, 3);
 }
 
 void
@@ -108,6 +119,18 @@ xqc_test_moqt_frame_errors(void)
     CU_ASSERT_EQUAL(xqc_moqt_frame_decode(NULL, 1, &decoded), -XQC_EPARAM);
     CU_ASSERT_EQUAL(xqc_moqt_frame_decode(wire, sizeof(wire), NULL),
                     -XQC_EPARAM);
+
+    xqc_moqt_version_t version = XQC_MOQT_VERSION_DRAFT_23;
+    const uint8_t too_large[] = {0xaf, 0x00, 0xc1, 0x00, 0x00};
+    const uint8_t reserved_fetch_ok[] = {0x18, 0};
+    decoded = before;
+    CU_ASSERT_EQUAL(xqc_moqt_frame_decode_version(version, too_large,
+        sizeof(too_large) - 1, &decoded), -XQC_EAGAIN);
+    CU_ASSERT_EQUAL(xqc_moqt_frame_decode_version(version, too_large,
+        sizeof(too_large), &decoded), -XQC_ELIMIT);
+    CU_ASSERT_EQUAL(xqc_moqt_frame_decode_version(version, reserved_fetch_ok,
+        sizeof(reserved_fetch_ok), &decoded), -XQC_EILLEGAL_FRAME);
+    CU_ASSERT_EQUAL(xqc_memcmp(&decoded, &before, sizeof(before)), 0);
 }
 
 /* Sections 2.4.1-2 and 8.7: binary fields and complete-tuple matching. */
@@ -748,6 +771,51 @@ xqc_test_moqt_subgroup_codec_errors(void)
 void
 xqc_test_moqt_fetch_codec(void)
 {
+    /* Draft-23 sections 11.4.1.1 and 11.4.2: dense, sparse, and gap IDs. */
+    const uint8_t dense[] = {0x13, 0, 128, 0};
+    const uint8_t sparse[] = {0x17, 0, 1, 128, 0};
+    const uint8_t gone[] = {0x84, 0x0c, 0, 1};
+    const uint8_t end_group[] = {0x80, 0x80};
+    const xqc_moqt_version_t version = XQC_MOQT_VERSION_DRAFT_23;
+    xqc_moqt_fetch_history_t prior = {.location = {3, 4}, .has_location = 1,
+        .last_was_object = 1};
+    xqc_moqt_object_t actual;
+    CU_ASSERT_EQUAL(xqc_moqt_fetch_header_decode_version(version, dense,
+        sizeof(dense), XQC_MOQT_GROUP_ASCENDING, &prior, &actual),
+        sizeof(dense));
+    CU_ASSERT_EQUAL(actual.object_id, 5);
+    uint8_t encoded[20];
+    xqc_moqt_object_t next = {.group_id = 3, .object_id = 8, .priority = 128};
+    CU_ASSERT_EQUAL(xqc_moqt_fetch_header_encode_version(version,
+        XQC_MOQT_GROUP_ASCENDING, &prior, &next, encoded, sizeof(encoded)),
+        sizeof(sparse));
+    CU_ASSERT_EQUAL(xqc_memcmp(encoded, sparse, sizeof(sparse)), 0);
+    CU_ASSERT_EQUAL(xqc_moqt_fetch_header_decode_version(version, sparse,
+        sizeof(sparse), XQC_MOQT_GROUP_ASCENDING, &prior, &actual),
+        sizeof(sparse));
+    CU_ASSERT_EQUAL(actual.object_id, 8);
+    CU_ASSERT_EQUAL(xqc_moqt_fetch_header_decode_version(version, gone,
+        sizeof(gone), XQC_MOQT_GROUP_ASCENDING, &prior, &actual), sizeof(gone));
+    CU_ASSERT_EQUAL(actual.object_id, 10);
+    CU_ASSERT_EQUAL(actual.range, XQC_MOQT_RANGE_GONE);
+    uint8_t *overflow = encoded;
+    *overflow++ = XQC_MOQT_FETCH_OBJECT | XQC_MOQT_FETCH_PRIORITY;
+    overflow += xqc_vi64_write(overflow, encoded + sizeof(encoded), UINT64_MAX);
+    *overflow++ = 128;
+    *overflow++ = 0;
+    CU_ASSERT_EQUAL(xqc_moqt_fetch_header_decode_version(version, encoded,
+        overflow - encoded, XQC_MOQT_GROUP_ASCENDING, &prior, &actual),
+        -XQC_EILLEGAL_FRAME);
+    CU_ASSERT_EQUAL(xqc_moqt_fetch_header_decode_version(version, end_group,
+        sizeof(end_group), XQC_MOQT_GROUP_ASCENDING, &prior, &actual),
+        -XQC_EILLEGAL_FRAME);
+    prior.last_was_object = 1;
+    CU_ASSERT_EQUAL(xqc_moqt_fetch_header_decode_version(version, end_group,
+        sizeof(end_group), XQC_MOQT_GROUP_ASCENDING, &prior, &actual),
+        sizeof(end_group));
+    CU_ASSERT_EQUAL(actual.status, XQC_MOQT_OBJECT_END_GROUP);
+    CU_ASSERT_EQUAL(prior.location.object_id, UINT64_MAX);
+
     /* Draft-22 11.4.1.1: every flag combination, with independent histories. */
     for (unsigned order = XQC_MOQT_GROUP_ASCENDING;
          order <= XQC_MOQT_GROUP_DESCENDING; order++)

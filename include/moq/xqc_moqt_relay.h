@@ -85,7 +85,8 @@ xqc_moqt_relay_peer_t *xqc_moqt_relay_peer_create(xqc_moqt_relay_t *relay,
 #ifdef XQC_ENABLE_WEBTRANSPORT
 /*
  * Same scope, policy, and bounds as a native peer. Bind at WT ready after
- * CONNECT authorization and moqt-22 selection; start peer_session() there.
+ * CONNECT authorization and MoQT protocol selection; start peer_session()
+ * there.
  * Destroy the peer at WT close before H3 teardown. The endpoint WT
  * constructor's transport and SETUP restrictions also apply.
  */

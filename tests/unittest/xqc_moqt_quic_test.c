@@ -23,7 +23,7 @@ void
 xqc_test_moqt_config(void)
 {
     xqc_moqt_config_t  config;
-    const unsigned    unsupported[] = {0, 5, 23, 24, UINT32_MAX};
+    const unsigned    unsupported[] = {0, 5, 24, UINT32_MAX};
 
     /* Draft-22 section 6.2: the ALPN identifies the selected wire version. */
     CU_ASSERT_EQUAL(xqc_moqt_config_init(&config, XQC_MOQT_VERSION_DRAFT_22),
@@ -40,6 +40,14 @@ xqc_test_moqt_config(void)
         xqc_moqt_config_t invalid = {.version = unsupported[i]};
         CU_ASSERT_PTR_NULL(xqc_moqt_config_alpn(&invalid));
     }
+    CU_ASSERT_EQUAL(xqc_moqt_config_init(&config, XQC_MOQT_VERSION_DRAFT_23),
+                    XQC_OK);
+    CU_ASSERT_STRING_EQUAL(xqc_moqt_config_alpn(&config), "moqt-23");
+    CU_ASSERT_EQUAL(xqc_moqt_version_from_alpn("moqt-23"),
+                    XQC_MOQT_VERSION_DRAFT_23);
+    CU_ASSERT_EQUAL(xqc_moqt_version_from_alpn("moqt-23x"),
+                    XQC_MOQT_VERSION_UNKNOWN);
+    CU_ASSERT_EQUAL(xqc_moqt_version_from_alpn(NULL), XQC_MOQT_VERSION_UNKNOWN);
 }
 
 void
@@ -67,6 +75,13 @@ xqc_test_moqt_alpn(void)
     CU_ASSERT(actual.conn_cbs.conn_close_notify == cbs.conn_close_notify);
     CU_ASSERT_PTR_NOT_NULL(actual.stream_cbs.stream_read_notify);
     CU_ASSERT_PTR_NOT_NULL(actual.dgram_cbs.datagram_read_notify);
+    const xqc_moqt_config_t draft23 = {XQC_MOQT_VERSION_DRAFT_23};
+    CU_ASSERT_EQUAL(xqc_moqt_init_alpn(engine, &draft23, &cbs), XQC_OK);
+    CU_ASSERT_EQUAL(xqc_engine_get_alpn_callbacks(engine,
+        XQC_MOQT_ALPN_DRAFT_23, sizeof(XQC_MOQT_ALPN_DRAFT_23) - 1, &legacy),
+        XQC_OK);
+    CU_ASSERT(legacy.stream_cbs.stream_read_notify
+              == actual.stream_cbs.stream_read_notify);
     for (size_t i = 0; i < sizeof(old) / sizeof(old[0]); i++) {
         CU_ASSERT_EQUAL(xqc_engine_get_alpn_callbacks(
             engine, old[i],

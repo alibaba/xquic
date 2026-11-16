@@ -681,7 +681,9 @@ static xqc_int_t
 xqc_moqt_fetch_object_apply(xqc_moqt_stream_t *st, const xqc_moqt_object_t *o)
 {
     /* Range records describe gaps; they are not objects in a Subgroup. */
-    if (o->range != XQC_MOQT_RANGE_NONE) {
+    if (o->range != XQC_MOQT_RANGE_NONE
+        || o->status != XQC_MOQT_OBJECT_NORMAL)
+    {
         return XQC_OK;
     }
     if (!o->datagram) {
@@ -968,7 +970,8 @@ xqc_moqt_subgroup_input(xqc_moqt_stream_t *st, uint8_t fin)
             }
             xqc_moqt_object_t object = d->object;
             xqc_int_t n = st->kind == XQC_MOQT_STREAM_FETCH
-                ? xqc_moqt_fetch_header_decode(rx->data, rx->data_len,
+                ? xqc_moqt_fetch_header_decode_version(s->config.version,
+                    rx->data, rx->data_len,
                     d->fetch->info.group_order, &d->history, &object)
                 : xqc_moqt_object_header_decode(rx->data, rx->data_len,
                     d->flags, d->has_object ? &d->object : NULL, &object);
@@ -982,6 +985,14 @@ xqc_moqt_subgroup_input(xqc_moqt_stream_t *st, uint8_t fin)
                 && xqc_moqt_fetch_contains(d->fetch, &object) != XQC_OK)
             {
                 goto malformed;
+            }
+            if (st->kind == XQC_MOQT_STREAM_FETCH
+                && object.status != XQC_MOQT_OBJECT_NORMAL)
+            {
+                rx->data_len -= n;
+                memmove(rx->data, rx->data + n, rx->data_len);
+                d->object_time = 0;
+                continue;
             }
             d->object = object;
             d->header_length = n;
@@ -1255,7 +1266,8 @@ xqc_moqt_stream_send_object(xqc_moqt_stream_t *st, const xqc_moqt_object_t *o)
             return -XQC_EPARAM;
         }
         header = st->kind == XQC_MOQT_STREAM_FETCH
-            ? xqc_moqt_fetch_header_encode(d->fetch->info.group_order,
+            ? xqc_moqt_fetch_header_encode_version(st->session->config.version,
+                d->fetch->info.group_order,
                 &d->history, o, NULL, 0)
             : xqc_moqt_object_header_encode(d->flags,
                 d->has_object ? &d->object : NULL, o, NULL, 0);
@@ -1284,8 +1296,8 @@ xqc_moqt_stream_send_object(xqc_moqt_stream_t *st, const xqc_moqt_object_t *o)
     }
     if (header) {
         if (st->kind == XQC_MOQT_STREAM_FETCH) {
-            xqc_moqt_fetch_header_encode(d->fetch->info.group_order,
-                &d->history, o, buf->data, header);
+            xqc_moqt_fetch_header_encode_version(s->config.version,
+                d->fetch->info.group_order, &d->history, o, buf->data, header);
         } else {
             xqc_moqt_object_header_encode(d->flags,
                 d->has_object ? &d->object : NULL, o, buf->data, header);

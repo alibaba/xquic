@@ -195,7 +195,7 @@ xqc_moqt_token_check(const xqc_moqt_token_t *tokens, size_t count,
 
 static uint64_t
 xqc_moqt_setup_decode(const struct iovec *body, xqc_int_t from_client,
-    xqc_bool_t webtransport,
+    xqc_bool_t webtransport, xqc_moqt_version_t version, xqc_bool_t local,
     xqc_moqt_setup_t *setup, xqc_moqt_kv_t *options, xqc_moqt_token_t *tokens)
 {
     size_t pos = 0;
@@ -273,11 +273,35 @@ xqc_moqt_setup_decode(const struct iovec *body, xqc_int_t from_client,
         case XQC_MOQT_OPT_MAX_REQUEST_UPDATES:
             setup->limits.max_request_updates = kv->value.integer;
             break;
+        case XQC_MOQT_OPT_MAX_CONTROL_MESSAGE_SIZE:
+            if (version == XQC_MOQT_VERSION_DRAFT_23) {
+                /* Sections 8.3 and 9.1.8: this odd option wraps a vi64. */
+                const struct iovec *value = &kv->value.bytes;
+                const uint8_t *p = value->iov_base;
+                uint64_t max_size;
+                xqc_int_t size = xqc_vi64_read(p, p + value->iov_len,
+                                               &max_size);
+                if ((setup->option_count > 1
+                        && options[setup->option_count - 2].type == kv->type)
+                    || size < 0 || (size_t)size != value->iov_len
+                    || max_size < XQC_MOQT_MESSAGE_MAX_BODY
+                    || (local && max_size != XQC_MOQT_MESSAGE_MAX_BODY))
+                {
+                    return XQC_MOQT_KEY_VALUE_FORMATTING_ERROR;
+                }
+            }
+            break;
         default:
             break;
         }
     }
     return XQC_MOQT_NO_ERROR;
+}
+
+xqc_moqt_version_t
+xqc_moqt_session_version(const xqc_moqt_session_t *s)
+{
+    return s != NULL ? s->config.version : XQC_MOQT_VERSION_UNKNOWN;
 }
 
 void
@@ -688,16 +712,18 @@ xqc_moqt_control_message(xqc_moqt_stream_t *stream,
     const xqc_moqt_message_t *msg)
 {
     xqc_moqt_session_t *s = stream->session;
+    xqc_bool_t draft23 = s->config.version == XQC_MOQT_VERSION_DRAFT_23;
     if (!s->setup_received) {
         if (msg->type != XQC_MOQT_MSG_SETUP) {
-            return XQC_MOQT_PROTOCOL_VIOLATION;
+            return draft23 ? XQC_MOQT_UNEXPECTED_MESSAGE
+                           : XQC_MOQT_PROTOCOL_VIOLATION;
         }
         xqc_moqt_kv_t options[XQC_MOQT_MAX_OPTIONS];
         xqc_moqt_token_t tokens[XQC_MOQT_MAX_OPTIONS];
         xqc_moqt_setup_t setup;
         uint64_t error = xqc_moqt_setup_decode(
             &msg->body, s->conn->conn_type == XQC_CONN_TYPE_SERVER,
-            s->webtransport,
+            s->webtransport, s->config.version, XQC_FALSE,
             &setup, options, tokens);
         if (error) {
             return error;
@@ -711,7 +737,8 @@ xqc_moqt_control_message(xqc_moqt_stream_t *stream,
         return error;
     }
     if (msg->type != XQC_MOQT_MSG_GOAWAY || s->goaway_received) {
-        return XQC_MOQT_PROTOCOL_VIOLATION;
+        return draft23 ? XQC_MOQT_UNEXPECTED_MESSAGE
+                       : XQC_MOQT_PROTOCOL_VIOLATION;
     }
     const uint8_t *p = msg->body.iov_base, *end = p + msg->body.iov_len;
     uint64_t len, timeout;
@@ -837,11 +864,16 @@ xqc_moqt_stream_input_bytes(xqc_moqt_stream_t *stream, const uint8_t *data,
             goto fail;
         }
         xqc_moqt_message_t msg;
-        xqc_int_t n = xqc_moqt_frame_decode(rx->data, rx->data_len, &msg);
+        xqc_int_t n = xqc_moqt_frame_decode_version(s->config.version,
+            rx->data, rx->data_len, &msg);
         if (n == -XQC_EAGAIN) {
             break;
         }
         if (n < 0) {
+            if (s->config.version == XQC_MOQT_VERSION_DRAFT_23) {
+                error = n == -XQC_ELIMIT ? XQC_MOQT_FIELD_LENGTH_EXCEEDED
+                                        : XQC_MOQT_UNEXPECTED_MESSAGE;
+            }
             goto fail;
         }
         error = request
@@ -1163,7 +1195,8 @@ xqc_moqt_session_create_transport(xqc_connection_t *conn,
         len += n;
         previous = options[i].type;
     }
-    size_t header = xqc_vi64_len(XQC_MOQT_MSG_SETUP) + sizeof(uint16_t);
+    size_t header = xqc_moqt_frame_header_size(config->version,
+                                               XQC_MOQT_MSG_SETUP, len);
     s->setup = xqc_moqt_buffer_create(s, header + len, sizeof(xqc_var_buf_t));
     if (s->setup == NULL) {
         goto fail;
@@ -1179,11 +1212,13 @@ xqc_moqt_session_create_transport(xqc_connection_t *conn,
     }
     s->setup->data_len = p - s->setup->data;
     xqc_moqt_message_t msg = {XQC_MOQT_MSG_SETUP, body};
-    xqc_moqt_frame_encode(&msg, s->setup->data, s->setup->data_len);
+    xqc_moqt_frame_encode_version(config->version, &msg, s->setup->data,
+                                   s->setup->data_len);
     xqc_moqt_token_t tokens[XQC_MOQT_MAX_OPTIONS];
     xqc_moqt_setup_t setup;
     if (xqc_moqt_setup_decode(
         &body, conn->conn_type == XQC_CONN_TYPE_CLIENT, webtransport,
+        config->version, XQC_TRUE,
         &setup, options, tokens)
         || setup.limits.max_auth_token_cache
         || setup.limits.max_filter_ranges > XQC_MOQT_MAX_FILTER_RANGES)
@@ -1262,7 +1297,8 @@ xqc_moqt_session_goaway(xqc_moqt_session_t *s, const struct iovec *uri,
     }
     size_t len = xqc_vi64_len(uri->iov_len) + uri->iov_len
                  + xqc_vi64_len(timeout_ms);
-    size_t header = xqc_vi64_len(XQC_MOQT_MSG_GOAWAY) + sizeof(uint16_t);
+    size_t header = xqc_moqt_frame_header_size(s->config.version,
+                                               XQC_MOQT_MSG_GOAWAY, len);
     xqc_var_buf_t *buf = xqc_moqt_buffer_create(s, header + len,
                                                 sizeof(xqc_var_buf_t));
     if (buf == NULL) {
@@ -1278,7 +1314,8 @@ xqc_moqt_session_goaway(xqc_moqt_session_t *s, const struct iovec *uri,
     buf->data_len = p - buf->data;
     xqc_moqt_message_t msg = {XQC_MOQT_MSG_GOAWAY,
         {buf->data + header, len}};
-    xqc_moqt_frame_encode(&msg, buf->data, buf->data_len);
+    xqc_moqt_frame_encode_version(s->config.version, &msg, buf->data,
+                                   buf->data_len);
     if (xqc_moqt_queue(s, &s->control_tx->tx, buf) != XQC_OK) {
         xqc_moqt_buffer_free(s, buf, sizeof(xqc_var_buf_t));
         return -XQC_EMALLOC;

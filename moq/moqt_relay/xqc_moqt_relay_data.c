@@ -296,7 +296,7 @@ xqc_moqt_relay_fetch_response(xqc_moqt_relay_request_t *up,
         return;
     }
     up->established = 1;
-    up->response = xqc_moqt_relay_message_copy(up->peer->relay, m, up->type);
+    up->response = xqc_moqt_relay_message_copy(up->peer, m, up->type);
     if (up->response == NULL) {
         xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_EXCESSIVE_LOAD);
     }

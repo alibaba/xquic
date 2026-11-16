@@ -13,7 +13,8 @@ extern "C" {
 #endif
 
 /*
- * Bind in WT session_create_notify after CONNECT selects moqt-22. Requires
+ * Bind in WT session_create_notify after CONNECT selects the configured
+ * MoQT application protocol. Requires
  * WT draft-16, an open session with no streams/binding, and no AUTHORITY/PATH
  * Setup Options (draft-22 6.2.1, 9.1.1/9.1.2). CONNECT/Origin policy remains
  * application-owned. Copies config/callbacks; H3 application data is unchanged.
@@ -30,7 +31,7 @@ xqc_moqt_session_t *xqc_moqt_session_create_webtransport(
     const xqc_moqt_callbacks_t *callbacks, void *user_data);
 
 /*
- * Explicit compatibility with WT draft-07 peers that also negotiate moqt-22
+ * Explicit compatibility with WT draft-07 peers that also negotiate MoQT
  * through WT-Available-Protocols/WT-Protocol. All other binding requirements
  * above remain in force. Draft-07 has ordinary, best-effort reset association
  * (draft-ietf-webtrans-http3-07 section 4.3), not draft-16 reliable prefixes.

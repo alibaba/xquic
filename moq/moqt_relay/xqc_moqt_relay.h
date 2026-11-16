@@ -180,7 +180,7 @@ void xqc_moqt_relay_history_clear(xqc_moqt_relay_request_t *source);
 void xqc_moqt_relay_history_release(xqc_moqt_relay_fetch_t *fetch);
 xqc_moqt_relay_request_t *xqc_moqt_relay_subscription_find(
     xqc_moqt_relay_peer_t *peer, xqc_moqt_subscription_t *subscription);
-xqc_var_buf_t *xqc_moqt_relay_message_copy(xqc_moqt_relay_t *relay,
+xqc_var_buf_t *xqc_moqt_relay_message_copy(xqc_moqt_relay_peer_t *peer,
     const xqc_moqt_message_t *message, uint64_t context);
 xqc_int_t xqc_moqt_relay_message_read(const xqc_var_buf_t *buf,
     uint64_t context, xqc_moqt_message_t *message);

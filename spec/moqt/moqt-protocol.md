@@ -5,8 +5,10 @@ boundaries, public interfaces, and the minimum protocol capabilities. The
 [relay specification](moqt-relay.md) defines forwarding capabilities for a
 separate implementation.
 
-The negotiated version is pinned to **draft-22**, with
-[draft-ietf-moq-transport-22][draft] as the normative baseline. This document
+The endpoint negotiates **draft-22** or **draft-23**. The baseline described
+throughout this document follows [draft-ietf-moq-transport-22][draft]. The
+draft-23 wire differences below follow
+[draft-ietf-moq-transport-23][draft23]. This document
 defines target behavior and implementation constraints; it does not imply
 that the default branch implements every capability or automatically follows
 later drafts. Current specification completeness, implementation status, and
@@ -22,13 +24,28 @@ Subsequent drafts evolve in the same module; do not duplicate a directory for
 each revision or embed a draft number in general-purpose symbols.
 
 `XQC_MOQT_VERSION_DRAFT_22` and `XQC_MOQT_ALPN_DRAFT_22` permanently mean
-22 and `moqt-22`. Only this configuration is currently accepted. A client
-configured for 22 offers only `moqt-22`, without automatic fallback. A server
-registers both protocols and dispatches by the ALPN selected for that
-connection. A later version requires explicit version selection and wire
-semantics; it must not redefine existing constants or accept unknown versions.
+22 and `moqt-22`. `XQC_MOQT_VERSION_DRAFT_23` and
+`XQC_MOQT_ALPN_DRAFT_23` select 23 and `moqt-23`. A client offers the
+protocol from its configuration. A server registers both protocols and
+dispatches by the ALPN selected for that connection. WebTransport uses the
+selected CONNECT application protocol as specified in [draft-23 §6.2][v23].
 A configuration/negotiated-ALPN mismatch rejects Session creation without
 sending SETUP or notifying readiness.
+
+### Draft-23 wire formats
+
+The shared session, request and FETCH codecs take the negotiated revision
+from the Session. Draft-23 uses a vi64 control length, counted Fill Parameters,
+PAUSED on the wire, and a parameter block in NAMESPACE. REQUEST_ERROR uses
+Error Details, including a length-delimited redirect. A FETCH response uses
+REQUEST_OK in draft-23. The existing endpoint API reports FETCH completion
+using its FETCH_OK message type and derives receive bounds from the request
+and any Largest Object reported by the peer. FETCH object and range deltas
+follow draft-23 §11.4. The local maximum control body remains 65,535 bytes.
+See [draft-23 §§9 and 11.4][draft23].
+
+[draft23]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-23
+[v23]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-23#section-6.2
 
 The legacy `xqc_moq_*` API, `include/moq/xqc_moq.h`, and
 `moq/moq_transport/` retain their draft-05 and private fast-RTT/0-RTT
@@ -91,7 +108,8 @@ application-owned. Readiness is notified exactly once, after the QUIC
 handshake, full submission of local SETUP, and successful validation of peer
 SETUP.
 
-With WebTransport, applications authorize CONNECT and select `moqt-22`, then
+With WebTransport, applications authorize CONNECT and select a supported
+MoQT application protocol, then
 create/start a MoQT Session from the successful WT session notification using
 `xqc_moqt_session_create_webtransport`. Destroy it in the WT close notification,
 before the H3 connection is destroyed; MoQT callbacks must not destroy it.

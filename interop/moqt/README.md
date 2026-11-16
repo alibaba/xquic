@@ -1,10 +1,10 @@
 # MoQT interop
 
-`moqt_interop` adapts the public draft-22 endpoint APIs to the
-[MoQ interop runner interface][interface]. It negotiates only `moqt-22` over
-Native QUIC or WebTransport. The fixture prefers WebTransport draft-16
-and also accepts draft-07 peers that explicitly negotiate `moqt-22` through
-the application-protocol headers. Build both with
+`moqt_interop` adapts the public MoQT endpoint APIs to the
+[MoQ interop runner interface][interface]. Its server accepts `moqt-22` and
+`moqt-23` over Native QUIC or WebTransport. The fixture prefers WebTransport
+draft-16 and accepts draft-07 peers that explicitly negotiate a MoQT
+application protocol. Build both transports with
 `./scripts/validate.sh build --feature moqt_webtransport`.
 
 ```sh
@@ -23,7 +23,9 @@ RELAY_URL=https://localhost:4443/moq TLS_DISABLE_VERIFY=1 \
     --port 4443 --cert /path/to/test-cert.pem --key /path/to/test-key.pem
 ```
 
-The client accepts `--relay`, `--test`, `--transport`, `--verbose`, and
+The client defaults to offering `moqt-22`. Use `--moqt-version moqt-23` to
+offer draft-23 on either transport. The client also accepts
+`--relay`, `--test`, `--transport`, `--verbose`, and
 `--tls-disable-verify`. Corresponding environment variables are `RELAY_URL`,
 `TESTCASE`, `MOQT_TRANSPORT`, `VERBOSE`, and `TLS_DISABLE_VERIFY`; explicit
 flags take priority. HTTPS selects WT. A canonical `moqt://` URI uses QUIC by
@@ -46,7 +48,7 @@ configured paths. For a custom Tongsuo build on Debian/Ubuntu, set
 `SSL_CERT_DIR=/etc/ssl/certs` when its compiled defaults point elsewhere.
 Unknown issuers and hostname mismatches still fail before MoQT SETUP.
 
-The WT path selects `moqt-22` in CONNECT, then starts the existing MoQT
+The WT path selects the MoQT application protocol in CONNECT, then starts the
 session through its WT constructor. CONNECT carries authority/path/query;
 the WT SETUP omits those options. Both SETUPs still govern readiness.
 MoQT is destroyed in the WT close callback before H3 destruction. The test

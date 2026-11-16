@@ -31,6 +31,7 @@ struct xqc_interop_peer_s {
     xqc_interop_peer_t *next;
     xqc_moqt_session_t *session;
     xqc_moqt_relay_peer_t *relay_peer;
+    xqc_moqt_version_t version;
 #ifdef XQC_ENABLE_WEBTRANSPORT
     xqc_h3_conn_t *h3;
     xqc_wt_session_t *wt;
@@ -78,6 +79,7 @@ struct xqc_interop_app_s {
     xqc_interop_peer_t *peers;
     xqc_moqt_relay_t *relay;
     unsigned peer_count, server, verify, verbose, webtransport, origin, dual;
+    xqc_moqt_version_t version;
     struct sockaddr_storage remote;
     socklen_t remote_len;
     char host[256], authority[300], path[1024];
@@ -277,9 +279,11 @@ xqc_interop_ready(xqc_moqt_session_t *session, void *data)
 #ifdef XQC_ENABLE_WEBTRANSPORT
     wt = p->wt != NULL;
 #endif
-    fprintf(stderr, "SETUP ready alpn=%s protocol=moqt-22 "
+    const xqc_moqt_config_t config = {.version = p->version};
+    const char *protocol = xqc_moqt_config_alpn(&config);
+    fprintf(stderr, "SETUP ready alpn=%s protocol=%s "
             "transport=%s role=%s\n",
-            wt ? "h3" : "moqt-22", wt ? "webtransport" : "quic",
+            wt ? "h3" : protocol, protocol, wt ? "webtransport" : "quic",
             p->app->server ? "server" : p->role);
 }
 
@@ -604,8 +608,17 @@ xqc_interop_namespace(xqc_moqt_request_t *r,
 static xqc_int_t
 xqc_interop_session_create(xqc_interop_peer_t *p, xqc_connection_t *conn)
 {
+    p->version = xqc_moqt_conn_version(conn);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (p->wt) {
+        p->version = xqc_moqt_version_from_alpn(
+            xqc_wt_session_get_application_protocol(p->wt));
+    }
+#endif
     xqc_moqt_config_t config;
-    xqc_moqt_config_init(&config, XQC_MOQT_VERSION_DRAFT_22);
+    if (xqc_moqt_config_init(&config, p->version) != XQC_OK) {
+        return XQC_ERROR;
+    }
     if (p->app->relay) {
         struct iovec scope = {"interop", 7};
 #ifdef XQC_ENABLE_WEBTRANSPORT
@@ -726,19 +739,22 @@ xqc_interop_wt_accept(xqc_http_headers_t *headers,
     xqc_http_headers_t *response, void *data)
 {
     xqc_interop_peer_t *p = data;
-    const char *protocols[] = {XQC_MOQT_ALPN_DRAFT_22}, *selected = NULL;
+    const char *protocols[] = {XQC_MOQT_ALPN_DRAFT_22, XQC_MOQT_ALPN_DRAFT_23};
+    const char *selected = NULL;
     /* Anonymous bounded test endpoint, one session per scenario peer. */
     if (p->wt || p->closed
-        || xqc_wt_select_application_protocol(headers, protocols, 1,
+        || xqc_wt_select_application_protocol(headers, protocols, 2,
                                                  &selected) != 1)
     {
         return 0;
     }
-    static xqc_http_header_t fields[] = {
-        {.name = {":status", 7}, .value = {"200", 3}},
-        {.name = {"wt-protocol", 11}, .value = {"\"moqt-22\"", 9}},
+    static xqc_http_header_t fields[][2] = {
+        {{{":status", 7}, {"200", 3}},
+         {{"wt-protocol", 11}, {"\"" XQC_MOQT_ALPN_DRAFT_22 "\"", 9}}},
+        {{{":status", 7}, {"200", 3}},
+         {{"wt-protocol", 11}, {"\"" XQC_MOQT_ALPN_DRAFT_23 "\"", 9}}},
     };
-    response->headers = fields;
+    response->headers = fields[!strcmp(selected, XQC_MOQT_ALPN_DRAFT_23)];
     response->count = 2;
     return 1;
 }
@@ -864,9 +880,14 @@ xqc_interop_init(xqc_interop_app_t *app, unsigned port)
         }
     }
 #endif
-    xqc_moqt_config_t moqt;
-    xqc_moqt_config_init(&moqt, XQC_MOQT_VERSION_DRAFT_22);
-    return xqc_moqt_init_alpn(app->base.engine, &moqt, &conn_cbs);
+    const xqc_moqt_config_t moqt = {.version = app->version};
+    xqc_int_t ret = xqc_moqt_init_alpn(app->base.engine, &moqt, &conn_cbs);
+    if (!ret && app->server) {
+        const xqc_moqt_config_t draft23 = {
+            .version = XQC_MOQT_VERSION_DRAFT_23};
+        ret = xqc_moqt_init_alpn(app->base.engine, &draft23, &conn_cbs);
+    }
+    return ret;
 }
 
 static xqc_interop_peer_t *
@@ -878,7 +899,7 @@ xqc_interop_connect(xqc_interop_app_t *app, const char *role)
     }
     p->role = role;
     xqc_moqt_config_t config;
-    xqc_moqt_config_init(&config, XQC_MOQT_VERSION_DRAFT_22);
+    xqc_moqt_config_init(&config, app->version);
     xqc_conn_settings_t settings = {
         .proto_version = XQC_VERSION_V1,
         .max_datagram_frame_size = XQC_INTEROP_DATAGRAM_SIZE,
@@ -891,7 +912,7 @@ xqc_interop_connect(xqc_interop_app_t *app, const char *role)
         cid = xqc_webtransport_connect(app->base.engine, &settings,
             NULL, 0, app->host, 0, &ssl,
             (struct sockaddr *)&app->remote, app->remote_len, p);
-        const char *protocols[] = {XQC_MOQT_ALPN_DRAFT_22};
+        const char *protocols[] = {xqc_moqt_config_alpn(&config)};
         int error;
         if (!cid || !p->h3
             || !xqc_wt_client_open_session_with_protocols_compat(p->h3,
@@ -2393,6 +2414,7 @@ main(int argc, char **argv)
     const char *verbose = getenv("VERBOSE");
     const char *port_env = getenv("MOQT_PORT");
     const char *transport = getenv("MOQT_TRANSPORT");
+    const char *protocol = NULL;
     xqc_interop_app_t app = {.base.socket.fd = -1,
         .verify = !flag || strcmp(flag, "1"),
         .verbose = verbose && !strcmp(verbose, "1"),
@@ -2411,11 +2433,12 @@ main(int argc, char **argv)
         {"cert", required_argument, NULL, 'c'},
         {"key", required_argument, NULL, 'K'},
         {"transport", required_argument, NULL, 'T'},
+        {"moqt-version", required_argument, NULL, 'V'},
         {"help", no_argument, NULL, 'h'}, {0}
     };
     unsigned ncases = sizeof(xqc_interop_cases) / sizeof(xqc_interop_cases[0]);
     int c, list = 0;
-    while ((c = getopt_long(argc, argv, "r:t:lvksRop:c:K:T:h",
+    while ((c = getopt_long(argc, argv, "r:t:lvksRop:c:K:T:V:h",
                            opts, NULL)) != -1)
     {
         switch (c) {
@@ -2430,11 +2453,13 @@ main(int argc, char **argv)
         case 'c': app.cert = optarg; break;
         case 'K': app.key = optarg; break;
         case 'T': transport = optarg; break;
+        case 'V': protocol = optarg; break;
         case 'l': list = 1; break;
         case 'h':
             puts("moqt_interop --relay URL [--test NAME]\n"
                  "  --list --tls-disable-verify --verbose\n"
                  "  --transport quic|webtransport (HTTPS selects WT)\n"
+                 "  --moqt-version moqt-22|moqt-23 (client offer)\n"
                  "  --origin (direct endpoint control/object probes)\n"
                  "  --server | --relay-server [--transport dual] [--port 4443 "
                  "--cert FILE --key FILE]");
@@ -2465,6 +2490,14 @@ main(int argc, char **argv)
     }
     app.webtransport = transport && !strcmp(transport, "webtransport");
     app.dual = transport && !strcmp(transport, "dual");
+    app.version = xqc_moqt_version_from_alpn(
+        protocol ? protocol : XQC_MOQT_ALPN_DRAFT_22);
+    if (app.version == XQC_MOQT_VERSION_UNKNOWN
+        || (app.server && protocol != NULL))
+    {
+        fprintf(stderr, "invalid client MoQT version: %s\n", protocol);
+        return 1;
+    }
     if (app.server) {
 #ifndef XQC_ENABLE_WEBTRANSPORT
         if (app.webtransport || app.dual) {
@@ -2476,7 +2509,7 @@ main(int argc, char **argv)
             xqc_interop_release(&app);
             return 1;
         }
-        fprintf(stderr, "%s server moqt-22 transport=%s UDP/%u\n",
+        fprintf(stderr, "%s server moqt-22 transport=%s UDP/%u also=moqt-23\n",
                 app.relay ? "relay" : "endpoint",
                 app.dual ? "dual" : app.webtransport ? "webtransport"
                                                       : "quic", port);
@@ -2559,8 +2592,9 @@ main(int argc, char **argv)
             for (unsigned j = 0; j < peers; j++) {
                 if (ready[j]) {
                     printf("    %s:\n      transport: %s\n"
-                           "      moqt_version: moqt-22\n", roles[j],
-                           app.webtransport ? "webtransport" : "quic");
+                           "      moqt_version: %s\n", roles[j],
+                           app.webtransport ? "webtransport" : "quic",
+                           protocol ? protocol : XQC_MOQT_ALPN_DRAFT_22);
                 }
             }
         }

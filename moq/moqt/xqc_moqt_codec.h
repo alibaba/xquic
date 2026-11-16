@@ -65,6 +65,9 @@ xqc_int_t xqc_moqt_publish_forward(xqc_moqt_message_t *publish,
     const xqc_moqt_message_t *interest, uint8_t *forward);
 xqc_int_t xqc_moqt_fill_parameters_decode(
     const xqc_moq_message_parameter_t *parameter, xqc_moqt_message_t *message);
+xqc_int_t xqc_moqt_fill_parameters_read(
+    const xqc_moq_message_parameter_t *parameter, xqc_bool_t counted,
+    xqc_moqt_message_t *message);
 uint64_t xqc_moqt_error_normalize(xqc_moqt_error_context_t context,
     uint64_t code);
 
@@ -84,6 +87,18 @@ xqc_int_t xqc_moqt_frame_encode(const xqc_moqt_message_t *msg, uint8_t *buf,
     size_t cap);
 xqc_int_t xqc_moqt_frame_decode(const uint8_t *buf, size_t len,
     xqc_moqt_message_t *msg);
+size_t xqc_moqt_frame_header_size(xqc_moqt_version_t version, uint64_t type,
+    size_t body_len);
+xqc_int_t xqc_moqt_frame_encode_version(xqc_moqt_version_t version,
+    const xqc_moqt_message_t *msg, uint8_t *buf, size_t cap);
+xqc_int_t xqc_moqt_frame_decode_version(xqc_moqt_version_t version,
+    const uint8_t *buf, size_t len, xqc_moqt_message_t *msg);
+xqc_int_t xqc_moqt_message_encode_version(xqc_moqt_version_t version,
+    const xqc_moqt_message_t *message, uint64_t context, uint8_t *buf,
+    size_t cap);
+xqc_int_t xqc_moqt_message_decode_version(xqc_moqt_version_t version,
+    const uint8_t *buf, size_t len, uint64_t context,
+    xqc_moqt_message_t *message);
 
 /* A NULL name selects namespace-only encoding/decoding. */
 xqc_int_t xqc_moqt_name_encode(const xqc_moqt_namespace_t *ns,
@@ -154,6 +169,7 @@ typedef struct {
     unsigned               has_location:1;
     unsigned               has_subgroup:1;
     unsigned               has_priority:1;
+    unsigned               last_was_object:1;
 } xqc_moqt_fetch_history_t;
 
 /* Flags and at most one Group, Subgroup and Object ID each. */
@@ -171,6 +187,9 @@ typedef struct {
 #define XQC_MOQT_FETCH_NONEXISTENT 0x8cu
 #define XQC_MOQT_FETCH_UNKNOWN 0x10cu
 #define XQC_MOQT_FETCH_TIMEOUT 0x20cu
+#define XQC_MOQT_FETCH_GONE 0x40cu
+#define XQC_MOQT_FETCH_END_GROUP 0x80u
+#define XQC_MOQT_FETCH_END_TRACK 0x81u
 
 xqc_int_t xqc_moqt_fetch_header_decode(const uint8_t *buf, size_t len,
     uint8_t order, xqc_moqt_fetch_history_t *history,
@@ -178,6 +197,12 @@ xqc_int_t xqc_moqt_fetch_header_decode(const uint8_t *buf, size_t len,
 xqc_int_t xqc_moqt_fetch_header_encode(uint8_t order,
     const xqc_moqt_fetch_history_t *history, const xqc_moqt_object_t *object,
     uint8_t *buf, size_t cap);
+xqc_int_t xqc_moqt_fetch_header_decode_version(xqc_moqt_version_t version,
+    const uint8_t *buf, size_t len, uint8_t order,
+    xqc_moqt_fetch_history_t *history, xqc_moqt_object_t *object);
+xqc_int_t xqc_moqt_fetch_header_encode_version(xqc_moqt_version_t version,
+    uint8_t order, const xqc_moqt_fetch_history_t *history,
+    const xqc_moqt_object_t *object, uint8_t *buf, size_t cap);
 void xqc_moqt_fetch_history_update(xqc_moqt_fetch_history_t *history,
     const xqc_moqt_object_t *object);
 

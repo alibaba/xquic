@@ -534,10 +534,65 @@ xqc_test_relay_range_filters(void)
     xqc_test_relay_destroy(&f);
 }
 
+static void xqc_test_relay_malformed_subgroup(void);
+
+static void
+xqc_test_relay_malformed_subgroup(void)
+{
+    xqc_test_relay_t f;
+    xqc_test_relay_init(&f);
+    xqc_test_relay_peer_t *publisher = &f.peers[XQC_TEST_RELAY_PUBLISHER];
+    xqc_moqt_message_t m = xqc_test_relay_message(XQC_MOQT_MSG_PUBLISH);
+    m.track_alias = 19;
+    xqc_moqt_request_t *pub = xqc_test_relay_receive(publisher, &m);
+    m.type = XQC_MOQT_MSG_SUBSCRIBE;
+    xqc_moqt_request_t *down = xqc_test_relay_receive(
+        &f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
+    CU_ASSERT_TRUE_FATAL(down->established);
+    xqc_moqt_relay_request_t *record = xqc_test_relay_record(f.relay, down);
+
+    /* Draft-22 §12.1: a FIN cannot end a Subgroup before a known Object. */
+    xqc_moqt_stream_t *inputs[2];
+    uint8_t payload = 1, wire[128];
+    xqc_moqt_object_t object = {.payload = {&payload, 1}, .payload_length = 1,
+        .priority = XQC_MOQT_DEFAULT_PRIORITY};
+    for (size_t i = 0; i < 2; i++) {
+        xqc_stream_t *native = xqc_create_stream_with_conn(publisher->conn,
+            XQC_CLI_UNI + (i + 1) * XQC_TEST_RELAY_STREAM_ID_STEP, XQC_CLI_UNI,
+            NULL, NULL);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(native);
+        inputs[i] = native->user_data;
+        object.object_id = i;
+        uint64_t flags = XQC_MOQT_SUBGROUP_FIXED_BITS
+            | XQC_MOQT_SUBGROUP_EXPLICIT_ID | XQC_MOQT_SUBGROUP_END_GROUP;
+        xqc_int_t n = xqc_moqt_subgroup_header_encode(
+            pub->subscription->track_alias, flags, &object, wire,
+            sizeof(wire));
+        CU_ASSERT_FATAL(n > 0);
+        xqc_int_t header = xqc_moqt_object_header_encode(
+            flags, NULL, &object, wire + n, sizeof(wire) - n);
+        CU_ASSERT_FATAL(header > 0);
+        n += header;
+        wire[n++] = payload;
+        CU_ASSERT_EQUAL(xqc_moqt_stream_input(inputs[i], wire, n, 0), XQC_OK);
+    }
+    CU_ASSERT_EQUAL(f.relay->stats.forwarded, 2);
+    CU_ASSERT_FALSE(down->done_sent);
+    CU_ASSERT_EQUAL(xqc_moqt_stream_input(inputs[0], NULL, 0, 1), XQC_OK);
+    CU_ASSERT_TRUE_FATAL(record->ending);
+    xqc_moqt_relay_process(f.relay, xqc_monotonic_timestamp());
+    CU_ASSERT_EQUAL(f.relay->stats.malformed, 1);
+    CU_ASSERT_EQUAL(record->done_code, XQC_MOQT_PUBLISH_MALFORMED_TRACK);
+    CU_ASSERT_TRUE(down->done_sent);
+    CU_ASSERT_FALSE(record->peer->session->closed);
+    xqc_test_relay_destroy(&f);
+}
+
 void
 xqc_test_moqt_relay_delivery(void)
 {
     xqc_test_relay_range_filters();
+    xqc_test_relay_malformed_subgroup();
     xqc_test_relay_t f;
     xqc_test_relay_init(&f);
     xqc_moqt_message_t m = xqc_test_relay_message(
@@ -636,7 +691,10 @@ xqc_test_moqt_relay_delivery(void)
                                  &object, wire, sizeof(wire));
     xqc_moqt_datagram_input(up->peer->session, wire, n);
     CU_ASSERT_EQUAL(f.relay->stats.malformed, 1);
-    CU_ASSERT_TRUE(record->stopped);
+    CU_ASSERT_TRUE_FATAL(record->ending);
+    xqc_moqt_relay_process(f.relay, xqc_monotonic_timestamp());
+    CU_ASSERT_EQUAL(record->done_code, XQC_MOQT_PUBLISH_MALFORMED_TRACK);
+    CU_ASSERT_TRUE(down->done_sent);
     xqc_test_relay_destroy(&f);
 }
 

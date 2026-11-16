@@ -389,19 +389,6 @@ xqc_moqt_relay_object_check(xqc_moqt_relay_track_t *track,
 }
 
 static void
-xqc_moqt_relay_malformed(xqc_moqt_relay_request_t *up)
-{
-    xqc_moqt_relay_t *r = up->peer->relay;
-    r->stats.malformed++;
-    /* Track error isolation: unrelated tracks and sessions keep running. */
-    for (xqc_moqt_relay_request_t *q = r->requests; q; q = q->next) {
-        if (q->track == up->track) {
-            xqc_moqt_relay_stop(q, XQC_MOQT_RESET_MALFORMED_TRACK);
-        }
-    }
-}
-
-static void
 xqc_moqt_relay_slow(xqc_moqt_relay_request_t *down)
 {
     down->peer->relay->stats.slow_subscribers++;
@@ -989,7 +976,9 @@ xqc_moqt_relay_object(xqc_moqt_subscription_t *subscription,
     for (xqc_moqt_relay_request_t *down = r->requests;
          down != NULL; down = down->next)
     {
-        if (down->upstream || down->track != up->track || down->stopped) {
+        if (down->upstream || down->track != up->track || down->stopped
+            || down->ending || down->ended)
+        {
             continue;
         }
         /* One subscription cannot expand another subscriber's grant. */

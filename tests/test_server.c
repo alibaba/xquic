@@ -103,6 +103,7 @@ printf_null(const char *format, ...)
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
 
+static void xqc_server_send_initial_with_token(xqc_connection_t *conn);
 static void xqc_server_send_test_control_frame(xqc_h3_conn_t *h3_conn,
     uint64_t frame_type);
 static xqc_int_t xqc_server_send_previous_level_crypto(
@@ -201,6 +202,10 @@ int g_read_body;
 int g_spec_url;
 #define XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE 715
 #define XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID 716
+
+#define XQC_TEST_CASE_SERVER_INITIAL_TOKEN_RETRY 729
+#define XQC_TEST_CASE_SERVER_INITIAL_TOKEN_INVALID 730
+#define XQC_TEST_CASE_SERVER_INITIAL_TOKEN_DISCARD 731
 
 /* 99 pure fin, 7XX for transport, 9XX for QUIC-TLS */
 int g_test_case;
@@ -1134,6 +1139,59 @@ xqc_server_test_peer_settings(xqc_h3_conn_t *h3_conn,
 }
 
 
+/*
+ * case 731: queue a server Initial packet whose Token Length is 1, with a
+ * CONNECTION_CLOSE frame. RFC 9000 Section 17.2.2 lets a client discard such
+ * a packet or close the connection; xquic discards it, so the connection
+ * must go on.
+ */
+static void
+xqc_server_send_initial_with_token(xqc_connection_t *conn)
+{
+    const unsigned char token = 0xab;
+    xqc_packet_out_t *packet_out;
+    ssize_t ret;
+
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_INIT);
+    if (packet_out == NULL) {
+        printf("[initial-token-test]|packet unavailable|\n");
+        return;
+    }
+
+    /* replace the header, written without a token, by one with a token */
+    packet_out->po_used_size = 0;
+    ret = xqc_gen_long_packet_header(packet_out,
+                                     conn->dcid_set.current_dcid.cid_buf,
+                                     conn->dcid_set.current_dcid.cid_len,
+                                     conn->scid_set.user_scid.cid_buf,
+                                     conn->scid_set.user_scid.cid_len,
+                                     &token, sizeof(token), conn->version,
+                                     XQC_PKTNO_BITS);
+    if (ret < 0) {
+        printf("[initial-token-test]|header failed|ret:%zd|\n", ret);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return;
+    }
+    packet_out->po_used_size = ret;
+
+    ret = xqc_gen_conn_close_frame(packet_out, TRA_PROTOCOL_VIOLATION, 0, 0,
+                                   NULL, 0);
+    if (ret < 0) {
+        printf("[initial-token-test]|frame failed|ret:%zd|\n", ret);
+        xqc_maybe_recycle_packet_out(packet_out, conn);
+        return;
+    }
+    packet_out->po_used_size += ret;
+
+    xqc_long_packet_update_length(packet_out);
+    xqc_send_queue_move_to_high_pri(&packet_out->po_list,
+                                    conn->conn_send_queue);
+    printf("[initial-token-test]|inject_initial_token|case:%d|\n",
+           g_test_case);
+    fflush(stdout);
+}
+
+
 int
 xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, void *conn_user_data)
 {
@@ -1192,6 +1250,13 @@ xqc_server_h3_conn_create_notify(xqc_h3_conn_t *h3_conn, const xqc_cid_t *cid, v
         if (conn != NULL) {
             conn->local_settings.max_ack_delay = 500;
             conn->conn_flag |= XQC_CONN_FLAG_LOCAL_TP_UPDATED;
+        }
+    }
+
+    if (g_test_case == XQC_TEST_CASE_SERVER_INITIAL_TOKEN_DISCARD) {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+        if (conn != NULL) {
+            xqc_server_send_initial_with_token(conn);
         }
     }
 
@@ -2691,10 +2756,19 @@ xqc_retry_packet_check(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_c
     (void *)user_data;
     if (g_test_case == 601
         || g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
-        || g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID)
+        || g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID
+        || g_test_case == XQC_TEST_CASE_SERVER_INITIAL_TOKEN_RETRY)
     {
         printf("[retry-token-test]|retry_enabled|case:%d|\n", g_test_case);
+        fflush(stdout);
         return XQC_TRUE;
+    }
+
+    /* reached only when the token of the client's Initial is invalid */
+    if (g_test_case == XQC_TEST_CASE_SERVER_INITIAL_TOKEN_INVALID) {
+        printf("[initial-token-test]|token_rejected|case:%d|\n",
+               g_test_case);
+        fflush(stdout);
     }
     return XQC_FALSE; 
 }

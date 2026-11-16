@@ -4,6 +4,8 @@
 #include "xqc_moqt_session.h"
 #include "xqc_moqt_codec.h"
 
+#define XQC_MOQT_PUBLISH_DONE_GRACE (3 * XQC_MICROS_PER_SECOND)
+
 xqc_int_t
 xqc_moqt_location_compare(const xqc_moqt_location_t *a,
     const xqc_moqt_location_t *b)
@@ -590,9 +592,15 @@ xqc_moqt_subscription_done(xqc_moqt_subscription_t *sub,
     if (sub->track->local_publisher) {
         sub->stopped = 1;
     } else {
+        /* Draft-22 §9.9: allow late data within the local cleanup budget. */
         xqc_usec_t now = xqc_monotonic_timestamp();
-        sub->close_deadline = sub->session->config.timeout > UINT64_MAX - now
-            ? UINT64_MAX : now + sub->session->config.timeout;
+        xqc_usec_t budget = sub->session->config.timeout;
+        uint64_t delivery_ms = xqc_max(sub->object_timeout,
+                                       sub->subgroup_timeout);
+        xqc_usec_t wait = delivery_ms > budget / XQC_MOQT_MICROS_PER_MILLISECOND
+            ? budget : delivery_ms * XQC_MOQT_MICROS_PER_MILLISECOND;
+        wait = xqc_min(budget, xqc_max(wait, XQC_MOQT_PUBLISH_DONE_GRACE));
+        sub->close_deadline = wait > UINT64_MAX - now ? UINT64_MAX : now + wait;
     }
     xqc_moqt_timer_update(sub->session);
     xqc_moqt_subscription_check_done(sub);

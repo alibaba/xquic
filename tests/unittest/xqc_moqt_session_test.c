@@ -2811,15 +2811,23 @@ xqc_test_moqt_delivery_done(void)
             xqc_test_moqt_subscription_closed;
         f.session->callbacks.on_object = xqc_test_moqt_subgroup_object;
         f.session->callbacks.on_stream_closed = xqc_test_moqt_subgroup_closed;
+        sub->object_timeout = 1000;
+        sub->subgroup_timeout = 5000;
         xqc_moqt_request_t *r = sub->request;
         xqc_moqt_stream_t *request_stream = r->stream;
         xqc_moqt_message_t done = {.type = XQC_MOQT_MSG_PUBLISH_DONE,
             .stream_count = 1, .error = {.code = XQC_MOQT_PUBLISH_TRACK_ENDED}};
+        xqc_usec_t start = xqc_monotonic_timestamp();
         CU_ASSERT_EQUAL(xqc_test_moqt_request_input(request_stream, &done,
                             XQC_MOQT_MSG_SUBSCRIBE, 1), XQC_OK);
+        xqc_usec_t end = xqc_monotonic_timestamp();
+        CU_ASSERT(sub->close_deadline >= start + 5 * XQC_MICROS_PER_SECOND);
+        CU_ASSERT(sub->close_deadline <= end + 5 * XQC_MICROS_PER_SECOND);
         xqc_moqt_stream_callbacks.stream_close_notify(
             request_stream->transport_stream, request_stream);
         CU_ASSERT_PTR_NULL(sub->request);
+        xqc_moqt_session_timeout(f.session->timer,
+            start + 4 * XQC_MICROS_PER_SECOND, f.session);
         CU_ASSERT_EQUAL(f.subscription_closed, 0);
         if (cancel) {
             xqc_moqt_subscription_cancel(sub, XQC_MOQT_RESET_CANCELLED);
@@ -2829,6 +2837,7 @@ xqc_test_moqt_delivery_done(void)
         CU_ASSERT_EQUAL(xqc_moqt_stream_input(st, wire, sizeof(wire), 1),
                         XQC_OK);
         CU_ASSERT_EQUAL(f.objects, !cancel);
+        CU_ASSERT_EQUAL(f.object_bytes, !cancel);
         CU_ASSERT_EQUAL(f.subscription_closed, 1);
         CU_ASSERT_EQUAL(f.subscription_error, cancel
             ? XQC_MOQT_RESET_CANCELLED : XQC_MOQT_PUBLISH_TRACK_ENDED);
@@ -2838,9 +2847,58 @@ xqc_test_moqt_delivery_done(void)
     }
 }
 
+static void xqc_test_moqt_delivery_missing_stream(void);
+
+static void
+xqc_test_moqt_delivery_missing_stream(void)
+{
+    moqt_fixture_t f;
+    xqc_test_moqt_request_init(&f, 0);
+    xqc_moqt_subscription_t *sub = xqc_test_moqt_object_subscription(
+        &f, "v", 1, 0, 7);
+    xqc_moqt_subscription_t *other = xqc_test_moqt_object_subscription(
+        &f, "a", 2, 0, 7);
+    f.session->callbacks.on_subscription_closed =
+        xqc_test_moqt_subscription_closed;
+    f.session->callbacks.on_stream_closed = xqc_test_moqt_subgroup_closed;
+    xqc_moqt_stream_t *st = xqc_test_moqt_incoming(&f);
+    const uint8_t header[] = {0x10, 1, 2, 7};
+    CU_ASSERT_EQUAL(xqc_moqt_stream_input(st, header, sizeof(header), 0),
+                    XQC_OK);
+
+    xqc_moqt_message_t done = {.type = XQC_MOQT_MSG_PUBLISH_DONE,
+        .stream_count = 2, .error = {.code = XQC_MOQT_PUBLISH_TRACK_ENDED}};
+    xqc_usec_t start = xqc_monotonic_timestamp();
+    xqc_moqt_subscription_done(sub, &done);
+    xqc_usec_t end = xqc_monotonic_timestamp();
+    xqc_usec_t deadline = sub->close_deadline;
+    CU_ASSERT(deadline >= start + 3 * XQC_MICROS_PER_SECOND);
+    CU_ASSERT(deadline <= end + 3 * XQC_MICROS_PER_SECOND);
+    xqc_moqt_subscription_release(sub->request);
+    xqc_moqt_session_timeout(f.session->timer, deadline - 1, f.session);
+    CU_ASSERT_EQUAL(f.subscription_closed, 0);
+    CU_ASSERT_FALSE(st->discarded);
+
+    xqc_moqt_session_timeout(f.session->timer, deadline, f.session);
+    CU_ASSERT_EQUAL(f.subscription_closed, 1);
+    CU_ASSERT_EQUAL(f.subscription_error, XQC_MOQT_PUBLISH_TRACK_ENDED);
+    CU_ASSERT_EQUAL(f.last_code, XQC_MOQT_RESET_CANCELLED);
+    CU_ASSERT_FALSE(f.session->closed);
+    CU_ASSERT_FALSE(other->stopped);
+
+    f.session->callbacks.on_object = xqc_test_moqt_subgroup_object;
+    xqc_moqt_stream_t *unrelated = xqc_test_moqt_incoming(&f);
+    const uint8_t wire[] = {0x10, 2, 2, 7, 0, 1, 'x'};
+    CU_ASSERT_EQUAL(xqc_moqt_stream_input(unrelated, wire, sizeof(wire), 1),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(f.objects, 1);
+    xqc_test_moqt_destroy(&f);
+}
+
 void
 xqc_test_moqt_delivery_counts(void)
 {
+    xqc_test_moqt_delivery_missing_stream();
     /* Empty and shared-Alias streams still have bounded completion. */
     for (unsigned shared = 0; shared < 2; shared++) {
         moqt_fixture_t f;
@@ -2855,7 +2913,17 @@ xqc_test_moqt_delivery_counts(void)
             xqc_test_moqt_subscription_closed;
         xqc_moqt_message_t done = {.type = XQC_MOQT_MSG_PUBLISH_DONE,
             .stream_count = shared ? 1 : UINT64_MAX};
+        /* The local cleanup budget bounds a peer's delivery timeout. */
+        if (!shared) {
+            sub->object_timeout = UINT64_MAX;
+        }
+        xqc_usec_t wait = shared ? 3 * XQC_MICROS_PER_SECOND
+                                 : f.session->config.timeout;
+        xqc_usec_t start = xqc_monotonic_timestamp();
         xqc_moqt_subscription_done(sub, &done);
+        xqc_usec_t end = xqc_monotonic_timestamp();
+        CU_ASSERT(sub->close_deadline >= start + wait);
+        CU_ASSERT(sub->close_deadline <= end + wait);
         xqc_moqt_subscription_release(sub->request);
         xqc_moqt_stream_t *st = xqc_test_moqt_incoming(&f);
         const uint8_t header[] = {0x10, 0, 2, 7};

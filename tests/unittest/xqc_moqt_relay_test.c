@@ -588,11 +588,65 @@ xqc_test_relay_malformed_subgroup(void)
     xqc_test_relay_destroy(&f);
 }
 
+static void xqc_test_relay_publish_done_drain(void);
+
+static void
+xqc_test_relay_publish_done_drain(void)
+{
+    /* Draft-22 §9.9: a late Subgroup can arrive after PUBLISH_DONE. */
+    for (unsigned missing = 0; missing < 2; missing++) {
+        xqc_test_relay_t f;
+        xqc_test_relay_init(&f);
+        xqc_test_relay_peer_t *publisher = &f.peers[XQC_TEST_RELAY_PUBLISHER];
+        xqc_test_relay_peer_t *subscriber = &f.peers[XQC_TEST_RELAY_SUBSCRIBER];
+        xqc_moqt_message_t m = xqc_test_relay_message(XQC_MOQT_MSG_PUBLISH);
+        m.track_alias = 19;
+        xqc_moqt_request_t *pub = xqc_test_relay_receive(publisher, &m);
+        m.type = XQC_MOQT_MSG_SUBSCRIBE;
+        xqc_moqt_request_t *down = xqc_test_relay_receive(subscriber, &m);
+        CU_ASSERT_TRUE_FATAL(pub->established && down->established);
+        xqc_moqt_relay_request_t *record = xqc_test_relay_record(f.relay, down);
+
+        m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_PUBLISH_DONE,
+            .stream_count = 1 + missing,
+            .error.code = XQC_MOQT_PUBLISH_TRACK_ENDED};
+        xqc_test_relay_input(pub->stream, &m, XQC_MOQT_MSG_PUBLISH);
+        xqc_usec_t deadline = pub->subscription->close_deadline;
+        xqc_moqt_session_timeout(publisher->session->timer, deadline - 1,
+                                 publisher->session);
+        CU_ASSERT_FALSE(record->ending);
+
+        xqc_stream_t *native = xqc_create_stream_with_conn(publisher->conn,
+            XQC_CLI_UNI + XQC_TEST_RELAY_STREAM_ID_STEP, XQC_CLI_UNI,
+            NULL, NULL);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(native);
+        const uint8_t wire[] = {0x10, 19, 2, XQC_MOQT_DEFAULT_PRIORITY,
+                                0, 1, 'x'};
+        CU_ASSERT_EQUAL(xqc_moqt_stream_input(native->user_data, wire,
+                                              sizeof(wire), !missing), XQC_OK);
+        CU_ASSERT_EQUAL(f.relay->stats.forwarded, 1);
+        CU_ASSERT_EQUAL(down->subscription->stream_count, 1);
+        CU_ASSERT_EQUAL(record->ending, !missing);
+        if (missing) {
+            xqc_moqt_session_timeout(publisher->session->timer, deadline,
+                                     publisher->session);
+        }
+        CU_ASSERT_TRUE(record->ending);
+        CU_ASSERT_EQUAL(record->done_code, XQC_MOQT_PUBLISH_TRACK_ENDED);
+        xqc_moqt_relay_process(f.relay, xqc_monotonic_timestamp());
+        CU_ASSERT_TRUE(down->done_sent);
+        CU_ASSERT_FALSE(publisher->session->closed);
+        CU_ASSERT_FALSE(subscriber->session->closed);
+        xqc_test_relay_destroy(&f);
+    }
+}
+
 void
 xqc_test_moqt_relay_delivery(void)
 {
     xqc_test_relay_range_filters();
     xqc_test_relay_malformed_subgroup();
+    xqc_test_relay_publish_done_drain();
     xqc_test_relay_t f;
     xqc_test_relay_init(&f);
     xqc_moqt_message_t m = xqc_test_relay_message(

@@ -65,6 +65,7 @@ struct xqc_test_relay_node_s {
     unsigned                     namespace_adds;
     unsigned                     namespace_removes;
     unsigned                     subscription_closed;
+    unsigned                     malformed_done;
     unsigned                     fetch_closed;
     unsigned                     invalid;
     uint64_t                     last_error;
@@ -243,6 +244,11 @@ xqc_test_relay_message(xqc_moqt_request_t *request,
         return;
     case XQC_MOQT_MSG_REQUEST_UPDATE:
         xqc_test_relay_reply(node, request, m->type);
+        return;
+    case XQC_MOQT_MSG_PUBLISH_DONE:
+        if (m->error.code == XQC_MOQT_PUBLISH_MALFORMED_TRACK) {
+            node->malformed_done++;
+        }
         return;
     case XQC_MOQT_MSG_SUBSCRIBE:
         if (node->incoming_count == XQC_TEST_RELAY_REQUESTS) {
@@ -1053,6 +1059,7 @@ xqc_test_relay_run(xqc_test_relay_fixture_t *f, const char *mode)
         /* Slow delivery closes once; denied and malformed grants each close. */
         xqc_test_relay_check(f->clients[2].subscription_closed == 1);
         xqc_test_relay_check(f->clients[3].subscription_closed == 2);
+        xqc_test_relay_check(f->clients[3].malformed_done == 1);
         m = xqc_test_relay_message_create(XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE);
         xqc_test_relay_check(xqc_moqt_request_open(
             f->clients[3].connection.session, &m) != NULL);

@@ -148,6 +148,7 @@ xqc_var_buf_t *xqc_moqt_relay_buffer(xqc_moqt_relay_t *relay,
     const void *data, size_t size);
 void xqc_moqt_relay_buffer_free(xqc_moqt_relay_t *relay, xqc_var_buf_t *buf);
 void xqc_moqt_relay_stop(xqc_moqt_relay_request_t *request, uint64_t error);
+void xqc_moqt_relay_malformed(xqc_moqt_relay_request_t *source);
 void xqc_moqt_relay_routes(xqc_moqt_relay_t *relay);
 void xqc_moqt_relay_fetch_ready(xqc_moqt_fetch_t *fetch,
     xqc_moqt_subscription_t *subscription, void *user_data);

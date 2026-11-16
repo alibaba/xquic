@@ -284,6 +284,10 @@ inside an apparently complete stream.
 
 Bounded duplicate suppression is permitted. Conflicting payload, Delivery Mode,
 Subgroup ID, or priority among retained/observed duplicates SHALL be treated as malformed Track.
+When the relay detects a malformed live Track, it terminates established
+downstream subscriptions with `PUBLISH_DONE(MALFORMED_TRACK)` after closing
+their unfinished data streams. It also resets related Fetch streams
+([draft-22 §12.1](https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-12.1)).
 Unknown, nonexistent, and late Objects follow §2.1.2; a late Object after
 ordinary nonexistence is not itself malicious conflict.
 [§7.1][s7.1], [§12.1][s12.1]

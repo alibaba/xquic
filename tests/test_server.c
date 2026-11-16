@@ -3211,6 +3211,17 @@ int main(int argc, char *argv[]) {
         conn_settings.idle_time_out = 1000;
     }
 
+    /*
+     * Case 21 closes the request at the first bytes of the response and
+     * expects the acknowledged request to stay Data Recvd. RFC 9000 Sections
+     * 13.2.1 and 13.2.2 let a receiver delay the ACK of a single packet, and
+     * the response leaves at once: acknowledge every ack-eliciting packet at
+     * once so the ACK of the last request packet precedes the response.
+     */
+    if (g_test_case == 21) {
+        conn_settings.ack_frequency = 1;
+    }
+
     if (g_test_case == 201) {
         conn_settings.max_pkt_out_size = 1216;
     }

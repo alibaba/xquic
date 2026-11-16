@@ -877,18 +877,31 @@ xqc_test_relay_pending_source(void)
         xqc_test_relay_init(&f);
         xqc_moqt_message_t m = xqc_test_relay_message(
             XQC_MOQT_MSG_PUBLISH_NAMESPACE);
-        xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
+        xqc_test_relay_receive(&f.peers[scenario == XQC_TEST_SOURCE_UPDATE
+            ? XQC_TEST_RELAY_PUBLISHER : XQC_TEST_RELAY_OTHER_PUBLISHER], &m);
+        xqc_moqt_request_t *down = NULL;
+        if (scenario == XQC_TEST_SOURCE_UPDATE) {
+            /* Open the Namespace route before the direct grant arrives. */
+            m.type = XQC_MOQT_MSG_SUBSCRIBE;
+            down = xqc_test_relay_receive(
+                &f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
+        }
         m.type = XQC_MOQT_MSG_PUBLISH;
         m.track_alias = 42;
         xqc_moqt_request_t *pub = xqc_test_relay_receive(
             &f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
-        m.type = XQC_MOQT_MSG_SUBSCRIBE;
-        xqc_moqt_request_t *down = xqc_test_relay_receive(
-            &f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
+        if (down == NULL) {
+            m.type = XQC_MOQT_MSG_SUBSCRIBE;
+            down = xqc_test_relay_receive(
+                &f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
+        }
         CU_ASSERT_TRUE_FATAL(pub->established && down->established);
         xqc_moqt_relay_request_t *record = xqc_test_relay_record(f.relay, down);
         xqc_moqt_relay_request_t *up = f.relay->requests;
-        CU_ASSERT_PTR_EQUAL_FATAL(up->parent, record);
+        while (up != NULL && up->parent != record) {
+            up = up->next;
+        }
+        CU_ASSERT_PTR_NOT_NULL_FATAL(up);
         CU_ASSERT_FALSE(up->established);
         xqc_memzero(&m, sizeof(m));
         if (scenario == XQC_TEST_SOURCE_UPDATE) {
@@ -934,9 +947,46 @@ xqc_test_relay_pending_source(void)
     }
 }
 
+static void
+xqc_test_relay_overlapping_grant(void)
+{
+    xqc_test_relay_t direct;
+    xqc_test_relay_init(&direct);
+    xqc_moqt_message_t overlap = xqc_test_relay_message(
+        XQC_MOQT_MSG_PUBLISH_NAMESPACE);
+    xqc_test_relay_receive(&direct.peers[XQC_TEST_RELAY_PUBLISHER], &overlap);
+    overlap.type = XQC_MOQT_MSG_PUBLISH;
+    overlap.track_alias = 42;
+    xqc_moqt_request_t *pub = xqc_test_relay_receive(
+        &direct.peers[XQC_TEST_RELAY_PUBLISHER], &overlap);
+    overlap.type = XQC_MOQT_MSG_SUBSCRIBE;
+    xqc_moqt_request_t *sub = xqc_test_relay_receive(
+        &direct.peers[XQC_TEST_RELAY_SUBSCRIBER], &overlap);
+    CU_ASSERT_TRUE_FATAL(pub->established && sub->established);
+    xqc_moqt_relay_request_t *delivery = xqc_test_relay_record(
+        direct.relay, sub);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(delivery);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(delivery->selected);
+    CU_ASSERT_PTR_EQUAL_FATAL(delivery->selected->request, pub);
+    for (xqc_moqt_relay_request_t *up = direct.relay->requests;
+         up != NULL; up = up->next)
+    {
+        CU_ASSERT_PTR_NOT_EQUAL(up->parent, delivery);
+    }
+    /* Draft-22 §9.9: direct completion has no second grant to await. */
+    xqc_moqt_message_t finish = {.type = XQC_MOQT_MSG_PUBLISH_DONE,
+        .error.code = XQC_MOQT_PUBLISH_TRACK_ENDED};
+    xqc_test_relay_input(pub->stream, &finish, XQC_MOQT_MSG_PUBLISH);
+    xqc_moqt_relay_process(direct.relay, xqc_monotonic_timestamp());
+    CU_ASSERT_TRUE(sub->done_sent);
+    CU_ASSERT_FALSE(sub->failed);
+    xqc_test_relay_destroy(&direct);
+}
+
 void
 xqc_test_moqt_relay_updates(void)
 {
+    xqc_test_relay_overlapping_grant();
     xqc_test_relay_pending_source();
     xqc_test_relay_t f;
     xqc_test_relay_init(&f);

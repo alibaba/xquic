@@ -42,6 +42,7 @@ typedef struct {
     xqc_cid_t                   cid;
     unsigned                    transport;
     unsigned                    ready, responses, upstream, subscribed;
+    unsigned                    publish_done;
     unsigned                    errors, objects, datagrams, closed, wt_closed;
     unsigned                    connection_closed;
     unsigned                    forward, received_forward;
@@ -206,6 +207,10 @@ message(xqc_moqt_request_t *req, const xqc_moqt_message_t *m, void *data)
         }
     } else if (m->type == XQC_MOQT_MSG_SUBSCRIBE_OK) {
         c->subscribed++;
+    } else if (m->type == XQC_MOQT_MSG_PUBLISH_DONE) {
+        c->publish_done++;
+        c->fixture->failed |= m->error.code != XQC_MOQT_PUBLISH_TRACK_ENDED
+            || m->stream_count != 1;
     } else if (m->type == XQC_MOQT_MSG_REQUEST_ERROR) {
         c->errors++;
         c->request_error = m->error.code;
@@ -664,7 +669,9 @@ main(int argc, char **argv)
             }
         }
     }
-    unsigned direct = f.discovery || (argc == 3 && !strcmp(argv[2], "direct"));
+    unsigned namespace_end = argc == 3 && !strcmp(argv[2], "namespace-end");
+    unsigned direct = f.discovery || namespace_end
+        || (argc == 3 && !strcmp(argv[2], "direct"));
     unsigned fill_errors = argc == 3 && !strcmp(argv[2], "fill-errors");
     unsigned close_errors = argc == 3 && !strcmp(argv[2], "close-errors");
     f.fill = fill_errors || (argc == 3 && !strcmp(argv[2], "fill"));
@@ -706,9 +713,15 @@ main(int argc, char **argv)
         CHECK(!wait_for(&f, &c->ready, 1));
     }
     client_t *p = &f.clients[0], *s = &f.clients[1];
-    CHECK(request(p, direct ? XQC_MOQT_MSG_PUBLISH
-        : XQC_MOQT_MSG_PUBLISH_NAMESPACE, direct ? "interop-track" : NULL));
-    CHECK(!wait_for(&f, &p->responses, 1));
+    if (namespace_end) {
+        CHECK(request(p, XQC_MOQT_MSG_PUBLISH_NAMESPACE, NULL));
+        CHECK(!wait_for(&f, &p->responses, 1));
+    }
+    xqc_moqt_request_t *publication = request(p,
+        direct ? XQC_MOQT_MSG_PUBLISH : XQC_MOQT_MSG_PUBLISH_NAMESPACE,
+        direct ? "interop-track" : NULL);
+    CHECK(publication);
+    CHECK(!wait_for(&f, &p->responses, 1 + namespace_end));
     if (fill_errors || close_errors || f.discovery == 4) {
         s->expected_close = close_errors && s->transport
             ? H3_REQUEST_CANCELLED : XQC_MOQT_PROTOCOL_VIOLATION;
@@ -813,6 +826,13 @@ main(int argc, char **argv)
         xqc_complex_case_engine_t *engines[] = {&f.base};
         xqc_complex_case_pump(engines, 1, 250);
         CHECK(!f.failed && s->datagrams == 1 && s->objects == 1);
+    }
+    if (namespace_end) {
+        xqc_moqt_message_t done = {.type = XQC_MOQT_MSG_PUBLISH_DONE,
+            .error.code = XQC_MOQT_PUBLISH_TRACK_ENDED};
+        CHECK(xqc_moqt_request_send(publication, &done) == XQC_OK);
+        CHECK(!wait_for(&f, &s->publish_done, 1));
+        CHECK(!p->upstream);
     }
     for (int i = 1; i >= 0; i--) {
         client_t *c = &f.clients[i];

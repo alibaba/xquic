@@ -270,7 +270,8 @@ xqc_interop_oracle_object(xqc_interop_oracle_t *o,
     if (n >= XQC_INTEROP_MAX_OBJECTS || obj->datagram != (f->mode == 3)
         || (!obj->datagram && obj->subgroup_id != sg)
         || (obj->datagram && obj->end_of_group && f->priority != 128)
-        || obj->priority != priority || obj->range != XQC_MOQT_RANGE_NONE)
+        || (!o->ignore_priority && obj->priority != priority)
+        || obj->range != XQC_MOQT_RANGE_NONE)
     {
         o->failed = 1;
         return;

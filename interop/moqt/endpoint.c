@@ -1622,7 +1622,10 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
     if (!reader) {
         return -1;
     }
-    reader->oracle.fixture = reader->fetch_oracle.fixture = pub->fixture;
+    reader->oracle.fixture = pub->fixture;
+    reader->fetch_oracle = (xqc_interop_oracle_t){
+        .fixture = pub->fixture, .ignore_priority = 1,
+    };
     /* Draft-22 Sections 9.12 and 11.4 define Group Order per FETCH. */
     unsigned char order = descending ? XQC_MOQT_GROUP_DESCENDING
                                      : XQC_MOQT_GROUP_ASCENDING;
@@ -1667,7 +1670,7 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
         reader->fetch_closed = 0;
         reader->fetch_ready = 0;
         reader->fetch_oracle = (xqc_interop_oracle_t){
-            .fixture = reader->oracle.fixture,
+            .fixture = reader->oracle.fixture, .ignore_priority = 1,
         };
         pub->fetch_closed = 0;
         pub->fetch_ready = 0;

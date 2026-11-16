@@ -240,6 +240,28 @@ xqc_test_moqt_interop_oracle(void)
     oracle.objects--;
     end.object_id = 3;
     CU_ASSERT_TRUE(xqc_interop_history_complete(&oracle, &start, &end));
+
+    /* Draft-22 Sections 5.1.1 and 5.1.3 allow relay priorities in FETCH. */
+    oracle = (xqc_interop_oracle_t){.fixture = oracle.fixture};
+    xqc_moqt_object_t historical = {.priority = 0, .payload_length = 64,
+                                    .payload = {bytes, sizeof(bytes)}};
+    xqc_interop_oracle_object(&oracle, &historical);
+    CU_ASSERT_TRUE(oracle.failed);
+    CU_ASSERT_EQUAL(oracle.objects, 0);
+
+    oracle = (xqc_interop_oracle_t){
+        .fixture = oracle.fixture, .ignore_priority = 1,
+    };
+    start = end = (xqc_moqt_location_t){0, 0};
+    xqc_interop_oracle_object(&oracle, &historical);
+    CU_ASSERT_TRUE(xqc_interop_history_complete(&oracle, &start, &end));
+
+    historical.object_id = 1;
+    historical.payload_length = historical.payload.iov_len = 32;
+    bytes[0] = 'x';
+    xqc_interop_oracle_object(&oracle, &historical);
+    end.object_id = 1;
+    CU_ASSERT_FALSE(xqc_interop_history_complete(&oracle, &start, &end));
 }
 
 void

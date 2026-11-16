@@ -124,6 +124,8 @@ after group 2's first object reaches the live observer, then open an independent
 fetcher/joiner. FETCH verifies all five objects of historical group 1. JOIN
 uses SUBSCRIBE with FILL_PARAMETERS: six historical objects and nineteen
 subsequent live objects have independent oracles and completion conditions.
+The FETCH and Fill oracles accept the relay's Publisher Priority on each
+historical object, consistent with draft-22 Sections 5.1.1 and 5.1.3.
 Both cases require the original live observer to receive all thirty objects;
 an OK response or a partial history stream is insufficient.
 `fetch-descending` requests two complete Groups in descending order and checks

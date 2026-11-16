@@ -520,7 +520,17 @@ xqc_moqt_relay_open_upstream(xqc_moqt_relay_request_t *down,
 {
     xqc_moqt_relay_t *r = peer->relay;
     for (xqc_moqt_relay_request_t *q = r->requests; q != NULL; q = q->next) {
-        if (q->parent == down && q->peer == peer && !q->stopped) {
+        if (q->peer != peer || q->stopped) {
+            continue;
+        }
+        if (q->parent == down) {
+            return XQC_OK;
+        }
+        /* Draft-22 §7.6: reuse this peer's established exact-Track grant. */
+        if (down->type == XQC_MOQT_MSG_SUBSCRIBE && q->upstream
+            && q->type == XQC_MOQT_MSG_PUBLISH && q->track == down->track
+            && q->established)
+        {
             return XQC_OK;
         }
     }
@@ -581,7 +591,9 @@ xqc_moqt_relay_route(xqc_moqt_relay_request_t *down)
             && !source->stopped)
         {
             if (source->peer != down->peer) {
-                if (down->type == XQC_MOQT_MSG_SUBSCRIBE) {
+                if (down->type == XQC_MOQT_MSG_SUBSCRIBE
+                    || down->type == XQC_MOQT_MSG_TRACK_STATUS)
+                {
                     found = XQC_TRUE;
                     if (down->established) {
                         continue;
@@ -590,6 +602,10 @@ xqc_moqt_relay_route(xqc_moqt_relay_request_t *down)
                     xqc_moqt_relay_message_read(source->state, 0, &m);
                     down->selected = source;
                     xqc_moqt_relay_response(down, &m);
+                    /* Draft-22 §9.13: status uses the established Track. */
+                    if (down->type == XQC_MOQT_MSG_TRACK_STATUS) {
+                        return;
+                    }
                 } else {
                     found |= xqc_moqt_relay_open_upstream(down, source->peer)
                              == XQC_OK;

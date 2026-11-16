@@ -14,6 +14,7 @@
 #include "xquic/xquic_typedef.h"
 #include "xquic/xquic.h"
 #include "src/common/xqc_str.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
 
@@ -121,6 +122,81 @@ xqc_test_server_buffers_received_zero_rtt(void)
     CU_ASSERT_TRUE(conn->conn_flag & XQC_CONN_FLAG_HAS_0RTT);
 
     conn->conn_type = XQC_CONN_TYPE_CLIENT;
+    xqc_engine_destroy(conn->engine);
+}
+
+
+static void xqc_test_write_initial_token(xqc_connection_t *conn,
+    xqc_conn_type_t role, size_t expected_len);
+
+static void
+xqc_test_write_initial_token(xqc_connection_t *conn, xqc_conn_type_t role,
+    size_t expected_len)
+{
+    xqc_conn_type_t original_role = conn->conn_type;
+    xqc_packet_out_t *packet_out;
+    const unsigned char *token_field;
+    int length_size;
+    uint64_t token_len;
+
+    conn->conn_type = role;
+    packet_out = xqc_write_new_packet(conn, XQC_PTYPE_INIT);
+    conn->conn_type = original_role;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+
+    token_field = packet_out->po_buf + XQC_PACKET_LONG_HEADER_PREFIX_LENGTH
+                  + 1 + conn->dcid_set.current_dcid.cid_len
+                  + 1 + conn->scid_set.user_scid.cid_len;
+    length_size = xqc_vint_read(token_field, packet_out->po_ppktno, &token_len);
+    CU_ASSERT_FATAL(length_size > 0);
+    CU_ASSERT_EQUAL(token_len, expected_len);
+    CU_ASSERT_EQUAL(packet_out->po_ppktno - token_field,
+                    length_size + expected_len + XQC_LONG_HEADER_LENGTH_BYTE);
+    if (expected_len > 0 && token_len == expected_len
+        && (size_t)(packet_out->po_ppktno - token_field)
+           >= length_size + expected_len)
+    {
+        CU_ASSERT_EQUAL(memcmp(token_field + length_size, conn->conn_token,
+                               expected_len), 0);
+    }
+}
+
+
+void
+xqc_test_client_initial_writes_token(void)
+{
+    unsigned char token[64];
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(token, 0xA5, sizeof(token));
+    conn->conn_token_len = sizeof(token);
+    memcpy(conn->conn_token, token, sizeof(token));
+    xqc_test_write_initial_token(conn, XQC_CONN_TYPE_CLIENT, sizeof(token));
+    CU_ASSERT_EQUAL(conn->conn_token_len, sizeof(token));
+    CU_ASSERT_EQUAL(memcmp(conn->conn_token, token, sizeof(token)), 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+void
+xqc_test_server_initial_omits_token(void)
+{
+    static const unsigned char token[] = "received token";
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    conn->conn_token_len = 0;
+    xqc_test_write_initial_token(conn, XQC_CONN_TYPE_SERVER, 0);
+
+    /* RFC 9000 Section 17.2.2 also applies after token validation. */
+    conn->conn_token_len = sizeof(token) - 1;
+    memcpy(conn->conn_token, token, conn->conn_token_len);
+    xqc_test_write_initial_token(conn, XQC_CONN_TYPE_SERVER, 0);
+    CU_ASSERT_EQUAL(conn->conn_token_len, sizeof(token) - 1);
+    CU_ASSERT_EQUAL(memcmp(conn->conn_token, token, sizeof(token) - 1), 0);
+
     xqc_engine_destroy(conn->engine);
 }
 

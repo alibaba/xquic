@@ -454,12 +454,34 @@ xqc_moqt_relay_largest(xqc_moqt_message_t *m,
     return XQC_OK;
 }
 
+static xqc_bool_t
+xqc_moqt_relay_direct_delivery(const xqc_moqt_relay_request_t *up,
+    const xqc_moqt_relay_request_t *down)
+{
+    return up->type == XQC_MOQT_MSG_PUBLISH && up->upstream && up->established
+        && !up->stopped && !down->upstream && down->established
+        && !down->stopped && up->track == down->track
+        && down->subscription != NULL
+        && (down->type != XQC_MOQT_MSG_PUBLISH || down->selected == up);
+}
+
 static void
 xqc_moqt_relay_response(xqc_moqt_relay_request_t *down,
     const xqc_moqt_message_t *source)
 {
     if (down->request == NULL || down->stopped) {
         return;
+    }
+    xqc_moqt_relay_t *r = down->peer->relay;
+    if (down->resuming) {
+        /* Draft-22 §§3.1.1, 9.5: confirm after direct sources resume. */
+        for (xqc_moqt_relay_request_t *up = r->requests; up; up = up->next) {
+            if (xqc_moqt_relay_direct_delivery(up, down)
+                && (!up->forward || up->waiting_update))
+            {
+                return;
+            }
+        }
     }
     xqc_moqt_message_t m = *source;
     if (down->waiting_update) {
@@ -493,7 +515,6 @@ xqc_moqt_relay_response(xqc_moqt_relay_request_t *down,
         xqc_moqt_relay_largest(&m, down->selected->subscription, largest);
     }
     /* Track properties remain byte-for-byte views; the endpoint copies them. */
-    xqc_moqt_relay_t *r = down->peer->relay;
     if (xqc_moqt_request_send(down->request, &m) != XQC_OK) {
         xqc_moqt_relay_stop(down, XQC_MOQT_RESET_EXCESSIVE_LOAD);
         return;
@@ -509,6 +530,7 @@ xqc_moqt_relay_response(xqc_moqt_relay_request_t *down,
     }
     down->established = 1;
     down->waiting_update = 0;
+    down->resuming = 0;
     down->deadline = 0;
     xqc_moqt_relay_buffer_free(r, down->update);
     down->update = NULL;
@@ -810,19 +832,8 @@ xqc_moqt_relay_pause_sources(xqc_moqt_relay_t *r)
         for (xqc_moqt_relay_request_t *down = r->requests;
              down != NULL; down = down->next)
         {
-            /* Historical requests do not keep live forwarding enabled. */
-            if (down->subscription == NULL) {
-                continue;
-            }
-            if (down->type == XQC_MOQT_MSG_PUBLISH && down->selected != up) {
-                continue;
-            }
-            if (!down->upstream
-                && down->track == up->track
-                && down->established
-                && !down->stopped)
-            {
-                forward |= down->forward;
+            if (xqc_moqt_relay_direct_delivery(up, down)) {
+                forward |= down->forward || down->resuming;
             }
         }
         if (up->waiting_update || forward == up->forward) {
@@ -843,6 +854,22 @@ xqc_moqt_relay_pause_sources(xqc_moqt_relay_t *r)
             up->forward = forward;
             up->waiting_update = 1;
         }
+    }
+    for (xqc_moqt_relay_request_t *down = r->requests; down;
+         down = down->next)
+    {
+        if (!down->resuming || down->stopped || down->pending) {
+            continue;
+        }
+        xqc_moqt_message_t response = {.type = XQC_MOQT_MSG_REQUEST_OK};
+        if (down->response != NULL
+            && xqc_moqt_relay_message_read(down->response,
+                XQC_MOQT_MSG_REQUEST_UPDATE, &response) < 0)
+        {
+            xqc_moqt_relay_stop(down, XQC_MOQT_RESET_EXCESSIVE_LOAD);
+            continue;
+        }
+        xqc_moqt_relay_response(down, &response);
     }
 }
 
@@ -871,6 +898,8 @@ xqc_moqt_relay_update(xqc_moqt_relay_request_t *q,
     xqc_moqt_relay_t *r = q->peer->relay;
     q->operation_started = xqc_monotonic_timestamp();
     q->waiting_update = 1;
+    q->resuming = !q->forward && q->subscription != NULL
+        && xqc_moqt_relay_parameter(message, XQC_MOQT_PARAM_FORWARD, 0) != 0;
     xqc_moqt_relay_buffer_free(r, q->response);
     q->response = NULL;
     q->update = xqc_moqt_relay_message_copy(r, message, q->type);
@@ -939,8 +968,8 @@ xqc_moqt_relay_update(xqc_moqt_relay_request_t *q,
         xqc_memzero(&m, sizeof(m));
         m.type = XQC_MOQT_MSG_REQUEST_OK;
         xqc_moqt_relay_response(q, &m);
-        xqc_moqt_relay_pause_sources(r);
     }
+    xqc_moqt_relay_pause_sources(r);
 }
 
 static void

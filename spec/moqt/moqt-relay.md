@@ -99,6 +99,9 @@ creates an independent SUBSCRIBE to each matching publisher, retaining that
 demand's filters and delivery parameters. Direct PUBLISH may fan out to
 multiple authorized downstreams. Each downstream pauses/resumes independently;
 pause direct PUBLISH only when all matching demands are paused. For
+an explicit resume, count the authorized pending demand for upstream purposes
+and acknowledge downstream after the direct sources acknowledge forwarding
+(draft-22 §§3.1.1, 9.5). For
 St-created subscriptions, each resulting PUBLISH inherits St FORWARD,
 defaulting to 1 (draft-22 §3.6.2,
 §9.20.18). The Relay snapshot and endpoint use the same initial value;

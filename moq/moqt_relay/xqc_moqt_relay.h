@@ -86,6 +86,11 @@ struct xqc_moqt_relay_fetch_s {
     xqc_moqt_fetch_t          *output;
     xqc_moqt_stream_t         *stream;
     xqc_usec_t                 deadline;
+    xqc_moqt_location_t        last;
+    unsigned                   has_last:1;
+    unsigned                   partial:1;
+    unsigned                   timed_out:1;
+    unsigned                   marked:1;
     unsigned                   closed:1;
 };
 
@@ -141,6 +146,8 @@ void xqc_moqt_relay_fetch_response(xqc_moqt_relay_request_t *upstream,
     const xqc_moqt_message_t *message);
 void xqc_moqt_relay_fetch_stop(xqc_moqt_relay_fetch_t *fetch,
     uint64_t error);
+void xqc_moqt_relay_fetch_expire(xqc_moqt_relay_fetch_t *fetch,
+    xqc_usec_t now);
 xqc_moqt_relay_request_t *xqc_moqt_relay_subscription_find(
     xqc_moqt_relay_peer_t *peer, xqc_moqt_subscription_t *subscription);
 xqc_var_buf_t *xqc_moqt_relay_message_copy(xqc_moqt_relay_t *relay,

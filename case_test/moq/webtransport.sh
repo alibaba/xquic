@@ -170,6 +170,10 @@ case_moqt_demo_relay_close()
             grep -Fq 'close=0/0' "close-${mode}-${round}.log" || return 1
         done
     done
+    XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" mixed capacity \
+        > close-mixed-capacity.log 2>&1 || return 1
+    grep -Fq 'RELAY CAPACITY PASS clients=80' close-mixed-capacity.log \
+        || return 1
     grep -Fq 'WT CLOSED status=200 error=0' demo-server.log
 }
 

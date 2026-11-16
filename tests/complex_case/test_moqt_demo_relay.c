@@ -21,6 +21,7 @@
 #include "moq/moqt/xqc_moqt_codec.h"
 
 #define DEMO_RELAY_BYTES (64 * 1024)
+#define DEMO_RELAY_CAPACITY_CLIENTS 80
 #define CHECK(value)                                                          \
     do {                                                                     \
         if (!(value)) {                                                       \
@@ -628,6 +629,8 @@ main(int argc, char **argv)
     setvbuf(stdout, NULL, _IOLBF, 0);
     setvbuf(stderr, NULL, _IOLBF, 0);
     fixture_t f = {.base.socket.fd = -1};
+    client_t *additional = NULL;
+    unsigned additional_count = 0;
     int result = 1;
     if (argc < 2 || argc > 3) {
         return 2;
@@ -665,12 +668,13 @@ main(int argc, char **argv)
         }
     }
     unsigned direct = f.discovery || (argc == 3 && !strcmp(argv[2], "direct"));
+    unsigned capacity = argc == 3 && !strcmp(argv[2], "capacity");
     unsigned fill_errors = argc == 3 && !strcmp(argv[2], "fill-errors");
     unsigned close_errors = argc == 3 && !strcmp(argv[2], "close-errors");
     f.fill = fill_errors || (argc == 3 && !strcmp(argv[2], "fill"));
     f.range_filter = argc == 3 && !strcmp(argv[2], "range-filter");
     if (argc == 3 && !errors && !direct && !f.fill && !close_errors
-        && !f.range_filter)
+        && !f.range_filter && !capacity)
     {
         return 2;
     }
@@ -696,6 +700,21 @@ main(int argc, char **argv)
     const char *address = getenv("MOQT_CONNECT_IP");
     if (!address) {
         address = "127.0.0.1";
+    }
+    if (capacity) {
+        CHECK(!strcmp(address, "127.0.0.1"));
+        additional_count = DEMO_RELAY_CAPACITY_CLIENTS - 2;
+        additional = calloc(additional_count, sizeof(*additional));
+        CHECK(additional);
+        for (unsigned i = 0; i < additional_count; i++) {
+            client_t *c = &additional[i];
+            c->fixture = &f;
+            c->socket = f.base.socket;
+            c->transport = i % 2 ? subscriber : publisher;
+            CHECK(!connect_client(c, port, address));
+            CHECK(!wait_for(&f, &c->ready, 1));
+            CHECK(!c->closed);
+        }
     }
     for (unsigned i = 0; i < 2; i++) {
         client_t *c = &f.clients[i];
@@ -814,6 +833,9 @@ main(int argc, char **argv)
         xqc_complex_case_pump(engines, 1, 250);
         CHECK(!f.failed && s->datagrams == 1 && s->objects == 1);
     }
+    for (unsigned i = 0; i < additional_count; i++) {
+        CHECK(!additional[i].closed && !additional[i].connection_closed);
+    }
     for (int i = 1; i >= 0; i--) {
         client_t *c = &f.clients[i];
         xqc_moqt_session_close(c->session, XQC_MOQT_NO_ERROR);
@@ -836,6 +858,9 @@ main(int argc, char **argv)
            s->fill_objects, s->fill_bytes, p->fetches,
            fill_errors ? XQC_MOQT_PROTOCOL_VIOLATION : 0, close_errors,
            f.discovery, s->received_forward);
+    if (capacity) {
+        printf("RELAY CAPACITY PASS clients=%u\n", additional_count + 2);
+    }
     result = 0;
 done:
     if (f.base.engine) {
@@ -850,5 +875,6 @@ done:
         xqc_complex_case_pump(engines, 1, 300);
     }
     xqc_complex_case_engine_release(&f.base);
+    free(additional);
     return result;
 }

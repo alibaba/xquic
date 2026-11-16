@@ -4,6 +4,12 @@ A video-only camera publisher and an independent subscriber/player using
 MoQT draft-22. Start `demo_server --moqt-relay` with a trusted certificate.
 The server's exact Origin list must include `http://localhost:8080`.
 
+The demo relay admits up to 256 QUIC connections and 256 MoQT peers across
+native QUIC and WebTransport. Each HTTP/3 connection allows eight WT sessions.
+The demo relay sets its WT bidirectional and unidirectional stream credits
+and MoQT session stream limit to 256. Relay-wide byte, request and stream
+budgets still apply.
+
 Use an existing, dependency-installed [moq-web](https://github.com/Quicr/moq-web)
 checkout. The tested peer revision is
 `7b5c284e9166e817e7af38714ec011bc5438c710` with pnpm 9. The page bundles its

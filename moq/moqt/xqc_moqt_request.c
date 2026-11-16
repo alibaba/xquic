@@ -1202,6 +1202,16 @@ xqc_moqt_request_reject(xqc_moqt_request_t *r, uint64_t code)
     }
 }
 
+static xqc_int_t
+xqc_moqt_request_check_properties(const xqc_moqt_message_t *m,
+    xqc_bool_t *unsupported)
+{
+    xqc_moqt_track_t defaults = {0};
+    size_t count = 0;
+    return xqc_moqt_track_properties_read(&m->properties, &defaults,
+                                          &count, unsupported);
+}
+
 uint64_t
 xqc_moqt_request_input(xqc_moqt_stream_t *st, const uint8_t *data, size_t len)
 {
@@ -1244,11 +1254,9 @@ xqc_moqt_request_input(xqc_moqt_stream_t *st, const uint8_t *data, size_t len)
         if (initial) {
             xqc_moqt_request_init(st, &m, 0);
             if (m.type == XQC_MOQT_MSG_PUBLISH && m.properties.iov_len) {
-                xqc_moqt_track_t defaults = {0};
-                size_t count = 0;
                 xqc_bool_t unsupported = XQC_FALSE;
-                if (xqc_moqt_track_properties_read(&m.properties, &defaults,
-                    &count, &unsupported) != XQC_OK)
+                if (xqc_moqt_request_check_properties(&m, &unsupported)
+                    != XQC_OK)
                 {
                     return XQC_MOQT_PROTOCOL_VIOLATION;
                 }
@@ -1331,6 +1339,33 @@ xqc_moqt_request_input(xqc_moqt_stream_t *st, const uint8_t *data, size_t len)
             return XQC_MOQT_PROTOCOL_VIOLATION;
         }
         m.request_id = r->initial_request_id;
+        if (first && m.properties.iov_len
+            && (m.type == XQC_MOQT_MSG_SUBSCRIBE_OK
+                || m.type == XQC_MOQT_MSG_FETCH_OK))
+        {
+            xqc_bool_t unsupported = XQC_FALSE;
+            if (xqc_moqt_request_check_properties(&m, &unsupported) != XQC_OK) {
+                return XQC_MOQT_PROTOCOL_VIOLATION;
+            }
+            if (unsupported) {
+                /* Draft-22 §3.7: fail downstream before cancelling upstream. */
+                xqc_memzero(&m, sizeof(m));
+                m.type = XQC_MOQT_MSG_REQUEST_ERROR;
+                m.request_id = r->initial_request_id;
+                m.error.context = XQC_MOQT_ERROR_REQUEST;
+                m.error.code = XQC_MOQT_REQUEST_UNSUPPORTED_EXTENSION;
+                m.error.normalized_code = m.error.code;
+                r->responded = r->failed = r->has_error = 1;
+                r->error = m.error;
+                if (s->callbacks.on_message != NULL && !s->closed) {
+                    s->callbacks.on_message(r, &m, s->user_data);
+                }
+                if (!s->closed && !st->discarded) {
+                    xqc_moqt_request_cancel(r, XQC_MOQT_RESET_CANCELLED);
+                }
+                return XQC_MOQT_NO_ERROR;
+            }
+        }
         if (!first) {
             xqc_list_buf_t *entry = xqc_list_entry(r->sent_updates.next,
                                                    xqc_list_buf_t, list_head);

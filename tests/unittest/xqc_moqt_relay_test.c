@@ -1630,9 +1630,51 @@ xqc_test_moqt_relay_rendezvous_tracks(void)
     }
 }
 
+static void
+xqc_test_relay_response_properties(uint64_t type, uint64_t response)
+{
+    xqc_test_relay_t f;
+    xqc_test_relay_init(&f);
+    xqc_moqt_message_t m = xqc_test_relay_message(XQC_MOQT_MSG_PUBLISH_NAMESPACE);
+    xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
+    const uint8_t mandatory[] = {0xc0, 0x40, 0, 7};
+    const uint8_t ordinary[] = {0x3e, 7};
+    for (int reject = 1; reject >= 0; reject--) {
+        m = xqc_test_relay_message(type);
+        xqc_moqt_request_t *down = xqc_test_relay_receive(
+            &f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
+        xqc_moqt_relay_request_t *up = f.relay->requests;
+        CU_ASSERT_PTR_NOT_NULL_FATAL(up->request);
+        CU_ASSERT_FALSE(down->responded);
+        xqc_memzero(&m, sizeof(m));
+        m.type = response;
+        m.end_group = 1;
+        m.end_object = 2;
+        m.properties.iov_base = (void *)(reject ? mandatory : ordinary);
+        m.properties.iov_len = reject ? sizeof(mandatory) : sizeof(ordinary);
+        xqc_moqt_stream_t *stream = up->request->stream;
+        xqc_test_relay_input(stream, &m, type);
+        CU_ASSERT_EQUAL(down->established, !reject);
+        CU_ASSERT_EQUAL(stream->state.request.established, !reject);
+        CU_ASSERT_EQUAL(stream->discarded, reject);
+        CU_ASSERT_FALSE(stream->session->closed);
+        if (reject) {
+            CU_ASSERT_TRUE(down->failed);
+            CU_ASSERT_EQUAL(down->error.code,
+                            XQC_MOQT_REQUEST_UNSUPPORTED_EXTENSION);
+            CU_ASSERT_TRUE(down->stream->tx_fin);
+        }
+    }
+    xqc_test_relay_destroy(&f);
+}
+
 void
 xqc_test_moqt_relay_tracks_errors(void)
 {
+    xqc_test_relay_response_properties(XQC_MOQT_MSG_SUBSCRIBE,
+                                       XQC_MOQT_MSG_SUBSCRIBE_OK);
+    xqc_test_relay_response_properties(XQC_MOQT_MSG_FETCH,
+                                       XQC_MOQT_MSG_FETCH_OK);
     xqc_test_relay_t f;
     xqc_test_relay_init(&f);
     xqc_moqt_message_t m = xqc_test_relay_message(

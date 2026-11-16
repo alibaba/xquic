@@ -27,11 +27,11 @@ provide cross-version bridging.
 | Namespace discovery / TRACK_STATUS | Required; authorized registrations and upstream state |
 | SUBSCRIBE_TRACKS / independent PUBLISH / PUBLISH_SKIPPED | Required for C10; reuse endpoint enumeration to create independent Pc from current sources and downstream authorization |
 | Multiple publishers per Track, pause/resume, withdrawal | Required; §7.2–7.6 obligations |
-| FETCH and subscription Fill | Required; retrieve from matching publishers without a history cache |
+| FETCH and subscription Fill | Retrieve from matching publishers and replay bounded direct-PUBLISH history when its source declines retrieval |
 | Object/property/order/Delivery Mode fidelity | Required; permitted reencoding preserves Object semantics |
 | Authorization, limits, slow-subscriber/error isolation | Required |
 | Upstream subscription aggregation | Bounded compatible aggregation permitted; otherwise independent upstream requests |
-| History cache, persistence, cache-only FETCH | Deferred; only bounded temporary queues needed for transport |
+| History cache | Bounded direct-PUBLISH capture with a finite advertised cache duration |
 | Range Filters | Optional and bounded by `MAX_FILTER_RANGES`; the relay enforces each subscriber or fetcher's filters independently |
 | Dynamic Groups | Deferred; retain endpoint rejection/negotiation boundaries |
 | Relay cascading, routing protocol, loop discovery, cross-node state | Out of first-version scope; §7 defines no relay-to-relay interconnection mechanism |
@@ -264,7 +264,7 @@ raw Immutable Properties bytes, including non-minimum integers.
 Propagate unsupported Mandatory Track Properties under §3.7.
 [§7.7–7.8][s7.7]
 
-Even without history cache, Relay SHALL obey MAX_CACHE_DURATION from each Object's
+Relay SHALL obey MAX_CACHE_DURATION from each Object's
 reception start. Do not begin forwarding after expiry; temporary queues cannot
 bypass it. Expired status is unknown. Applicable delivery timeouts also apply.
 
@@ -279,7 +279,7 @@ Unknown, nonexistent, and late Objects follow §2.1.2; a late Object after
 ordinary nonexistence is not itself malicious conflict.
 [§7.1][s7.1], [§12.1][s12.1]
 
-### Requirement: FETCH and Fill Without a History Cache
+### Requirement: FETCH and Fill
 
 Relay SHALL route downstream FETCH to at least one authorized matching publisher with an
 independent Request ID. No local cache does not mean every historical Object
@@ -290,6 +290,19 @@ Relay SHALL obtain missing subscription Fill through upstream Fill or FETCH. Dow
 Fill uses the triggering Request ID. Without cache, retrieve all required
 history upstream; an arbitrary upstream FETCH stream cannot become a
 downstream live Subgroup.
+
+The relay retains complete Objects from an authorized direct PUBLISH with a
+nonzero MAX_CACHE_DURATION. It accounts for partially received Objects and
+uses up to one quarter of its relay byte budget for history. Expiry and
+publication cleanup release entries. History stays scoped to its publisher
+grant and Track. [§10.3][s10.3]
+
+When the matching publisher returns NOT_SUPPORTED to an upstream FETCH,
+the relay serves retained matches for an authorized FETCH or Fill. A local
+FETCH response uses Largest Object at downstream request admission. Fill
+uses its accepted endpoint snapshot and triggering Request ID. Send groups
+in the requested order and ascending Object IDs inside each group. Mark
+unavailable ranges as unknown. [§3.2.3][s3.2.3], [§3.4][s3.4]
 
 FILL_TIMEOUT SHALL be the total budget across all upstream attempts, never reset
 on retry/source switch. Zero does not wait upstream; unavailable immediate
@@ -357,8 +370,8 @@ continues old-session sends until interest migrates. Deduplicate by Object
 identity during overlap. Reallocate Aliases; application decides URI/credentials
 without automatic inheritance. [§7.4.1][s7.4.1], [§7.6.1][s7.6.1]
 
-Dynamic Groups, cache indexes, eviction, and replacement transactions remain
-separate extensions. Temporary send queues are not history caches.
+Dynamic Groups, persistent cache indexes, and replacement transactions remain
+separate extensions.
 
 ## Acceptance for the Separate Relay Implementation
 
@@ -374,7 +387,7 @@ errors, and reclamation, not just process exit.
 | Prefix Track subscriptions | B knows only the Namespace, discovers Tracks via Sns→St→Pc, and receives Objects; newly added Tracks are discovered | Existing Pc survives St cancellation; no echo to its publisher; no retry of a skipped publication, but a new publication after reconnection can be enumerated; no new Pc without interest and authorization |
 | Sources/fanout | Complementary two-publisher Objects, two subscriber filters, mixed/all pause then resume | No OK before Established; timeout/cancel prevents late revival; reject excess sources |
 | Objects/properties | Binary payload, Subgroup/Datagram, unknown properties, duplicate fidelity | Conflicts malformed; FIN cannot conceal gaps; no forwarding starts after TTL |
-| FETCH/Fill | Upstream history without cache, concurrent live, correct End Location/mode/order | Total-budget timeout/unknown/reset; cancellation stops only unreferenced operations |
+| FETCH/Fill | Upstream retrieval, cached replay after refusal, concurrent live, correct End Location/mode/order | Expiry preserves unknown gaps; timeout and cancellation affect only the historical operation |
 | Failure/resources | Healthy delivery continues, bounded queues/timers/routes reclaimed | Isolated slow-peer termination, malformed-upstream containment, all-upstream loss terminates affected delivery, no async UAF |
 | Overlapping migration | New subscription succeeds before old cancellation; independent delivery and deduplication during overlap | B1 does not migrate B2; new Sessions inherit neither Aliases nor credentials |
 
@@ -393,10 +406,6 @@ properties, slow consumers, timeouts, and disconnects separately. Endpoint
 self-tests do not validate Relay. Cross-check independent draft-22
 publishers/subscribers where possible; record unsupported-peer gaps.
 
-A future cache extension separately defines keys, MAX_CACHE_DURATION, field
-integrity, eviction, unknown state, duplicate updates, and poisoning defenses.
-Do not market first-version send queues as caches.
-
 [s4]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-4
 [s6.5]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-6.5
 [s7]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-7
@@ -407,6 +416,8 @@ Do not market first-version send queues as caches.
 [s7.7]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-7.7
 [s7.8]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-7.8
 [s3.2.3]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-3.2.3
+[s3.4]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-3.4
+[s10.3]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-10.3
 [s9.20.5]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-9.20.5
 [s9.20.6]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-9.20.6
 [s12.1]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-12.1

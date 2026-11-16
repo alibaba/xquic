@@ -34,6 +34,13 @@ typedef struct {
     uint8_t                 range_count;
 } xqc_moqt_filters_t;
 
+xqc_int_t xqc_moqt_location_filter_apply(xqc_moqt_location_t *start,
+    xqc_moqt_location_t *end, xqc_int_t *exclusive,
+    const xqc_moq_message_parameter_t *parameter,
+    const xqc_moqt_location_t *largest, xqc_int_t has_largest);
+xqc_int_t xqc_moqt_location_compare(const xqc_moqt_location_t *a,
+    const xqc_moqt_location_t *b);
+
 static inline xqc_bool_t
 xqc_moqt_is_range_filter(uint64_t type)
 {

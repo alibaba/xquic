@@ -607,8 +607,20 @@ xqc_moqt_relay_route(xqc_moqt_relay_request_t *down)
                         return;
                     }
                 } else {
-                    found |= xqc_moqt_relay_open_upstream(down, source->peer)
-                             == XQC_OK;
+                    if (xqc_moqt_relay_open_upstream(down, source->peer)
+                        == XQC_OK)
+                    {
+                        found = XQC_TRUE;
+                        /* Draft-22 §3.2: the request fixes the live edge. */
+                        if (source->history != NULL
+                            && down->history_source == NULL
+                            && xqc_moqt_subscription_largest(
+                                source->subscription,
+                                &down->history_largest) == XQC_OK)
+                        {
+                            down->history_source = source;
+                        }
+                    }
                 }
             }
         }
@@ -997,6 +1009,14 @@ xqc_moqt_relay_upstream_response(xqc_moqt_relay_request_t *up,
     }
     if (m->type == XQC_MOQT_MSG_REQUEST_ERROR) {
         up->stopped = 1;
+        xqc_moqt_message_t cached;
+        if (down->type == XQC_MOQT_MSG_FETCH && !down->established
+            && m->error.normalized_code == XQC_MOQT_REQUEST_NOT_SUPPORTED
+            && xqc_moqt_relay_history_answer(down, &cached))
+        {
+            xqc_moqt_relay_response(down, &cached);
+            return;
+        }
         /* Initial responses also hold a slot in an in-flight update. */
         if (down->waiting_update && down->pending) {
             down->pending--;
@@ -1129,6 +1149,7 @@ xqc_moqt_relay_message(xqc_moqt_request_t *request,
             break;
         case XQC_MOQT_MSG_PUBLISH:
             q->upstream = 1;
+            xqc_moqt_relay_history_enable(q, m);
             xqc_moqt_relay_response(q, &response);
             xqc_moqt_relay_routes(r);
             xqc_moqt_relay_pause_sources(r);
@@ -1553,12 +1574,12 @@ xqc_moqt_relay_request_is_referenced(xqc_moqt_relay_t *r,
     for (xqc_moqt_relay_request_t *other = r->requests;
          other != NULL; other = other->next)
     {
-        if (other->parent == q) {
+        if (other->parent == q || other->history_source == q) {
             return XQC_TRUE;
         }
     }
     for (xqc_moqt_relay_fetch_t *f = r->fetches; f != NULL; f = f->next) {
-        if (f->upstream == q || f->downstream == q) {
+        if (f->upstream == q || f->downstream == q || f->history_owner == q) {
             return XQC_TRUE;
         }
     }
@@ -1576,7 +1597,7 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
     if (r == NULL) {
         return 0;
     }
-    xqc_usec_t next = 0;
+    xqc_usec_t next = xqc_moqt_relay_history_collect(r, now);
     for (xqc_moqt_relay_request_t *q = r->requests; q != NULL; q = q->next) {
         if (q->type == XQC_MOQT_MSG_SUBSCRIBE_TRACKS
             && q->upstream && !q->stopped)
@@ -1677,6 +1698,7 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
         if (f->upstream != NULL) {
             f->upstream->fetch = NULL;
         }
+        xqc_moqt_relay_history_release(f);
         xqc_moqt_relay_free(r, f, sizeof(*f));
     }
     xqc_moqt_relay_request_t **request = &r->requests;
@@ -1703,6 +1725,7 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
         xqc_moqt_relay_buffer_free(r, q->response);
         xqc_moqt_relay_buffer_free(r, q->candidate);
         xqc_moqt_relay_buffer_free(r, q->update);
+        xqc_moqt_relay_history_clear(q);
         r->stats.requests--;
         xqc_moqt_relay_free(r, q, sizeof(*q));
     }

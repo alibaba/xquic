@@ -640,9 +640,76 @@ xqc_test_moqt_relay_delivery(void)
     xqc_test_relay_destroy(&f);
 }
 
+static void
+xqc_test_relay_cached_history(void)
+{
+    xqc_test_relay_t f;
+    xqc_test_relay_init(&f);
+    xqc_test_relay_peer_t *publisher = &f.peers[XQC_TEST_RELAY_PUBLISHER];
+    xqc_test_relay_peer_t *subscriber = &f.peers[XQC_TEST_RELAY_SUBSCRIBER];
+    uint8_t properties[1 + XQC_VI64_MAX_LEN] = {
+        XQC_MOQT_PROPERTY_MAX_CACHE_DURATION};
+    size_t length = 1 + xqc_vi64_write(properties + 1,
+        properties + sizeof(properties), 60000);
+    xqc_moqt_message_t m = xqc_test_relay_message(XQC_MOQT_MSG_PUBLISH);
+    m.properties = (struct iovec){properties, length};
+    m.track_alias = 19;
+    xqc_moqt_request_t *pub = xqc_test_relay_receive(publisher, &m);
+    CU_ASSERT_TRUE_FATAL(pub->established);
+    m.type = XQC_MOQT_MSG_SUBSCRIBE;
+    m.properties = (struct iovec){0};
+    xqc_moqt_request_t *holder = xqc_test_relay_receive(subscriber, &m);
+    CU_ASSERT_TRUE_FATAL(holder->established);
+    m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_OK};
+    xqc_test_relay_input(pub->stream, &m, XQC_MOQT_MSG_PUBLISH);
+    xqc_test_relay_input(pub->stream, &m, XQC_MOQT_MSG_PUBLISH);
+
+    uint8_t wire[128], byte = 0x51;
+    xqc_moqt_object_t object = {.group_id = 0, .datagram = 1,
+        .payload = {&byte, 1}, .payload_length = 1};
+    xqc_int_t n = xqc_moqt_datagram_encode(pub->subscription->track_alias,
+                                           &object, wire, sizeof(wire));
+    CU_ASSERT_FATAL(n > 0);
+    xqc_moqt_datagram_input(publisher->session, wire, n);
+    CU_ASSERT(f.relay->history_bytes > 0);
+
+    for (unsigned expired = 0; expired < 2; expired++) {
+        m = xqc_test_relay_message(XQC_MOQT_MSG_FETCH);
+        xqc_moqt_request_t *down = xqc_test_relay_receive(
+            &f.peers[XQC_TEST_RELAY_OTHER_SUBSCRIBER], &m);
+        xqc_moqt_relay_request_t *up = f.relay->requests;
+        CU_ASSERT_PTR_EQUAL_FATAL(up->parent,
+                                  xqc_test_relay_record(f.relay, down));
+        m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_ERROR,
+            .error.code = XQC_MOQT_REQUEST_NOT_SUPPORTED};
+        xqc_test_relay_input(up->request->stream, &m, XQC_MOQT_MSG_FETCH);
+        if (expired) {
+            CU_ASSERT_EQUAL(down->error.code, XQC_MOQT_REQUEST_NOT_SUPPORTED);
+            continue;
+        }
+        CU_ASSERT_TRUE_FATAL(down->established);
+        xqc_moqt_relay_fetch_t *fetch = f.relay->fetches;
+        CU_ASSERT_PTR_NOT_NULL_FATAL(fetch);
+        /* The simulated native transport may retire the output on FIN. */
+        CU_ASSERT_TRUE(fetch->has_last);
+        CU_ASSERT_EQUAL(fetch->history_index, 1);
+        CU_ASSERT_EQUAL(fetch->last.group_id, object.group_id);
+        CU_ASSERT_EQUAL(fetch->last.object_id, object.object_id);
+        if (fetch->stream != NULL) {
+            CU_ASSERT_TRUE(fetch->stream->tx_fin);
+            CU_ASSERT_EQUAL(fetch->stream->state.data.object.payload_length, 1);
+        }
+        xqc_moqt_relay_history_collect(f.relay, f.relay->history_deadline);
+        CU_ASSERT_EQUAL(f.relay->history_bytes, 0);
+    }
+    CU_ASSERT_FALSE(holder->failed);
+    xqc_test_relay_destroy(&f);
+}
+
 void
 xqc_test_moqt_relay_history(void)
 {
+    xqc_test_relay_cached_history();
     xqc_test_relay_t f;
     xqc_test_relay_init(&f);
     xqc_moqt_message_t m = xqc_test_relay_message(

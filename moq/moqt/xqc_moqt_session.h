@@ -298,10 +298,6 @@ void xqc_moqt_webtransport_detach(xqc_moqt_session_t *s);
 
 xqc_moqt_track_t *xqc_moqt_track_get(xqc_moqt_session_t *s,
     const xqc_moqt_message_t *message, xqc_int_t publisher);
-xqc_int_t xqc_moqt_location_filter_apply(xqc_moqt_location_t *start,
-    xqc_moqt_location_t *end, xqc_int_t *exclusive,
-    const xqc_moq_message_parameter_t *parameter,
-    const xqc_moqt_location_t *largest, xqc_int_t has_largest);
 xqc_int_t xqc_moqt_track_properties_read(const struct iovec *bytes,
     xqc_moqt_track_t *defaults, size_t *count, xqc_bool_t *unsupported);
 uint64_t xqc_moqt_fetch_create(xqc_moqt_request_t *request,
@@ -360,8 +356,6 @@ void xqc_moqt_subscription_check_done(xqc_moqt_subscription_t *sub);
 xqc_moqt_subscription_t *xqc_moqt_subscriptions_hold(xqc_moqt_session_t *s);
 void xqc_moqt_subscriptions_release(xqc_moqt_subscription_t *head);
 
-xqc_int_t xqc_moqt_location_compare(const xqc_moqt_location_t *a,
-    const xqc_moqt_location_t *b);
 void xqc_moqt_datagram_input(xqc_moqt_session_t *session,
     const uint8_t *data, size_t len);
 void xqc_moqt_datagram_writable(xqc_moqt_session_t *session);

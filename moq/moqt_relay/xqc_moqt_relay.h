@@ -22,6 +22,7 @@ typedef struct xqc_moqt_relay_request_s xqc_moqt_relay_request_t;
 typedef struct xqc_moqt_relay_track_s xqc_moqt_relay_track_t;
 typedef struct xqc_moqt_relay_stream_s xqc_moqt_relay_stream_t;
 typedef struct xqc_moqt_relay_fetch_s xqc_moqt_relay_fetch_t;
+typedef struct xqc_moqt_relay_history_s xqc_moqt_relay_history_t;
 
 typedef struct {
     xqc_moqt_object_t  object;
@@ -53,6 +54,8 @@ struct xqc_moqt_relay_request_s {
     xqc_moqt_relay_peer_t     *peer;
     xqc_moqt_relay_track_t    *track;
     xqc_moqt_relay_request_t  *selected;
+    xqc_moqt_relay_request_t  *history_source;
+    xqc_moqt_relay_history_t  *history;
     xqc_moqt_relay_fetch_t    *fetch;
     xqc_moqt_request_t        *request;
     xqc_moqt_subscription_t   *subscription;
@@ -65,6 +68,8 @@ struct xqc_moqt_relay_request_s {
     uint64_t                   done_code;
     xqc_usec_t                 deadline;
     xqc_usec_t                 operation_started;
+    xqc_moqt_location_t        history_largest;
+    uint64_t                   history_duration;
     size_t                     pending;
     size_t                     recent_index;
     xqc_moqt_location_t        recent[XQC_MOQT_RELAY_HISTORY];
@@ -77,6 +82,7 @@ struct xqc_moqt_relay_request_s {
     unsigned                   ending:1;
     unsigned                   stopped:1;
     unsigned                   forward:1;
+    unsigned                   history_reply:1;
 };
 
 struct xqc_moqt_relay_fetch_s {
@@ -88,6 +94,10 @@ struct xqc_moqt_relay_fetch_s {
     xqc_moqt_stream_t         *stream;
     xqc_usec_t                 deadline;
     xqc_moqt_location_t        last;
+    xqc_moqt_relay_request_t  *history_owner;
+    xqc_moqt_relay_history_t **history;
+    size_t                     history_count;
+    size_t                     history_index;
     unsigned                   has_last:1;
     unsigned                   partial:1;
     unsigned                   timed_out:1;
@@ -121,6 +131,8 @@ struct xqc_moqt_relay_s {
     xqc_moqt_relay_track_t     *tracks;
     xqc_moqt_relay_fetch_t     *fetches;
     xqc_moqt_relay_stream_t    *streams;
+    size_t                      history_bytes;
+    xqc_usec_t                  history_deadline;
 };
 
 void *xqc_moqt_relay_alloc(xqc_moqt_relay_t *relay, size_t size);
@@ -151,6 +163,14 @@ void xqc_moqt_relay_fetch_stop(xqc_moqt_relay_fetch_t *fetch,
     uint64_t error);
 void xqc_moqt_relay_fetch_expire(xqc_moqt_relay_fetch_t *fetch,
     xqc_usec_t now);
+void xqc_moqt_relay_history_enable(xqc_moqt_relay_request_t *source,
+    const xqc_moqt_message_t *message);
+xqc_bool_t xqc_moqt_relay_history_answer(xqc_moqt_relay_request_t *down,
+    xqc_moqt_message_t *message);
+xqc_usec_t xqc_moqt_relay_history_collect(xqc_moqt_relay_t *relay,
+    xqc_usec_t now);
+void xqc_moqt_relay_history_clear(xqc_moqt_relay_request_t *source);
+void xqc_moqt_relay_history_release(xqc_moqt_relay_fetch_t *fetch);
 xqc_moqt_relay_request_t *xqc_moqt_relay_subscription_find(
     xqc_moqt_relay_peer_t *peer, xqc_moqt_subscription_t *subscription);
 xqc_var_buf_t *xqc_moqt_relay_message_copy(xqc_moqt_relay_t *relay,

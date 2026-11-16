@@ -2749,6 +2749,37 @@ void usage(int argc, char *argv[]) {
 }
 
 
+/*
+ * The case_test scripts start the server in the background and must not
+ * send before its socket is bound. case_test_start_server passes the
+ * descriptor of a pipe in XQC_TEST_SERVER_READY_FD; the server writes a line
+ * to it once the socket is bound and waits for datagrams, and the script
+ * goes on when it reads that line, not after a fixed time.
+ */
+static void
+xqc_server_report_ready(void)
+{
+#ifndef XQC_SYS_WINDOWS
+    const char *value = getenv("XQC_TEST_SERVER_READY_FD");
+    char *end;
+    long fd;
+    ssize_t n;
+
+    if (value == NULL || *value == '\0') {
+        return;
+    }
+
+    fd = strtol(value, &end, 10);
+    if (*end != '\0' || fd < 3 || fd >= 1024) {
+        return;
+    }
+
+    n = write((int)fd, "ready\n", 6);
+    (void)n;
+    close((int)fd);
+#endif
+}
+
 
 int main(int argc, char *argv[]) {
 
@@ -3470,6 +3501,7 @@ int main(int argc, char *argv[]) {
 
     event_add(ctx.ev_socket, NULL);
     last_snd_ts = 0;
+    xqc_server_report_ready();
     event_base_dispatch(eb);
 
     xqc_h3_ctx_destroy(ctx.engine);

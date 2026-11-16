@@ -1015,6 +1015,72 @@ xqc_test_relay_pending_source(void)
 }
 
 static void
+xqc_test_relay_direct_new_group(void)
+{
+    uint8_t invalid[] = {XQC_MOQT_PROPERTY_DYNAMIC_GROUPS, 2};
+    struct iovec property = {invalid, sizeof(invalid)};
+    xqc_moqt_track_t defaults = {0};
+    size_t count = 0;
+    CU_ASSERT_EQUAL(xqc_moqt_track_properties_read(&property, &defaults,
+        &count, NULL), XQC_ERROR);
+    for (uint8_t support = 0; support < 2; support++) {
+        xqc_test_relay_t f;
+        xqc_test_relay_init(&f);
+        xqc_test_relay_peer_t *p = &f.peers[XQC_TEST_RELAY_PUBLISHER];
+        xqc_test_relay_peer_t *s = &f.peers[XQC_TEST_RELAY_SUBSCRIBER];
+        uint8_t largest[] = {4, 7};
+        uint8_t paused = 0;
+        uint8_t properties[] = {XQC_MOQT_PROPERTY_DYNAMIC_GROUPS, support};
+        xqc_moqt_message_t m = xqc_test_relay_message(XQC_MOQT_MSG_PUBLISH);
+        m.track_alias = 42;
+        m.properties = (struct iovec){properties, sizeof(properties)};
+        m.parameter_count = 2;
+        m.parameters[0] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_LARGEST_OBJECT, sizeof(largest), largest};
+        m.parameters[1] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_FORWARD, 1, &paused};
+        xqc_moqt_request_t *pub = xqc_test_relay_receive(p, &m);
+        CU_ASSERT_TRUE_FATAL(pub->established);
+        CU_ASSERT_EQUAL(
+            xqc_moqt_subscription_dynamic_groups(pub->subscription), support);
+        m = xqc_test_relay_message(XQC_MOQT_MSG_SUBSCRIBE);
+        xqc_moqt_request_t *sub = xqc_test_relay_receive(s, &m);
+        CU_ASSERT_TRUE_FATAL(sub->established);
+        m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_OK};
+        xqc_test_relay_input(pub->stream, &m, XQC_MOQT_MSG_PUBLISH);
+        xqc_moqt_relay_request_t *up = xqc_test_relay_record(f.relay, pub);
+        uint8_t values[] = {4, 5, 5, 8, 8};
+        for (unsigned i = 0; i < sizeof(values); i++) {
+            if (i == 4) {
+                largest[0] = 6;
+                m = (xqc_moqt_message_t){
+                    .type = XQC_MOQT_MSG_PUBLISH_STATE_NOTIFY,
+                    .parameter_count = 1,
+                    .parameters = {{XQC_MOQT_PARAM_LARGEST_OBJECT,
+                                    sizeof(largest), largest}}};
+                xqc_test_relay_input(pub->stream, &m, XQC_MOQT_MSG_PUBLISH);
+            }
+            m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+                .request_id = s->next_request, .parameter_count = 1,
+                .parameters = {{XQC_MOQT_PARAM_NEW_GROUP_REQUEST,
+                                1, &values[i]}}};
+            s->next_request += XQC_MOQT_REQUEST_ID_STEP;
+            xqc_test_relay_input(sub->stream, &m, XQC_MOQT_MSG_SUBSCRIBE);
+            if (support && (i == 1 || i >= 3)) {
+                CU_ASSERT_TRUE(up->waiting_update);
+                CU_ASSERT_EQUAL(up->group_requested, values[i]);
+                m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_OK};
+                xqc_test_relay_input(pub->stream, &m, XQC_MOQT_MSG_PUBLISH);
+            } else {
+                CU_ASSERT_FALSE(up->waiting_update);
+            }
+            CU_ASSERT_FALSE(sub->failed);
+        }
+        xqc_test_relay_destroy(&f);
+    }
+}
+
+static void
 xqc_test_relay_resume_source(void)
 {
     for (int fail = 0; fail < 2; fail++) {
@@ -1119,6 +1185,7 @@ void
 xqc_test_moqt_relay_updates(void)
 {
     xqc_test_relay_resume_source();
+    xqc_test_relay_direct_new_group();
     xqc_test_relay_overlapping_grant();
     xqc_test_relay_pending_source();
     xqc_test_relay_t f;

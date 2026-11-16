@@ -227,6 +227,7 @@ xqc_moqt_relay_request_create(xqc_moqt_relay_peer_t *peer,
     }
     q->operation_started = xqc_monotonic_timestamp();
     q->type = m->type;
+    q->group_pending = UINT64_MAX;
     if (m->type == XQC_MOQT_MSG_PUBLISH) {
         q->publication_id = ++r->next_publication;
     }
@@ -849,6 +850,58 @@ xqc_moqt_relay_authorize(xqc_moqt_request_t *request,
 }
 
 static void
+xqc_moqt_relay_queue_new_group(xqc_moqt_relay_request_t *down,
+    const xqc_moqt_message_t *message)
+{
+    uint64_t group = xqc_moqt_relay_parameter(message,
+        XQC_MOQT_PARAM_NEW_GROUP_REQUEST, UINT64_MAX);
+    if (group == UINT64_MAX || !down->established || down->stopped
+        || down->subscription == NULL)
+    {
+        return;
+    }
+    xqc_moqt_relay_t *r = down->peer->relay;
+    for (xqc_moqt_relay_request_t *up = r->requests; up; up = up->next) {
+        if (!up->upstream || up->type != XQC_MOQT_MSG_PUBLISH
+            || up->track != down->track || up->stopped || !up->established
+            || up->peer == down->peer
+            || (down->type == XQC_MOQT_MSG_PUBLISH && down->selected != up)
+            || !xqc_moqt_subscription_dynamic_groups(up->subscription))
+        {
+            continue;
+        }
+        if (up->group_pending == UINT64_MAX || group > up->group_pending) {
+            up->group_pending = group;
+        }
+    }
+}
+
+static xqc_bool_t
+xqc_moqt_relay_request_new_group(xqc_moqt_relay_request_t *up,
+    xqc_moqt_location_t *largest, xqc_bool_t *has_largest)
+{
+    if (up->group_pending == UINT64_MAX) {
+        return XQC_FALSE;
+    }
+    *has_largest = xqc_moqt_subscription_largest(up->subscription, largest)
+        == XQC_OK;
+    /* Draft-22 §9.20.19: OK alone does not clear an outstanding demand. */
+    if (*has_largest && (!up->group_had_largest
+                         || largest->group_id > up->group_at_request))
+    {
+        up->group_outstanding = 0;
+    }
+    if ((up->group_pending && *has_largest
+         && up->group_pending <= largest->group_id)
+        || (up->group_outstanding && up->group_pending <= up->group_requested))
+    {
+        up->group_pending = UINT64_MAX;
+        return XQC_FALSE;
+    }
+    return XQC_TRUE;
+}
+
+static void
 xqc_moqt_relay_pause_sources(xqc_moqt_relay_t *r)
 {
     for (xqc_moqt_relay_request_t *up = r->requests; up; up = up->next) {
@@ -867,16 +920,41 @@ xqc_moqt_relay_pause_sources(xqc_moqt_relay_t *r)
                 forward |= down->forward || down->resuming;
             }
         }
-        if (up->waiting_update || forward == up->forward) {
+        if (up->waiting_update
+            || (forward == up->forward && up->group_pending == UINT64_MAX))
+        {
             continue;
         }
         uint8_t value = forward;
-        xqc_moqt_message_t m;
-        xqc_memzero(&m, sizeof(m));
-        m.type = XQC_MOQT_MSG_REQUEST_UPDATE;
-        m.parameter_count = 1;
-        m.parameters[0] = (xqc_moq_message_parameter_t){
-            XQC_MOQT_PARAM_FORWARD, 1, &value};
+        xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_REQUEST_UPDATE};
+        if (forward != up->forward) {
+            m.parameters[m.parameter_count++] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_FORWARD, 1, &value};
+        }
+        xqc_moqt_location_t largest = {0};
+        xqc_bool_t has_largest;
+        xqc_bool_t new_group = xqc_moqt_relay_request_new_group(up, &largest,
+                                                              &has_largest);
+        uint8_t group[XQC_VI64_MAX_LEN];
+        if (new_group) {
+            size_t len = xqc_vi64_write(group, group + sizeof(group),
+                                        up->group_pending);
+            m.parameters[m.parameter_count++] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_NEW_GROUP_REQUEST, len, group};
+            if (xqc_moqt_relay_forward_message(up->peer, &m) != XQC_OK) {
+                up->group_pending = UINT64_MAX;
+                new_group = XQC_FALSE;
+                m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_UPDATE};
+                if (forward != up->forward) {
+                    m.parameter_count = 1;
+                    m.parameters[0] = (xqc_moq_message_parameter_t){
+                        XQC_MOQT_PARAM_FORWARD, 1, &value};
+                }
+            }
+        }
+        if (!m.parameter_count) {
+            continue;
+        }
         if (up->request == NULL
             || xqc_moqt_request_send(up->request, &m) != XQC_OK)
         {
@@ -884,6 +962,13 @@ xqc_moqt_relay_pause_sources(xqc_moqt_relay_t *r)
         } else {
             up->forward = forward;
             up->waiting_update = 1;
+            if (new_group) {
+                up->group_requested = up->group_pending;
+                up->group_pending = UINT64_MAX;
+                up->group_at_request = largest.group_id;
+                up->group_had_largest = has_largest;
+                up->group_outstanding = 1;
+            }
         }
     }
     for (xqc_moqt_relay_request_t *down = r->requests; down;
@@ -960,6 +1045,7 @@ xqc_moqt_relay_update(xqc_moqt_relay_request_t *q,
     }
     q->deadline = xqc_moqt_relay_deadline(xqc_monotonic_timestamp(),
                                           UINT64_MAX, r->config.timeout);
+    xqc_moqt_relay_queue_new_group(q, message);
     for (xqc_moqt_relay_request_t *up = r->requests; up; up = up->next) {
         if (up->parent != q || up->stopped) {
             continue;
@@ -1194,6 +1280,7 @@ xqc_moqt_relay_message(xqc_moqt_request_t *request,
                     xqc_monotonic_timestamp(), ms, r->config.timeout);
             }
             xqc_moqt_relay_route(q);
+            xqc_moqt_relay_queue_new_group(q, m);
             xqc_moqt_relay_pause_sources(r);
             break;
         }

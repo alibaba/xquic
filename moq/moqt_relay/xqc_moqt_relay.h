@@ -66,6 +66,9 @@ struct xqc_moqt_relay_request_s {
     uint64_t                   type;
     uint64_t                   publication_id;
     uint64_t                   done_code;
+    uint64_t                   group_pending;
+    uint64_t                   group_requested;
+    uint64_t                   group_at_request;
     xqc_usec_t                 deadline;
     xqc_usec_t                 operation_started;
     xqc_moqt_location_t        history_largest;
@@ -78,6 +81,8 @@ struct xqc_moqt_relay_request_s {
     unsigned                   established:1;
     unsigned                   waiting_update:1;
     unsigned                   resuming:1;
+    unsigned                   group_outstanding:1;
+    unsigned                   group_had_largest:1;
     unsigned                   registered:1;
     unsigned                   awaiting_done:1;
     unsigned                   ending:1;

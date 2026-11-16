@@ -476,6 +476,11 @@ XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moqt_subscription_largest(
     const xqc_moqt_subscription_t *subscription, xqc_moqt_location_t *location);
 
+/* True when the Track has advertised DYNAMIC_GROUPS=1. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_subscription_dynamic_groups(
+    const xqc_moqt_subscription_t *subscription);
+
 /* Known Track/Group termination excludes this late normal Object. */
 XQC_EXPORT_PUBLIC_API
 xqc_bool_t xqc_moqt_subscription_object_is_obsolete(

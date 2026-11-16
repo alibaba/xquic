@@ -59,6 +59,13 @@ xqc_moqt_track_properties_read(const struct iovec *bytes,
             }
             defaults->group_order = kv.value.integer;
             break;
+        case XQC_MOQT_PROPERTY_DYNAMIC_GROUPS:
+            /* Draft-22 §10.6: only zero and one are valid. */
+            if (kv.value.integer > 1) {
+                return XQC_ERROR;
+            }
+            defaults->dynamic_groups = kv.value.integer;
+            break;
         default:
             /* Draft-22 section 3.7 reserves this range for mandatory keys. */
             if (unsupported != NULL && kv.type >= 0x4000 && kv.type <= 0x7fff)
@@ -275,6 +282,7 @@ xqc_moqt_subscription_apply(xqc_moqt_request_t *r,
     track->has_largest = has_largest;
     track->publisher_priority = defaults.publisher_priority;
     track->group_order = defaults.group_order;
+    track->dynamic_groups = defaults.dynamic_groups;
     track->object_timeout = defaults.object_timeout;
     track->subgroup_timeout = defaults.subgroup_timeout;
     /* Section 9.9: only established aliases make counts ambiguous. */
@@ -437,6 +445,12 @@ xqc_moqt_subscription_largest(const xqc_moqt_subscription_t *sub,
     }
     *location = sub->track->largest;
     return XQC_OK;
+}
+
+xqc_bool_t
+xqc_moqt_subscription_dynamic_groups(const xqc_moqt_subscription_t *sub)
+{
+    return sub != NULL && sub->track->dynamic_groups;
 }
 
 /* Free only after callbacks/iteration release their borrowed references. */

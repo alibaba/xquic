@@ -2001,7 +2001,7 @@ implementation passing.
 
 The reference catalog pins runner
 `41395bbf2aa484d7694757fe06620a1d4c0e7de9` and aiomoqt `0.14.1`
-generation/validation. Version changes require rechecking oracles, not
+generation/validation. Version changes require rechecking validators, not
 inheriting results by case name.
 [Cases][interop-cases], [data contract][interop-data], [validator][interop-validator]
 
@@ -2077,7 +2077,7 @@ failed decoding cannot satisfy C22. Named catalog/LOC rejection extensions
 verify subsequent valid delivery on the same Sessions. See the adapter
 documentation for fixture provenance and the restricted media profile.
 
-Native QUIC and WT share the same scenario drivers and object oracles. HTTPS
+Native QUIC and WT share the same scenario drivers and object validators. HTTPS
 selects WT, or explicit transport selection uses a canonical moqt URI. The
 WT adapter authorizes the anonymous test CONNECT, selects `moqt-22`, binds
 the existing WT constructor and waits for both SETUPs. Authority/path/query
@@ -2086,14 +2086,14 @@ existing role images build both capabilities, with runtime transport choice.
 
 The adapter additionally covers multi-publisher namespace retention using a
 synchronization namespace and late observers. Standalone `fetch` and Fill
-`join` use bounded deterministic history, independent live/history oracles,
+`join` use bounded deterministic history, independent live/history validators,
 complete object sets and retrieval FIN. Application history is separate from
 Relay caching. Opposite sender directions and peer Fill encodings require
 separate results; a diagnostic wire variant is not an unmodified-peer pass.
 
 #### Data and Media Boundaries
 
-Deterministic sources/oracles are independent of the protocol library.
+Deterministic sources/validators are independent of the protocol library.
 Tuple fields, mapping, and counts follow the [pinned generator][interop-origin]
 and [data contract][interop-data]. Validate C08 and eight moq-test vectors
 separately with unique names. Reassemble fragments by offset, then compare
@@ -2109,7 +2109,7 @@ additional property-value/raw-encoding checks. C20 zero downstream delivery
 does not test multi-subscriber aggregation. Draft-22 §9.9 unknown Stream Count
 is `2^64−1`, while the reference aiomoqt constant is `2^62−1`.
 Check adapters and nine-byte vi64; do not alter wire values to satisfy an
-oracle, or infer runtime failure from the difference alone.
+validator, or infer runtime failure from the difference alone.
 
 Pin media fixture/catalog/profile/decoder and provenance. Validate
 “publish catalog → choose Track → receive Objects → decode/display,” without
@@ -2193,7 +2193,7 @@ padding probes.
 | F40 [Relay property fidelity and malformed/auth/slow-peer isolation](#properties-cache-and-malformed) | Complete | Core complete; property fidelity, malformed/authorization/slow-subscriber isolation, and cancellation propagation | No; C18 ordinary properties counted in F18/F35, not these abnormal cases |
 | F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Core complete; overlapping sources and subscription replacement; application-selected URI/credentials, no automatic reconnection | No; no migration case |
 | F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Complete for Native/WT endpoint CLI and role boundaries | Partial; Native/WT client, direct-origin and relay adapters with local role matrices and bounded media profile; shared-runner publication deferred | Yes; prerequisite of C01–C22 |
-| F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Partial; bounded C08/eighteen moq-test fixtures and identity/payload oracle in interop/moqt; broader delivery conformance remains separate | Yes; C08/C13–C20 |
+| F43 [Deterministic source and complete Object/payload/EOG validator](#interop-acceptance) | Complete | Partial; bounded C08/eighteen moq-test fixtures and identity/payload validator in interop/moqt; broader delivery conformance remains separate | Yes; C08/C13–C20 |
 | F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; bounded VP8/LOC catalog, decoder and terminal rendering profile defined; full media workflow separate | Partial; public LOC/MSF codecs plus catalog-driven bounded C22 adapter, paired rejection/recovery and real FFmpeg rendering; general player/live snapshot workflows remain gaps, legacy APIs unchanged | Yes; C22 requires real peer results |
 
 ### Completeness Counts

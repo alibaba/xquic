@@ -44,8 +44,8 @@ struct xqc_interop_peer_s {
     xqc_moqt_stream_t *join_stream;
     xqc_moqt_stream_t *streams[2];
     xqc_interop_fixture_t fixture;
-    xqc_interop_oracle_t oracle;
-    xqc_interop_oracle_t fetch_oracle;
+    xqc_interop_validator_t validator;
+    xqc_interop_validator_t fetch_validator;
     xqc_interop_retention_t retention;
     xqc_interop_media_t media;
     unsigned media_corrupt;
@@ -554,11 +554,11 @@ xqc_interop_object(xqc_moqt_subscription_t *sub,
         p->previous_fetch_object = object->object_id;
         p->has_previous_fetch = 1;
     }
-    xqc_interop_oracle_t *oracle = stream && xqc_moqt_stream_fetch(stream)
-        ? &p->fetch_oracle : &p->oracle;
-    xqc_interop_oracle_object(oracle, object);
-    if (p->cancel_after && oracle == &p->oracle
-        && oracle->objects == p->cancel_after)
+    xqc_interop_validator_t *validator = stream && xqc_moqt_stream_fetch(stream)
+        ? &p->fetch_validator : &p->validator;
+    xqc_interop_validator_object(validator, object);
+    if (p->cancel_after && validator == &p->validator
+        && validator->objects == p->cancel_after)
     {
         /* Draft-22 Section 3.1.3: stop this Subscription's live delivery. */
         p->cancelled = 1;
@@ -1602,19 +1602,19 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
     if (!live) {
         return -1;
     }
-    live->oracle.fixture = pub->fixture;
+    live->validator.fixture = pub->fixture;
     if (xqc_interop_request(live, XQC_MOQT_MSG_SUBSCRIBE, &ns,
                             "track", 0, 0)
         || xqc_interop_wait(app, &live->response, 1, 5000)
         || live->response_type != XQC_MOQT_MSG_SUBSCRIBE_OK
-        || xqc_interop_wait(app, &live->oracle.objects, 11, 5000)
-        || live->oracle.failed || pub->available != 11)
+        || xqc_interop_wait(app, &live->validator.objects, 11, 5000)
+        || live->validator.failed || pub->available != 11)
     {
         fprintf(stderr,
                 "history live precondition failed: type=%u objects=%u "
                 "available=%u bad=%u\n",
-                live->response_type, live->oracle.objects,
-                pub->available, live->oracle.failed);
+                live->response_type, live->validator.objects,
+                pub->available, live->validator.failed);
         return -1;
     }
     const char *role = join ? "joiner" : "fetcher";
@@ -1622,8 +1622,8 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
     if (!reader) {
         return -1;
     }
-    reader->oracle.fixture = pub->fixture;
-    reader->fetch_oracle = (xqc_interop_oracle_t){
+    reader->validator.fixture = pub->fixture;
+    reader->fetch_validator = (xqc_interop_validator_t){
         .fixture = pub->fixture, .ignore_priority = 1,
     };
     /* Draft-22 Sections 9.12 and 11.4 define Group Order per FETCH. */
@@ -1669,8 +1669,8 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
         pub->expected_fetch_error = 0;
         reader->fetch_closed = 0;
         reader->fetch_ready = 0;
-        reader->fetch_oracle = (xqc_interop_oracle_t){
-            .fixture = reader->oracle.fixture, .ignore_priority = 1,
+        reader->fetch_validator = (xqc_interop_validator_t){
+            .fixture = reader->validator.fixture, .ignore_priority = 1,
         };
         pub->fetch_closed = 0;
         pub->fetch_ready = 0;
@@ -1711,7 +1711,7 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
                 "FETCH completion failed: closed=%u ready=%u error=%u "
                 "objects=%u\n",
                 reader->fetch_closed, reader->fetch_ready, reader->error,
-                reader->fetch_oracle.objects);
+                reader->fetch_validator.objects);
         return -1;
     }
     xqc_moqt_location_t start = {descending ? 0 : 1, 0};
@@ -1728,12 +1728,12 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
         || reader->fetched.start.object_id != start.object_id
         || reader->fetched.end.group_id != end.group_id
         || reader->fetched.end.object_id != end.object_id
-        || !xqc_interop_history_complete(&reader->fetch_oracle, &start, &end)
+        || !xqc_interop_history_complete(&reader->fetch_validator, &start, &end)
         || (descending && (reader->fetch_order_bad
             || !reader->has_previous_fetch
             || reader->previous_fetch_group != start.group_id))
         || (live && xqc_interop_wait(app, &live->done, 1, 5000))
-        || (live && !xqc_interop_oracle_complete(&live->oracle, 0)))
+        || (live && !xqc_interop_validator_complete(&live->validator, 0)))
     {
         fprintf(stderr,
                 "FETCH result mismatch: ready=%u order_bad=%u "
@@ -1741,26 +1741,26 @@ xqc_interop_history(xqc_interop_app_t *app, const char *name, const char *run)
                 "fetched_range=%" PRIu64 ".%" PRIu64 "..%" PRIu64 ".%" PRIu64
                 " live_done=%u live_bad=%u\n",
                 reader->fetch_ready, reader->fetch_order_bad,
-                reader->previous_fetch_group, reader->fetch_oracle.objects,
-                xqc_interop_fixture_count(&reader->fetch_oracle.fixture),
+                reader->previous_fetch_group, reader->fetch_validator.objects,
+                xqc_interop_fixture_count(&reader->fetch_validator.fixture),
                 reader->fetched.start.group_id, reader->fetched.start.object_id,
                 reader->fetched.end.group_id, reader->fetched.end.object_id,
-                live ? live->done : 0, live ? live->oracle.failed : 0);
+                live ? live->done : 0, live ? live->validator.failed : 0);
         return -1;
     }
     if (join) {
         start = (xqc_moqt_location_t){2, 1};
         end = (xqc_moqt_location_t){5, 4};
         if (xqc_interop_wait(app, &reader->done, 1, 5000)
-            || !xqc_interop_history_complete(&reader->oracle, &start, &end))
+            || !xqc_interop_history_complete(&reader->validator, &start, &end))
         {
             return -1;
         }
     }
     fprintf(stderr, "%s history=%u live=%u fetch_fin=%u bad=%u\n", name,
-        reader->fetch_oracle.objects, join ? reader->oracle.objects
-            : live ? live->oracle.objects : 0,
-        reader->fetch_closed, reader->fetch_oracle.failed);
+        reader->fetch_validator.objects, join ? reader->validator.objects
+            : live ? live->validator.objects : 0,
+        reader->fetch_closed, reader->fetch_validator.failed);
     if (reader->error || (live && live->error) || pub->error) {
         fprintf(stderr, "history endpoint errors reader=%u live=%u pub=%u\n",
                 reader->error, live ? live->error : 0, pub->error);
@@ -1788,13 +1788,13 @@ xqc_interop_origin(xqc_interop_app_t *app, const char *name)
         return xqc_interop_run(app, name);
     }
     xqc_interop_peer_t *sub = xqc_interop_connect(app, "subscriber");
-    if (!sub || xqc_interop_fixture_case(name, &sub->oracle.fixture)) {
+    if (!sub || xqc_interop_fixture_case(name, &sub->validator.fixture)) {
         return -1;
     }
-    sub->oracle.origin = 1;
+    sub->validator.origin = 1;
     xqc_moqt_namespace_t ns = {0};
     char fields[15][24];
-    xqc_interop_tuple(&ns, &sub->oracle.fixture, fields);
+    xqc_interop_tuple(&ns, &sub->validator.fixture, fields);
     int zero = !strcmp(name, "moq-test-forward-zero");
     if (xqc_interop_request(sub, XQC_MOQT_MSG_SUBSCRIBE, &ns, "track", 0, zero)
         || xqc_interop_wait(app, &sub->response, 1, XQC_INTEROP_PHASE_MS)
@@ -1813,9 +1813,9 @@ xqc_interop_origin(xqc_interop_app_t *app, const char *name)
     }
     xqc_interop_pump(app, 250);
     fprintf(stderr, "origin objects=%u markers=%u streams=%u/%llu bad=%u\n",
-        sub->oracle.objects, sub->oracle.markers, sub->streams_closed,
-        (unsigned long long)sub->stream_count, sub->oracle.failed);
-    return !xqc_interop_oracle_complete(&sub->oracle, zero)
+        sub->validator.objects, sub->validator.markers, sub->streams_closed,
+        (unsigned long long)sub->stream_count, sub->validator.failed);
+    return !xqc_interop_validator_complete(&sub->validator, zero)
         || sub->done_code != XQC_MOQT_PUBLISH_TRACK_ENDED
         || sub->streams_reset || sub->error
         || (sub->stream_count != UINT64_MAX
@@ -1899,7 +1899,7 @@ xqc_interop_publish_done_track(xqc_interop_app_t *app, const char *run)
         fprintf(stderr, "namespace observer or Track setup failed\n");
         return -1;
     }
-    observer->oracle.fixture = (xqc_interop_fixture_t){
+    observer->validator.fixture = (xqc_interop_fixture_t){
         .last_group = 0, .last_object = 0,
         .objects_per_group = 1, .size0 = 1, .size = 1,
         .group_step = 1, .object_step = 1, .priority = 128,
@@ -1914,11 +1914,11 @@ xqc_interop_publish_done_track(xqc_interop_app_t *app, const char *run)
     };
     if (!stream || xqc_moqt_stream_send_object(stream, &object) != XQC_OK
         || xqc_moqt_stream_finish(stream) != XQC_OK
-        || xqc_interop_wait(app, &observer->oracle.objects, 1,
+        || xqc_interop_wait(app, &observer->validator.objects, 1,
                             XQC_INTEROP_PHASE_MS)
         || xqc_interop_wait(app, &observer->streams_closed, 1,
                             XQC_INTEROP_PHASE_MS)
-        || observer->oracle.failed)
+        || observer->validator.failed)
     {
         fprintf(stderr, "Track Object or Subgroup FIN send failed\n");
         return -1;
@@ -2226,7 +2226,7 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
         if (!s) {
             return -1;
         }
-        s->oracle.fixture = p->fixture;
+        s->validator.fixture = p->fixture;
         if (!strcmp(name, "subscribe-cancel-live")) {
             s->cancel_after = 2;
         }
@@ -2251,7 +2251,7 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
         if (p == NULL) {
             return -1;
         }
-        p->fixture = s->oracle.fixture;
+        p->fixture = s->validator.fixture;
     }
     if (!strcmp(name, "subscribe-error")
         || !strcmp(name, "rendezvous-timeout"))
@@ -2343,15 +2343,15 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
         }
     }
     if (!strcmp(name, "subscribe-cancel-live")) {
-        unsigned settle_ms = xqc_interop_fixture_count(&s->oracle.fixture)
-            * s->oracle.fixture.pace_ms + 500;
+        unsigned settle_ms = xqc_interop_fixture_count(&s->validator.fixture)
+            * s->validator.fixture.pace_ms + 500;
         if (xqc_interop_wait(app, &s->cancelled, 1, XQC_INTEROP_DELIVERY_MS)) {
             return -1;
         }
         xqc_interop_pump(app, settle_ms);
         fprintf(stderr, "cancelled after=%u post_cancel=%u\n",
-                s->oracle.objects, s->post_cancel_objects);
-        return s->oracle.objects == s->cancel_after
+                s->validator.objects, s->post_cancel_objects);
+        return s->validator.objects == s->cancel_after
             && !s->post_cancel_objects && !s->error && !p->error ? 0 : -1;
     }
     if (data) {
@@ -2368,9 +2368,9 @@ xqc_interop_run(xqc_interop_app_t *app, const char *name)
         }
         xqc_interop_pump(app, 250);
         fprintf(stderr, "objects=%u markers=%u streams=%u/%llu bad=%u\n",
-            s->oracle.objects, s->oracle.markers, s->streams_closed,
-            (unsigned long long)s->stream_count, s->oracle.failed);
-        if (!xqc_interop_oracle_complete(&s->oracle, zero)
+            s->validator.objects, s->validator.markers, s->streams_closed,
+            (unsigned long long)s->stream_count, s->validator.failed);
+        if (!xqc_interop_validator_complete(&s->validator, zero)
             || s->done_code != XQC_MOQT_PUBLISH_TRACK_ENDED
             || s->streams_reset || p->error || s->error
             || (s->stream_count != UINT64_MAX

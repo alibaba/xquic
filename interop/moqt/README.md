@@ -29,7 +29,7 @@ The client accepts `--relay`, `--test`, `--transport`, `--verbose`, and
 flags take priority. HTTPS selects WT. A canonical `moqt://` URI uses QUIC by
 default or WT with `--transport webtransport`. Server mode uses the same
 transport option/environment, defaulting to QUIC. The two transports reuse
-the same scenario drivers and complete payload oracles. Server-only `dual`
+the same scenario drivers and complete payload validators. Server-only `dual`
 registers Native QUIC and WT ALPNs on one UDP listener. Each accepted peer
 selects its endpoint constructor from its actual transport.
 Omitting the test runs every listed case. Stdout is TAP v14; diagnostics go to
@@ -85,7 +85,7 @@ then subscribes to that name. Each of three 16×16 VP8 keyframes is its own
 GOP/Group, with Object 0 on a new Subgroup 0 stream (MSF-01 §§4.1, 5, 6).
 LOC-05 §2.3 public properties carry `vp8`, Timescale 1000 and timestamps
 0/40/80; payloads are clear elementary samples without legacy prefixes.
-The oracle assembles fragments, validates identities/properties and exact
+The validator assembles fragments, validates identities/properties and exact
 fixture bytes, and requires PUBLISH_DONE plus every stream FIN.
 
 After reception, an independent FFmpeg process decodes the received samples
@@ -123,8 +123,8 @@ The history cases publish six groups of five deterministic objects, pause
 after group 2's first object reaches the live observer, then open an independent
 fetcher/joiner. FETCH verifies all five objects of historical group 1. JOIN
 uses SUBSCRIBE with FILL_PARAMETERS: six historical objects and nineteen
-subsequent live objects have independent oracles and completion conditions.
-The FETCH and Fill oracles accept the relay's Publisher Priority on each
+subsequent live objects have independent validators and completion conditions.
+The FETCH and Fill validators accept the relay's Publisher Priority on each
 historical object, consistent with draft-22 Sections 5.1.1 and 5.1.3.
 Both cases require the original live observer to receive all thirty objects;
 an OK response or a partial history stream is insufficient.
@@ -143,11 +143,11 @@ cancels after two Objects and verifies that later Objects do not reach that
 subscriber.
 
 Data cases use fresh random namespaces, independent publisher and subscriber
-sessions, bounded phase/delivery deadlines and paced objects. The oracle
+sessions, bounded phase/delivery deadlines and paced objects. The validator
 checks complete object identities, payload fragments and bytes, delivery mode,
 Subgroup, priority, properties, EOG and PUBLISH_DONE. Stream Count/FIN never
 substitutes for object completeness. Unknown Stream Count is `UINT64_MAX` per
-draft-22; wire values are not changed to match an older peer oracle.
+draft-22; wire values are not changed to match an older peer validator.
 The controlled publisher uses property IDs 2 and 5 with known values so relay
 checks compare their bytes. Direct-origin checks validate those IDs and the
 complete property encoding while allowing random values, as specified by
@@ -158,7 +158,7 @@ connection independently accepts PUBLISH_NAMESPACE/PUBLISH, rejects unknown
 SUBSCRIBE with DOES_NOT_EXIST, and serves bounded MoQT Test tuples.
 Direct-origin probes use client `--origin`, whose `--list` contains five
 control cases and eighteen deterministic data vectors. These 23 probes reuse
-the full object oracle and require PUBLISH_DONE and all declared stream FINs.
+the full object validator and require PUBLISH_DONE and all declared stream FINs.
 They are recorded separately from relay scenarios.
 
 `--relay-server` selects the existing bounded relay core. Its peers use public

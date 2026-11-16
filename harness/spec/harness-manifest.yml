@@ -431,8 +431,8 @@ modules:
             - xqc_test_moqt_early_request
             - xqc_test_moqt_early_request_errors
             - xqc_test_moqt_interop_fixture_errors
-            - xqc_test_moqt_interop_oracle
-            - xqc_test_moqt_interop_oracle_errors
+            - xqc_test_moqt_interop_validator
+            - xqc_test_moqt_interop_validator_errors
             - xqc_test_moqt_interop_properties
             - xqc_test_moqt_interop_properties_errors
             - xqc_test_moqt_interop_catalog

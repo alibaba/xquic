@@ -4,9 +4,10 @@
 require "fileutils"
 require "io/wait"
 require "open3"
+require "rbconfig"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--server-stop-selftest|--shard-kill-selftest|--shard-orphan-selftest|--background-fd-selftest|--wait-for-log-selftest|--binary-log-selftest|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--case-exit-selftest|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--server-stop-selftest|--shard-kill-selftest|--shard-orphan-selftest|--background-fd-selftest|--wait-for-log-selftest|--binary-log-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 
 def run!(env, *cmd)
@@ -61,8 +62,36 @@ def ownership(root)
   puts "repeated_total=#{values.fetch("repeated_total")}"
 end
 
+# An exit command: exit at the start of a command, alone or with arguments.
+EXIT_COMMAND = /(?:\A|[;&|(){`]|\b(?:then|else|do)\s)\s*exit(?![^\s;&|)}`])/
+
+# Quoted text, backslash escapes, and comments in shell code.
+SHELL_TEXT = /'[^']*'|"(?:[^"\\]|\\.)*"|\\.|(?<![^\s;&|()<>])#[^\n]*/m
+
+# Returns the shell code of each line with quoted text masked and comments
+# removed, so that the exit of a quoted awk program is not a shell exit.
+def shell_code_lines(lines)
+  lines.join.gsub(SHELL_TEXT) do |text|
+    if text.start_with?("#")
+      ""
+    elsif text == "\\\n"
+      "x\nx "
+    else
+      text.gsub(/[^\n]/, "x")
+    end
+  end.lines
+end
+
+# Returns the indexes of the lines that run an exit command.
+def exit_command_indexes(lines)
+  codes = shell_code_lines(lines)
+  codes.each_index.select { |index| codes[index].match?(EXIT_COMMAND) }
+end
+
 def runner_syntax(root)
-  manifest = YAML.load_file(File.join(root, "case_test/manifest.yml"))
+  manifest = YAML.load_file(
+    ENV.fetch("CASE_TEST_MANIFEST", File.join(root, "case_test/manifest.yml"))
+  )
   owners = Hash.new { |hash, key| hash[key] = [] }
   forbidden_helper_defs = [
     /^\s*(?:function\s+)?(?:clear_log|grep_err_log|case_print_result)\s*\(\s*\)/,
@@ -108,6 +137,13 @@ def runner_syntax(root)
       end
     end
 
+    # Cases run in the runner's shell: exit there ends the group, and the
+    # failed case and every later case then have no result.
+    exit_command_indexes(lines[0...(discovery_index || lines.length)]).each do |index|
+      violations << "#{group.fetch("runner")}:#{index + 1}:exit ends the group runner; " \
+                    "report the case result instead: #{lines[index].strip}"
+    end
+
     unless violations.empty?
       raise "runner violates native runner structure:\n#{violations.join("\n")}"
     end
@@ -128,6 +164,92 @@ def runner_syntax(root)
 
   puts "runner_syntax=pass"
   puts "registered_cases=#{owners.length}"
+end
+
+def case_exit_selftest(root)
+  work_dir = File.join(root, "build/case_test_arch_check_case_exit")
+  FileUtils.rm_rf(work_dir)
+  FileUtils.mkdir_p(work_dir)
+
+  manifest_path = File.join(work_dir, "manifest.yml")
+  runner_path = File.join(work_dir, "selftest_case_exit.sh")
+  runner = <<~SH
+    #!/bin/bash
+    set -u
+    source #{File.join(root, "case_test/lib/common.sh").inspect}
+    case_test_group "selftest.case_exit"
+    selftest_bare_exit()
+    {
+        # awk's exit ends the awk program, not the group runner
+        if awk '
+            /pass/ { found = 1; exit }
+            END { exit !found }
+        ' stdlog; then
+            echo "selftest.bare_exit ...>>>>>>>> pass:1"
+            case_print_result "selftest.bare_exit" "pass"
+        else
+            echo "selftest.bare_exit ...>>>>>>>> pass:0"
+            case_print_result "selftest.bare_exit" "fail"
+            exit
+        fi
+    }
+    selftest_exit_status()
+    {
+        if grep -q "pass" stdlog; then
+            echo "selftest.exit_status ...>>>>>>>> pass:1"
+            case_print_result "selftest.exit_status" "pass"
+        else
+            echo "selftest.exit_status ...>>>>>>>> pass:0"
+            case_print_result "selftest.exit_status" "fail"
+            exit 1
+        fi
+    }
+    case_test_case "selftest.bare_exit" --id native --mode self-reporting --run selftest_bare_exit
+    case_test_case "selftest.exit_status" --id native --mode self-reporting --run selftest_exit_status
+    if case_test_is_discovery; then
+        case_test_run
+        exit 0
+    fi
+    case_test_run
+  SH
+  File.write(runner_path, runner)
+
+  manifest = {
+    "version" => 1,
+    "groups" => [
+      {
+        "id" => "selftest.case_exit",
+        "module" => "common",
+        "source_paths" => ["README.md"],
+        "runner" => "build/case_test_arch_check_case_exit/selftest_case_exit.sh",
+        "execution" => "implemented",
+        "port_offset" => 0
+      }
+    ]
+  }
+  File.write(manifest_path, manifest.to_yaml)
+
+  env = { "CASE_TEST_MANIFEST" => manifest_path }
+  check = [
+    RbConfig.ruby, File.join(root, "case_test/lib/architecture_check.rb"),
+    root, "--runner-syntax"
+  ]
+  output, status = Open3.capture2e(env, *check)
+
+  raise "case exit selftest unexpectedly passed\n#{output}" if status.success?
+
+  exits = ["exit", "exit 1"]
+  expected = exits.map { |statement| runner.lines.index { |line| line.strip == statement } + 1 }
+  reported = output.scan(/selftest_case_exit\.sh:(\d+):/).flatten.map(&:to_i)
+  unless reported == expected
+    raise "case exit selftest reported lines #{reported.inspect}, expected #{expected.inspect}\n#{output}"
+  end
+
+  File.write(runner_path, runner.lines.reject { |line| exits.include?(line.strip) }.join)
+  output, status = Open3.capture2e(env, *check)
+  raise "case exit selftest rejected a runner without exit\n#{output}" unless status.success?
+
+  puts "case_exit_selftest=pass"
 end
 
 def write_selftest_runner(path, root, group_id, trace_path = nil, result: "pass")
@@ -1225,6 +1347,10 @@ end
 
 if modes.include?("--all") || modes.include?("--runner-syntax")
   runner_syntax(root)
+end
+
+if modes.include?("--all") || modes.include?("--case-exit-selftest")
+  case_exit_selftest(root)
 end
 
 if modes.include?("--all") || modes.include?("--parallel-selftest")

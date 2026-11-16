@@ -272,6 +272,11 @@ case_test_case "negotiate_encoder_fec_scheme" \
     --run fec_negotiate_encoder_fec_scheme
 ```
 
+Case functions run in the group runner's shell, so a case reports a failure
+through its result and returns. Do not call `exit` in a case or helper
+function: it ends the group runner, and that case and every later case of the
+group then have no result. The architecture check rejects such an `exit`.
+
 When a server callback can run after the client process exits, use
 `case_test_wait_for_log <file> <pattern> [attempts] [interval]` for a bounded
 wait instead of a fixed sleep. Redirect server stdout to `svr_stdlog` when the

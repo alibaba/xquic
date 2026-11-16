@@ -10,6 +10,7 @@ void xqc_test_moqt_relay_routes(void);
 void xqc_test_moqt_relay_errors(void);
 void xqc_test_moqt_relay_delivery(void);
 void xqc_test_moqt_relay_history(void);
+void xqc_test_moqt_relay_direct_status(void);
 void xqc_test_moqt_relay_updates(void);
 void xqc_test_moqt_relay_limits(void);
 void xqc_test_moqt_relay_fill(void);

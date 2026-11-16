@@ -733,7 +733,7 @@ xqc_test_moqt_relay_history(void)
     CU_ASSERT_TRUE(fetch->closed);
     CU_ASSERT_TRUE(output->tx_fin);
     CU_ASSERT_FALSE(output->state.data.has_error);
-    /* TRACK_STATUS forwards a real snapshot and bounds a silent publisher. */
+    /* TRACK_STATUS forwards a query when only a Namespace is registered. */
     m = xqc_test_relay_message(XQC_MOQT_MSG_TRACK_STATUS);
     down = xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
     up = f.relay->requests;
@@ -750,6 +750,7 @@ xqc_test_moqt_relay_history(void)
     CU_ASSERT(record->deadline > 0);
     xqc_moqt_relay_process(f.relay, record->deadline);
     CU_ASSERT_EQUAL(down->error.code, XQC_MOQT_REQUEST_TIMEOUT);
+
     /* A graceful source end propagates after the last upstream delivery. */
     m = xqc_test_relay_message(XQC_MOQT_MSG_SUBSCRIBE);
     xqc_moqt_request_t *live = xqc_test_relay_receive(
@@ -798,6 +799,69 @@ xqc_test_moqt_relay_history(void)
     CU_ASSERT_TRUE(live->failed);
     CU_ASSERT_EQUAL(live->error.code, XQC_MOQT_RESET_TOO_FAR_BEHIND);
     CU_ASSERT_FALSE(live->stream->session->closed);
+    xqc_test_relay_destroy(&f);
+}
+
+void
+xqc_test_moqt_relay_direct_status(void)
+{
+    xqc_test_relay_t f;
+    xqc_test_relay_init(&f);
+    /* Draft-22 §9.13: report the established direct Track without a query. */
+    xqc_moqt_message_t m = xqc_test_relay_message(XQC_MOQT_MSG_PUBLISH);
+    uint8_t properties[] = {0x78, 9};
+    m.track_name = (struct iovec){"direct-status", 13};
+    m.track_alias = 9;
+    m.properties = (struct iovec){properties, sizeof(properties)};
+    xqc_moqt_request_t *publication = xqc_test_relay_receive(
+        &f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
+    CU_ASSERT_TRUE(publication->established);
+    uint8_t largest[] = {4, 7};
+    xqc_moqt_message_t state = {.type = XQC_MOQT_MSG_PUBLISH_STATE_NOTIFY,
+        .parameter_count = 1, .parameters = {{XQC_MOQT_PARAM_LARGEST_OBJECT,
+                                              sizeof(largest), largest}}};
+    xqc_test_relay_input(publication->stream, &state, XQC_MOQT_MSG_PUBLISH);
+    xqc_test_relay_peer_t *sub = &f.peers[XQC_TEST_RELAY_SUBSCRIBER];
+    for (uint8_t opt_out = 0; opt_out < 2; opt_out++) {
+        xqc_stream_t *native = xqc_create_stream_with_conn(sub->conn,
+            sub->next_stream, XQC_CLI_BID, NULL, NULL);
+        sub->next_stream += XQC_TEST_RELAY_STREAM_ID_STEP;
+        CU_ASSERT_PTR_NOT_NULL_FATAL(native);
+        xqc_moqt_stream_t *st = native->user_data;
+        st->writing = 1;
+        m = xqc_test_relay_message(XQC_MOQT_MSG_TRACK_STATUS);
+        m.track_name = (struct iovec){"direct-status", 13};
+        m.request_id = sub->next_request;
+        sub->next_request += XQC_MOQT_REQUEST_ID_STEP;
+        uint8_t exclude = 0;
+        if (opt_out) {
+            m.parameter_count = 1;
+            m.parameters[0] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_INCLUDE_PROPERTIES, 1, &exclude};
+        }
+        xqc_test_relay_input(st, &m, 0);
+        CU_ASSERT_TRUE(st->state.request.responded);
+        CU_ASSERT_PTR_NULL(st->state.request.subscription);
+        CU_ASSERT_TRUE(st->tx_fin);
+        CU_ASSERT_FALSE_FATAL(xqc_list_empty(&st->tx));
+        xqc_list_buf_t *entry = xqc_list_entry(st->tx.next, xqc_list_buf_t,
+                                               list_head);
+        CU_ASSERT_FATAL(xqc_moqt_message_decode(entry->buf->data,
+            entry->buf->data_len, m.type, &m) > 0);
+        CU_ASSERT_EQUAL(m.type, XQC_MOQT_MSG_REQUEST_OK);
+        CU_ASSERT_EQUAL(m.properties.iov_len,
+                        opt_out ? 0 : sizeof(properties));
+        if (!opt_out && m.properties.iov_len == sizeof(properties)) {
+            CU_ASSERT_EQUAL(xqc_memcmp(m.properties.iov_base, properties,
+                                        sizeof(properties)), 0);
+        }
+        CU_ASSERT_EQUAL_FATAL(m.parameter_count, 1);
+        CU_ASSERT_EQUAL(m.parameters[0].type, XQC_MOQT_PARAM_LARGEST_OBJECT);
+        CU_ASSERT_EQUAL_FATAL(m.parameters[0].length, sizeof(largest));
+        CU_ASSERT_EQUAL(xqc_memcmp(m.parameters[0].value, largest,
+                                    sizeof(largest)), 0);
+        st->writing = 0;
+    }
     xqc_test_relay_destroy(&f);
 }
 

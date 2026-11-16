@@ -49,11 +49,13 @@ struct xqc_test_relay_node_s {
     xqc_moqt_config_t            config;
     xqc_moqt_request_t          *incoming[XQC_TEST_RELAY_REQUESTS];
     xqc_moqt_request_t          *tracks;
+    xqc_moqt_request_t          *status;
     xqc_moqt_stream_t           *sending;
     xqc_moqt_fetch_t            *pending_fetch;
     size_t                       incoming_count;
     unsigned                     ready;
     unsigned                     responses;
+    unsigned                     status_replies;
     unsigned                     publications;
     unsigned                     skipped;
     unsigned                     errors;
@@ -73,6 +75,7 @@ struct xqc_test_relay_node_s {
     xqc_bool_t                   defer;
     xqc_bool_t                   reject_fetch;
     xqc_bool_t                   allow_cancel;
+    xqc_bool_t                   status_properties;
 };
 
 typedef struct {
@@ -214,6 +217,20 @@ xqc_test_relay_message(xqc_moqt_request_t *request,
         node->skipped++;
         return;
     case XQC_MOQT_MSG_REQUEST_OK:
+        if (request == node->status) {
+            size_t size = node->status_properties
+                ? sizeof(xqc_test_relay_ordinary_properties) : 0;
+            if (m->properties.iov_len != size
+                || (size && memcmp(m->properties.iov_base,
+                                   xqc_test_relay_ordinary_properties, size)))
+            {
+                node->invalid++;
+            }
+            node->status_replies++;
+            node->status = NULL;
+        }
+        node->responses++;
+        return;
     case XQC_MOQT_MSG_SUBSCRIBE_OK:
     case XQC_MOQT_MSG_FETCH_OK:
         node->responses++;
@@ -1300,6 +1317,24 @@ xqc_test_relay_tracks_run(xqc_test_relay_fixture_t *f, xqc_bool_t errors)
     xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
     xqc_test_relay_check(publisher->responses == responses + 1);
     xqc_test_relay_check(f->clients[3].publications == active + 1);
+    /* Draft-22 §9.13: direct Track status uses the same property snapshot. */
+    m.type = XQC_MOQT_MSG_TRACK_STATUS;
+    m.properties = (struct iovec){NULL, 0};
+    xqc_test_relay_node_t *subscriber = &f->clients[3];
+    uint8_t exclude = 0;
+    for (unsigned i = 0; i < 2; i++) {
+        subscriber->status_properties = i == 0;
+        m.parameter_count = i;
+        m.parameters[0] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_INCLUDE_PROPERTIES, sizeof(exclude), &exclude};
+        subscriber->status = xqc_moqt_request_open(
+            subscriber->connection.session, &m);
+        xqc_test_relay_check(subscriber->status != NULL);
+        xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
+        xqc_test_relay_check(subscriber->status_replies == i + 1);
+        xqc_test_relay_check(subscriber->status == NULL);
+        xqc_test_relay_check(subscriber->invalid == 0);
+    }
     xqc_moqt_request_cancel(interests[1], XQC_MOQT_RESET_CANCELLED);
     for (unsigned waited = 0; waited < XQC_TEST_RELAY_WAIT_MS;
          waited += XQC_TEST_RELAY_PUMP_MS)

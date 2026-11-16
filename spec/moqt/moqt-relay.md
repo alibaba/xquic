@@ -72,7 +72,7 @@ not a stale cached initial location.
 An authorized TRACK_STATUS for an established direct PUBLISH uses that
 Track's properties and current Largest Object without opening an upstream
 query or downstream delivery. INCLUDE_PROPERTIES still controls whether
-the response includes properties (draft-22 §9.13 and §9.20.20).
+the response includes properties (draft-22 §§9.13 and 9.20.21).
 
 | Protocol responsibility | Entity | References and lifetime |
 | --- | --- | --- |

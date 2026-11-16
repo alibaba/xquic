@@ -515,10 +515,10 @@ main(int argc, char *argv[])
                         xqc_test_moqt_early_request_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_interop_fixture_errors",
                         xqc_test_moqt_interop_fixture_errors)
-        || !CU_add_test(pSuite, "xqc_test_moqt_interop_oracle",
-                        xqc_test_moqt_interop_oracle)
-        || !CU_add_test(pSuite, "xqc_test_moqt_interop_oracle_errors",
-                        xqc_test_moqt_interop_oracle_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_validator",
+                        xqc_test_moqt_interop_validator)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_validator_errors",
+                        xqc_test_moqt_interop_validator_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_interop_fragmentation",
                         xqc_test_moqt_interop_fragmentation)
         || !CU_add_test(pSuite, "xqc_test_moqt_interop_fragmentation_errors",

@@ -245,7 +245,7 @@ xqc_interop_fixture_parse(const xqc_moqt_namespace_t *ns,
 }
 
 void
-xqc_interop_oracle_object(xqc_interop_oracle_t *o,
+xqc_interop_validator_object(xqc_interop_validator_t *o,
     const xqc_moqt_object_t *obj)
 {
     const xqc_interop_fixture_t *f = &o->fixture;
@@ -270,7 +270,8 @@ xqc_interop_oracle_object(xqc_interop_oracle_t *o,
     if (n >= XQC_INTEROP_MAX_OBJECTS || obj->datagram != (f->mode == 3)
         || (!obj->datagram && obj->subgroup_id != sg)
         || (obj->datagram && obj->end_of_group && f->priority != 128)
-        || obj->priority != priority || obj->range != XQC_MOQT_RANGE_NONE)
+        || (!o->ignore_priority && obj->priority != priority)
+        || obj->range != XQC_MOQT_RANGE_NONE)
     {
         o->failed = 1;
         return;
@@ -318,7 +319,8 @@ xqc_interop_oracle_object(xqc_interop_oracle_t *o,
 }
 
 int
-xqc_interop_oracle_complete(const xqc_interop_oracle_t *o, int forward_zero)
+xqc_interop_validator_complete(const xqc_interop_validator_t *o,
+    int forward_zero)
 {
     return !o->failed && (forward_zero
         ? o->objects == 0 && o->markers == 0
@@ -372,7 +374,7 @@ xqc_interop_history_window(const xqc_interop_fixture_t *f,
 }
 
 int
-xqc_interop_history_complete(const xqc_interop_oracle_t *o,
+xqc_interop_history_complete(const xqc_interop_validator_t *o,
     const xqc_moqt_location_t *start, const xqc_moqt_location_t *end)
 {
     unsigned first, last, count = xqc_interop_fixture_count(&o->fixture);

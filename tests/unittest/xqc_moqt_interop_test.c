@@ -125,7 +125,7 @@ xqc_test_moqt_interop_fixture(void)
     CU_ASSERT_EQUAL(xqc_interop_history_window(&f, 11, &start, &end,
                                                &first, &last), 0);
     CU_ASSERT_TRUE(first > last);
-    xqc_interop_oracle_t empty = {.fixture = f};
+    xqc_interop_validator_t empty = {.fixture = f};
     CU_ASSERT_TRUE(xqc_interop_history_complete(&empty, &start, &end));
     empty.objects = 1;
     CU_ASSERT_FALSE(xqc_interop_history_complete(&empty, &start, &end));
@@ -206,10 +206,10 @@ xqc_test_moqt_interop_fixture_errors(void)
 }
 
 void
-xqc_test_moqt_interop_oracle(void)
+xqc_test_moqt_interop_validator(void)
 {
-    xqc_interop_oracle_t oracle = {0};
-    xqc_interop_fixture_case("data-subgroup-basic", &oracle.fixture);
+    xqc_interop_validator_t validator = {0};
+    xqc_interop_fixture_case("data-subgroup-basic", &validator.fixture);
     char bytes[64];
     memset(bytes, 't', sizeof(bytes));
     /* Out-of-order Groups are legal; completeness uses identity, not count. */
@@ -219,85 +219,107 @@ xqc_test_moqt_interop_oracle(void)
             xqc_moqt_object_t o = {.group_id = g, .object_id = id,
                 .priority = 128, .payload_length = size,
                 .payload = {bytes, size / 2}};
-            xqc_interop_oracle_object(&oracle, &o);
+            xqc_interop_validator_object(&validator, &o);
             o.payload_offset = size / 2;
-            xqc_interop_oracle_object(&oracle, &o);
+            xqc_interop_validator_object(&validator, &o);
         }
     }
-    CU_ASSERT_TRUE(xqc_interop_oracle_complete(&oracle, 0));
-    CU_ASSERT_EQUAL(oracle.objects, 15);
-    CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 1));
+    CU_ASSERT_TRUE(xqc_interop_validator_complete(&validator, 0));
+    CU_ASSERT_EQUAL(validator.objects, 15);
+    CU_ASSERT_FALSE(xqc_interop_validator_complete(&validator, 1));
     xqc_moqt_location_t start = {0, 0}, end = {2, 4};
-    CU_ASSERT_TRUE(xqc_interop_history_complete(&oracle, &start, &end));
+    CU_ASSERT_TRUE(xqc_interop_history_complete(&validator, &start, &end));
     start.group_id = 1;
-    CU_ASSERT_FALSE(xqc_interop_history_complete(&oracle, &start, &end));
+    CU_ASSERT_FALSE(xqc_interop_history_complete(&validator, &start, &end));
     for (unsigned i = 0; i < 5; i++) {
-        oracle.seen[i] = 0;
+        validator.seen[i] = 0;
     }
-    oracle.objects -= 5;
-    CU_ASSERT_TRUE(xqc_interop_history_complete(&oracle, &start, &end));
-    oracle.seen[14] = 0;
-    oracle.objects--;
+    validator.objects -= 5;
+    CU_ASSERT_TRUE(xqc_interop_history_complete(&validator, &start, &end));
+    validator.seen[14] = 0;
+    validator.objects--;
     end.object_id = 3;
-    CU_ASSERT_TRUE(xqc_interop_history_complete(&oracle, &start, &end));
+    CU_ASSERT_TRUE(xqc_interop_history_complete(&validator, &start, &end));
+
+    /* Draft-22 Sections 5.1.1 and 5.1.3 allow relay priorities in FETCH. */
+    validator = (xqc_interop_validator_t){.fixture = validator.fixture};
+    xqc_moqt_object_t historical = {.priority = 0, .payload_length = 64,
+                                    .payload = {bytes, sizeof(bytes)}};
+    xqc_interop_validator_object(&validator, &historical);
+    CU_ASSERT_TRUE(validator.failed);
+    CU_ASSERT_EQUAL(validator.objects, 0);
+
+    validator = (xqc_interop_validator_t){
+        .fixture = validator.fixture, .ignore_priority = 1,
+    };
+    start = end = (xqc_moqt_location_t){0, 0};
+    xqc_interop_validator_object(&validator, &historical);
+    CU_ASSERT_TRUE(xqc_interop_history_complete(&validator, &start, &end));
+
+    historical.object_id = 1;
+    historical.payload_length = historical.payload.iov_len = 32;
+    bytes[0] = 'x';
+    xqc_interop_validator_object(&validator, &historical);
+    end.object_id = 1;
+    CU_ASSERT_FALSE(xqc_interop_history_complete(&validator, &start, &end));
 }
 
 void
 xqc_test_moqt_interop_fragmentation(void)
 {
-    xqc_interop_oracle_t oracle = {0};
+    xqc_interop_validator_t validator = {0};
     CU_ASSERT_EQUAL(xqc_interop_fixture_case(
-        "moq-test-object-fragmentation", &oracle.fixture), 0);
+        "moq-test-object-fragmentation", &validator.fixture), 0);
     unsigned char bytes[96];
     memset(bytes, 't', sizeof(bytes));
     xqc_moqt_object_t object = {.priority = 200, .payload_length = 96};
     for (size_t offset = 0; offset < sizeof(bytes); offset += 24) {
         object.payload_offset = offset;
         object.payload = (struct iovec){bytes + offset, 24};
-        xqc_interop_oracle_object(&oracle, &object);
+        xqc_interop_validator_object(&validator, &object);
         if (offset + 24 < sizeof(bytes)) {
-            CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+            CU_ASSERT_FALSE(xqc_interop_validator_complete(&validator, 0));
         }
     }
-    CU_ASSERT_TRUE(xqc_interop_oracle_complete(&oracle, 0));
-    CU_ASSERT_EQUAL(oracle.objects, 1);
+    CU_ASSERT_TRUE(xqc_interop_validator_complete(&validator, 0));
+    CU_ASSERT_EQUAL(validator.objects, 1);
 }
 
 void
 xqc_test_moqt_interop_fragmentation_errors(void)
 {
-    xqc_interop_oracle_t oracle = {0};
+    xqc_interop_validator_t validator = {0};
     xqc_interop_fixture_case("moq-test-object-fragmentation",
-                             &oracle.fixture);
+                             &validator.fixture);
     unsigned char bytes[96];
     memset(bytes, 't', sizeof(bytes));
     xqc_moqt_object_t object = {.priority = 200, .payload_length = 96};
     object.payload = (struct iovec){bytes, 24};
-    xqc_interop_oracle_object(&oracle, &object);
+    xqc_interop_validator_object(&validator, &object);
     object.payload_offset = 24;
     object.payload = (struct iovec){bytes + 24, 24};
-    xqc_interop_oracle_object(&oracle, &object);
+    xqc_interop_validator_object(&validator, &object);
     object.payload_offset = 48;
     object.payload = (struct iovec){bytes + 48, 24};
-    xqc_interop_oracle_object(&oracle, &object);
-    CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+    xqc_interop_validator_object(&validator, &object);
+    CU_ASSERT_FALSE(xqc_interop_validator_complete(&validator, 0));
 
-    oracle = (xqc_interop_oracle_t){0};
+    validator = (xqc_interop_validator_t){0};
     xqc_interop_fixture_case("moq-test-object-fragmentation",
-                             &oracle.fixture);
+                             &validator.fixture);
     object = (xqc_moqt_object_t){.priority = 200, .payload_length = 96,
         .payload_offset = 24, .payload = {bytes + 24, 24}};
-    xqc_interop_oracle_object(&oracle, &object);
-    CU_ASSERT_TRUE(oracle.failed);
-    CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+    xqc_interop_validator_object(&validator, &object);
+    CU_ASSERT_TRUE(validator.failed);
+    CU_ASSERT_FALSE(xqc_interop_validator_complete(&validator, 0));
 }
 
 void
 xqc_test_moqt_interop_large_id(void)
 {
-    xqc_interop_oracle_t oracle = {0};
+    xqc_interop_validator_t validator = {0};
     CU_ASSERT_EQUAL(xqc_interop_fixture_case(
-        "moq-test-object-large-id", &oracle.fixture), 0);
+        "moq-test-object-large-id", &validator.fixture), 0);
     const char *tuple[] = {"moq-test-00", "0", "1099511627776",
         "1099511627781", "1099511627777", "1099511627785", "5",
         "64", "32", "2", "1", "2", "0", "-1", "-1", "0"};
@@ -313,7 +335,7 @@ xqc_test_moqt_interop_large_id(void)
 
     unsigned char bytes[64];
     memset(bytes, 't', sizeof(bytes));
-    const xqc_interop_fixture_t *f = &oracle.fixture;
+    const xqc_interop_fixture_t *f = &validator.fixture;
     for (uint64_t group = f->first_group; group <= f->last_group; group++) {
         for (uint64_t id = f->first_object; id <= f->last_object;
              id += f->object_step)
@@ -322,74 +344,74 @@ xqc_test_moqt_interop_large_id(void)
             xqc_moqt_object_t object = {.group_id = group,
                 .object_id = id, .priority = 200 + group % 2,
                 .payload = {bytes, size}, .payload_length = size};
-            xqc_interop_oracle_object(&oracle, &object);
+            xqc_interop_validator_object(&validator, &object);
         }
     }
-    CU_ASSERT_TRUE(xqc_interop_oracle_complete(&oracle, 0));
-    CU_ASSERT_EQUAL(oracle.objects, 6);
+    CU_ASSERT_TRUE(xqc_interop_validator_complete(&validator, 0));
+    CU_ASSERT_EQUAL(validator.objects, 6);
 }
 
 void
 xqc_test_moqt_interop_large_id_errors(void)
 {
-    xqc_interop_oracle_t oracle = {0};
-    xqc_interop_fixture_case("moq-test-object-large-id", &oracle.fixture);
-    xqc_moqt_object_t object = {.group_id = oracle.fixture.first_group,
-        .object_id = oracle.fixture.first_object - 1, .priority = 200};
-    xqc_interop_oracle_object(&oracle, &object);
-    CU_ASSERT_TRUE(oracle.failed);
-    CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+    xqc_interop_validator_t validator = {0};
+    xqc_interop_fixture_case("moq-test-object-large-id", &validator.fixture);
+    xqc_moqt_object_t object = {.group_id = validator.fixture.first_group,
+        .object_id = validator.fixture.first_object - 1, .priority = 200};
+    xqc_interop_validator_object(&validator, &object);
+    CU_ASSERT_TRUE(validator.failed);
+    CU_ASSERT_FALSE(xqc_interop_validator_complete(&validator, 0));
 }
 
 void
-xqc_test_moqt_interop_oracle_errors(void)
+xqc_test_moqt_interop_validator_errors(void)
 {
-    xqc_interop_oracle_t oracle = {0};
-    xqc_interop_fixture_case("data-subgroup-basic", &oracle.fixture);
-    CU_ASSERT_FALSE(xqc_interop_oracle_complete(&oracle, 0));
+    xqc_interop_validator_t validator = {0};
+    xqc_interop_fixture_case("data-subgroup-basic", &validator.fixture);
+    CU_ASSERT_FALSE(xqc_interop_validator_complete(&validator, 0));
     xqc_moqt_location_t start = {0, 0}, end = {2, 4};
-    CU_ASSERT_FALSE(xqc_interop_history_complete(&oracle, &start, &end));
-    CU_ASSERT_TRUE(xqc_interop_oracle_complete(&oracle, 1));
+    CU_ASSERT_FALSE(xqc_interop_history_complete(&validator, &start, &end));
+    CU_ASSERT_TRUE(xqc_interop_validator_complete(&validator, 1));
     char bytes[64];
     memset(bytes, 't', sizeof(bytes));
     xqc_moqt_object_t o = {.priority = 128, .payload_length = 64,
                             .payload = {bytes, 64}};
-    xqc_interop_oracle_object(&oracle, &o);
-    xqc_interop_oracle_object(&oracle, &o);
-    CU_ASSERT_TRUE(oracle.failed);
-    CU_ASSERT_FALSE(xqc_interop_history_complete(&oracle, &start, &end));
-    memset(oracle.seen, 0, sizeof(oracle.seen));
-    memset(oracle.offsets, 0, sizeof(oracle.offsets));
-    oracle.failed = 0;
+    xqc_interop_validator_object(&validator, &o);
+    xqc_interop_validator_object(&validator, &o);
+    CU_ASSERT_TRUE(validator.failed);
+    CU_ASSERT_FALSE(xqc_interop_history_complete(&validator, &start, &end));
+    memset(validator.seen, 0, sizeof(validator.seen));
+    memset(validator.offsets, 0, sizeof(validator.offsets));
+    validator.failed = 0;
     bytes[0] = 'x';
-    xqc_interop_oracle_object(&oracle, &o);
-    CU_ASSERT_TRUE(oracle.failed);
-    oracle.failed = 0;
+    xqc_interop_validator_object(&validator, &o);
+    CU_ASSERT_TRUE(validator.failed);
+    validator.failed = 0;
     o.group_id = 100;
-    xqc_interop_oracle_object(&oracle, &o);
-    CU_ASSERT_TRUE(oracle.failed);
+    xqc_interop_validator_object(&validator, &o);
+    CU_ASSERT_TRUE(validator.failed);
 }
 
 void
 xqc_test_moqt_interop_properties(void)
 {
-    xqc_interop_oracle_t oracle = {.origin = 1};
-    xqc_interop_fixture_case("moq-test-extensions", &oracle.fixture);
+    xqc_interop_validator_t validator = {.origin = 1};
+    xqc_interop_fixture_case("moq-test-extensions", &validator.fixture);
     char bytes[64];
     memset(bytes, 't', sizeof(bytes));
     unsigned char props[] = {2, 42, 3, 3, 'a', 'b', 'c'};
     xqc_moqt_object_t object = {.priority = 200, .payload_length = 64,
         .payload = {bytes, 64}, .properties = {props, sizeof(props)}};
-    xqc_interop_oracle_object(&oracle, &object);
-    CU_ASSERT_FALSE(oracle.failed);
-    CU_ASSERT_EQUAL(oracle.objects, 1);
-    oracle = (xqc_interop_oracle_t){0};
-    xqc_interop_fixture_case("moq-test-extensions", &oracle.fixture);
+    xqc_interop_validator_object(&validator, &object);
+    CU_ASSERT_FALSE(validator.failed);
+    CU_ASSERT_EQUAL(validator.objects, 1);
+    validator = (xqc_interop_validator_t){0};
+    xqc_interop_fixture_case("moq-test-extensions", &validator.fixture);
     unsigned char fixed[] = {2, 1, 3, 1, 'x'};
     object.properties = (struct iovec){fixed, sizeof(fixed)};
-    xqc_interop_oracle_object(&oracle, &object);
-    CU_ASSERT_FALSE(oracle.failed);
-    CU_ASSERT_EQUAL(oracle.objects, 1);
+    xqc_interop_validator_object(&validator, &object);
+    CU_ASSERT_FALSE(validator.failed);
+    CU_ASSERT_EQUAL(validator.objects, 1);
 
     const char *cases[] = {"moq-test-extensions-integer-only",
                            "moq-test-extensions-variable-only"};
@@ -397,23 +419,25 @@ xqc_test_moqt_interop_properties(void)
     unsigned char variable[] = {5, 1, 'x'};
     unsigned char variable_random[] = {5, 3, 'a', 'b', 'c'};
     for (unsigned i = 0; i < 2; i++) {
-        oracle = (xqc_interop_oracle_t){0};
-        CU_ASSERT_EQUAL(xqc_interop_fixture_case(cases[i], &oracle.fixture), 0);
+        validator = (xqc_interop_validator_t){0};
+        CU_ASSERT_EQUAL(xqc_interop_fixture_case(cases[i],
+                                                 &validator.fixture), 0);
         object.properties = i == 0
             ? (struct iovec){integer, sizeof(integer)}
             : (struct iovec){variable, sizeof(variable)};
-        xqc_interop_oracle_object(&oracle, &object);
-        CU_ASSERT_FALSE(oracle.failed);
-        CU_ASSERT_EQUAL(oracle.objects, 1);
+        xqc_interop_validator_object(&validator, &object);
+        CU_ASSERT_FALSE(validator.failed);
+        CU_ASSERT_EQUAL(validator.objects, 1);
 
-        oracle = (xqc_interop_oracle_t){.origin = 1};
-        CU_ASSERT_EQUAL(xqc_interop_fixture_case(cases[i], &oracle.fixture), 0);
+        validator = (xqc_interop_validator_t){.origin = 1};
+        CU_ASSERT_EQUAL(xqc_interop_fixture_case(cases[i],
+                                                 &validator.fixture), 0);
         object.properties = i == 0
             ? (struct iovec){props, 2}
             : (struct iovec){variable_random, sizeof(variable_random)};
-        xqc_interop_oracle_object(&oracle, &object);
-        CU_ASSERT_FALSE(oracle.failed);
-        CU_ASSERT_EQUAL(oracle.objects, 1);
+        xqc_interop_validator_object(&validator, &object);
+        CU_ASSERT_FALSE(validator.failed);
+        CU_ASSERT_EQUAL(validator.objects, 1);
     }
 }
 
@@ -421,8 +445,8 @@ void
 xqc_test_moqt_interop_properties_errors(void)
 {
     for (unsigned i = 0; i < 4; i++) {
-        xqc_interop_oracle_t oracle = {.origin = i != 3};
-        xqc_interop_fixture_case("moq-test-extensions", &oracle.fixture);
+        xqc_interop_validator_t validator = {.origin = i != 3};
+        xqc_interop_fixture_case("moq-test-extensions", &validator.fixture);
         char bytes[64];
         memset(bytes, 't', sizeof(bytes));
         unsigned char props[] = {2, 42, i == 0 ? 5 : 3, 3, 'a', 'b', 'c'};
@@ -430,8 +454,8 @@ xqc_test_moqt_interop_properties_errors(void)
             .payload = {bytes, 64},
             .properties = {props, i == 1 ? sizeof(props) - 1
                                     : i == 2 ? 1 : sizeof(props)}};
-        xqc_interop_oracle_object(&oracle, &object);
-        CU_ASSERT_TRUE(oracle.failed);
+        xqc_interop_validator_object(&validator, &object);
+        CU_ASSERT_TRUE(validator.failed);
     }
 
     const char *cases[] = {"moq-test-extensions-integer-only",
@@ -439,8 +463,8 @@ xqc_test_moqt_interop_properties_errors(void)
     unsigned char integer[] = {2, 1};
     unsigned char variable[] = {5, 1, 'x'};
     for (unsigned i = 0; i < 2; i++) {
-        xqc_interop_oracle_t oracle = {.origin = 1};
-        xqc_interop_fixture_case(cases[i], &oracle.fixture);
+        xqc_interop_validator_t validator = {.origin = 1};
+        xqc_interop_fixture_case(cases[i], &validator.fixture);
         char bytes[64];
         memset(bytes, 't', sizeof(bytes));
         xqc_moqt_object_t object = {.priority = 200, .payload_length = 64,
@@ -448,8 +472,8 @@ xqc_test_moqt_interop_properties_errors(void)
             .properties = i == 0
                 ? (struct iovec){variable, sizeof(variable)}
                 : (struct iovec){integer, sizeof(integer)}};
-        xqc_interop_oracle_object(&oracle, &object);
-        CU_ASSERT_TRUE(oracle.failed);
+        xqc_interop_validator_object(&validator, &object);
+        CU_ASSERT_TRUE(validator.failed);
     }
 }
 

@@ -26,7 +26,7 @@
 | --- | --- | --- |
 | 01–07 | setup-only; announce-only; publish-namespace-done; subscribe-error; rendezvous-timeout; announce-subscribe; subscribe-before-announce | Re-run control and namespace request lifecycles; compare the same case in both transports. |
 | 08–11 | data-subgroup-basic; subscribe-namespace-lifecycle; publish-track-only; publish-track-subscribe | Verify complete delivery, PUBLISH completion, discovery removal, and session reuse. |
-| 12–19 | moq-test-subgroup-per-group-eog; moq-test-subgroup-per-object; moq-test-two-subgroups-eog; moq-test-datagram; moq-test-datagram-eog; moq-test-extensions; moq-test-increments; moq-test-forward-zero | Re-run the complete Object oracle and separate relay limitations from client encoding or receive defects. |
+| 12–19 | moq-test-subgroup-per-group-eog; moq-test-subgroup-per-object; moq-test-two-subgroups-eog; moq-test-datagram; moq-test-datagram-eog; moq-test-extensions; moq-test-increments; moq-test-forward-zero | Re-run the complete Object validator and separate relay limitations from client encoding or receive defects. |
 | 20–23 | publish-namespace-multi-publisher-retention; fetch; join; namespace-discovery | Diagnose source retention, historical delivery, Fill/live concurrency, and namespace/Track discovery independently. |
 | 24–26 | publish-subscribe-media; media-catalog-error; media-loc-error | Preserve the bounded media case and rejection/recovery behavior; require real decoder output. |
 
@@ -93,7 +93,7 @@ without speculative placeholder frameworks.
 | 17 | Protocol-rule validation gaps | Scope/query/restart, property-set replacement/Mandatory phases, original Subgroup first-Object overrides, Prior Gap/history, parameter allowlists/conflicts |
 | 18 | Dynamic Groups/EXPIRES renewal | [Groups][groups], [parameters][parameters]; application creation, boundaries/delay, independent clocks; Relay aggregation separate |
 | 19 | Padding, overload, deployment security | [Deployment][security]; independent cancellation, short-prefix/slow-peer budgets, hop authorization, safe logs |
-| 20 | Pinned independent interop | [Catalog][interop]; runner/images, complete-Object oracle, media fixtures, independent peer evidence |
+| 20 | Pinned independent interop | [Catalog][interop]; runner/images, complete-Object validator, media fixtures, independent peer evidence |
 
 ## Separate Scopes
 
@@ -116,7 +116,7 @@ includes external runner integration and broader TLS/interop evidence.
 - [ ] WebTransport: CONNECT selection, URI, WT binding, MOQT SETUP, DATAGRAM,
   and isolation within one H3 connection; no inherited Native QUIC 0-RTT claim.
 - [ ] Media/interop tooling: traceable versions/images/fixtures, real display,
-  complete-Object oracle; separate evidence beyond the fixed 22-case catalog
+  complete-Object validator; separate evidence beyond the fixed 22-case catalog
   for FETCH/Fill, 0-RTT, and other capabilities.
 
 ## Delivery Acceptance

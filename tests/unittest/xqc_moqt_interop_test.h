@@ -3,8 +3,8 @@
 #define XQC_MOQT_INTEROP_TEST_H
 void xqc_test_moqt_interop_fixture(void);
 void xqc_test_moqt_interop_fixture_errors(void);
-void xqc_test_moqt_interop_oracle(void);
-void xqc_test_moqt_interop_oracle_errors(void);
+void xqc_test_moqt_interop_validator(void);
+void xqc_test_moqt_interop_validator_errors(void);
 void xqc_test_moqt_interop_fragmentation(void);
 void xqc_test_moqt_interop_fragmentation_errors(void);
 void xqc_test_moqt_interop_large_id(void);

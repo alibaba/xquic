@@ -702,9 +702,79 @@ xqc_test_moqt_relay_history(void)
     xqc_test_relay_destroy(&f);
 }
 
+static void
+xqc_test_relay_pending_source(void)
+{
+    enum { XQC_TEST_SOURCE_ACCEPT, XQC_TEST_SOURCE_REJECT,
+           XQC_TEST_SOURCE_CLOSE, XQC_TEST_SOURCE_UPDATE };
+    for (int scenario = XQC_TEST_SOURCE_ACCEPT;
+         scenario <= XQC_TEST_SOURCE_UPDATE; scenario++)
+    {
+        xqc_test_relay_t f;
+        xqc_test_relay_init(&f);
+        xqc_moqt_message_t m = xqc_test_relay_message(
+            XQC_MOQT_MSG_PUBLISH_NAMESPACE);
+        xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
+        m.type = XQC_MOQT_MSG_PUBLISH;
+        m.track_alias = 42;
+        xqc_moqt_request_t *pub = xqc_test_relay_receive(
+            &f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
+        m.type = XQC_MOQT_MSG_SUBSCRIBE;
+        xqc_moqt_request_t *down = xqc_test_relay_receive(
+            &f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
+        CU_ASSERT_TRUE_FATAL(pub->established && down->established);
+        xqc_moqt_relay_request_t *record = xqc_test_relay_record(f.relay, down);
+        xqc_moqt_relay_request_t *up = f.relay->requests;
+        CU_ASSERT_PTR_EQUAL_FATAL(up->parent, record);
+        CU_ASSERT_FALSE(up->established);
+        xqc_memzero(&m, sizeof(m));
+        if (scenario == XQC_TEST_SOURCE_UPDATE) {
+            /* Draft-22 §9.5: acknowledge a valid update on the live grant. */
+            m.type = XQC_MOQT_MSG_REQUEST_UPDATE;
+            m.request_id = f.peers[XQC_TEST_RELAY_SUBSCRIBER].next_request;
+            uint8_t paused = 0;
+            m.parameter_count = 1;
+            m.parameters[0] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_FORWARD, 1, &paused};
+            xqc_test_relay_input(down->stream, &m, XQC_MOQT_MSG_SUBSCRIBE);
+            CU_ASSERT_TRUE(up->stopped);
+            CU_ASSERT_EQUAL(record->pending, 0);
+            CU_ASSERT_EQUAL(down->pending_received_updates, 0);
+            CU_ASSERT_FALSE(down->subscription->forward);
+            CU_ASSERT_FALSE(down->failed);
+        } else {
+            /* Draft-22 §9.9: retain the completed publication's outcome. */
+            m.type = XQC_MOQT_MSG_PUBLISH_DONE;
+            m.error.code = XQC_MOQT_PUBLISH_TRACK_ENDED;
+            xqc_test_relay_input(pub->stream, &m, XQC_MOQT_MSG_PUBLISH);
+            CU_ASSERT_TRUE(record->awaiting_done);
+            CU_ASSERT_FALSE(record->ending);
+            if (scenario == XQC_TEST_SOURCE_CLOSE) {
+                xqc_moqt_request_cancel(up->request, XQC_MOQT_RESET_CANCELLED);
+            } else {
+                xqc_memzero(&m, sizeof(m));
+                if (scenario == XQC_TEST_SOURCE_ACCEPT) {
+                    m.type = XQC_MOQT_MSG_SUBSCRIBE_OK;
+                    m.track_alias = 43;
+                } else {
+                    m.type = XQC_MOQT_MSG_REQUEST_ERROR;
+                    m.error.code = XQC_MOQT_REQUEST_DOES_NOT_EXIST;
+                }
+                xqc_test_relay_input(up->request->stream, &m, up->type);
+            }
+            xqc_moqt_relay_process(f.relay, xqc_monotonic_timestamp());
+            CU_ASSERT_FALSE(record->awaiting_done);
+            CU_ASSERT_EQUAL(down->done_sent, scenario != XQC_TEST_SOURCE_ACCEPT);
+            CU_ASSERT_FALSE(down->failed);
+        }
+        xqc_test_relay_destroy(&f);
+    }
+}
+
 void
 xqc_test_moqt_relay_updates(void)
 {
+    xqc_test_relay_pending_source();
     xqc_test_relay_t f;
     xqc_test_relay_init(&f);
     xqc_moqt_message_t m = xqc_test_relay_message(

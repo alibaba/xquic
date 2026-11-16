@@ -81,6 +81,7 @@ struct xqc_moqt_relay_request_s {
     unsigned                   registered:1;
     unsigned                   awaiting_done:1;
     unsigned                   ending:1;
+    unsigned                   ended:1;
     unsigned                   stopped:1;
     unsigned                   forward:1;
     unsigned                   history_reply:1;

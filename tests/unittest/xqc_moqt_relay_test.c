@@ -1098,6 +1098,20 @@ xqc_test_relay_overlapping_grant(void)
     xqc_moqt_relay_process(direct.relay, xqc_monotonic_timestamp());
     CU_ASSERT_TRUE(sub->done_sent);
     CU_ASSERT_FALSE(sub->failed);
+    /* A namespace announcement can trigger a sweep before the FIN drains. */
+    overlap.type = XQC_MOQT_MSG_PUBLISH_NAMESPACE;
+    xqc_test_relay_receive(&direct.peers[XQC_TEST_RELAY_OTHER_PUBLISHER],
+                           &overlap);
+    for (xqc_moqt_relay_request_t *up = direct.relay->requests;
+         up != NULL; up = up->next)
+    {
+        CU_ASSERT_PTR_NOT_EQUAL(up->parent, delivery);
+    }
+    overlap.type = XQC_MOQT_MSG_SUBSCRIBE;
+    xqc_moqt_request_t *fresh = xqc_test_relay_receive(
+        &direct.peers[XQC_TEST_RELAY_OTHER_SUBSCRIBER], &overlap);
+    xqc_test_relay_establish(direct.relay);
+    CU_ASSERT_TRUE(fresh->established);
     xqc_test_relay_destroy(&direct);
 }
 

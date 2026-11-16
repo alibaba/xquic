@@ -3,6 +3,7 @@
  */
 #include "src/webtransport/xqc_webtransport_session.h"
 #include "src/webtransport/xqc_webtransport_conn.h"
+#include "src/webtransport/xqc_webtransport_dgram.h"
 #include "src/webtransport/xqc_webtransport_stream.h"
 #include "src/webtransport/xqc_webtransport_request_adapter.h"
 #include "src/http3/xqc_h3_conn.h"
@@ -285,6 +286,9 @@ xqc_wt_session_flush(xqc_wt_session_t *session)
         session->send_len = 0;
         session->send_fin = XQC_FALSE;
         if (fin) {
+            if (!session->peer_closed) {
+                xqc_wt_session_close_streams(session);
+            }
             return XQC_OK;
         }
     }
@@ -397,7 +401,10 @@ xqc_wt_session_close_with_error(xqc_wt_session_t *session,
     if (session->send_len) {
         return -XQC_EAGAIN;
     }
-    /* draft-ietf-webtrans-http3-16 Section 6: CLOSE capsule then FIN. */
+    /*
+     * Draft-07 §5 and draft-16 §6: put CLOSE and FIN on the CONNECT
+     * before sending SESSION_GONE on associated streams.
+     */
     session->close_error = error;
     if (reason_len) {
         memcpy(session->close_reason, reason, reason_len);
@@ -414,8 +421,12 @@ xqc_wt_session_close_with_error(xqc_wt_session_t *session,
     session->send_len = n + reason_len;
     session->send_fin = XQC_TRUE;
     session->closed = XQC_TRUE;
-    xqc_wt_session_close_streams(session);
-    return xqc_wt_session_flush(session);
+    xqc_wt_dgram_purge(session);
+    xqc_int_t ret = xqc_wt_session_flush(session);
+    if (ret < 0) {
+        xqc_wt_session_close_streams(session);
+    }
+    return ret;
 }
 
 xqc_int_t

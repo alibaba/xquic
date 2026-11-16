@@ -102,6 +102,8 @@ case_moqt_demo_relay_echo()
             > "relay-${mode}.log" 2>&1 || return 1
         XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
             direct > "relay-direct-${mode}.log" 2>&1 || return 1
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
+            namespace-end > "relay-namespace-end-${mode}.log" 2>&1 || return 1
     done
     XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" wt range-filter \
         > relay-wt-range-filter.log 2>&1 || return 1

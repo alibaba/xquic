@@ -69,6 +69,10 @@ the stream header and takes effect only on complete FIN. Continuation
 fragments omit repeated properties; unknown and Immutable Properties preserve
 their raw bytes. New subscriptions to direct PUBLISH use current Largest,
 not a stale cached initial location.
+An authorized TRACK_STATUS for an established direct PUBLISH uses that
+Track's properties and current Largest Object without opening an upstream
+query or downstream delivery. INCLUDE_PROPERTIES still controls whether
+the response includes properties (draft-22 §§9.13 and 9.20.21).
 
 | Protocol responsibility | Entity | References and lifetime |
 | --- | --- | --- |
@@ -102,6 +106,9 @@ pause direct PUBLISH only when all matching demands are paused. For
 an explicit resume, count the authorized pending demand for upstream purposes
 and acknowledge downstream after the direct sources acknowledge forwarding
 (draft-22 §§3.1.1, 9.5). For
+an already established direct PUBLISH, an overlapping namespace on the same
+publisher Session reuses that exact-Track grant. Namespace matches on other
+publisher Sessions remain independent (draft-22 §7.6). For
 St-created subscriptions, each resulting PUBLISH inherits St FORWARD,
 defaulting to 1 (draft-22 §3.6.2,
 §9.20.18). The Relay snapshot and endpoint use the same initial value;

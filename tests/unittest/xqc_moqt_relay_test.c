@@ -1015,6 +1015,57 @@ xqc_test_relay_pending_source(void)
 }
 
 static void
+xqc_test_relay_resume_source(void)
+{
+    for (int fail = 0; fail < 2; fail++) {
+        xqc_test_relay_t f;
+        xqc_test_relay_init(&f);
+        xqc_test_relay_peer_t *p = &f.peers[XQC_TEST_RELAY_PUBLISHER];
+        xqc_test_relay_peer_t *s = &f.peers[XQC_TEST_RELAY_SUBSCRIBER];
+        uint8_t forward = 0;
+        xqc_moq_message_parameter_t param = {XQC_MOQT_PARAM_FORWARD, 1,
+                                            &forward};
+        xqc_moqt_message_t m = xqc_test_relay_message(XQC_MOQT_MSG_PUBLISH);
+        m.track_alias = 42;
+        m.parameter_count = 1;
+        m.parameters[0] = param;
+        xqc_moqt_request_t *pub = xqc_test_relay_receive(p, &m);
+        m.type = XQC_MOQT_MSG_SUBSCRIBE;
+        xqc_moqt_request_t *sub = xqc_test_relay_receive(s, &m);
+        CU_ASSERT_TRUE_FATAL(pub->established && sub->established);
+        xqc_moqt_relay_request_t *up = xqc_test_relay_record(f.relay, pub);
+        CU_ASSERT_FALSE(up->forward);
+        CU_ASSERT_FALSE(up->waiting_update);
+
+        forward = 1;
+        m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+            .request_id = s->next_request, .parameter_count = 1,
+            .parameters = {param}};
+        xqc_test_relay_input(sub->stream, &m, XQC_MOQT_MSG_SUBSCRIBE);
+        CU_ASSERT_TRUE(up->waiting_update);
+        CU_ASSERT_EQUAL(sub->pending_received_updates, 1);
+        CU_ASSERT_FALSE(sub->subscription->forward);
+        xqc_moqt_relay_process(f.relay, xqc_monotonic_timestamp());
+        CU_ASSERT_EQUAL(sub->pending_received_updates, 1);
+        m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_OK};
+        if (fail) {
+            m.type = XQC_MOQT_MSG_REQUEST_ERROR;
+            m.error.code = XQC_MOQT_REQUEST_NOT_SUPPORTED;
+        }
+        xqc_test_relay_input(pub->stream, &m, XQC_MOQT_MSG_PUBLISH);
+        if (fail) {
+            CU_ASSERT_TRUE(sub->failed);
+            CU_ASSERT_FALSE(s->session->closed);
+        } else {
+            CU_ASSERT_FALSE_FATAL(sub->failed);
+            CU_ASSERT_TRUE(sub->subscription->forward);
+            CU_ASSERT_EQUAL(sub->pending_received_updates, 0);
+        }
+        xqc_test_relay_destroy(&f);
+    }
+}
+
+static void
 xqc_test_relay_overlapping_grant(void)
 {
     xqc_test_relay_t direct;
@@ -1053,6 +1104,7 @@ xqc_test_relay_overlapping_grant(void)
 void
 xqc_test_moqt_relay_updates(void)
 {
+    xqc_test_relay_resume_source();
     xqc_test_relay_overlapping_grant();
     xqc_test_relay_pending_source();
     xqc_test_relay_t f;

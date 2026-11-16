@@ -103,6 +103,9 @@ creates an independent SUBSCRIBE to each matching publisher, retaining that
 demand's filters and delivery parameters. Direct PUBLISH may fan out to
 multiple authorized downstreams. Each downstream pauses/resumes independently;
 pause direct PUBLISH only when all matching demands are paused. For
+an explicit resume, count the authorized pending demand for upstream purposes
+and acknowledge downstream after the direct sources acknowledge forwarding
+(draft-22 §§3.1.1, 9.5). For
 an already established direct PUBLISH, an overlapping namespace on the same
 publisher Session reuses that exact-Track grant. Namespace matches on other
 publisher Sessions remain independent (draft-22 §7.6). For

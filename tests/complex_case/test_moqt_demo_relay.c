@@ -39,6 +39,7 @@ typedef struct {
     xqc_moqt_session_t          *session;
     xqc_moqt_subscription_t     *subscription;
     xqc_moqt_request_t          *publication;
+    xqc_moqt_request_t          *deferred_resume;
     xqc_moqt_config_t           config;
     xqc_moqt_kv_t               options[2];
     xqc_cid_t                   cid;
@@ -48,6 +49,7 @@ typedef struct {
     unsigned                    errors, objects, datagrams, closed, wt_closed;
     unsigned                    connection_closed;
     unsigned                    forward, received_forward;
+    unsigned                    deferred_updates;
     unsigned                    fetches, fill_ready, fill_closed, fill_objects;
     size_t                      bytes;
     size_t                      fill_bytes;
@@ -69,6 +71,7 @@ struct fixture_s {
     unsigned                 fill;
     unsigned                 discovery;
     unsigned                 range_filter;
+    unsigned                 defer_resume;
     char                     namespace[64];
 };
 
@@ -259,6 +262,11 @@ message(xqc_moqt_request_t *req, const xqc_moqt_message_t *m, void *data)
         for (size_t i = 0; i < m->parameter_count; i++) {
             if (m->parameters[i].type == XQC_MOQT_PARAM_FORWARD) {
                 c->forward = m->parameters[i].value[0];
+                if (c->forward && c->fixture->defer_resume) {
+                    c->deferred_resume = req;
+                    c->deferred_updates++;
+                    return;
+                }
             }
         }
         xqc_moqt_message_t response = {.type = XQC_MOQT_MSG_REQUEST_OK};
@@ -292,7 +300,7 @@ object(xqc_moqt_subscription_t *subscription, xqc_moqt_stream_t *stream,
         return;
     }
     if (value->datagram) {
-        c->fixture->failed |= value->group_id != 102
+        c->fixture->failed |= value->group_id != 102 + c->datagrams
             || value->payload.iov_len != 3
             || memcmp(value->payload.iov_base, "d22", 3);
         c->datagrams++;
@@ -673,8 +681,9 @@ main(int argc, char **argv)
             }
         }
     }
+    unsigned resume = argc == 3 && !strcmp(argv[2], "resume");
     unsigned namespace_end = argc == 3 && !strcmp(argv[2], "namespace-end");
-    unsigned direct = f.discovery || namespace_end
+    unsigned direct = f.discovery || namespace_end || resume
         || (argc == 3 && !strcmp(argv[2], "direct"));
     unsigned parser_capacity = argc == 3
         && !strcmp(argv[2], "parser-capacity");
@@ -800,9 +809,10 @@ main(int argc, char **argv)
         CHECK(s->request_error == XQC_MOQT_REQUEST_DOES_NOT_EXIST);
         CHECK(p->upstream == 1);
     }
-    CHECK(request(s, f.discovery ? XQC_MOQT_MSG_SUBSCRIBE_TRACKS
-                                : XQC_MOQT_MSG_SUBSCRIBE,
-                  f.discovery ? NULL : "interop-track"));
+    xqc_moqt_request_t *subscription = request(s,
+        f.discovery ? XQC_MOQT_MSG_SUBSCRIBE_TRACKS : XQC_MOQT_MSG_SUBSCRIBE,
+        f.discovery ? NULL : "interop-track");
+    CHECK(subscription);
     CHECK(!wait_for(&f, &s->subscribed, 1));
     CHECK(p->subscription && (direct || p->upstream == 1 + errors));
     if (f.discovery) {
@@ -868,6 +878,30 @@ main(int argc, char **argv)
         xqc_complex_case_engine_t *engines[] = {&f.base};
         xqc_complex_case_pump(engines, 1, 250);
         CHECK(!f.failed && s->datagrams == 1 && s->objects == 1);
+    }
+    if (resume) {
+        uint8_t forward = 0;
+        xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+            .parameter_count = 1,
+            .parameters = {{XQC_MOQT_PARAM_FORWARD, 1, &forward}}};
+        CHECK(xqc_moqt_request_send(subscription, &update) == XQC_OK);
+        CHECK(!wait_for(&f, &s->responses, 1));
+        xqc_complex_case_engine_t *engines[] = {&f.base};
+        xqc_complex_case_pump(engines, 1, 100);
+        CHECK(!p->forward && s->datagrams == 1);
+        CHECK(xqc_moqt_datagram_send(p->subscription, &value) == -XQC_EPARAM);
+        forward = 1;
+        f.defer_resume = 1;
+        CHECK(xqc_moqt_request_send(subscription, &update) == XQC_OK);
+        CHECK(!wait_for(&f, &p->deferred_updates, 1));
+        xqc_complex_case_pump(engines, 1, 100);
+        CHECK(s->responses == 1 && s->datagrams == 1);
+        xqc_moqt_message_t ok = {.type = XQC_MOQT_MSG_REQUEST_OK};
+        CHECK(xqc_moqt_request_send(p->deferred_resume, &ok) == XQC_OK);
+        CHECK(!wait_for(&f, &s->responses, 2));
+        value.group_id++;
+        CHECK(xqc_moqt_datagram_send(p->subscription, &value) == XQC_OK);
+        CHECK(!wait_for(&f, &s->datagrams, 2));
     }
     for (unsigned i = 0; i < additional_count; i++) {
         CHECK(!additional[i].closed && !additional[i].connection_closed);

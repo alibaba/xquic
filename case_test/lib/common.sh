@@ -391,6 +391,33 @@ case_test_start_server()
     sleep "${CASE_TEST_SERVER_WAIT:-1}"
 }
 
+# Wait for the server to exit on its own: return its exit status, or 124 after
+# killing it when it still runs after attempts * interval seconds.
+case_test_wait_for_server_exit()
+{
+    local attempts="${1:-50}"
+    local interval="${2:-0.1}"
+    local attempt=0
+    local status
+
+    while [[ "${attempt}" -lt "${attempts}" ]]; do
+        if ! kill -0 "${CASE_TEST_SERVER_PID}" 2> /dev/null; then
+            wait "${CASE_TEST_SERVER_PID}" 2> /dev/null
+            status="$?"
+            CASE_TEST_SERVER_PID=""
+            return "${status}"
+        fi
+
+        sleep "${interval}"
+        attempt=$((attempt + 1))
+    done
+
+    kill -KILL "${CASE_TEST_SERVER_PID}" 2> /dev/null || true
+    wait "${CASE_TEST_SERVER_PID}" 2> /dev/null || true
+    CASE_TEST_SERVER_PID=""
+    return 124
+}
+
 case_test_wait_for_log()
 {
     local log_file="$1"

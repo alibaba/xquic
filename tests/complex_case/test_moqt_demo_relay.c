@@ -50,6 +50,7 @@ typedef struct {
     unsigned                    connection_closed;
     unsigned                    forward, received_forward;
     unsigned                    deferred_updates;
+    unsigned                    new_group_requests;
     unsigned                    fetches, fill_ready, fill_closed, fill_objects;
     size_t                      bytes;
     size_t                      fill_bytes;
@@ -72,6 +73,7 @@ struct fixture_s {
     unsigned                 discovery;
     unsigned                 range_filter;
     unsigned                 defer_resume;
+    unsigned                 dynamic_groups;
     char                     namespace[64];
 };
 
@@ -267,6 +269,13 @@ message(xqc_moqt_request_t *req, const xqc_moqt_message_t *m, void *data)
                     c->deferred_updates++;
                     return;
                 }
+            }
+            if (m->parameters[i].type == XQC_MOQT_PARAM_NEW_GROUP_REQUEST) {
+                const xqc_moq_message_parameter_t *param = &m->parameters[i];
+                uint64_t group;
+                c->new_group_requests++;
+                c->fixture->failed |= xqc_vi64_read(param->value,
+                    param->value + param->length, &group) < 0 || group != 103;
             }
         }
         xqc_moqt_message_t response = {.type = XQC_MOQT_MSG_REQUEST_OK};
@@ -493,6 +502,10 @@ request(client_t *c, uint64_t type, const char *name)
         }
     }
     uint8_t object_zero[] = {3, 0, 0, 0};
+    uint8_t dynamic[] = {XQC_MOQT_PROPERTY_DYNAMIC_GROUPS, 1};
+    if (c->fixture->dynamic_groups && type == XQC_MOQT_MSG_PUBLISH) {
+        m.properties = (struct iovec){dynamic, sizeof(dynamic)};
+    }
     if (c->fixture->range_filter && type == XQC_MOQT_MSG_SUBSCRIBE) {
         /* Draft-22 §9.20.11: Object ID 0 in every matching Group. */
         m.parameter_count = 1;
@@ -682,8 +695,10 @@ main(int argc, char **argv)
         }
     }
     unsigned resume = argc == 3 && !strcmp(argv[2], "resume");
+    f.dynamic_groups = argc == 3 && !strcmp(argv[2], "new-group");
     unsigned namespace_end = argc == 3 && !strcmp(argv[2], "namespace-end");
     unsigned direct = f.discovery || namespace_end || resume
+        || f.dynamic_groups
         || (argc == 3 && !strcmp(argv[2], "direct"));
     unsigned parser_capacity = argc == 3
         && !strcmp(argv[2], "parser-capacity");
@@ -900,6 +915,20 @@ main(int argc, char **argv)
         CHECK(xqc_moqt_request_send(p->deferred_resume, &ok) == XQC_OK);
         CHECK(!wait_for(&f, &s->responses, 2));
         value.group_id++;
+        CHECK(xqc_moqt_datagram_send(p->subscription, &value) == XQC_OK);
+        CHECK(!wait_for(&f, &s->datagrams, 2));
+    }
+    if (f.dynamic_groups) {
+        CHECK(xqc_moqt_subscription_dynamic_groups(
+            xqc_moqt_request_subscription(subscription)));
+        uint8_t group[2];
+        size_t length = xqc_vi64_write(group, group + sizeof(group), 103);
+        xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+            .parameter_count = 1,
+            .parameters = {{XQC_MOQT_PARAM_NEW_GROUP_REQUEST, length, group}}};
+        CHECK(xqc_moqt_request_send(subscription, &update) == XQC_OK);
+        CHECK(!wait_for(&f, &p->new_group_requests, 1));
+        value.group_id = 103;
         CHECK(xqc_moqt_datagram_send(p->subscription, &value) == XQC_OK);
         CHECK(!wait_for(&f, &s->datagrams, 2));
     }

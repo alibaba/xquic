@@ -94,6 +94,7 @@ typedef struct xqc_moqt_track_s {
     uint8_t                     publisher_priority;
     uint8_t                     group_order;
     unsigned                    local_publisher:1;
+    unsigned                    dynamic_groups:1;
     unsigned                    has_largest:1;
     unsigned                    has_end:1;
     unsigned                    end_inclusive:1;

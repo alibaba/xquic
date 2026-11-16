@@ -9,9 +9,10 @@
 
 #define XQC_MOQT_MICROS_PER_MILLISECOND 1000
 
-/* Track properties shared by endpoints and relays (sections 10.3/10.7). */
+/* Track properties shared by endpoints and relays (sections 10.3/10.6/10.7). */
 #define XQC_MOQT_PROPERTY_MAX_CACHE_DURATION 0x04
 #define XQC_MOQT_PROPERTY_IMMUTABLE 0x0b
+#define XQC_MOQT_PROPERTY_DYNAMIC_GROUPS 0x30
 #define XQC_MOQT_MAX_FILTER_RANGES 8
 
 typedef struct {

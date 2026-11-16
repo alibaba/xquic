@@ -1853,10 +1853,10 @@ Two-endpoint self-tests do not replace three-node acceptance.
 
 ### Requirement: Dynamic Group Requests and Completion
 
-Until enabled, use the restricted behavior below. Enabling requires explicit
-application support and a new-Group callback, without transport guessing
-I-frames/minimum GOP. NEW_GROUP_REQUEST is known largest Group+1, or zero if
-unknown. Check UINT64_MAX rather than wrapping to zero. Initial SUBSCRIBE may
+Generating a new Group requires explicit application support. The endpoint
+reports REQUEST_UPDATE to its control callback and the publisher selects the
+next Group and keyframe timing. NEW_GROUP_REQUEST is known largest Group+1,
+or zero if unknown. Check UINT64_MAX rather than wrapping to zero. Initial SUBSCRIBE may
 include it before support is known; unsupported original publishers ignore it.
 Updates require known DYNAMIC_GROUPS=1.
 [§3.5.1][s3.5.1], [§9.20.19][s9.20.19]
@@ -1867,7 +1867,7 @@ constraints. Publisher chooses actual ID, not necessarily the requested value.
 Callback acceptance, REQUEST_UPDATE_OK, and open request stream do not prove
 creation.
 
-A future Relay without Established upstream includes demand in SUBSCRIBE.
+A Relay without Established upstream includes demand in SUBSCRIBE.
 With a supporting upstream, zero or demand above Largest Group requires an
 upstream update unless an equal/larger request is outstanding. Nonzero demand
 at/below Largest Group needs none. Track retains outstanding value and
@@ -2180,7 +2180,7 @@ padding probes.
 | F27 [Rendezvous, late PUBLISH matching, termination](#rendezvous-and-relay-contract) | Complete | Core complete; bounded Relay rendezvous, late-publication matching, and cancellation termination | Yes; C05/C07/C13–C20 |
 | F28 [Directional Token Alias caches and ordering](#token-alias-design) | Complete | Not implemented; zero-cache fallback is not support | No; REGISTER/USE_ALIAS/DELETE not required |
 | F29 [Native QUIC 0-RTT, pipelining, rejection recovery](#moqt-0rtt-negotiation) | Complete | Not implemented; legacy fast/0-RTT is not draft-22 support | No; no resumption/early-data checks |
-| F30 [Dynamic Groups/NEW_GROUP_REQUEST, Relay aggregation](#dynamic-group-design) | Complete | Not implemented; application callbacks and Relay outstanding state separate | No; no dynamic-Group case |
+| F30 [Dynamic Groups/NEW_GROUP_REQUEST, Relay aggregation](#dynamic-group-design) | Complete | Direct PUBLISH forwards and coalesces requests. Namespace-grant aggregation remains open. | Yes; demo relay requests a new Group |
 | F31 [EXPIRES renewal and independent clocks](#parameter-context-and-renewal) | Complete | Not implemented; update framework is not renewal | No; no renewal case |
 | F32 [Padding consume/cancel and context-specific Grease](#deployment-and-security) | Complete | Partial; consume/discard/unknown errors present; independent cancel/combinations pending | No; optional active probing excluded |
 | F33 [Overload, budgets, slow endpoints, idle protection](#deployment-and-security) | Complete | Partial; basic budgets/backpressure present; overload/short-prefix/deployment checks pending | No; ordinary interop is not load/security acceptance |

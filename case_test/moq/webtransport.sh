@@ -110,6 +110,8 @@ case_moqt_demo_relay_echo()
     for mode in quic wt07 wt; do
         XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
             resume > "relay-resume-${mode}.log" 2>&1 || return 1
+        XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
+            new-group > "relay-new-group-${mode}.log" 2>&1 || return 1
     done
     grep -Fq 'RELAY FORWARD type=0x3' demo-server.log
 }

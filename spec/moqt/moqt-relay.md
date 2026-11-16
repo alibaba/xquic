@@ -33,7 +33,7 @@ provide cross-version bridging.
 | Upstream subscription aggregation | Bounded compatible aggregation permitted; otherwise independent upstream requests |
 | History cache | Bounded direct-PUBLISH capture with a finite advertised cache duration |
 | Range Filters | Optional and bounded by `MAX_FILTER_RANGES`; the relay enforces each subscriber or fetcher's filters independently |
-| Dynamic Groups | Deferred; retain endpoint rejection/negotiation boundaries |
+| Dynamic Groups | Direct PUBLISH forwards authorized requests when the publisher advertises support |
 | Relay cascading, routing protocol, loop discovery, cross-node state | Out of first-version scope; §7 defines no relay-to-relay interconnection mechanism |
 | Automatic failover/GOAWAY migration, operational control plane | Deferred; expose standard messages/state and application policy |
 
@@ -117,6 +117,10 @@ through its own REQUEST_UPDATE; PUBLISH_OK does not carry FORWARD (§9.3).
 Independent demand avoids premature filter-union/shared-update scheduling.
 A downstream grant ending with PUBLISH_DONE stays terminal while its
 transport drains. Later registration can route new requests (draft-22 §9.9).
+For direct PUBLISH with `DYNAMIC_GROUPS=1`, the relay coalesces outstanding
+`NEW_GROUP_REQUEST` values on each upstream receiver. A larger request
+can supersede an outstanding request. Advancing Largest Group allows a new
+request (draft-22 §§9.20.19, 10.6).
 Incoming Tokens are removed;
 application hop policy supplies outbound credentials.
 

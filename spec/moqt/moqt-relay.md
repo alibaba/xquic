@@ -283,6 +283,10 @@ on retry/source switch. Zero does not wait upstream; unavailable immediate
 Objects become timed-out ranges. Use unknown ranges/applicable reset for
 upstream failure/unknown Objects, timed-out ranges for budget exhaustion.
 Never conceal errors with nonexistent ranges. [§9.20.5][s9.20.5]
+For a known FETCH or Fill range, budget expiry closes the outstanding suffix
+with a timed-out range marker and FIN. If expiry interrupts an Object whose
+header and partial payload are already committed, reset the stream because
+the next record cannot be encoded until that payload ends.
 
 ### Requirement: Resource, Failure, and Slow-Subscriber Isolation
 

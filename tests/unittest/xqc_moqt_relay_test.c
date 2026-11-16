@@ -605,10 +605,49 @@ xqc_test_moqt_relay_history(void)
     xqc_moqt_relay_fetch_t *fetch = f.relay->fetches;
     CU_ASSERT_PTR_NOT_NULL(fetch->input);
     CU_ASSERT_PTR_NOT_NULL(fetch->output);
-    CU_ASSERT_PTR_NOT_NULL(fetch->stream);
-    xqc_moqt_relay_process(f.relay, fetch->deadline);
-    CU_ASSERT_PTR_NULL(f.relay->fetches);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(fetch->stream);
+    xqc_moqt_stream_t *timed_out = fetch->stream;
+    /* Draft-22 §3.2.3: a known unanswered suffix is a gap followed by FIN. */
+    xqc_moqt_session_t *session = timed_out->session;
+    size_t capacity = session->config.max_buffered_bytes;
+    session->config.max_buffered_bytes = session->buffered_bytes;
+    xqc_usec_t retry = xqc_moqt_relay_process(f.relay, fetch->deadline);
+    CU_ASSERT_FALSE(timed_out->tx_fin);
+    CU_ASSERT_PTR_NULL(fetch->input);
+    CU_ASSERT_FALSE(fetch->marked);
+    session->config.max_buffered_bytes = capacity;
+    xqc_moqt_relay_process(f.relay, retry);
+    CU_ASSERT_TRUE(timed_out->tx_fin);
+    CU_ASSERT_FALSE(timed_out->discarded);
+    CU_ASSERT_EQUAL(timed_out->state.data.object.range,
+                    XQC_MOQT_RANGE_TIMEOUT);
+    CU_ASSERT_EQUAL(timed_out->state.data.object.group_id, 1);
+    CU_ASSERT_EQUAL(timed_out->state.data.object.object_id, 2);
     CU_ASSERT_EQUAL(f.relay->stats.timeouts, 1);
+
+    /* Descending ranges end in the Start Group, after all its Objects. */
+    uint8_t order = XQC_MOQT_GROUP_DESCENDING;
+    m = xqc_test_relay_message(XQC_MOQT_MSG_FETCH);
+    m.parameter_count = 1;
+    m.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_GROUP_ORDER, 1, &order};
+    down = xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
+    up = f.relay->requests;
+    xqc_memzero(&m, sizeof(m));
+    m.type = XQC_MOQT_MSG_FETCH_OK;
+    m.end_group = 1;
+    m.end_object = 2;
+    xqc_test_relay_input(up->request->stream, &m, XQC_MOQT_MSG_FETCH);
+    fetch = f.relay->fetches;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(fetch->stream);
+    timed_out = fetch->stream;
+    xqc_moqt_relay_process(f.relay, fetch->deadline);
+    CU_ASSERT_TRUE(timed_out->tx_fin);
+    CU_ASSERT_EQUAL(timed_out->state.data.object.range,
+                    XQC_MOQT_RANGE_TIMEOUT);
+    CU_ASSERT_EQUAL(timed_out->state.data.object.group_id, 0);
+    CU_ASSERT_EQUAL(timed_out->state.data.object.object_id, UINT64_MAX);
+
     /* An empty historical stream still forwards its FIN exactly once. */
     m = xqc_test_relay_message(XQC_MOQT_MSG_FETCH);
     down = xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_SUBSCRIBER], &m);
@@ -1124,10 +1163,11 @@ xqc_test_moqt_relay_late_response(void)
 void
 xqc_test_moqt_relay_fill_boundaries(void)
 {
-    enum { XQC_TEST_FILL_SHORTENED, XQC_TEST_FILL_LIMIT, XQC_TEST_FILL_RESET };
+    enum { XQC_TEST_FILL_SHORTENED, XQC_TEST_FILL_LIMIT, XQC_TEST_FILL_RESET,
+           XQC_TEST_FILL_TIMEOUT, XQC_TEST_FILL_PARTIAL, XQC_TEST_FILL_ZERO };
     /* Each Fill has its own promised range and cancellation scope. */
     for (xqc_int_t scenario = XQC_TEST_FILL_SHORTENED;
-         scenario <= XQC_TEST_FILL_RESET; scenario++)
+         scenario <= XQC_TEST_FILL_ZERO; scenario++)
     {
         xqc_test_relay_t f;
         xqc_test_relay_init(&f);
@@ -1135,6 +1175,9 @@ xqc_test_moqt_relay_fill_boundaries(void)
             XQC_MOQT_MSG_PUBLISH_NAMESPACE);
         xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
         uint8_t fill[] = {9, 2, 0x0a, 100, 0x17, 4, 1, 0, 0, 2};
+        if (scenario == XQC_TEST_FILL_ZERO) {
+            fill[3] = 0;
+        }
         m = xqc_test_relay_message(XQC_MOQT_MSG_SUBSCRIBE);
         m.parameter_count = 1;
         m.parameters[0] = (xqc_moq_message_parameter_t){
@@ -1151,6 +1194,19 @@ xqc_test_moqt_relay_fill_boundaries(void)
         xqc_test_relay_input(up->request->stream, &m, up->type);
         xqc_moqt_relay_fetch_t *fetch = f.relay->fetches;
         CU_ASSERT_PTR_NOT_NULL_FATAL(fetch);
+        if (scenario == XQC_TEST_FILL_ZERO) {
+            CU_ASSERT_PTR_NULL(fetch->upstream);
+            xqc_moqt_stream_t *output = down->stream->session->streams;
+            while (output != NULL && output->kind != XQC_MOQT_STREAM_FETCH) {
+                output = output->next;
+            }
+            CU_ASSERT_PTR_NOT_NULL_FATAL(output);
+            CU_ASSERT_TRUE(output->tx_fin_sent);
+            CU_ASSERT_EQUAL(output->state.data.object.range,
+                            XQC_MOQT_RANGE_TIMEOUT);
+            xqc_test_relay_destroy(&f);
+            continue;
+        }
         CU_ASSERT_PTR_NOT_NULL_FATAL(fetch->upstream);
         xqc_memzero(&m, sizeof(m));
         m.type = XQC_MOQT_MSG_FETCH_OK;
@@ -1184,7 +1240,7 @@ xqc_test_moqt_relay_fill_boundaries(void)
         xqc_memzero(&object, sizeof(object));
         object.group_id = 1;
         object.priority = XQC_MOQT_DEFAULT_PRIORITY;
-        object.payload_length = 1;
+        object.payload_length = scenario == XQC_TEST_FILL_PARTIAL ? 2 : 1;
         xqc_moqt_fetch_history_t history;
         xqc_memzero(&history, sizeof(history));
         xqc_int_t length = xqc_moqt_fetch_header_encode(
@@ -1198,11 +1254,26 @@ xqc_test_moqt_relay_fill_boundaries(void)
         if (scenario == XQC_TEST_FILL_LIMIT) {
             CU_ASSERT_TRUE(fetch->closed);
             CU_ASSERT_EQUAL(f.relay->stats.forwarded, 0);
-        } else {
+        } else if (scenario == XQC_TEST_FILL_RESET) {
             CU_ASSERT_EQUAL(f.relay->stats.forwarded, 1);
             xqc_moqt_stream_cancel(native->user_data,
                                    XQC_MOQT_RESET_DELIVERY_TIMEOUT);
             CU_ASSERT_TRUE(fetch->closed);
+        } else {
+            xqc_moqt_stream_t *output = fetch->stream;
+            CU_ASSERT_PTR_NOT_NULL_FATAL(output);
+            xqc_moqt_relay_process(f.relay, fetch->deadline);
+            if (scenario == XQC_TEST_FILL_PARTIAL) {
+                CU_ASSERT_FALSE(output->tx_fin);
+                CU_ASSERT_EQUAL(output->state.data.error,
+                                XQC_MOQT_RESET_DELIVERY_TIMEOUT);
+            } else {
+                CU_ASSERT_EQUAL(f.relay->stats.forwarded, 1);
+                CU_ASSERT_TRUE(output->tx_fin);
+                CU_ASSERT_EQUAL(output->state.data.object.range,
+                                XQC_MOQT_RANGE_TIMEOUT);
+                CU_ASSERT_EQUAL(output->state.data.object.object_id, 2);
+            }
         }
         CU_ASSERT_FALSE(down->subscription->stopped);
         xqc_test_relay_destroy(&f);

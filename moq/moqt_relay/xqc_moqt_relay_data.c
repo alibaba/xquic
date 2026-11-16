@@ -13,6 +13,9 @@ xqc_moqt_relay_stream_finish(xqc_moqt_relay_stream_t *st)
     }
     xqc_int_t ret = xqc_moqt_stream_finish(st->output);
     st->finishing = ret == -XQC_EAGAIN;
+    if (ret == XQC_OK && st->fetch != NULL) {
+        st->fetch->deadline = 0;
+    }
     if (ret != XQC_OK && ret != -XQC_EAGAIN) {
         xqc_moqt_stream_cancel(st->output, XQC_MOQT_RESET_EXCESSIVE_LOAD);
     }
@@ -62,6 +65,69 @@ xqc_moqt_relay_fetch_stop(xqc_moqt_relay_fetch_t *f, uint64_t code)
     }
     if (f->upstream != NULL) {
         xqc_moqt_relay_stop(f->upstream, code);
+    }
+}
+
+void
+xqc_moqt_relay_fetch_expire(xqc_moqt_relay_fetch_t *f, xqc_usec_t now)
+{
+    xqc_moqt_relay_t *r = f->downstream->peer->relay;
+    if (!f->timed_out) {
+        r->stats.timeouts++;
+        f->timed_out = 1;
+        f->deadline = xqc_moqt_relay_deadline(now, UINT64_MAX,
+                                              r->config.timeout);
+        if (f->upstream != NULL) {
+            xqc_moqt_relay_request_t *up = f->upstream;
+            /* Stop retrieval without resetting the independent result. */
+            f->input = NULL;
+            f->upstream = NULL;
+            up->fetch = NULL;
+            xqc_moqt_relay_stop(up, XQC_MOQT_RESET_CANCELLED);
+        }
+    }
+    if (f->partial || now >= f->deadline || f->stream == NULL) {
+        /* A range marker cannot be inserted into a partial Object. */
+        xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_DELIVERY_TIMEOUT);
+        return;
+    }
+
+    if (!f->marked) {
+        /* Draft-22 §§3.2.2–3.2.3: report the outstanding suffix in order. */
+        const xqc_moqt_fetch_info_t *info = xqc_moqt_fetch_info(f->output);
+        xqc_moqt_location_t end = info->end;
+        if (info->group_order == XQC_MOQT_GROUP_DESCENDING
+            && info->start.group_id < end.group_id)
+        {
+            end.group_id = info->start.group_id;
+            end.object_id = UINT64_MAX;
+        }
+        if (!f->has_last || f->last.group_id != end.group_id
+            || f->last.object_id != end.object_id)
+        {
+            xqc_moqt_object_t range = {0};
+            range.group_id = end.group_id;
+            range.object_id = end.object_id;
+            range.range = XQC_MOQT_RANGE_TIMEOUT;
+            xqc_int_t ret = xqc_moqt_stream_send_object(f->stream, &range);
+            if (ret == -XQC_EAGAIN) {
+                return;
+            }
+            if (ret != XQC_OK) {
+                xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_DELIVERY_TIMEOUT);
+                return;
+            }
+        }
+        f->marked = 1;
+    }
+    if (f->stream == NULL) {
+        return;
+    }
+    xqc_int_t ret = xqc_moqt_stream_finish(f->stream);
+    if (ret == XQC_OK) {
+        f->deadline = 0;
+    } else if (ret != -XQC_EAGAIN) {
+        xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_DELIVERY_TIMEOUT);
     }
 }
 
@@ -166,19 +232,9 @@ xqc_moqt_relay_fetch_ready(xqc_moqt_fetch_t *fetch,
         xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_EXCESSIVE_LOAD);
         return;
     }
-    if (f->deadline <= xqc_monotonic_timestamp()) {
-        /* Section 9.20.5: no cache and no remaining time means timed-out. */
-        xqc_moqt_object_t range;
-        xqc_memzero(&range, sizeof(range));
-        range.group_id = info->end.group_id;
-        range.object_id = info->end.object_id;
-        range.range = XQC_MOQT_RANGE_TIMEOUT;
-        if (xqc_moqt_stream_send_object(f->stream, &range) == XQC_OK) {
-            xqc_moqt_stream_finish(f->stream);
-            f->deadline = 0;
-        } else {
-            xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_DELIVERY_TIMEOUT);
-        }
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    if (f->deadline <= now) {
+        xqc_moqt_relay_fetch_expire(f, now);
         return;
     }
     if (subscription != NULL) {
@@ -451,6 +507,12 @@ xqc_moqt_relay_fragment(xqc_moqt_relay_stream_t *st,
         }
         return;
     }
+    if (st->fetch != NULL) {
+        st->fetch->has_last = 1;
+        st->fetch->last.group_id = object->group_id;
+        st->fetch->last.object_id = object->object_id;
+        st->fetch->partial = !complete;
+    }
     if (complete) {
         r->stats.forwarded++;
         if (st->fetch == NULL) {
@@ -575,6 +637,9 @@ xqc_moqt_relay_stream_closed(xqc_moqt_stream_t *stream,
     {
         if (st->input == stream) {
             st->input = NULL;
+            if (st->fetch != NULL && st->fetch->timed_out) {
+                continue;
+            }
             if (error != NULL) {
                 if (st->output != NULL) {
                     xqc_moqt_stream_cancel(st->output, error->normalized_code);

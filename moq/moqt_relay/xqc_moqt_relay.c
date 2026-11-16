@@ -1588,9 +1588,15 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
         if (f->closed || !f->deadline) {
             continue;
         }
-        if (f->deadline <= now) {
-            r->stats.timeouts++;
-            xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_DELIVERY_TIMEOUT);
+        if (f->timed_out || f->deadline <= now) {
+            xqc_moqt_relay_fetch_expire(f, now);
+            if (!f->closed && f->deadline != 0) {
+                xqc_usec_t delay = xqc_min(f->deadline - now,
+                                           XQC_MOQT_RELAY_RETRY_US);
+                if (!next || now + delay < next) {
+                    next = now + delay;
+                }
+            }
         } else if (!next || f->deadline < next) {
             next = f->deadline;
         }

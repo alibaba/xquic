@@ -112,6 +112,8 @@ defaulting to 1 (draft-22 §3.6.2,
 updates without FORWARD retain it. Each resulting subscription resumes
 through its own REQUEST_UPDATE; PUBLISH_OK does not carry FORWARD (§9.3).
 Independent demand avoids premature filter-union/shared-update scheduling.
+A downstream grant ending with PUBLISH_DONE stays terminal while its
+transport drains. Later registration can route new requests (draft-22 §9.9).
 Incoming Tokens are removed;
 application hop policy supplies outbound credentials.
 

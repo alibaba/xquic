@@ -567,7 +567,10 @@ static void
 xqc_moqt_relay_route(xqc_moqt_relay_request_t *down)
 {
     xqc_moqt_relay_t *r = down->peer->relay;
-    if (down->stopped || down->upstream || down->peer->closed) {
+    /* Draft-22 §9.9: transport drainage does not reopen a completed grant. */
+    if (down->stopped || down->upstream || down->peer->closed
+        || down->ending || down->ended)
+    {
         return;
     }
     if (down->type != XQC_MOQT_MSG_SUBSCRIBE
@@ -1609,6 +1612,7 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
             xqc_int_t ret = xqc_moqt_request_send(q->request, &done);
             if (ret == XQC_OK) {
                 q->ending = 0;
+                q->ended = 1;
                 q->deadline = 0;
                 continue;
             }

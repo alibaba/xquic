@@ -491,6 +491,8 @@ main(int argc, char *argv[])
                         xqc_test_moqt_relay_delivery)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_history",
                         xqc_test_moqt_relay_history)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_direct_status",
+                        xqc_test_moqt_relay_direct_status)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_updates",
                         xqc_test_moqt_relay_updates)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_limits",

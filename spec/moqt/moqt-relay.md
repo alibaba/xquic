@@ -69,6 +69,10 @@ the stream header and takes effect only on complete FIN. Continuation
 fragments omit repeated properties; unknown and Immutable Properties preserve
 their raw bytes. New subscriptions to direct PUBLISH use current Largest,
 not a stale cached initial location.
+An authorized TRACK_STATUS for an established direct PUBLISH uses that
+Track's properties and current Largest Object without opening an upstream
+query or downstream delivery. INCLUDE_PROPERTIES still controls whether
+the response includes properties (draft-22 §9.13 and §9.20.20).
 
 | Protocol responsibility | Entity | References and lifetime |
 | --- | --- | --- |

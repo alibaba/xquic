@@ -581,7 +581,9 @@ xqc_moqt_relay_route(xqc_moqt_relay_request_t *down)
             && !source->stopped)
         {
             if (source->peer != down->peer) {
-                if (down->type == XQC_MOQT_MSG_SUBSCRIBE) {
+                if (down->type == XQC_MOQT_MSG_SUBSCRIBE
+                    || down->type == XQC_MOQT_MSG_TRACK_STATUS)
+                {
                     found = XQC_TRUE;
                     if (down->established) {
                         continue;
@@ -590,6 +592,10 @@ xqc_moqt_relay_route(xqc_moqt_relay_request_t *down)
                     xqc_moqt_relay_message_read(source->state, 0, &m);
                     down->selected = source;
                     xqc_moqt_relay_response(down, &m);
+                    /* Draft-22 §9.13: status uses the established Track. */
+                    if (down->type == XQC_MOQT_MSG_TRACK_STATUS) {
+                        return;
+                    }
                 } else {
                     found |= xqc_moqt_relay_open_upstream(down, source->peer)
                              == XQC_OK;

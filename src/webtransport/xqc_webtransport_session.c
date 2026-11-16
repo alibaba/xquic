@@ -414,6 +414,11 @@ xqc_wt_session_drain(xqc_wt_session_t *session)
     if (session->send_len) {
         return -XQC_EAGAIN;
     }
+    if (xqc_wt_conn_is_draft2(session->wt_conn)) {
+        /* Draft-02 Section 5 defines only the CLOSE capsule. */
+        session->draining = XQC_TRUE;
+        return XQC_OK;
+    }
     size_t n = xqc_wt_put_varint(
         XQC_WT_DRAIN_CAPSULE, session->send_buf, sizeof(session->send_buf));
     session->send_buf[n++] = 0;

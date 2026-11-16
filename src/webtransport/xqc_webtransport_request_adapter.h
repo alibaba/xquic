@@ -12,5 +12,7 @@ xqc_int_t xqc_wt_request_read(xqc_h3_request_t *request,
     xqc_request_notify_flag_t flags, void *data);
 xqc_int_t xqc_wt_client_send_request(xqc_wt_session_t *session);
 void xqc_wt_request_fail(xqc_wt_session_t *session, uint64_t error);
+xqc_int_t xqc_wt_ensure_version_header(xqc_http_headers_t *response,
+    xqc_http_header_t **alloc);
 
 #endif

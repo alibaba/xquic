@@ -336,6 +336,7 @@ typedef struct {
     xqc_int_t   (*on_authorize)(xqc_moqt_request_t *request,
         const xqc_moqt_message_t *message,
         const xqc_moqt_message_t *candidate, uint64_t *error, void *user_data);
+    /* Also reports a local REQUEST_ERROR for an unsupported Track Property. */
     void        (*on_message)(xqc_moqt_request_t *request,
         const xqc_moqt_message_t *message, void *user_data);
     /* NULL error means graceful closure; the handle expires on return. */

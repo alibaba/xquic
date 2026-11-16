@@ -66,6 +66,8 @@ struct xqc_test_relay_node_s {
     unsigned                     fetch_closed;
     unsigned                     invalid;
     uint64_t                     last_error;
+    uint64_t                     request_error_id;
+    uint64_t                     request_error_code;
     uint64_t                     groups;
     size_t                       bytes;
     xqc_bool_t                   defer;
@@ -219,6 +221,8 @@ xqc_test_relay_message(xqc_moqt_request_t *request,
     case XQC_MOQT_MSG_REQUEST_ERROR:
         node->errors++;
         node->last_error = m->error.code;
+        node->request_error_id = xqc_moqt_request_id(request);
+        node->request_error_code = m->error.code;
         return;
     case XQC_MOQT_MSG_REQUEST_UPDATE:
         xqc_test_relay_reply(node, request, m->type);
@@ -1277,11 +1281,14 @@ xqc_test_relay_tracks_run(xqc_test_relay_fixture_t *f, xqc_bool_t errors)
         /* Draft-22 3.7: reject type 0x4000 and leave the session usable. */
         uint8_t mandatory[] = {0xc0, 0x40, 0, 7};
         m.properties = (struct iovec){mandatory, sizeof(mandatory)};
-        xqc_test_relay_check(xqc_moqt_request_open(
-            publisher->connection.session, &m) != NULL);
+        xqc_moqt_request_t *request = xqc_moqt_request_open(
+            publisher->connection.session, &m);
+        xqc_test_relay_check(request != NULL);
+        uint64_t request_id = xqc_moqt_request_id(request);
         xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
         xqc_test_relay_check(publisher->errors == 1);
-        xqc_test_relay_check(publisher->last_error
+        xqc_test_relay_check(publisher->request_error_id == request_id);
+        xqc_test_relay_check(publisher->request_error_code
                              == XQC_MOQT_REQUEST_UNSUPPORTED_EXTENSION);
         xqc_test_relay_check(publisher->responses == responses);
         xqc_test_relay_check(f->clients[3].publications == active);

@@ -259,6 +259,73 @@ xqc_test_moqt_name_errors(void)
     CU_ASSERT_EQUAL(xqc_memcmp(buf, unchanged, sizeof(buf)), 0);
 }
 
+/* Draft-22 §§3.3.2 and 8.6: exact property and Subgroup matching. */
+static void
+xqc_test_moqt_range_filter_values(void)
+{
+    uint8_t subgroup[] = {3, 0, 3, 0};
+    uint8_t property[] = {4, 0, 0x78, 7, 0};
+    uint8_t track[] = {4, 0, 0x7a, 8, 0};
+    const uint8_t track_properties[] = {0x7a, 8};
+    uint8_t object_properties[] = {0x78, 7};
+    xqc_moqt_message_t interest = {.parameter_count = 3};
+    interest.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_SUBGROUP_FILTER, sizeof(subgroup), subgroup};
+    interest.parameters[1] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_OBJECT_PROPERTY_FILTER, sizeof(property), property};
+    interest.parameters[2] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_TRACK_PROPERTY_FILTER, sizeof(track), track};
+    xqc_moqt_message_t delivery;
+    struct iovec properties = {(void *)track_properties,
+                                sizeof(track_properties)};
+    CU_ASSERT_FALSE(xqc_moqt_filters_project(&interest,
+        &(struct iovec){0}, &delivery));
+    CU_ASSERT_TRUE(xqc_moqt_filters_project(&interest, &properties,
+                                             &delivery));
+    CU_ASSERT_EQUAL(delivery.parameter_count, 2);
+    xqc_moqt_filters_t filters;
+    CU_ASSERT_EQUAL_FATAL(xqc_moqt_filters_compile(&delivery, 8, &filters),
+                          XQC_OK);
+    xqc_moqt_object_t object = {.subgroup_id = 3};
+    CU_ASSERT_FALSE(xqc_moqt_filters_match(&filters, &object));
+    object.properties = (struct iovec){object_properties,
+                                        sizeof(object_properties)};
+    CU_ASSERT_TRUE(xqc_moqt_filters_match(&filters, &object));
+    object.datagram = 1;
+    CU_ASSERT_FALSE(xqc_moqt_filters_match(&filters, &object));
+    object.datagram = 0;
+    object.subgroup_id = 4;
+    CU_ASSERT_FALSE(xqc_moqt_filters_match(&filters, &object));
+    property[2] |= 1;
+    CU_ASSERT_NOT_EQUAL(xqc_moqt_filters_compile(&interest, 8, &filters),
+                        XQC_OK);
+
+    /* 8 two-ended ranges, followed by an optional ninth unbounded range. */
+    uint8_t ranges[] = {17, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+                        1, 0, 1, 0, 1};
+    interest.parameter_count = 1;
+    interest.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_OBJECTID_FILTER, sizeof(ranges) - 1, ranges};
+    CU_ASSERT_EQUAL_FATAL(xqc_moqt_filters_compile(&interest, 8, &filters),
+                          XQC_OK);
+    CU_ASSERT_EQUAL(filters.range_count, 8);
+    object.object_id = 8;
+    CU_ASSERT_TRUE(xqc_moqt_filters_match(&filters, &object));
+    object.object_id = 9;
+    CU_ASSERT_FALSE(xqc_moqt_filters_match(&filters, &object));
+    ranges[0]++;
+    interest.parameters[0].length++;
+    CU_ASSERT_NOT_EQUAL(xqc_moqt_filters_compile(&interest, 8, &filters),
+                        XQC_OK);
+    uint8_t unbounded[] = {2, 0, 9};
+    interest.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_OBJECTID_FILTER, sizeof(unbounded), unbounded};
+    CU_ASSERT_EQUAL_FATAL(xqc_moqt_filters_compile(&interest, 8, &filters),
+                          XQC_OK);
+    object.object_id = UINT64_MAX;
+    CU_ASSERT_TRUE(xqc_moqt_filters_match(&filters, &object));
+}
+
 /* Section 8.3: parity is based on the resulting Type, not its delta. */
 void
 xqc_test_moqt_kv(void)
@@ -315,6 +382,7 @@ xqc_test_moqt_kv(void)
     CU_ASSERT_EQUAL(xqc_moqt_kv_decode(large, sizeof(large), 0, &decoded),
                     sizeof(large));
     CU_ASSERT_EQUAL(decoded.value.bytes.iov_len, sizeof(payload));
+    xqc_test_moqt_range_filter_values();
 }
 
 void

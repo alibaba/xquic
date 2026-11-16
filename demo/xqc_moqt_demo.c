@@ -707,6 +707,12 @@ initialize(app_t *app, unsigned port)
         return -1;
     }
     xqc_moqt_config_init(&app->config, XQC_MOQT_VERSION_DRAFT_22);
+    if (app->relay != NULL) {
+        static const xqc_moqt_kv_t range_limit = {
+            .type = XQC_MOQT_OPT_MAX_FILTER_RANGES, .value.integer = 8};
+        app->config.setup_options = &range_limit;
+        app->config.setup_option_count = 1;
+    }
     app->settings.proto_version = XQC_VERSION_V1;
     app->settings.max_datagram_frame_size = 65535;
     app->settings.enable_reset_stream_at = 1;

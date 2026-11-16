@@ -103,6 +103,8 @@ case_moqt_demo_relay_echo()
         XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" "${mode}" \
             direct > "relay-direct-${mode}.log" 2>&1 || return 1
     done
+    XQC_MOQT_DEMO_PORT="${CASE_TEST_PORT:-8443}" "${binary}" wt range-filter \
+        > relay-wt-range-filter.log 2>&1 || return 1
     grep -Fq 'RELAY FORWARD type=0x3' demo-server.log
 }
 

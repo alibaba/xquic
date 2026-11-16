@@ -65,6 +65,7 @@ struct fixture_s {
     size_t                   certificate_length;
     unsigned                 fill;
     unsigned                 discovery;
+    unsigned                 range_filter;
     char                     namespace[64];
 };
 
@@ -164,6 +165,10 @@ verify(const unsigned char **certs, const size_t *sizes, size_t count,
 static uint64_t
 setup(xqc_moqt_session_t *session, const xqc_moqt_setup_t *peer, void *data)
 {
+    client_t *c = data;
+    if (c->fixture->range_filter && peer->limits.max_filter_ranges != 8) {
+        c->fixture->failed = 1;
+    }
     return XQC_MOQT_NO_ERROR;
 }
 
@@ -472,6 +477,13 @@ request(client_t *c, uint64_t type, const char *name)
                 XQC_MOQT_PARAM_FILL_PARAMETERS, sizeof(fill), fill};
         }
     }
+    uint8_t object_zero[] = {3, 0, 0, 0};
+    if (c->fixture->range_filter && type == XQC_MOQT_MSG_SUBSCRIBE) {
+        /* Draft-22 §9.20.11: Object ID 0 in every matching Group. */
+        m.parameter_count = 1;
+        m.parameters[0] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_OBJECTID_FILTER, sizeof(object_zero), object_zero};
+    }
     return xqc_moqt_request_open(c->session, &m);
 }
 
@@ -656,7 +668,10 @@ main(int argc, char **argv)
     unsigned fill_errors = argc == 3 && !strcmp(argv[2], "fill-errors");
     unsigned close_errors = argc == 3 && !strcmp(argv[2], "close-errors");
     f.fill = fill_errors || (argc == 3 && !strcmp(argv[2], "fill"));
-    if (argc == 3 && !errors && !direct && !f.fill && !close_errors) {
+    f.range_filter = argc == 3 && !strcmp(argv[2], "range-filter");
+    if (argc == 3 && !errors && !direct && !f.fill && !close_errors
+        && !f.range_filter)
+    {
         return 2;
     }
     snprintf(f.namespace, sizeof(f.namespace), "fill-%llu",
@@ -787,8 +802,18 @@ main(int argc, char **argv)
     value.first_in_subgroup = 0;
     value.payload = (struct iovec){"d22", 3};
     value.payload_length = 3;
+    if (f.range_filter) {
+        xqc_moqt_object_t excluded = value;
+        excluded.object_id = 1;
+        CHECK(xqc_moqt_datagram_send(p->subscription, &excluded) == XQC_OK);
+    }
     CHECK(xqc_moqt_datagram_send(p->subscription, &value) == XQC_OK);
     CHECK(!wait_for(&f, &s->datagrams, 1));
+    if (f.range_filter) {
+        xqc_complex_case_engine_t *engines[] = {&f.base};
+        xqc_complex_case_pump(engines, 1, 250);
+        CHECK(!f.failed && s->datagrams == 1 && s->objects == 1);
+    }
     for (int i = 1; i >= 0; i--) {
         client_t *c = &f.clients[i];
         xqc_moqt_session_close(c->session, XQC_MOQT_NO_ERROR);

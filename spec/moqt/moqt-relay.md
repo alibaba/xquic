@@ -32,13 +32,19 @@ provide cross-version bridging.
 | Authorization, limits, slow-subscriber/error isolation | Required |
 | Upstream subscription aggregation | Bounded compatible aggregation permitted; otherwise independent upstream requests |
 | History cache, persistence, cache-only FETCH | Deferred; only bounded temporary queues needed for transport |
-| Nonzero Range Filters, dynamic Groups | Deferred; retain endpoint rejection/negotiation boundaries |
+| Range Filters | Optional and bounded by `MAX_FILTER_RANGES`; the relay enforces each subscriber or fetcher's filters independently |
+| Dynamic Groups | Deferred; retain endpoint rejection/negotiation boundaries |
 | Relay cascading, routing protocol, loop discovery, cross-node state | Out of first-version scope; §7 defines no relay-to-relay interconnection mechanism |
 | Automatic failover/GOAWAY migration, operational control plane | Deferred; expose standard messages/state and application policy |
 
 The first version is an intermediate target. Claiming complete draft-22 Relay
 support still requires all messages and §7 rules; endpoint optional subsets
 do not waive Relay obligations.
+
+The demo relay advertises eight concurrent ranges per request. Library
+callers opt in through the `MAX_FILTER_RANGES` SETUP option. The relay can
+request a wider upstream range and apply the downstream filters locally, even
+when the upstream publisher advertises zero.
 
 The pinned interop catalog's `namespace-discovery` case requires
 SUBSCRIBE_TRACKS. Endpoints already provide St enumeration, independent Pc,

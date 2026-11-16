@@ -310,7 +310,8 @@ xqc_moqt_relay_forward_message(xqc_moqt_relay_peer_t *peer,
     size_t count = 0;
     for (size_t i = 0; i < m->parameter_count; i++) {
         if (m->parameters[i].type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN
-            && m->parameters[i].type != XQC_MOQT_PARAM_FILL_PARAMETERS)
+            && m->parameters[i].type != XQC_MOQT_PARAM_FILL_PARAMETERS
+            && !xqc_moqt_is_range_filter(m->parameters[i].type))
         {
             m->parameters[count++] = m->parameters[i];
         }

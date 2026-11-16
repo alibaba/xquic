@@ -104,6 +104,7 @@ struct xqc_moqt_subscription_s {
     xqc_moqt_track_t           *track;
     xqc_moqt_request_t         *request;
     xqc_moqt_session_t         *session;
+    xqc_moqt_filters_t         *filters;
     xqc_moqt_error_t            error;
     xqc_usec_t                  close_deadline;
     uint64_t                    stream_count;
@@ -135,6 +136,7 @@ struct xqc_moqt_fetch_s {
     xqc_moqt_subscription_t    *subscription;
     xqc_moqt_stream_t          *stream;
     xqc_moqt_track_t           *track;
+    xqc_moqt_filters_t         *filters;
     xqc_moqt_fetch_info_t       info;
     xqc_usec_t                  deadline;
     unsigned                    active;
@@ -170,6 +172,11 @@ struct xqc_moqt_request_s {
     unsigned                    goaway_sent:1;
     unsigned                    goaway_received:1;
 };
+
+xqc_int_t xqc_moqt_merge(xqc_moqt_message_t *state,
+    const xqc_moqt_message_t *update);
+xqc_int_t xqc_moqt_delivery_filters(xqc_moqt_session_t *session,
+    const xqc_moqt_message_t *state, xqc_moqt_filters_t **filters);
 
 typedef struct {
     xqc_moqt_track_t           *track;

@@ -301,7 +301,8 @@ xqc_moqt_parameters_decode(const uint8_t **p, const uint8_t *end,
         if (!xqc_moqt_is_parameter_allowed(type, m->type, context)
             || (i
                 && delta == 0
-                && type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN))
+                && type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN
+                && !xqc_moqt_is_range_filter(type)))
         {
             return XQC_ERROR;
         }
@@ -364,7 +365,8 @@ xqc_moqt_parameters_encode(uint8_t *buf, size_t *pos,
             || !xqc_moqt_is_parameter_allowed(p->type, m->type, context)
             || (i
                 && p->type == previous
-                && p->type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN)
+                && p->type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN
+                && !xqc_moqt_is_range_filter(p->type))
             || p->value == NULL
             || p->length > XQC_MOQT_MESSAGE_MAX_BODY)
         {

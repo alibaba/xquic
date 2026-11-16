@@ -104,6 +104,8 @@ struct xqc_moqt_relay_stream_s {
     xqc_moqt_stream_t         *output;
     SHA256_CTX                 hash;
     xqc_usec_t                 received;
+    unsigned                   excluded:1;
+    unsigned                   filtered_gap:1;
     unsigned                   skipping:1;
     unsigned                   finishing:1;
     unsigned                   closed:1;

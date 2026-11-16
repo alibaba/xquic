@@ -442,6 +442,16 @@ xqc_int_t xqc_moqt_request_finish(xqc_moqt_request_t *request);
 XQC_EXPORT_PUBLIC_API
 void xqc_moqt_request_cancel(xqc_moqt_request_t *request, uint64_t error);
 
+/* Test a complete Object header against the active delivery filters. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_subscription_object_matches(
+    const xqc_moqt_subscription_t *subscription, const xqc_moqt_object_t *object);
+
+/* Test a FETCH Object header against the active delivery filters. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_fetch_object_matches(const xqc_moqt_fetch_t *fetch,
+    const xqc_moqt_object_t *object);
+
 XQC_EXPORT_PUBLIC_API
 uint64_t xqc_moqt_request_id(const xqc_moqt_request_t *request);
 

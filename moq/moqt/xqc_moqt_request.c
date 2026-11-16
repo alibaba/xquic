@@ -99,7 +99,7 @@ xqc_moqt_request_snapshot(xqc_moqt_session_t *s,
     return buf;
 }
 
-static xqc_int_t
+xqc_int_t
 xqc_moqt_merge(xqc_moqt_message_t *state, const xqc_moqt_message_t *update)
 {
     xqc_moq_message_parameter_t merged[XQC_MOQT_MAX_PARAMETERS];
@@ -113,6 +113,48 @@ xqc_moqt_merge(xqc_moqt_message_t *state, const xqc_moqt_message_t *update)
             p = &state->parameters[i++];
         } else {
             p = &update->parameters[j++];
+            if (xqc_moqt_is_range_filter(p->type)) {
+                size_t first = j - 1;
+                while (j < update->parameter_count
+                       && update->parameters[j].type == p->type)
+                {
+                    j++;
+                }
+                while (i < state->parameter_count
+                       && state->parameters[i].type == p->type)
+                {
+                    const xqc_moq_message_parameter_t *old =
+                        &state->parameters[i++];
+                    xqc_bool_t replaced = XQC_FALSE;
+                    for (size_t k = first; k < j; k++) {
+                        replaced |= xqc_moqt_filter_replaces(
+                            &update->parameters[k], old);
+                    }
+                    if (!replaced) {
+                        if (count == XQC_MOQT_MAX_PARAMETERS) {
+                            return -XQC_ELIMIT;
+                        }
+                        merged[count++] = *old;
+                    }
+                }
+                for (size_t k = first; k < j; k++) {
+                    const xqc_moq_message_parameter_t *filter =
+                        &update->parameters[k];
+                    uint64_t length;
+                    if (xqc_vi64_read(filter->value,
+                        filter->value + filter->length, &length) < 0)
+                    {
+                        return -XQC_EPARAM;
+                    }
+                    if (length) {
+                        if (count == XQC_MOQT_MAX_PARAMETERS) {
+                            return -XQC_ELIMIT;
+                        }
+                        merged[count++] = *filter;
+                    }
+                }
+                continue;
+            }
             while (i < state->parameter_count
                    && state->parameters[i].type == p->type)
             {
@@ -138,6 +180,63 @@ xqc_moqt_merge(xqc_moqt_message_t *state, const xqc_moqt_message_t *update)
     }
     xqc_memcpy(state->parameters, merged, count * sizeof(merged[0]));
     state->parameter_count = count;
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_moqt_request_filters_check(const xqc_moqt_message_t *m,
+    const xqc_moqt_message_t *candidate, uint64_t limit)
+{
+    xqc_moqt_filters_t filters;
+    if (xqc_moqt_filters_compile(m, limit, &filters) != XQC_OK
+        || (candidate != m && xqc_moqt_filters_compile(candidate, limit,
+                                                       &filters) != XQC_OK))
+    {
+        return XQC_ERROR;
+    }
+    for (size_t i = 0; i < m->parameter_count; i++) {
+        const xqc_moq_message_parameter_t *p = &m->parameters[i];
+        if (p->type != XQC_MOQT_PARAM_FILL_PARAMETERS) {
+            continue;
+        }
+        xqc_moqt_message_t inner, effective = *candidate;
+        if (xqc_moqt_fill_parameters_decode(p, &inner) != XQC_OK
+            || xqc_moqt_filters_compile(&inner, limit, &filters) != XQC_OK
+            || xqc_moqt_merge(&effective, &inner) != XQC_OK
+            || xqc_moqt_filters_compile(&effective, limit, &filters) != XQC_OK)
+        {
+            return XQC_ERROR;
+        }
+    }
+    return XQC_OK;
+}
+
+static xqc_int_t
+xqc_moqt_update_candidate(xqc_moqt_message_t *candidate,
+    const xqc_list_head_t *pending, const xqc_moqt_message_t *m)
+{
+    xqc_list_head_t *pos;
+    xqc_list_for_each(pos, pending) {
+        xqc_list_buf_t *entry = xqc_list_entry(pos, xqc_list_buf_t, list_head);
+        if (xqc_moqt_merge(candidate, (void *)entry->buf->data) != XQC_OK) {
+            return XQC_ERROR;
+        }
+    }
+    return xqc_moqt_merge(candidate, m);
+}
+
+static xqc_int_t
+xqc_moqt_request_filters_apply(xqc_moqt_request_t *r,
+    const xqc_moqt_message_t *candidate)
+{
+    xqc_moqt_session_t *s = r->stream->session;
+    if (r->subscription != NULL) {
+        return xqc_moqt_delivery_filters(s, candidate,
+                                         &r->subscription->filters);
+    }
+    if (r->fetch != NULL) {
+        return xqc_moqt_delivery_filters(s, candidate, &r->fetch->filters);
+    }
     return XQC_OK;
 }
 
@@ -344,7 +443,8 @@ xqc_moqt_commit_update(xqc_moqt_request_t *r, xqc_list_head_t *head,
         return -XQC_EPARAM;
     }
     if (xqc_moqt_fill_apply(r, &candidate, (void *)entry->buf->data,
-                            reply) != XQC_MOQT_NO_ERROR)
+                            reply) != XQC_MOQT_NO_ERROR
+        || xqc_moqt_request_filters_apply(r, &candidate) != XQC_OK)
     {
         xqc_moqt_buffer_free(s, state, sizeof(*state));
         return -XQC_EPARAM;
@@ -434,8 +534,9 @@ xqc_moqt_request_queue(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
     return ret;
 }
 
-xqc_moqt_request_t *
-xqc_moqt_request_open(xqc_moqt_session_t *s, const xqc_moqt_message_t *message)
+static xqc_moqt_request_t *
+xqc_moqt_request_open_internal(xqc_moqt_session_t *s,
+    const xqc_moqt_message_t *message, const xqc_moqt_message_t *inherited)
 {
     if (s == NULL
         || !s->ready
@@ -445,13 +546,19 @@ xqc_moqt_request_open(xqc_moqt_session_t *s, const xqc_moqt_message_t *message)
         || s->request_ids_exhausted
         || message == NULL
         || !xqc_moqt_is_initial_request(message->type)
-        || xqc_moqt_message_encode(message, message->type, NULL, 0) < 0)
+        || xqc_moqt_message_encode(message, message->type, NULL, 0) < 0
+        || xqc_moqt_request_filters_check(message, message,
+                                      s->peer_limits.max_filter_ranges) != XQC_OK)
     {
         return NULL;
     }
     xqc_moqt_message_t m = *message;
     xqc_moqt_assign_id(s, &m);
-    xqc_var_buf_t *state = xqc_moqt_request_snapshot(s, &m);
+    xqc_moqt_message_t candidate = m;
+    if (inherited != NULL && xqc_moqt_merge(&candidate, inherited) != XQC_OK) {
+        return NULL;
+    }
+    xqc_var_buf_t *state = xqc_moqt_request_snapshot(s, &candidate);
     if (state == NULL) {
         return NULL;
     }
@@ -464,7 +571,8 @@ xqc_moqt_request_open(xqc_moqt_session_t *s, const xqc_moqt_message_t *message)
     xqc_moqt_request_t *r = &st->state.request;
     r->state = state;
     if (xqc_moqt_subscription_create(r, &m) != XQC_MOQT_NO_ERROR
-        || xqc_moqt_fetch_create(r, &m) != XQC_MOQT_NO_ERROR)
+        || xqc_moqt_fetch_create(r, &m) != XQC_MOQT_NO_ERROR
+        || xqc_moqt_request_filters_apply(r, (void *)state->data) != XQC_OK)
     {
         xqc_moqt_request_cancel(r, XQC_MOQT_RESET_EXCESSIVE_LOAD);
         return NULL;
@@ -494,6 +602,12 @@ xqc_moqt_request_open(xqc_moqt_session_t *s, const xqc_moqt_message_t *message)
         xqc_moqt_stream_callbacks.stream_close_notify(NULL, st);
     }
     return usable ? r : NULL;
+}
+
+xqc_moqt_request_t *
+xqc_moqt_request_open(xqc_moqt_session_t *s, const xqc_moqt_message_t *message)
+{
+    return xqc_moqt_request_open_internal(s, message, NULL);
 }
 
 xqc_int_t
@@ -819,6 +933,14 @@ xqc_moqt_request_send_message(xqc_moqt_request_t *r,
         return -XQC_EPARAM;
     }
     if (update) {
+        xqc_moqt_message_t candidate = *(xqc_moqt_message_t *)r->state->data;
+        if (xqc_moqt_update_candidate(&candidate, &r->sent_updates, &m)
+            != XQC_OK
+            || xqc_moqt_request_filters_check(&m, &candidate,
+                                  s->peer_limits.max_filter_ranges) != XQC_OK)
+        {
+            return -XQC_EPARAM;
+        }
         pending = xqc_moqt_request_snapshot(s, &m);
         if (pending == NULL
             || xqc_moqt_queue(s, &r->sent_updates, pending) != XQC_OK)
@@ -975,6 +1097,10 @@ xqc_moqt_publish_track(xqc_moqt_request_t *r, uint64_t publication_id,
     {
         return XQC_OK;
     }
+    xqc_moqt_message_t delivery = {0};
+    if (!xqc_moqt_filters_project(state, &publish->properties, &delivery)) {
+        return XQC_OK;
+    }
     xqc_moqt_message_t m = *publish;
     uint8_t forward;
     if (xqc_moqt_publish_forward(&m, state, &forward) != XQC_OK) {
@@ -1039,7 +1165,7 @@ xqc_moqt_publish_track(xqc_moqt_request_t *r, uint64_t publication_id,
     }
     size_t prefix_count = state->track_namespace.count;
     if (publication != NULL && s->stream_count < s->config.max_streams) {
-        *publication = xqc_moqt_request_open(s, &m);
+        *publication = xqc_moqt_request_open_internal(s, &m, &delivery);
         if (*publication != NULL) {
             return XQC_OK;
         }
@@ -1106,22 +1232,19 @@ xqc_moqt_authorize(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
 {
     xqc_moqt_session_t *s = r->stream->session;
     xqc_moqt_message_t candidate = *(xqc_moqt_message_t *)r->state->data;
-    if (m->type == XQC_MOQT_MSG_REQUEST_UPDATE) {
-        xqc_list_head_t *pos;
-        xqc_list_for_each(pos, &r->received_updates) {
-            xqc_list_buf_t *entry = xqc_list_entry(pos, xqc_list_buf_t,
-                                                   list_head);
-            if (xqc_moqt_merge(&candidate, (void *)entry->buf->data)
-                != XQC_OK)
-            {
-                *request_error = XQC_MOQT_REQUEST_EXCESSIVE_LOAD;
-                return XQC_ERROR;
-            }
-        }
-        if (xqc_moqt_merge(&candidate, m) != XQC_OK) {
-            *request_error = XQC_MOQT_REQUEST_EXCESSIVE_LOAD;
-            return XQC_ERROR;
-        }
+    if (m->type == XQC_MOQT_MSG_REQUEST_UPDATE
+        && xqc_moqt_update_candidate(&candidate, &r->received_updates, m)
+           != XQC_OK)
+    {
+        *request_error = XQC_MOQT_REQUEST_EXCESSIVE_LOAD;
+        return XQC_ERROR;
+    }
+    if (xqc_moqt_request_filters_check(m, &candidate,
+                                      s->local_limits.max_filter_ranges)
+        != XQC_OK)
+    {
+        *request_error = XQC_MOQT_REQUEST_INVALID_FILTER;
+        return XQC_ERROR;
     }
     xqc_moqt_token_t tokens[XQC_MOQT_MAX_PARAMETERS];
     size_t token_count = 0;
@@ -1143,25 +1266,6 @@ xqc_moqt_authorize(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
                 rejected = XQC_MOQT_REQUEST_MALFORMED_AUTH_TOKEN;
             }
             token_count++;
-        } else if (p->type == XQC_MOQT_PARAM_FILL_PARAMETERS) {
-            xqc_moqt_message_t fill;
-            if (xqc_moqt_fill_parameters_decode(p, &fill) != XQC_OK) {
-                *session_error = XQC_MOQT_PROTOCOL_VIOLATION;
-                return XQC_ERROR;
-            }
-            for (size_t j = 0; j < fill.parameter_count; j++) {
-                if (fill.parameters[j].type >= XQC_MOQT_PARAM_SUBGROUP_FILTER
-                    && fill.parameters[j].type
-                       <= XQC_MOQT_PARAM_OBJECT_PROPERTY_FILTER)
-                {
-                    rejected = XQC_MOQT_REQUEST_INVALID_FILTER;
-                }
-            }
-        } else if (p->type >= XQC_MOQT_PARAM_SUBGROUP_FILTER
-                   && p->type <= XQC_MOQT_PARAM_TRACK_PROPERTY_FILTER)
-        {
-            /* Sections 3.3.2/9.1.6: this baseline advertises zero ranges. */
-            rejected = XQC_MOQT_REQUEST_INVALID_FILTER;
         }
     }
     if (rejected) {
@@ -1184,6 +1288,12 @@ xqc_moqt_authorize(xqc_moqt_request_t *r, const xqc_moqt_message_t *m,
         return XQC_ERROR;
     }
     if (s->callbacks.on_authorize == NULL) {
+        return XQC_ERROR;
+    }
+    if (m->type != XQC_MOQT_MSG_REQUEST_UPDATE
+        && xqc_moqt_request_filters_apply(r, &candidate) != XQC_OK)
+    {
+        *request_error = XQC_MOQT_REQUEST_EXCESSIVE_LOAD;
         return XQC_ERROR;
     }
     return s->callbacks.on_authorize(r, m, &candidate, request_error,

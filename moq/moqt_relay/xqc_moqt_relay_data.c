@@ -24,7 +24,7 @@ xqc_moqt_relay_stream_finish(xqc_moqt_relay_stream_t *st)
 static xqc_moqt_relay_stream_t *
 xqc_moqt_relay_stream_get(xqc_moqt_relay_request_t *up,
     xqc_moqt_relay_request_t *down, xqc_moqt_stream_t *input,
-    xqc_moqt_relay_fetch_t *fetch)
+    xqc_moqt_relay_fetch_t *fetch, xqc_bool_t create)
 {
     xqc_moqt_relay_t *r = up->peer->relay;
     for (xqc_moqt_relay_stream_t *st = r->streams; st; st = st->next) {
@@ -32,7 +32,7 @@ xqc_moqt_relay_stream_get(xqc_moqt_relay_request_t *up,
             return st;
         }
     }
-    if (r->stats.streams == r->config.max_streams) {
+    if (!create || r->stats.streams == r->config.max_streams) {
         return NULL;
     }
     xqc_moqt_relay_stream_t *st = xqc_moqt_relay_alloc(r, sizeof(*st));
@@ -438,6 +438,25 @@ xqc_moqt_relay_fragment(xqc_moqt_relay_stream_t *st,
         return;
     }
     if (!object->payload_offset) {
+        st->excluded = st->fetch != NULL
+            ? !xqc_moqt_fetch_object_matches(st->fetch->output, object)
+            : !xqc_moqt_subscription_object_matches(st->downstream->subscription,
+                                                    object);
+        if (st->excluded) {
+            if (st->fetch != NULL) {
+                st->filtered_gap = 1;
+            }
+            /* A declared Group end cannot attach to an earlier Object. */
+            if (st->fetch == NULL && st->output != NULL
+                && xqc_moqt_stream_end_of_group(st->output))
+            {
+                xqc_moqt_stream_t *output = st->output;
+                st->output = NULL;
+                xqc_moqt_stream_cancel(output,
+                                       XQC_MOQT_RESET_UNKNOWN_OBJECT_STATUS);
+            }
+            return;
+        }
         st->received = xqc_moqt_stream_object_received_at(st->input);
         if (!st->received) {
             st->received = xqc_monotonic_timestamp();
@@ -466,6 +485,9 @@ xqc_moqt_relay_fragment(xqc_moqt_relay_stream_t *st,
             }
         }
     }
+    if (st->excluded) {
+        return;
+    }
     SHA256_Update(&st->hash, object->payload.iov_base, object->payload.iov_len);
     xqc_bool_t complete = object->payload_offset + object->payload.iov_len
                           == object->payload_length;
@@ -493,6 +515,11 @@ xqc_moqt_relay_fragment(xqc_moqt_relay_stream_t *st,
         }
     }
     xqc_moqt_object_t fragment = *object;
+    if (st->filtered_gap && fragment.range == XQC_MOQT_RANGE_NONEXISTENT) {
+        /* Draft-22 §3.2.2: the wider gap includes filtered Objects. */
+        fragment.range = XQC_MOQT_RANGE_UNKNOWN;
+    }
+    st->filtered_gap = 0;
     if (fragment.payload_offset) {
         xqc_memzero(&fragment.properties, sizeof(fragment.properties));
     }
@@ -532,7 +559,7 @@ xqc_moqt_relay_object(xqc_moqt_subscription_t *subscription,
         for (xqc_moqt_relay_fetch_t *f = r->fetches; f; f = f->next) {
             if (f->input == fetch && !f->closed) {
                 xqc_moqt_relay_stream_t *st = xqc_moqt_relay_stream_get(
-                    f->upstream, f->downstream, input, f);
+                    f->upstream, f->downstream, input, f, XQC_TRUE);
                 if (st == NULL) {
                     xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_EXCESSIVE_LOAD);
                 } else {
@@ -550,7 +577,6 @@ xqc_moqt_relay_object(xqc_moqt_subscription_t *subscription,
     }
     xqc_usec_t received = xqc_monotonic_timestamp();
     xqc_bool_t checked = XQC_FALSE;
-    xqc_moqt_location_t location = {object->group_id, object->object_id};
     for (xqc_moqt_relay_request_t *down = r->requests;
          down != NULL; down = down->next)
     {
@@ -565,7 +591,7 @@ xqc_moqt_relay_object(xqc_moqt_subscription_t *subscription,
         if (down->type == XQC_MOQT_MSG_PUBLISH && down->selected != up) {
             continue;
         }
-        if (!xqc_moqt_subscription_is_matching(down->subscription, &location)) {
+        if (down->subscription == NULL) {
             continue;
         }
         if (xqc_moqt_subscription_object_is_obsolete(down->subscription,
@@ -574,6 +600,11 @@ xqc_moqt_relay_object(xqc_moqt_subscription_t *subscription,
             continue;
         }
         if (input == NULL) {
+            if (!xqc_moqt_subscription_object_matches(down->subscription,
+                                                       object))
+            {
+                continue;
+            }
             /* Section 2.1.2: known absence wins over late normal data. */
             if (!checked) {
                 uint8_t digest[SHA256_DIGEST_LENGTH];
@@ -602,12 +633,17 @@ xqc_moqt_relay_object(xqc_moqt_subscription_t *subscription,
                 r->stats.forwarded++;
             }
         } else {
+            xqc_moqt_location_t location = {object->group_id,
+                                             object->object_id};
+            xqc_bool_t start = !object->payload_offset
+                && xqc_moqt_subscription_is_matching(down->subscription,
+                                                     &location);
             xqc_moqt_relay_stream_t *st = xqc_moqt_relay_stream_get(up,
-                down, input, NULL);
-            if (st == NULL) {
-                xqc_moqt_relay_slow(down);
-            } else {
+                down, input, NULL, start);
+            if (st != NULL) {
                 xqc_moqt_relay_fragment(st, object);
+            } else if (start) {
+                xqc_moqt_relay_slow(down);
             }
         }
     }
@@ -623,7 +659,7 @@ xqc_moqt_relay_stream_closed(xqc_moqt_stream_t *stream,
     for (xqc_moqt_relay_fetch_t *f = peer->relay->fetches; f; f = f->next) {
         if (input != NULL && f->input == input && !f->closed) {
             xqc_moqt_relay_stream_t *st = xqc_moqt_relay_stream_get(
-                f->upstream, f->downstream, stream, f);
+                f->upstream, f->downstream, stream, f, XQC_TRUE);
             if (st == NULL) {
                 xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_EXCESSIVE_LOAD);
             } else {
@@ -644,6 +680,14 @@ xqc_moqt_relay_stream_closed(xqc_moqt_stream_t *stream,
                 if (st->output != NULL) {
                     xqc_moqt_stream_cancel(st->output, error->normalized_code);
                 }
+            } else if (st->fetch == NULL && st->excluded
+                       && st->output != NULL)
+            {
+                /* Draft-22 §11.3.2: the actual last Object was omitted. */
+                xqc_moqt_stream_t *output = st->output;
+                st->output = NULL;
+                xqc_moqt_stream_cancel(output,
+                                       XQC_MOQT_RESET_UNKNOWN_OBJECT_STATUS);
             } else {
                 xqc_moqt_relay_stream_finish(st);
             }

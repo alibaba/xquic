@@ -80,6 +80,10 @@ xqc_test_relay_init(xqc_test_relay_t *f)
         xqc_test_relay_peer_t *p = &f->peers[i];
         xqc_moqt_config_t session_config;
         xqc_moqt_config_init(&session_config, XQC_MOQT_VERSION_DRAFT_22);
+        static const xqc_moqt_kv_t filter_limit = {
+            .type = XQC_MOQT_OPT_MAX_FILTER_RANGES, .value.integer = 8};
+        session_config.setup_options = &filter_limit;
+        session_config.setup_option_count = 1;
         p->engine = test_create_engine();
         CU_ASSERT_PTR_NOT_NULL_FATAL(p->engine);
         xqc_conn_callbacks_t callbacks;
@@ -475,9 +479,65 @@ xqc_test_moqt_relay_errors(void)
     xqc_test_relay_publish_properties();
 }
 
+static void
+xqc_test_relay_range_filters(void)
+{
+    xqc_test_relay_t f;
+    xqc_test_relay_init(&f);
+    xqc_test_relay_peer_t *subscriber = &f.peers[XQC_TEST_RELAY_SUBSCRIBER];
+    CU_ASSERT_EQUAL(subscriber->session->local_limits.max_filter_ranges, 8);
+    xqc_moqt_message_t m = xqc_test_relay_message(
+        XQC_MOQT_MSG_PUBLISH_NAMESPACE);
+    xqc_test_relay_receive(&f.peers[XQC_TEST_RELAY_PUBLISHER], &m);
+    m.type = XQC_MOQT_MSG_SUBSCRIBE;
+    /* Draft-22 §3.3.2: (Object ID 2 AND priority 4) OR Object ID 6. */
+    uint8_t first[] = {3, 0, 2, 0}, second[] = {3, 1, 6, 0};
+    uint8_t priority[] = {3, 0, 4, 0};
+    m.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_OBJECTID_FILTER, sizeof(first), first};
+    m.parameters[1] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_OBJECTID_FILTER, sizeof(second), second};
+    m.parameters[2] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_PRIORITY_FILTER, sizeof(priority), priority};
+    m.parameter_count = 3;
+    xqc_moqt_request_t *down = xqc_test_relay_receive(subscriber, &m);
+    xqc_test_relay_establish(f.relay);
+    xqc_moqt_relay_request_t *record = xqc_test_relay_record(f.relay, down);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(record);
+    xqc_moqt_relay_request_t *up = record->selected;
+    CU_ASSERT_PTR_NOT_NULL_FATAL(up);
+    CU_ASSERT_EQUAL(up->peer->session->peer_limits.max_filter_ranges, 0);
+
+    uint8_t payload = 17, wire[64];
+    xqc_moqt_object_t object = {.group_id = 1, .datagram = 1,
+        .priority = 5, .payload = {&payload, 1}, .payload_length = 1};
+    const uint64_t ids[] = {2, 3, 6, 2};
+    for (size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
+        object.object_id = ids[i];
+        if (i == 3) {
+            object.priority = 4;
+        }
+        xqc_int_t n = xqc_moqt_datagram_encode(up->subscription->track_alias,
+                                               &object, wire, sizeof(wire));
+        CU_ASSERT_FATAL(n > 0);
+        xqc_moqt_datagram_input(up->peer->session, wire, n);
+        CU_ASSERT_EQUAL(f.relay->stats.forwarded, i > 1 ? i - 1 : 0);
+    }
+    CU_ASSERT_FALSE(record->stopped);
+
+    /* Repeating the same (type, SetID) fails the request only. */
+    m.parameters[1] = m.parameters[0];
+    xqc_moqt_request_t *invalid = xqc_test_relay_receive(subscriber, &m);
+    CU_ASSERT_TRUE(invalid->failed);
+    CU_ASSERT_EQUAL(invalid->error.code, XQC_MOQT_REQUEST_INVALID_FILTER);
+    CU_ASSERT_FALSE(subscriber->session->closed);
+    xqc_test_relay_destroy(&f);
+}
+
 void
 xqc_test_moqt_relay_delivery(void)
 {
+    xqc_test_relay_range_filters();
     xqc_test_relay_t f;
     xqc_test_relay_init(&f);
     xqc_moqt_message_t m = xqc_test_relay_message(

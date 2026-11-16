@@ -416,6 +416,18 @@ xqc_moqt_subscription_is_matching(const xqc_moqt_subscription_t *sub,
     return xqc_moqt_location_compare(location, &sub->end) <= 0;
 }
 
+xqc_bool_t
+xqc_moqt_subscription_object_matches(const xqc_moqt_subscription_t *sub,
+    const xqc_moqt_object_t *object)
+{
+    if (object == NULL) {
+        return XQC_FALSE;
+    }
+    xqc_moqt_location_t location = {object->group_id, object->object_id};
+    return xqc_moqt_subscription_is_matching(sub, &location)
+        && xqc_moqt_filters_match(sub->filters, object);
+}
+
 xqc_int_t
 xqc_moqt_subscription_largest(const xqc_moqt_subscription_t *sub,
     xqc_moqt_location_t *location)
@@ -441,6 +453,10 @@ xqc_moqt_subscription_free(xqc_moqt_subscription_t *sub)
     }
     *link = sub->next;
     xqc_moqt_track_release(s, sub->track);
+    if (sub->filters != NULL) {
+        s->buffered_bytes -= sizeof(*sub->filters);
+        xqc_free(sub->filters);
+    }
     s->buffered_bytes -= sizeof(*sub);
     xqc_free(sub);
 }

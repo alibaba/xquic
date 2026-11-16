@@ -7,6 +7,7 @@ if (XQC_ENABLE_MOQ)
         "moq/moqt_relay/xqc_moqt_relay_data.c"
         "moq/moqt/xqc_moqt_codec.c"
         "moq/moqt/xqc_moqt_message.c"
+        "moq/moqt/xqc_moqt_filter.c"
         "moq/moqt/xqc_moqt_request.c"
         "moq/moqt/xqc_moqt_track.c"
         "moq/moqt/xqc_moqt_object.c"

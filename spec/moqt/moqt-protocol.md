@@ -1792,8 +1792,8 @@ interpretation before implementation; do not claim every combination tested.
 The current sending subset inherits FORWARD and GROUP_ORDER from the St
 snapshot and uses INCLUDE_PROPERTIES to control Track Properties. St
 credentials and parameters valid only on St are not copied into PUBLISH.
-Nonzero Range Filters follow F11; until implemented, zero-credit rejection
-remains mandatory rather than pretending to apply filters. The disputed
+When Range Filters are enabled, Track Property filters gate each PUBLISH and
+the resulting subscription owns the applicable Object filters. The disputed
 direct LOCATION_FILTER/FILL_PARAMETERS combinations remain rejected by strict
 allowlists. Independent-peer agreement belongs to protocol-rule validation;
 C10 does not use these combinations.
@@ -1889,7 +1889,7 @@ messages requiring Session closure.
 | Capability | Minimum endpoint behavior |
 | --- | --- |
 | SUBSCRIBE_TRACKS | After authorization/overlap checks, the application accepts or rejects; acceptance permits Track enumeration and independent Pc, with failures following SKIPPED/resource-budget rules |
-| Range Filters | Before support/at zero: advertise MAX_FILTER_RANGES=0 and reject prohibited filters with INVALID_FILTER; TX permission follows peer allowance, not local RX allowance |
+| Range Filters | At zero: reject prohibited filters with INVALID_FILTER. A subscriber uses the peer's advertised allowance. |
 | Token Alias cache | Before support/at zero: MAX_AUTH_TOKEN_CACHE_SIZE=0; excess SETUP REGISTER acts as USE_VALUE, outside SETUP gives AUTH_TOKEN_CACHE_OVERFLOW; peer allowance controls TX, baseline sends only USE_VALUE |
 | Dynamic Groups | No DYNAMIC_GROUPS=1 before completion; ignore initial request under §9.20.19, require known support for updates |
 | RENDEZVOUS_TIMEOUT / FILL_TIMEOUT | Parse/expose through API; original endpoints do not own cross-session waiting; the separate Relay implements its budget |
@@ -2161,7 +2161,7 @@ padding probes.
 | F08 [Track/Subscription identity, references, Alias](#entity-structure-design) | Complete | Complete; Track tests | Yes; C04–C08, C10–C20, C22 |
 | F09 [SUBSCRIBE/PUBLISH initiation](#publish-subscribe) | Complete | Complete; establishment/rejection tests | Yes; C04–C08, C10–C20, C22 |
 | F10 [Location Filter, FORWARD, updates/pause](#publish-subscribe) | Complete | Complete; filter/update tests | Yes; C20 does not enumerate all six filters |
-| F11 [Nonzero Range Filters, SetIDs, updates](#range-filter-design) | Complete | Not implemented; zero-credit rejection is not support | No; nonzero filters not required |
+| F11 [Nonzero Range Filters, SetIDs, updates](#range-filter-design) | Complete | Bounded at eight ranges with library opt-in and matching for live, FETCH, Fill and Track discovery | Optional; demo relay endpoint case 1495 checks Object ID filtering |
 | F12 [Live priority/Group Order scheduling](#priority-scheduling-design) | Complete | Complete; scheduling/limit tests; combined Fill in F22 | Yes; C08/C12–C20 fields, scheduling abnormalities separate |
 | F13 [Object Datagram TX/RX/association](#object-delivery) | Complete | Complete; codec/lifetime tests | Yes; C16/C17 |
 | F14 [Subgroup streams, three ID modes, deltas, fragments](#object-delivery) | Complete | Complete; Subgroup tests | Yes; C08/C12–C15/C18/C19/C22 |

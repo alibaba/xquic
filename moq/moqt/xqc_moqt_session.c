@@ -1186,7 +1186,7 @@ xqc_moqt_session_create_transport(xqc_connection_t *conn,
         &body, conn->conn_type == XQC_CONN_TYPE_CLIENT, webtransport,
         &setup, options, tokens)
         || setup.limits.max_auth_token_cache
-        || setup.limits.max_filter_ranges)
+        || setup.limits.max_filter_ranges > XQC_MOQT_MAX_FILTER_RANGES)
     {
         goto fail;
     }

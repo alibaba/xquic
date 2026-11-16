@@ -12,6 +12,43 @@
 /* Track properties shared by endpoints and relays (sections 10.3/10.7). */
 #define XQC_MOQT_PROPERTY_MAX_CACHE_DURATION 0x04
 #define XQC_MOQT_PROPERTY_IMMUTABLE 0x0b
+#define XQC_MOQT_MAX_FILTER_RANGES 8
+
+typedef struct {
+    uint64_t       start;
+    uint64_t       end;
+} xqc_moqt_filter_range_t;
+
+typedef struct {
+    uint64_t       property;
+    uint8_t        type;
+    uint8_t        set;
+    uint8_t        first;
+    uint8_t        count;
+} xqc_moqt_filter_rule_t;
+
+typedef struct {
+    xqc_moqt_filter_rule_t   rules[XQC_MOQT_MAX_FILTER_RANGES];
+    xqc_moqt_filter_range_t ranges[XQC_MOQT_MAX_FILTER_RANGES];
+    uint8_t                 rule_count;
+    uint8_t                 range_count;
+} xqc_moqt_filters_t;
+
+static inline xqc_bool_t
+xqc_moqt_is_range_filter(uint64_t type)
+{
+    return type >= XQC_MOQT_PARAM_SUBGROUP_FILTER
+        && type <= XQC_MOQT_PARAM_TRACK_PROPERTY_FILTER;
+}
+
+xqc_int_t xqc_moqt_filters_compile(const xqc_moqt_message_t *message,
+    uint64_t limit, xqc_moqt_filters_t *filters);
+xqc_bool_t xqc_moqt_filter_replaces(const xqc_moq_message_parameter_t *update,
+    const xqc_moq_message_parameter_t *old);
+xqc_bool_t xqc_moqt_filters_match(const xqc_moqt_filters_t *filters,
+    const xqc_moqt_object_t *object);
+xqc_bool_t xqc_moqt_filters_project(const xqc_moqt_message_t *interest,
+    const struct iovec *properties, xqc_moqt_message_t *delivery);
 
 xqc_int_t xqc_moqt_is_initial_request(uint64_t type);
 xqc_int_t xqc_moqt_is_namespace_request(uint64_t type);

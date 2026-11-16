@@ -18,6 +18,10 @@ xqc_moqt_fetch_free(xqc_moqt_fetch_t *f)
     *link = f->next;
     xqc_moqt_subscription_t *sub = f->subscription;
     xqc_moqt_track_release(s, f->track);
+    if (f->filters != NULL) {
+        s->buffered_bytes -= sizeof(*f->filters);
+        xqc_free(f->filters);
+    }
     s->buffered_bytes -= sizeof(*f);
     xqc_free(f);
     if (sub != NULL) {
@@ -289,6 +293,13 @@ xqc_moqt_fill_apply(xqc_moqt_request_t *r, const xqc_moqt_message_t *state,
         }
         return XQC_MOQT_NO_ERROR;
     }
+    xqc_moqt_message_t effective = *state;
+    if (xqc_moqt_merge(&effective, &inner) != XQC_OK
+        || xqc_moqt_delivery_filters(f->session, &effective, &f->filters)
+            != XQC_OK)
+    {
+        return XQC_MOQT_INTERNAL_ERROR;
+    }
     f->info = info;
     f->confirmed = 1;
     return XQC_MOQT_NO_ERROR;
@@ -431,6 +442,14 @@ xqc_moqt_fetch_contains(const xqc_moqt_fetch_t *f,
     return xqc_moqt_location_compare(&location, &f->info.start) >= 0
         && xqc_moqt_location_compare(&location, &f->info.end) <= 0
         ? XQC_OK : XQC_ERROR;
+}
+
+xqc_bool_t
+xqc_moqt_fetch_object_matches(const xqc_moqt_fetch_t *f,
+    const xqc_moqt_object_t *object)
+{
+    return object != NULL && xqc_moqt_fetch_contains(f, object) == XQC_OK
+        && xqc_moqt_filters_match(f->filters, object);
 }
 
 xqc_int_t

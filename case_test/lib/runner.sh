@@ -17,6 +17,7 @@ JOBS=1
 JOBS_EXPLICIT=0
 PORT_BASE="${CASE_TEST_PORT_BASE:-18000}"
 SHARD_TIMEOUT="${CASE_TEST_SHARD_TIMEOUT:-600}"
+SHARD_KILL_AFTER="${CASE_TEST_SHARD_KILL_AFTER:-30}"
 HEARTBEAT_INTERVAL="${CASE_TEST_HEARTBEAT_INTERVAL:-60}"
 CASE_TIMEOUT="${CASE_TEST_CASE_TIMEOUT:-0}"
 
@@ -114,6 +115,16 @@ fi
 
 if ! [[ "${SHARD_TIMEOUT}" =~ ^[0-9]+$ ]]; then
     echo "case_test: CASE_TEST_SHARD_TIMEOUT must be a non-negative integer" >&2
+    exit 2
+fi
+
+if ! [[ "${SHARD_KILL_AFTER}" =~ ^[0-9]+$ ]]; then
+    echo "case_test: CASE_TEST_SHARD_KILL_AFTER must be a non-negative integer" >&2
+    exit 2
+fi
+
+if ! [[ "${CASE_TEST_SERVER_STOP_TIMEOUT:-10}" =~ ^[0-9]+$ ]]; then
+    echo "case_test: CASE_TEST_SERVER_STOP_TIMEOUT must be a non-negative integer" >&2
     exit 2
 fi
 
@@ -326,7 +337,9 @@ run_group()
             mkdir -p "${GCOV_PREFIX}"
         fi
         if [[ "${SHARD_TIMEOUT}" -gt 0 ]] && command -v timeout > /dev/null 2>&1; then
-            exec timeout "${SHARD_TIMEOUT}" "${ROOT_DIR}/${runner}"
+            # SIGKILL follows when the runner outlives the SIGTERM, for
+            # example in an EXIT trap that waits for a process ignoring it.
+            exec timeout -k "${SHARD_KILL_AFTER}" "${SHARD_TIMEOUT}" "${ROOT_DIR}/${runner}"
         fi
         exec "${ROOT_DIR}/${runner}"
     ) >> "${log_file}" 2>&1 &
@@ -367,6 +380,8 @@ run_group()
     end_epoch="$(date +%s)"
     if [[ "${runner_status}" -eq 124 ]]; then
         echo "[case-test] ${group_id} timeout elapsed=$((end_epoch - start_epoch))s limit=${SHARD_TIMEOUT}s log=${log_file}"
+    elif [[ "${runner_status}" -eq 137 && "${SHARD_TIMEOUT}" -gt 0 && $((end_epoch - start_epoch)) -ge "${SHARD_TIMEOUT}" ]]; then
+        echo "[case-test] ${group_id} timeout elapsed=$((end_epoch - start_epoch))s limit=${SHARD_TIMEOUT}s killed_after=${SHARD_KILL_AFTER}s log=${log_file}"
     fi
 
     awk -F '\t' -v group_id="${group_id}" '

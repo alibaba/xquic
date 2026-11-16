@@ -409,9 +409,12 @@ return. `subscription_cancel()` remains valid after request-stream closure.
 Cancellation stops only data streams with no other active subscription
 reference. Multiple same-alias subscriptions cannot independently attribute
 stream counts, so wait conservatively for the local deadline. Unknown counts
-and lost headers also use `config.timeout` in microseconds, default 30 seconds.
-This §9.9 early-completion policy may discard later Objects and is timed
-separately from Object/Subgroup Delivery Timeout.
+and lost headers use the same subscription deadline. On receipt of
+`PUBLISH_DONE`, wait up to the larger of three seconds and the subscription's
+Object and Subgroup Delivery Timeout parameters, capped by `config.timeout`.
+If the count is still incomplete at expiration, retire the subscription and
+stop its remaining delivery streams. This §9.9 policy can discard Objects
+that arrive after the deadline.
 
 For §5.2 delivery timeouts, Track holds publisher defaults and Subscription
 holds subscriber parameters. The FIRST_OBJECT-marked first Object first

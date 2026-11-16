@@ -1011,6 +1011,11 @@ xqc_moqt_session_timeout(xqc_gp_timer_id_t id, xqc_usec_t now, void *data)
     }
     for (xqc_moqt_subscription_t *sub = subs; sub != NULL; sub = sub->next) {
         if (sub->close_deadline && now >= sub->close_deadline) {
+            xqc_log(s->conn->log, XQC_LOG_INFO,
+                    "|PUBLISH_DONE drain expired|alias:%uL"
+                    "|finished:%uL|expected:%uL|",
+                    sub->track_alias, sub->finished_streams,
+                    sub->expected_streams);
             xqc_moqt_subscription_close(sub);
         }
     }

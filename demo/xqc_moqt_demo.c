@@ -17,6 +17,10 @@
 #include <moq/xqc_moqt_relay.h>
 #include "tests/complex_case/complex_case_common.h"
 
+#define XQC_DEMO_MOQT_MAX_CONNECTIONS 512
+#define XQC_DEMO_MOQT_MAX_STREAMS 1024
+#define XQC_DEMO_RELAY_WT_SESSIONS 8
+
 typedef struct app_s app_t;
 typedef struct channel_s channel_t;
 typedef struct connection_s connection_t;
@@ -419,7 +423,7 @@ accept_connection(xqc_engine_t *engine, xqc_connection_t *conn,
     const xqc_cid_t *cid, void *data)
 {
     app_t *app = data;
-    if (app->connections >= 64) {
+    if (app->connections >= XQC_DEMO_MOQT_MAX_CONNECTIONS) {
         return XQC_ERROR;
     }
     connection_t *connection = calloc(1, sizeof(*connection));
@@ -707,6 +711,7 @@ initialize(app_t *app, unsigned port)
         return -1;
     }
     xqc_moqt_config_init(&app->config, XQC_MOQT_VERSION_DRAFT_22);
+    app->config.max_streams = XQC_DEMO_MOQT_MAX_STREAMS;
     if (app->relay != NULL) {
         static const xqc_moqt_kv_t range_limit = {
             .type = XQC_MOQT_OPT_MAX_FILTER_RANGES, .value.integer = 8};
@@ -736,10 +741,13 @@ initialize(app_t *app, unsigned port)
     {
         return -1;
     }
-    xqc_webtransport_conn_settings_t settings = {.max_sessions_count = 4,
+    /* The WT engine also applies these credits to its QUIC transport. */
+    xqc_webtransport_conn_settings_t settings = {
+        .max_sessions_count = app->relay ? XQC_DEMO_RELAY_WT_SESSIONS : 4,
         .draft_version = app->draft07 ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
                                      : XQC_WEBTRANSPORT_DRAFT_VERSION_16,
-        .max_bidi_streams = 128, .max_uni_streams = 128,
+        .max_bidi_streams = XQC_DEMO_MOQT_MAX_STREAMS,
+        .max_uni_streams = XQC_DEMO_MOQT_MAX_STREAMS,
         .init_recv_window = 1048576, .enable_datagram = XQC_TRUE};
     if (xqc_wt_engine_set_default_settings(app->base.engine, &settings)) {
         return -1;
@@ -768,6 +776,7 @@ xqc_demo_moqt_main(int argc, char **argv)
     if (!strcmp(argv[0], "--moqt-relay")) {
         xqc_moqt_relay_config_t config;
         xqc_moqt_relay_config_init(&config);
+        config.max_peers = XQC_DEMO_MOQT_MAX_CONNECTIONS;
         const xqc_moqt_relay_callbacks_t policy = {.on_setup = relay_setup,
             .on_authorize = relay_authorize, .on_forward = relay_forward,
             .on_closed = relay_closed};

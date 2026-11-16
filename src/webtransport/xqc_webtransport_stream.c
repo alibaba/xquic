@@ -261,6 +261,10 @@ xqc_wt_stream_notify_read(xqc_wt_stream_base_t *stream,
     {
         return -XQC_ESTATE;
     }
+    if (stream->session->closed) {
+        stream->recv_fin |= fin;
+        return (ssize_t)len;
+    }
     if (stream->read_paused && !stream->recv_stopped) {
         return -XQC_EAGAIN;
     }
@@ -673,7 +677,7 @@ xqc_wt_stream_write(xqc_h3_stream_t *h3_stream, void *stream_ctx)
 {
     xqc_wt_stream_base_t *stream = stream_ctx;
     if (stream == NULL || stream->closed || stream->session == NULL
-        || stream->send_fin || stream->send_reset)
+        || stream->session->closed || stream->send_fin || stream->send_reset)
     {
         return XQC_OK;
     }

@@ -192,9 +192,11 @@ waiting for the opposite direction of a bidirectional stream to close.
 Unknown capsules are skipped without
 unbounded allocation. Section 6 (-07 Section 5) governs DRAIN and CLOSE: validate
 the UTF-8 reason (at most 1024 bytes), preserve the 32-bit application error, respond to
-CLOSE before peer FIN, and notify final closure once. Later CONNECT reset
-notifications preserve an established application close code. GOAWAY drains
-sessions.
+CLOSE before peer FIN, and notify final closure once. Local closure queues
+the CONNECT CLOSE capsule and FIN before aborting attached streams. During
+CONNECT send backpressure the closed session stops application I/O. Later
+CONNECT reset notifications preserve an established application close code.
+GOAWAY drains sessions.
 Borrowed strings and handles expire at their final close notification.
 The final session notification receives NULL headers.
 

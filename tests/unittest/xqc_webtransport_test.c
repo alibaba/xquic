@@ -872,6 +872,16 @@ wt_session_closed(xqc_wt_session_t *session, xqc_http_headers_t *headers,
 }
 
 static void
+wt_close_after_connect_fin(xqc_wt_session_t *session, void *data)
+{
+    unsigned *calls = data;
+    (*calls)++;
+    CU_ASSERT(session->closed);
+    CU_ASSERT(session->request->h3_stream->flags
+              & XQC_HTTP3_STREAM_FLAG_FIN_SENT);
+}
+
+static void
 wt_test_connect_request(int scenario)
 {
     xqc_bool_t accepted = scenario == 1 || scenario == 9 || scenario >= 12;
@@ -1091,6 +1101,7 @@ wt_test_connect_request(int scenario)
         /* RFC 9114 Section 4.3.1: '*' is only valid for OPTIONS. */
         CU_ASSERT(h3s->stream->stream_err == H3_MESSAGE_ERROR);
     }
+    unsigned binding_closes = 0;
     if (scenario >= 12) {
         uint32_t expected = scenario == 15 ? H3_REQUEST_CANCELLED
             : scenario == 12 ? 0 : 7;
@@ -1099,8 +1110,27 @@ wt_test_connect_request(int scenario)
             CU_ASSERT(xqc_wt_session_recv_capsules(
                 session, close, sizeof(close), 0) == XQC_OK);
         } else if (scenario != 15) {
+            static const xqc_wt_session_binding_t binding = {
+                .closed = wt_close_after_connect_fin,
+            };
+            session->binding = &binding;
+            session->binding_data = &binding_closes;
+            conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT;
+            uint64_t limit = stream->stream_flow_ctl.fc_max_stream_data_can_send;
+            if (scenario == 16) {
+                stream->stream_flow_ctl.fc_max_stream_data_can_send =
+                    stream->stream_send_offset;
+            }
             CU_ASSERT(xqc_wt_session_close_with_error(
                 session, expected, NULL, 0) == XQC_OK);
+            if (scenario == 16) {
+                CU_ASSERT(session->send_fin && binding_closes == 0);
+                CU_ASSERT(!xqc_wt_session_is_writable(session));
+                stream->stream_flow_ctl.fc_max_stream_data_can_send = limit;
+                CU_ASSERT(request->request_if->h3_request_write_notify(
+                    request, request->user_data) == XQC_OK);
+            }
+            CU_ASSERT(!session->send_fin && binding_closes == 1);
         }
         xqc_h3_request_closing(request, H3_REQUEST_CANCELLED);
         CU_ASSERT(xqc_wt_session_get_close_error_code(session) == expected);
@@ -1139,7 +1169,7 @@ void
 xqc_test_wt_close_error_retained(void)
 {
     /* Draft-16 Section 6: retain the application code through final close. */
-    for (int scenario = 12; scenario <= 15; scenario++) {
+    for (int scenario = 12; scenario <= 16; scenario++) {
         wt_test_connect_request(scenario);
     }
 }

@@ -21,7 +21,8 @@
 #include "moq/moqt/xqc_moqt_codec.h"
 
 #define DEMO_RELAY_BYTES (64 * 1024)
-#define DEMO_RELAY_CAPACITY_CLIENTS 80
+#define DEMO_CAPACITY_CLIENTS 288
+#define DEMO_CAPACITY_STREAM_CREDIT 1024
 #define CHECK(value)                                                          \
     do {                                                                     \
         if (!(value)) {                                                       \
@@ -668,7 +669,10 @@ main(int argc, char **argv)
         }
     }
     unsigned direct = f.discovery || (argc == 3 && !strcmp(argv[2], "direct"));
-    unsigned capacity = argc == 3 && !strcmp(argv[2], "capacity");
+    unsigned parser_capacity = argc == 3 && !strcmp(argv[2],
+                                                     "parser-capacity");
+    unsigned capacity = parser_capacity
+        || (argc == 3 && !strcmp(argv[2], "capacity"));
     unsigned fill_errors = argc == 3 && !strcmp(argv[2], "fill-errors");
     unsigned close_errors = argc == 3 && !strcmp(argv[2], "close-errors");
     f.fill = fill_errors || (argc == 3 && !strcmp(argv[2], "fill"));
@@ -703,7 +707,7 @@ main(int argc, char **argv)
     }
     if (capacity) {
         CHECK(!strcmp(address, "127.0.0.1"));
-        additional_count = DEMO_RELAY_CAPACITY_CLIENTS - 2;
+        additional_count = DEMO_CAPACITY_CLIENTS - 2;
         additional = calloc(additional_count, sizeof(*additional));
         CHECK(additional);
         for (unsigned i = 0; i < additional_count; i++) {
@@ -723,6 +727,25 @@ main(int argc, char **argv)
         c->transport = i ? subscriber : publisher;
         CHECK(!connect_client(c, port, address));
         CHECK(!wait_for(&f, &c->ready, 1));
+    }
+    if (capacity) {
+        for (unsigned i = 0; i < DEMO_CAPACITY_CLIENTS; i++) {
+            client_t *c = i < additional_count ? &additional[i]
+                                               : &f.clients[i - additional_count];
+            CHECK(!c->closed && !c->connection_closed);
+            xqc_connection_t *conn = xqc_engine_conns_hash_find(f.base.engine,
+                                                                &c->cid, 's');
+            CHECK(conn);
+            CHECK(conn->remote_settings.max_streams_bidi
+                == DEMO_CAPACITY_STREAM_CREDIT);
+            CHECK(conn->remote_settings.max_streams_uni
+                == DEMO_CAPACITY_STREAM_CREDIT);
+        }
+        if (parser_capacity) {
+            printf("PARSER CAPACITY PASS clients=%u\n", DEMO_CAPACITY_CLIENTS);
+            result = 0;
+            goto done;
+        }
     }
     client_t *p = &f.clients[0], *s = &f.clients[1];
     CHECK(request(p, direct ? XQC_MOQT_MSG_PUBLISH

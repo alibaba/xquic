@@ -72,8 +72,10 @@ struct xqc_test_relay_node_s {
     uint64_t                     request_error_id;
     uint64_t                     request_error_code;
     uint64_t                     groups;
+    uint64_t                     fetch_groups[4];
     size_t                       bytes;
     xqc_bool_t                   defer;
+    xqc_bool_t                   cross_group_fetch;
     xqc_bool_t                   reject_fetch;
     xqc_bool_t                   allow_cancel;
     xqc_bool_t                   status_properties;
@@ -134,6 +136,7 @@ xqc_test_relay_reply(xqc_test_relay_node_t *node, xqc_moqt_request_t *request,
     m.type = XQC_MOQT_MSG_REQUEST_OK;
     uint8_t largest[] = {2, 1};
     uint8_t properties[] = {0x0b, 4, 0x80, 0x78, 0x80, 9, 0x6f, 5};
+    uint8_t group_order[] = {0x22, XQC_MOQT_GROUP_DESCENDING};
     if (type == XQC_MOQT_MSG_SUBSCRIBE || type == XQC_MOQT_MSG_TRACK_STATUS) {
         if (type == XQC_MOQT_MSG_SUBSCRIBE) {
             m.type = XQC_MOQT_MSG_SUBSCRIBE_OK;
@@ -147,6 +150,11 @@ xqc_test_relay_reply(xqc_test_relay_node_t *node, xqc_moqt_request_t *request,
         m.end_group = 2;
         m.end_object = 1;
         m.properties = (struct iovec){properties, sizeof(properties)};
+        if (node->cross_group_fetch) {
+            /* Draft-22 §9.20.8: Track order is independent of FETCH order. */
+            m.end_object = 0;
+            m.properties = (struct iovec){group_order, sizeof(group_order)};
+        }
         if (node->reject_fetch) {
             m.type = XQC_MOQT_MSG_REQUEST_ERROR;
             m.error.code = XQC_MOQT_REQUEST_TIMEOUT;
@@ -331,6 +339,11 @@ xqc_test_relay_object(xqc_moqt_subscription_t *subscription,
         == object->payload_length)
     {
         if (xqc_moqt_stream_fetch(stream) != NULL) {
+            if (node->history_objects < sizeof(node->fetch_groups)
+                                        / sizeof(node->fetch_groups[0]))
+            {
+                node->fetch_groups[node->history_objects] = object->group_id;
+            }
             node->history_objects++;
         } else {
             node->objects++;
@@ -397,6 +410,8 @@ xqc_test_relay_fetch_ready(xqc_moqt_fetch_t *fetch,
     }
     uint8_t payload[XQC_TEST_RELAY_SMALL_OBJECT];
     uint8_t properties[] = {0x0b, 4, 0x80, 0x78, 0x80, 9, 0x6f, 5};
+    const xqc_moqt_fetch_info_t *info = xqc_moqt_fetch_info(fetch);
+    xqc_bool_t descending = info->group_order == XQC_MOQT_GROUP_DESCENDING;
     xqc_moqt_object_t object;
     xqc_memzero(&object, sizeof(object));
     object.group_id = 2;
@@ -405,10 +420,15 @@ xqc_test_relay_fetch_ready(xqc_moqt_fetch_t *fetch,
     object.payload_length = sizeof(payload);
     object.payload = (struct iovec){payload, sizeof(payload)};
     object.properties = (struct iovec){properties, sizeof(properties)};
-    for (size_t i = 0; i < sizeof(payload); i++) {
-        payload[i] = i + object.group_id;
-    }
-    for (object.object_id = 0; object.object_id <= 1; object.object_id++) {
+    for (unsigned index = 0; index < 2; index++) {
+        if (node->cross_group_fetch) {
+            object.group_id = descending ? 2 - index : 1 + index;
+        } else {
+            object.object_id = index;
+        }
+        for (size_t i = 0; i < sizeof(payload); i++) {
+            payload[i] = i + object.group_id;
+        }
         if (xqc_moqt_stream_send_object(stream, &object) != XQC_OK) {
             node->invalid++;
         }
@@ -1076,8 +1096,10 @@ xqc_test_relay_run(xqc_test_relay_fixture_t *f, const char *mode)
             xqc_test_relay_check(publish != NULL);
             xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
             f->clients[0].defer = f->clients[1].defer = XQC_TRUE;
+            f->clients[0].cross_group_fetch =
+                f->clients[1].cross_group_fetch = XQC_TRUE;
         }
-        uint8_t filter[] = {XQC_MOQT_FILTER_ABSOLUTE_RANGE, 2, 0, 0, 1};
+        uint8_t filter[] = {XQC_MOQT_FILTER_ABSOLUTE_RANGE, 1, 0, 1, 0};
         m = xqc_test_relay_message_create(XQC_MOQT_MSG_FETCH);
         m.parameter_count = 1;
         m.parameters[0] = (xqc_moq_message_parameter_t){
@@ -1121,6 +1143,25 @@ xqc_test_relay_run(xqc_test_relay_fixture_t *f, const char *mode)
             xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
             xqc_test_relay_check(f->clients[2].history_objects == 2);
             xqc_test_relay_check(f->clients[2].fetch_closed == 1);
+            xqc_test_relay_check(f->clients[2].fetch_groups[0] == 1);
+            xqc_test_relay_check(f->clients[2].fetch_groups[1] == 2);
+
+            m = xqc_test_relay_message_create(XQC_MOQT_MSG_FETCH);
+            m.parameter_count = 2;
+            m.parameters[0] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_LOCATION_FILTER, sizeof(filter), filter};
+            uint8_t order = XQC_MOQT_GROUP_DESCENDING;
+            m.parameters[1] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_GROUP_ORDER, sizeof(order), &order};
+            xqc_test_relay_check(xqc_moqt_request_open(
+                f->clients[2].connection.session, &m) != NULL);
+            xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
+            xqc_test_relay_check(f->clients[2].history_objects == 4);
+            xqc_test_relay_check(f->clients[2].fetch_closed == 2);
+            xqc_test_relay_check(f->clients[2].fetch_groups[2] == 2);
+            xqc_test_relay_check(f->clients[2].fetch_groups[3] == 1);
+            f->clients[0].cross_group_fetch =
+                f->clients[1].cross_group_fetch = XQC_FALSE;
         }
         /* A Fill update and live objects share only the subscription. */
         uint8_t fill[] = {7, 1, XQC_MOQT_PARAM_LOCATION_FILTER,

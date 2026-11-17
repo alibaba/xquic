@@ -1953,12 +1953,6 @@ xqc_client_create_path_socket(xqc_user_path_t *path,
         return XQC_ERROR;
     }
 #ifndef XQC_SYS_WINDOWS
-    if (path_interface != NULL
-        && xqc_client_bind_to_interface(path->path_fd, path_interface) < 0) 
-    {
-        printf("|xqc_client_bind_to_interface error|");
-        return XQC_ERROR;
-    }
 
     if (g_test_case == 103 || g_test_case == 104
         || g_test_case == 800)

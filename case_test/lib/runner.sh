@@ -372,6 +372,15 @@ run_group()
         runner_status="$?"
     fi
 
+    # timeout sends SIGKILL only while the runner runs. A runner that exits on
+    # the SIGTERM, as when the second SIGTERM of timeout (to the runner, then
+    # to its group) ends its EXIT trap, or that a SIGKILL ends, leaves the
+    # processes that ignore SIGTERM. They keep the process group that timeout
+    # created with its PID.
+    if [[ "${SHARD_TIMEOUT}" -gt 0 && "${SHARD_KILL_AFTER}" -gt 0 && ( "${runner_status}" -eq 124 || "${runner_status}" -eq 137 ) ]]; then
+        kill -KILL -- "-${runner_pid}" 2> /dev/null || true
+    fi
+
     if [[ -n "${heartbeat_pid}" ]]; then
         kill "${heartbeat_pid}" 2> /dev/null || true
     fi

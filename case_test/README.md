@@ -88,8 +88,9 @@ Shard observability is controlled by environment variables:
 - `CASE_TEST_SHARD_TIMEOUT`: per-shard timeout in seconds when the platform
   provides `timeout`; default `600`, `0` disables the timeout.
 - `CASE_TEST_SHARD_KILL_AFTER`: seconds after the shard timeout's SIGTERM at
-  which the shard's processes get SIGKILL if they still run; default `30`,
-  `0` disables the SIGKILL.
+  which the shard's processes get SIGKILL if they still run. The processes
+  left by a runner that this SIGTERM or a SIGKILL ended get SIGKILL as soon
+  as the runner has exited. Default `30`, `0` disables the SIGKILL.
 - `CASE_TEST_SERVER_STOP_TIMEOUT`: seconds that `case_test_stop_server` waits
   for the server after SIGTERM; default `10`, `0` waits without a limit. A
   server that still runs then gets SIGKILL, the shard log records

@@ -91,12 +91,14 @@ case_test_stop_server()
     if [[ "${timeout_s}" -gt 0 ]]; then
         # The sleep runs in the background so that the TERM below ends it
         # too: left running, it would keep the inherited descriptors open.
+        # The trap finds it with jobs, as the TERM can come before $! is read.
         (
-            sleep_pid=""
-            trap 'if [[ -n "${sleep_pid}" ]]; then kill "${sleep_pid}" 2> /dev/null || true; fi; exit 0' TERM
+            trap 'kill $(jobs -p) 2> /dev/null; exit 0' TERM
             sleep "${timeout_s}" &
-            sleep_pid="$!"
-            wait "${sleep_pid}"
+            wait
+            # The TERM that follows the kill must not turn the timeout into
+            # a clean stop.
+            trap '' TERM
             kill -KILL "${pid}" 2> /dev/null || true
             exit 124
         ) &

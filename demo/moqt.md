@@ -1,11 +1,10 @@
 # MoQT parser and relay demo
 
 On POSIX hosts with MoQ and WebTransport enabled, `demo_server --moqt` runs a
-bounded MoQT draft-22 parser/sink. It accepts native QUIC ALPN `moqt-22` and
-WebTransport CONNECT `/moqt` on one UDP port. It opts into WT draft-07
-compatibility for browsers while also accepting draft-16. Both require
-WT-Available-Protocols/WT-Protocol to select `moqt-22`; there is no draft-02
-or absent-protocol fallback.
+bounded MoQT parser/sink. On one UDP port it accepts Native QUIC with ALPN
+`moqt-22` or `moqt-23` and WebTransport CONNECT at `/moqt`. WebTransport
+draft-07 and draft-16 both require WT-Available-Protocols/WT-Protocol to
+select the MoQT revision.
 
 `demo_server --moqt-relay` selects the bounded Relay core instead of the
 parser/sink. Native QUIC and WT-07/WT-16 peers share the same explicitly public

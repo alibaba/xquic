@@ -509,8 +509,14 @@ xqc_test_moqt_session_lifecycle(void)
     xqc_test_moqt_init(&f, 0);
     CU_ASSERT_PTR_NULL(xqc_moqt_session_create(f.conn, &f.config,
                                                &moqt_callbacks, &f));
+    CU_ASSERT_EQUAL(xqc_moqt_session_version(f.session),
+                    XQC_MOQT_VERSION_DRAFT_22);
     xqc_moqt_session_destroy(f.session);
     f.session = NULL;
+    xqc_moqt_config_t draft23 = f.config;
+    draft23.version = XQC_MOQT_VERSION_DRAFT_23;
+    CU_ASSERT_PTR_NULL(xqc_moqt_session_create(f.conn, &draft23,
+                                               &moqt_callbacks, &f));
     const xqc_moqt_callbacks_t empty_callbacks = {0};
     CU_ASSERT_PTR_NULL(xqc_moqt_session_create(f.conn, &f.config,
                                                &empty_callbacks, &f));
@@ -539,7 +545,7 @@ xqc_test_moqt_session_lifecycle(void)
         reason[0] = '\0';
         switch (i) {
         case 1:
-            config.version = XQC_MOQT_VERSION_DRAFT_22 + 1;
+            config.version = XQC_MOQT_VERSION_DRAFT_23 + 1;
             break;
         case 2:
             f.conn->alpn = NULL;
@@ -826,6 +832,35 @@ xqc_test_moqt_request_input(xqc_moqt_stream_t *st, xqc_moqt_message_t *m,
 void
 xqc_test_moqt_messages(void)
 {
+    /* Draft-23 sections 9.19.15 and 9.19.18: normalized FORWARD, bare Fill. */
+    const xqc_moqt_version_t version = XQC_MOQT_VERSION_DRAFT_23;
+    const uint8_t subscribe23[] = {
+        3, 13, 0, 1, 1, 'n', 1, 't', 2, 0x11, 1, 0x12, 1, 0x20, 42};
+    const uint8_t error23[] = {5, 6, 0x10, 0, 0, 0x80, 0x9d, 0};
+    const uint8_t fetch_ok23[] = {7, 1, 0};
+    uint8_t encoded23[32];
+    xqc_moqt_message_t message23;
+    CU_ASSERT_EQUAL(xqc_moqt_message_decode_version(version, subscribe23,
+        sizeof(subscribe23), XQC_MOQT_MSG_SUBSCRIBE, &message23),
+        sizeof(subscribe23));
+    CU_ASSERT_EQUAL_FATAL(message23.parameter_count, 2);
+    CU_ASSERT_EQUAL(message23.parameters[0].type, XQC_MOQT_PARAM_FORWARD);
+    CU_ASSERT_EQUAL(message23.parameters[0].value[0], 0);
+    CU_ASSERT_TRUE(message23.fill_parameters_counted);
+    CU_ASSERT_EQUAL(xqc_moqt_message_encode_version(version, &message23,
+        XQC_MOQT_MSG_SUBSCRIBE, encoded23, sizeof(encoded23)),
+        sizeof(subscribe23));
+    CU_ASSERT_EQUAL(xqc_memcmp(encoded23, subscribe23, sizeof(subscribe23)), 0);
+    encoded23[9] = XQC_MOQT_PARAM_FORWARD;
+    CU_ASSERT_EQUAL(xqc_moqt_message_decode_version(version, encoded23,
+        sizeof(subscribe23), XQC_MOQT_MSG_SUBSCRIBE, &message23), -XQC_EPARAM);
+    CU_ASSERT_EQUAL(xqc_moqt_message_decode_version(version, error23,
+        sizeof(error23), XQC_MOQT_MSG_SUBSCRIBE, &message23), sizeof(error23));
+    CU_ASSERT_EQUAL(message23.error.code, XQC_MOQT_REQUEST_DOES_NOT_EXIST);
+    CU_ASSERT_EQUAL(xqc_moqt_message_decode_version(version, fetch_ok23,
+        sizeof(fetch_ok23), XQC_MOQT_MSG_FETCH, &message23), sizeof(fetch_ok23));
+    CU_ASSERT_EQUAL(message23.type, XQC_MOQT_MSG_FETCH_OK);
+
     /* Draft-22 9.14: ID 0, empty namespace, zero parameters. */
     const uint8_t expected[] = {6, 0, 3, 0, 0, 0};
     uint8_t buf[XQC_MOQT_TEST_CAPACITY], short_buf[2] = {0xaa, 0xbb};

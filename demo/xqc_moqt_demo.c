@@ -445,14 +445,16 @@ native_create(xqc_connection_t *conn, const xqc_cid_t *cid, void *data,
     channel_t *channel = &connection->native;
     channel->connection = connection;
     app_t *app = connection->app;
+    xqc_moqt_config_t config = app->config;
+    config.version = xqc_moqt_conn_version(conn);
     if (app->relay) {
         struct iovec scope = {"moqt-demo", 9};
         channel->peer = xqc_moqt_relay_peer_create(app->relay, conn,
-            &app->config, &scope, channel);
+            &config, &scope, channel);
         channel->session = xqc_moqt_relay_peer_session(channel->peer);
     } else {
         channel->session = xqc_moqt_session_create(conn,
-            &app->config, &callbacks, channel);
+            &config, &callbacks, channel);
     }
     return channel->session ? XQC_OK : XQC_ERROR;
 }
@@ -555,20 +557,23 @@ wt_accept(xqc_http_headers_t *headers, xqc_http_headers_t *response,
             path++;
         }
     }
-    const char *supported[] = {"moqt-22"}, *selected = NULL;
+    const char *supported[] = {XQC_MOQT_ALPN_DRAFT_22, XQC_MOQT_ALPN_DRAFT_23};
+    const char *selected = NULL;
     int protocol = xqc_wt_select_application_protocol(headers,
-                                                     supported, 1, &selected);
+                                                     supported, 2, &selected);
     if (path != 1 || protocol != 1 || origins > 1 || !origin_ok) {
         printf("WT REJECT path=%d protocol=%d\n", path, protocol);
         return 0;
     }
-    static xqc_http_header_t fields[] = {
-        {.name = {":status", 7}, .value = {"200", 3}},
-        {.name = {"wt-protocol", 11}, .value = {"\"moqt-22\"", 9}},
+    static xqc_http_header_t fields[][2] = {
+        {{{":status", 7}, {"200", 3}},
+         {{"wt-protocol", 11}, {"\"" XQC_MOQT_ALPN_DRAFT_22 "\"", 9}}},
+        {{{":status", 7}, {"200", 3}},
+         {{"wt-protocol", 11}, {"\"" XQC_MOQT_ALPN_DRAFT_23 "\"", 9}}},
     };
-    response->headers = fields;
+    response->headers = fields[!strcmp(selected, XQC_MOQT_ALPN_DRAFT_23)];
     response->count = 2;
-    puts("WT ACCEPT path=/moqt protocol=moqt-22");
+    printf("WT ACCEPT path=/moqt protocol=%s\n", selected);
     return 1;
 }
 
@@ -579,7 +584,9 @@ wt_create(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
     connection_t *connection = data;
     app_t *app = connection->app;
     const char *selected = xqc_wt_session_get_application_protocol(wt);
-    if (!selected || strcmp(selected, "moqt-22")) {
+    xqc_moqt_config_t config = app->config;
+    config.version = xqc_moqt_version_from_alpn(selected);
+    if (config.version == XQC_MOQT_VERSION_UNKNOWN) {
         return XQC_ERROR;
     }
     channel_t *channel = calloc(1, sizeof(*channel));
@@ -593,11 +600,11 @@ wt_create(xqc_wt_session_t *wt, xqc_http_headers_t *headers,
     if (app->relay) {
         struct iovec scope = {"moqt-demo", 9};
         channel->peer = xqc_moqt_relay_peer_create_webtransport_compat(
-            app->relay, wt, &app->config, &scope, channel);
+            app->relay, wt, &config, &scope, channel);
         channel->session = xqc_moqt_relay_peer_session(channel->peer);
     } else {
         channel->session = xqc_moqt_session_create_webtransport_compat(wt,
-            &app->config, &callbacks, channel);
+            &config, &callbacks, channel);
     }
     printf("WT READY status=%u protocol=%s compat_draft07=1\n",
         xqc_wt_session_get_response_status(wt), selected);
@@ -735,7 +742,10 @@ initialize(app_t *app, unsigned port)
         .webtransport_session_close_notify = wt_close,
         .webtransport_conn_handshake_finished_notify = wt_handshake,
     };
+    const xqc_moqt_config_t draft23 = {.version = XQC_MOQT_VERSION_DRAFT_23};
     if (xqc_moqt_init_alpn(app->base.engine, &app->config, &native)
+        || (app->server
+            && xqc_moqt_init_alpn(app->base.engine, &draft23, &native))
         || xqc_h3_ctx_init(app->base.engine, &h3)
         || xqc_wt_ctx_init(app->base.engine, NULL, &wt, NULL))
     {
@@ -938,8 +948,8 @@ xqc_demo_moqt_main(int argc, char **argv)
             app.objects_sent, app.close_error, app.wt_closed, app.wt_error);
         app.failed = !success;
     } else {
-        printf("LISTEN udp=0.0.0.0:%u native_alpn=moqt-22 "
-               "wt_path=/moqt wt_protocol=moqt-22 draft=22 role=%s\n",
+        printf("LISTEN udp=0.0.0.0:%u native_alpn=moqt-22,moqt-23 "
+               "wt_path=/moqt wt_protocol=moqt-22,moqt-23 role=%s\n",
                port, app.relay ? "relay" : "parser");
         event_base_dispatch(app.events);
     }

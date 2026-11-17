@@ -123,11 +123,30 @@ xqc_moqt_fetch_apply(xqc_moqt_request_t *r, const xqc_moqt_message_t *m)
     }
     const xqc_moqt_message_t *parameters = m;
     xqc_moqt_location_t requested_end = {UINT64_MAX, UINT64_MAX};
+    xqc_bool_t draft23_response = r->local
+        && f->session->config.version == XQC_MOQT_VERSION_DRAFT_23;
     if (m->type == XQC_MOQT_MSG_FETCH_OK) {
         info.end.group_id = m->end_group;
         info.end.object_id = m->end_object;
         info.end_of_track = m->end_of_track;
         parameters = (void *)r->state->data;
+        if (draft23_response) {
+            /* Draft-23 section 9.3: REQUEST_OK has no End Location. */
+            info.end = requested_end;
+            for (size_t i = 0; i < m->parameter_count; i++) {
+                const xqc_moq_message_parameter_t *p = &m->parameters[i];
+                if (p->type != XQC_MOQT_PARAM_LARGEST_OBJECT) {
+                    continue;
+                }
+                const uint8_t *end = p->value + p->length;
+                xqc_int_t n = xqc_vi64_read(p->value, end, &info.end.group_id);
+                if (n < 0 || xqc_vi64_read(p->value + n, end,
+                                           &info.end.object_id) < 0)
+                {
+                    return XQC_MOQT_INVALID_PARAMETER;
+                }
+            }
+        }
     }
     xqc_int_t exclusive = 0;
     for (size_t i = 0; i < parameters->parameter_count; i++) {
@@ -159,6 +178,11 @@ xqc_moqt_fetch_apply(xqc_moqt_request_t *r, const xqc_moqt_message_t *m)
         }
     }
     if (m->type == XQC_MOQT_MSG_FETCH_OK) {
+        if (draft23_response
+            && xqc_moqt_location_compare(&info.end, &requested_end) > 0)
+        {
+            info.end = requested_end;
+        }
         /* Section 9.12: the inclusive end cannot exceed the request range. */
         if (xqc_moqt_location_compare(&info.end, &requested_end) > 0) {
             return XQC_MOQT_PROTOCOL_VIOLATION;
@@ -219,8 +243,8 @@ xqc_moqt_fill_apply(xqc_moqt_request_t *r, const xqc_moqt_message_t *state,
     xqc_memzero(&inner, sizeof(inner));
     for (size_t i = 0; i < trigger->parameter_count; i++) {
         if (trigger->parameters[i].type == XQC_MOQT_PARAM_FILL_PARAMETERS
-            && xqc_moqt_fill_parameters_decode(&trigger->parameters[i],
-                                               &inner) != XQC_OK)
+            && xqc_moqt_fill_parameters_read(&trigger->parameters[i],
+                trigger->fill_parameters_counted, &inner) != XQC_OK)
         {
             return XQC_MOQT_PROTOCOL_VIOLATION;
         }

@@ -256,13 +256,14 @@ static xqc_moqt_session_t *
 xqc_moqt_wt_bind(xqc_wt_session_t *wt, const xqc_moqt_config_t *config,
     const xqc_moqt_callbacks_t *callbacks, void *data, xqc_bool_t draft07_compat)
 {
-    if (!xqc_wt_session_is_writable(wt) || wt->binding
+    const char *alpn = xqc_moqt_config_alpn(config);
+    if (alpn == NULL || !xqc_wt_session_is_writable(wt) || wt->binding
         || !xqc_list_empty(&wt->stream_list)
         || (wt->wt_conn->negotiated_version != XQC_WEBTRANSPORT_DRAFT_VERSION_16
             && (!draft07_compat || wt->wt_conn->negotiated_version
                 != XQC_WEBTRANSPORT_DRAFT_VERSION_7))
         || !wt->application_protocol
-        || strcmp(wt->application_protocol, XQC_MOQT_ALPN_DRAFT_22))
+        || strcmp(wt->application_protocol, alpn))
     {
         return NULL;
     }

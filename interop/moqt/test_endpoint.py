@@ -64,15 +64,28 @@ class InteropEndpoint(unittest.TestCase):
 
     def test_wt_setup_and_control(self):
         with self.server("webtransport") as port:
-            for case in ("setup-only", "announce-only", "subscribe-error"):
-                with self.subTest(case=case):
-                    result = self.client(f"https://127.0.0.1:{port}/moq?q=1",
-                                         case)
+            for version in ("moqt-22", "moqt-23"):
+                for case in ("setup-only", "announce-only", "subscribe-error"):
+                    with self.subTest(case=case, version=version):
+                        url = f"https://127.0.0.1:{port}/moq?q=1"
+                        result = self.client(url, case, "--moqt-version",
+                                             version)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("ok 1 - " + case, result.stdout)
+                        self.assertIn("transport: webtransport", result.stdout)
+                        self.assertIn("moqt_version: " + version, result.stdout)
+                        self.assertIn("alpn=h3", result.stderr)
+
+    def test_native_setup_and_rejection_both_revisions(self):
+        with self.server("quic") as port:
+            for version in ("moqt-22", "moqt-23"):
+                with self.subTest(version=version):
+                    result = self.client(f"moqt://127.0.0.1:{port}",
+                                         "subscribe-error",
+                                         "--moqt-version", version)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn("ok 1 - " + case, result.stdout)
-                    self.assertIn("transport: webtransport", result.stdout)
-                    self.assertIn("moqt_version: moqt-22", result.stdout)
-                    self.assertIn("alpn=h3", result.stderr)
+                    self.assertIn("ok 1 - subscribe-error", result.stdout)
+                    self.assertIn("alpn=" + version, result.stderr)
 
     def test_canonical_wt_uri_and_cli_transport_override(self):
         with self.server("webtransport") as port:

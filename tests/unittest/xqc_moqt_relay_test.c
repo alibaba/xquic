@@ -1495,8 +1495,8 @@ xqc_test_moqt_relay_limits(void)
     response.type = XQC_MOQT_MSG_SUBSCRIBE_OK;
     response.properties = (struct iovec){properties, sizeof(properties)};
     xqc_moqt_relay_buffer_free(f.relay, a->selected->response);
-    a->selected->response = xqc_moqt_relay_message_copy(f.relay, &response,
-                                                        XQC_MOQT_MSG_SUBSCRIBE);
+    a->selected->response = xqc_moqt_relay_message_copy(a->selected->peer,
+        &response, XQC_MOQT_MSG_SUBSCRIBE);
     uint8_t body = 42;
     xqc_moqt_object_t object;
     xqc_memzero(&object, sizeof(object));

@@ -4246,7 +4246,10 @@ xqc_test_moqt_namespace_discovery(void)
                     r->initial_type, 0), XQC_OK);
     CU_ASSERT_EQUAL(f.namespace_fields, 2);
     CU_ASSERT_EQUAL(f.namespace_first, 'a');
+    CU_ASSERT_EQUAL(f.namespace_removes, 0);
     xqc_test_moqt_namespace_ok(r);
+    CU_ASSERT_EQUAL(f.namespace_removes, 2);
+    CU_ASSERT_TRUE(xqc_list_empty(&r->namespaces));
     m.track_namespace.count = 0;
     CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &m,
                     r->initial_type, 0), XQC_OK);
@@ -4255,14 +4258,19 @@ xqc_test_moqt_namespace_discovery(void)
     m.type = XQC_MOQT_MSG_NAMESPACE_DONE;
     CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &m,
                     r->initial_type, 0), XQC_OK);
-    CU_ASSERT_EQUAL(f.namespace_removes, 1);
-    /* Names already observed under a survive the prefix update. */
-    CU_ASSERT_FALSE(xqc_list_empty(&r->namespaces));
+    CU_ASSERT_EQUAL(f.namespace_removes, 3);
+    CU_ASSERT_TRUE(xqc_list_empty(&r->namespaces));
+
+    /* Returning to a prefix allows its namespaces to be announced again. */
+    prefix[2] = 'a';
+    CU_ASSERT_EQUAL(xqc_moqt_request_send(r, &update), XQC_OK);
+    xqc_test_moqt_namespace_ok(r);
     CU_ASSERT_EQUAL(xqc_moqt_request_finish(r), XQC_OK);
     m.type = XQC_MOQT_MSG_NAMESPACE;
     CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &m,
                     r->initial_type, 0), XQC_OK);
     CU_ASSERT_EQUAL(f.namespace_adds, 4);
+    CU_ASSERT_EQUAL(f.namespace_first, 'a');
     CU_ASSERT_EQUAL(xqc_moqt_stream_input(r->stream, NULL, 0, 1), XQC_OK);
     CU_ASSERT_EQUAL(f.namespace_removes, 4);
     CU_ASSERT_TRUE(xqc_list_empty(&r->namespaces));
@@ -4329,7 +4337,7 @@ void
 xqc_test_moqt_namespace_lifecycle(void)
 {
     /* Section 4.2.2: FIN/reset discovery without touching concrete delivery. */
-    for (unsigned mode = 0; mode < 4; mode++) {
+    for (unsigned mode = 0; mode < 5; mode++) {
         moqt_fixture_t f;
         xqc_test_moqt_request_init(&f, 0);
         xqc_moqt_message_t sub = {.type = XQC_MOQT_MSG_SUBSCRIBE};
@@ -4359,11 +4367,24 @@ xqc_test_moqt_namespace_lifecycle(void)
             CU_ASSERT_EQUAL(xqc_moqt_stream_input(r->stream, NULL, 0, 1),
                             XQC_OK);
             CU_ASSERT_EQUAL(f.namespace_removes, 1);
+        } else if (mode == 4) {
+            m.track_namespace.fields[0].iov_base = "b";
+            CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &m,
+                            r->initial_type, 0), XQC_OK);
+            uint8_t prefix[] = {1, 1, 'c'};
+            xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+                .parameter_count = 1};
+            update.parameters[0] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX, sizeof(prefix), prefix};
+            CU_ASSERT_EQUAL(xqc_moqt_request_send(r, &update), XQC_OK);
+            f.cancel_in_namespace = 1;
+            xqc_test_moqt_namespace_ok(r);
+            CU_ASSERT_EQUAL(f.namespace_removes, 2);
         }
         CU_ASSERT_FALSE(camera->failed);
         CU_ASSERT_FALSE(camera->subscription->stopped);
         xqc_test_moqt_destroy(&f);
-        CU_ASSERT_EQUAL(f.namespace_removes, mode == 0 ? 2 : 1);
+        CU_ASSERT_EQUAL(f.namespace_removes, mode == 0 || mode == 4 ? 2 : 1);
     }
 
     moqt_fixture_t f;
@@ -4602,6 +4623,9 @@ xqc_test_moqt_namespace_update_races(void)
     m.request_id += XQC_MOQT_REQUEST_ID_STEP;
     CU_ASSERT_EQUAL(xqc_test_moqt_request_input(b->stream, &m,
                     b->initial_type, 0), XQC_OK);
+    xqc_moqt_message_t notice = {.type = XQC_MOQT_MSG_NAMESPACE};
+    b->stream->writing = 1;
+    CU_ASSERT_EQUAL(xqc_moqt_request_send(b, &notice), XQC_OK);
     size_t limit = f.session->config.max_buffered_bytes;
     f.session->config.max_buffered_bytes = f.session->buffered_bytes;
     xqc_moqt_message_t ok = {.type = XQC_MOQT_MSG_REQUEST_OK};
@@ -4609,24 +4633,18 @@ xqc_test_moqt_namespace_update_races(void)
     CU_ASSERT_EQUAL(b->pending_received_updates, 1);
     const xqc_moqt_message_t *state = (void *)b->state->data;
     CU_ASSERT_EQUAL(*(char *)state->track_namespace.fields[0].iov_base, 'b');
+    CU_ASSERT_FALSE(xqc_list_empty(&b->namespaces));
     f.session->config.max_buffered_bytes = limit;
-    m.type = XQC_MOQT_MSG_NAMESPACE;
-    m.parameter_count = 0;
-    b->stream->writing = 1;
-    CU_ASSERT_EQUAL(xqc_moqt_request_send(b, &m), XQC_OK);
     xqc_test_moqt_namespace_ok(b);
-    CU_ASSERT_EQUAL(xqc_moqt_request_send(b, &m), XQC_OK);
-    xqc_list_head_t *pos;
-    unsigned i = 0;
-    xqc_list_for_each(pos, &b->namespaces) {
-        xqc_list_buf_t *entry = xqc_list_entry(pos, xqc_list_buf_t, list_head);
-        xqc_moqt_namespace_t name;
-        CU_ASSERT(xqc_moqt_name_decode(entry->buf->data, entry->buf->data_len,
-                                       &name, NULL) > 0);
-        CU_ASSERT_EQUAL(*(char *)name.fields[0].iov_base, 'b' + i);
-        i++;
-    }
-    CU_ASSERT_EQUAL(i, 2);
+    CU_ASSERT_TRUE(xqc_list_empty(&b->namespaces));
+    CU_ASSERT_EQUAL(xqc_moqt_request_send(b, &notice), XQC_OK);
+    CU_ASSERT_PTR_EQUAL(b->namespaces.next, b->namespaces.prev);
+    xqc_list_buf_t *entry = xqc_list_entry(b->namespaces.next, xqc_list_buf_t,
+                                          list_head);
+    xqc_moqt_namespace_t name;
+    CU_ASSERT(xqc_moqt_name_decode(entry->buf->data, entry->buf->data_len,
+                                   &name, NULL) > 0);
+    CU_ASSERT_EQUAL(*(char *)name.fields[0].iov_base, 'c');
     CU_ASSERT_EQUAL(b->pending_received_updates, 0);
     b->stream->writing = 0;
     CU_ASSERT_EQUAL(xqc_moqt_stream_flush(b->stream), XQC_OK);

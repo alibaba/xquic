@@ -204,6 +204,10 @@ must supply explicit authentication/authorization policy.
 
 Relay SHALL retain authorized registrations by tuple prefix. After SUBSCRIBE_NAMESPACE
 OK, send NAMESPACE/DONE rather than forwarding PUBLISH_NAMESPACE.
+An accepted prefix update changes the discovery set on the same stream.
+The ACK implicitly withdraws namespaces outside the new prefix, as clarified
+in [draft-23 §9.5.2][sns-retarget]. Subsequent notifications encode suffixes
+relative to the new prefix. Matching registrations continue to be discoverable.
 Withdrawal, expired authorization, and disconnect update registration.
 Existing subscription termination depends on its own valid upstream state.
 [§4][s4], [§7.6][s7.6]
@@ -405,8 +409,9 @@ errors, and reclamation, not just process exit.
 | Overlapping migration | New subscription succeeds before old cancellation; independent delivery and deduplication during overlap | B1 does not migrate B2; new Sessions inherit neither Aliases nor credentials |
 
 Regression entry point: `case_test/moq/relay.sh`. Case 1475 covers routing,
-discovery, filters/pause, Datagrams, and overlapping migration; 1476 covers
-slow-subscriber, authorization, and malformed-Track isolation. Cases 1477/1478
+discovery retargeting, filters/pause, Datagrams, and overlapping migration.
+Case 1476 covers prefix-overlap rejection, slow-subscriber and malformed-Track
+isolation, and authorization. Cases 1477/1478
 cover FETCH/Fill success and live delivery after history failure; 1479/1480
 cover St→Pc discovery, independent lifetimes, authorization, and SKIPPED.
 Units additionally cover Scope, zero budgets, timeouts, empty streams,
@@ -433,6 +438,7 @@ publishers/subscribers where possible; record unsupported-peer gaps.
 [s10.3]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-10.3
 [s9.20.5]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-9.20.5
 [s9.20.6]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-9.20.6
+[sns-retarget]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-23#section-9.5.2
 [s12.1]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-12.1
 [s15.7]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-15.7
 [s7.4.1]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-7.4.1

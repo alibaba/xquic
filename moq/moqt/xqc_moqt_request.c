@@ -342,6 +342,30 @@ xqc_moqt_namespaces_clear(xqc_moqt_request_t *r)
     }
 }
 
+static void
+xqc_moqt_namespaces_retarget(xqc_moqt_request_t *r,
+    const xqc_moqt_namespace_t *prefix)
+{
+    xqc_list_head_t retired = xqc_list_head_init(retired);
+    xqc_list_head_t *pos, *next;
+    xqc_list_for_each_safe(pos, next, &r->namespaces) {
+        xqc_list_buf_t *entry = xqc_list_entry(pos, xqc_list_buf_t, list_head);
+        xqc_moqt_namespace_t name;
+        xqc_moqt_name_decode(entry->buf->data, entry->buf->data_len, &name,
+                             NULL);
+        if (!xqc_moqt_namespace_prefix(prefix, &name)) {
+            xqc_list_del_init(pos);
+            xqc_list_add_tail(pos, &retired);
+        }
+    }
+    /* A removal callback can cancel the request and clear its live list. */
+    while (!xqc_list_empty(&retired)) {
+        xqc_moqt_namespace_remove(r, xqc_list_entry(retired.next,
+                                                    xqc_list_buf_t,
+                                                    list_head));
+    }
+}
+
 /* Prepare an atomic set change before queuing a notification on the wire. */
 static xqc_int_t
 xqc_moqt_namespace_prepare(xqc_moqt_request_t *r,
@@ -424,7 +448,8 @@ xqc_moqt_commit_update(xqc_moqt_request_t *r, xqc_list_head_t *head,
 {
     xqc_list_buf_t *entry = xqc_list_entry(head->next, xqc_list_buf_t,
                                            list_head);
-    xqc_moqt_message_t candidate = *(xqc_moqt_message_t *)r->state->data;
+    const xqc_moqt_message_t *previous = (void *)r->state->data;
+    xqc_moqt_message_t candidate = *previous;
     xqc_moqt_session_t *s = r->stream->session;
     if (xqc_moqt_merge(&candidate, (void *)entry->buf->data) != XQC_OK) {
         return -XQC_ELIMIT;
@@ -449,9 +474,25 @@ xqc_moqt_commit_update(xqc_moqt_request_t *r, xqc_list_head_t *head,
         xqc_moqt_buffer_free(s, state, sizeof(*state));
         return -XQC_EPARAM;
     }
+    xqc_bool_t retarget = r->initial_type == XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE
+        && (previous->track_namespace.count != candidate.track_namespace.count
+            || !xqc_moqt_namespace_prefix(&previous->track_namespace,
+                                          &candidate.track_namespace));
     xqc_moqt_buffer_free(s, r->state, sizeof(*r->state));
     r->state = state;
     xqc_moqt_dequeue(s, entry);
+    if (head == &r->sent_updates) {
+        if (--r->pending_sent_updates == 0) {
+            r->response_deadline = 0;
+        }
+    } else {
+        r->pending_received_updates--;
+    }
+    /* Draft-23 §9.5.2 clarifies that ACK implicitly withdraws old matches. */
+    if (retarget) {
+        const xqc_moqt_message_t *current = (void *)state->data;
+        xqc_moqt_namespaces_retarget(r, &current->track_namespace);
+    }
     return XQC_OK;
 }
 
@@ -1017,7 +1058,6 @@ xqc_moqt_request_send_message(xqc_moqt_request_t *r,
                 xqc_moqt_request_cancel(r, XQC_MOQT_RESET_EXCESSIVE_LOAD);
                 return -XQC_EMALLOC;
             }
-            r->pending_received_updates--;
         }
         if (initial_response && m.type != XQC_MOQT_MSG_REQUEST_ERROR) {
             r->established = 1;
@@ -1490,7 +1530,6 @@ xqc_moqt_request_input(xqc_moqt_stream_t *st, const uint8_t *data, size_t len)
                 xqc_moqt_request_cancel(r, XQC_MOQT_RESET_EXCESSIVE_LOAD);
                 return XQC_MOQT_NO_ERROR;
             }
-            r->pending_sent_updates--;
         }
         if (first && m.type != XQC_MOQT_MSG_REQUEST_ERROR) {
             uint64_t error = xqc_moqt_subscription_apply(r, &m);

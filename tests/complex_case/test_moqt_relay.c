@@ -64,6 +64,8 @@ struct xqc_test_relay_node_s {
     unsigned                     ranges;
     unsigned                     namespace_adds;
     unsigned                     namespace_removes;
+    char                         namespace_added_prefix;
+    char                         namespace_removed_prefix;
     unsigned                     subscription_closed;
     unsigned                     malformed_done;
     unsigned                     fetch_closed;
@@ -301,11 +303,14 @@ xqc_test_relay_namespace(xqc_moqt_request_t *request,
         || xqc_memcmp(name->fields[1].iov_base, "a\0b", 3))
     {
         node->invalid++;
+        return;
     }
     if (available) {
         node->namespace_adds++;
+        node->namespace_added_prefix = *(char *)name->fields[0].iov_base;
     } else {
         node->namespace_removes++;
+        node->namespace_removed_prefix = *(char *)name->fields[0].iov_base;
     }
 }
 
@@ -767,6 +772,87 @@ xqc_test_relay_send(xqc_test_relay_fixture_t *f, size_t publisher,
 }
 
 static xqc_int_t
+xqc_test_relay_namespace_update(xqc_test_relay_fixture_t *f,
+    xqc_test_relay_node_t *subscriber, xqc_moqt_request_t *watch,
+    xqc_bool_t overlap)
+{
+    xqc_moqt_message_t m = xqc_test_relay_message_create(
+        XQC_MOQT_MSG_PUBLISH_NAMESPACE);
+    m.track_namespace.fields[0] = (struct iovec){"next", 4};
+    xqc_moqt_request_t *source = xqc_moqt_request_open(
+        f->clients[1].connection.session, &m);
+    xqc_test_relay_check(source != NULL);
+    xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
+
+    if (overlap) {
+        m.type = XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE;
+        xqc_test_relay_check(xqc_moqt_request_open(
+            subscriber->connection.session, &m) != NULL);
+        xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
+        xqc_test_relay_check(subscriber->namespace_adds == 2);
+    }
+    unsigned responses = subscriber->responses;
+    unsigned errors = subscriber->errors;
+    uint8_t next[] = {1, 4, 'n', 'e', 'x', 't'};
+    xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+        .parameter_count = 1};
+    update.parameters[0] = (xqc_moq_message_parameter_t){
+        XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX, sizeof(next), next};
+    xqc_test_relay_check(xqc_moqt_request_send(watch, &update) == XQC_OK);
+    for (unsigned waited = 0;
+         waited < XQC_TEST_RELAY_WAIT_MS
+             && (overlap ? subscriber->errors == errors
+                         : subscriber->namespace_adds == 1);
+         waited += XQC_TEST_RELAY_PUMP_MS)
+    {
+        xqc_test_relay_pump(f, XQC_TEST_RELAY_PUMP_MS);
+    }
+    if (overlap) {
+        printf("namespace overlap: errors=%u/%u code=%llu removals=%u\n",
+               errors, subscriber->errors,
+               (unsigned long long)subscriber->request_error_code,
+               subscriber->namespace_removes);
+        xqc_test_relay_check(subscriber->responses == responses);
+        xqc_test_relay_check(subscriber->errors == errors + 1);
+        xqc_test_relay_check(subscriber->request_error_code
+                             == XQC_MOQT_REQUEST_PREFIX_OVERLAP);
+        /* Drain the rejected request's FIN before checking its withdrawal. */
+        xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
+    } else {
+        xqc_test_relay_check(subscriber->responses == responses + 1);
+        xqc_test_relay_check(subscriber->errors == errors);
+    }
+    xqc_test_relay_check(subscriber->namespace_adds == 2);
+    xqc_test_relay_check(subscriber->namespace_added_prefix == 'n');
+    xqc_test_relay_check(subscriber->namespace_removes == 1);
+    xqc_test_relay_check(subscriber->namespace_removed_prefix == 'm');
+
+    xqc_moqt_request_cancel(source, XQC_MOQT_RESET_CANCELLED);
+    for (unsigned waited = 0;
+         waited < XQC_TEST_RELAY_WAIT_MS && subscriber->namespace_removes < 2;
+         waited += XQC_TEST_RELAY_PUMP_MS)
+    {
+        xqc_test_relay_pump(f, XQC_TEST_RELAY_PUMP_MS);
+    }
+    xqc_test_relay_check(subscriber->namespace_removes == 2);
+    xqc_test_relay_check(subscriber->namespace_removed_prefix == 'n');
+    if (!overlap) {
+        uint8_t media[] = {2, 5, 'm', 'e', 'd', 'i', 'a', 3, 'a', 0, 'b'};
+        update.parameters[0].length = sizeof(media);
+        update.parameters[0].value = media;
+        xqc_test_relay_check(xqc_moqt_request_send(watch, &update) == XQC_OK);
+        xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
+        xqc_test_relay_check(subscriber->responses == responses + 2);
+        xqc_test_relay_check(subscriber->namespace_adds == 3);
+        xqc_test_relay_check(subscriber->namespace_added_prefix == 'm');
+    }
+    return XQC_OK;
+
+done:
+    return XQC_ERROR;
+}
+
+static xqc_int_t
 xqc_test_relay_run(xqc_test_relay_fixture_t *f, const char *mode)
 {
     xqc_int_t result = XQC_ERROR;
@@ -818,6 +904,8 @@ xqc_test_relay_run(xqc_test_relay_fixture_t *f, const char *mode)
         xqc_test_relay_check(f->clients[i].invalid == 0);
     }
     if (!strcmp(mode, "routes")) {
+        xqc_test_relay_check(xqc_test_relay_namespace_update(f,
+            &f->clients[2], watch, XQC_FALSE) == XQC_OK);
         uint8_t paused = 0;
         xqc_memzero(&m, sizeof(m));
         m.type = XQC_MOQT_MSG_REQUEST_UPDATE;
@@ -885,18 +973,19 @@ xqc_test_relay_run(xqc_test_relay_fixture_t *f, const char *mode)
         xqc_test_relay_check(f->clients[3].objects == 6);
         xqc_test_relay_check(xqc_moqt_relay_stats(f->server.relay)->duplicates
                              > 0);
+        unsigned removes = f->clients[2].namespace_removes;
         xqc_moqt_request_cancel(registrations[0], XQC_MOQT_RESET_CANCELLED);
         xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
-        xqc_test_relay_check(f->clients[2].namespace_removes == 0);
+        xqc_test_relay_check(f->clients[2].namespace_removes == removes);
         xqc_moqt_request_cancel(registrations[1], XQC_MOQT_RESET_CANCELLED);
         for (unsigned waited = 0;
              waited < XQC_TEST_RELAY_WAIT_MS
-                 && f->clients[2].namespace_removes == 0;
+                 && f->clients[2].namespace_removes == removes;
              waited += XQC_TEST_RELAY_PUMP_MS)
         {
             xqc_test_relay_pump(f, XQC_TEST_RELAY_PUMP_MS);
         }
-        xqc_test_relay_check(f->clients[2].namespace_removes == 1);
+        xqc_test_relay_check(f->clients[2].namespace_removes == removes + 1);
         xqc_moqt_session_close(f->clients[0].connection.session,
                                XQC_MOQT_NO_ERROR);
         xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
@@ -1081,10 +1170,13 @@ xqc_test_relay_run(xqc_test_relay_fixture_t *f, const char *mode)
         xqc_test_relay_check(f->clients[3].subscription_closed == 2);
         xqc_test_relay_check(f->clients[3].malformed_done == 1);
         m = xqc_test_relay_message_create(XQC_MOQT_MSG_SUBSCRIBE_NAMESPACE);
-        xqc_test_relay_check(xqc_moqt_request_open(
-            f->clients[3].connection.session, &m) != NULL);
+        xqc_moqt_request_t *healthy_watch = xqc_moqt_request_open(
+            f->clients[3].connection.session, &m);
+        xqc_test_relay_check(healthy_watch != NULL);
         xqc_test_relay_pump(f, XQC_TEST_RELAY_SETTLE_MS);
         xqc_test_relay_check(f->clients[3].namespace_adds == 1);
+        xqc_test_relay_check(xqc_test_relay_namespace_update(f,
+            &f->clients[3], healthy_watch, XQC_TRUE) == XQC_OK);
     } else {
         xqc_bool_t errors = !strcmp(mode, "history-errors");
         xqc_moqt_request_t *publish = NULL;

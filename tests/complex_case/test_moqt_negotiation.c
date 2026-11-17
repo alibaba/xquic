@@ -1524,6 +1524,9 @@ moqt_namespaces(moqt_endpoint_t *client, moqt_endpoint_t *server,
         XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX, sizeof(prefix), prefix};
     xqc_moqt_check(xqc_moqt_request_send(sns, &update) == XQC_OK);
     xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+    /* Narrowing withdraws live and retains live/room42. */
+    xqc_moqt_check(client->namespace_removes == 2);
+    xqc_moqt_check(client->namespace_fields == 1);
     m.track_namespace.count = 0;
     xqc_moqt_check(xqc_moqt_request_send(publisher, &m) == XQC_OK);
     xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);

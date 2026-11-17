@@ -1,0 +1,18 @@
+/* Copyright (c) 2026, Alibaba Group Holding Limited. */
+#ifndef XQC_MOQT_INTEROP_TEST_H
+#define XQC_MOQT_INTEROP_TEST_H
+void xqc_test_moqt_interop_fixture(void);
+void xqc_test_moqt_interop_fixture_errors(void);
+void xqc_test_moqt_interop_validator(void);
+void xqc_test_moqt_interop_validator_errors(void);
+void xqc_test_moqt_interop_fragmentation(void);
+void xqc_test_moqt_interop_fragmentation_errors(void);
+void xqc_test_moqt_interop_large_id(void);
+void xqc_test_moqt_interop_large_id_errors(void);
+void xqc_test_moqt_interop_properties(void);
+void xqc_test_moqt_interop_properties_errors(void);
+void xqc_test_moqt_interop_catalog(void);
+void xqc_test_moqt_interop_catalog_errors(void);
+void xqc_test_moqt_interop_media(void);
+void xqc_test_moqt_interop_media_errors(void);
+#endif

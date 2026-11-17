@@ -873,7 +873,7 @@ xqc_test_moqt_messages(void)
         {6, 3, 3, {1}, 1}, {8, 7, 0x1d, {1}, 1}, {9, 7, 0x0d, {1, 2}, 2},
         {0x0a, 0x16, 0x16, {1}, 1}, {0x10, 3, 3, {1}, 1},
         {0x20, 3, 3, {255}, 1}, {0x21, 3, 3, {4, 1, 2, 3, 4}, 5},
-        {0x22, 3, 3, {2}, 1}, {0x23, 3, 3, {0}, 1},
+        {0x22, 3, 3, {2}, 1}, {0x23, 3, 3, {1, 0}, 2},
         {0x25, 3, 3, {0}, 1}, {0x26, 3, 3, {0}, 1}, {0x27, 3, 3, {0}, 1},
         {0x28, 3, 3, {0}, 1}, {0x29, 0x51, 0x51, {0}, 1},
         {0x32, 3, 3, {1}, 1}, {0x34, 2, 0x50, {1, 1, 'a'}, 3},
@@ -1053,6 +1053,67 @@ xqc_test_moqt_messages(void)
     CU_ASSERT_EQUAL(deadline, 500100);
     CU_ASSERT_EQUAL(xqc_moqt_retry_deadline(UINT64_MAX, 100, &deadline),
                     -XQC_ELIMIT);
+}
+
+void
+xqc_test_moqt_early_request(void)
+{
+    /* Draft-22 section 6.3: the request may overtake peer SETUP. */
+    for (unsigned fin = 0; fin <= 1; fin++) {
+        moqt_fixture_t f;
+        xqc_test_moqt_init(&f, 1);
+        f.session->callbacks.on_authorize = xqc_test_moqt_authorize_notify;
+        f.session->callbacks.on_message = xqc_test_moqt_message_notify;
+        xqc_test_moqt_start(&f);
+        xqc_moqt_stream_t *st = xqc_test_moqt_request_stream(&f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(st);
+        CU_ASSERT_FALSE(st->discarded);
+        xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_PUBLISH_NAMESPACE};
+        CU_ASSERT_EQUAL(xqc_test_moqt_request_input(st, &m, m.type, fin),
+                        XQC_OK);
+        CU_ASSERT_EQUAL(f.messages, 0);
+        CU_ASSERT(st->rx.data_len > 0);
+        CU_ASSERT_EQUAL(xqc_test_moqt_options(xqc_test_moqt_incoming(&f),
+                                              NULL, 0), XQC_OK);
+        CU_ASSERT_EQUAL(f.ready, 1);
+        CU_ASSERT_EQUAL(f.messages, 1);
+        CU_ASSERT_EQUAL(st->rx.data_len, 0);
+        CU_ASSERT_EQUAL(st->rx_fin, fin);
+        xqc_test_moqt_destroy(&f);
+    }
+}
+
+void
+xqc_test_moqt_early_request_errors(void)
+{
+    for (unsigned reject = 0; reject < 3; reject++) {
+        moqt_fixture_t f;
+        xqc_test_moqt_init(&f, 1);
+        f.session->callbacks.on_authorize = xqc_test_moqt_authorize_notify;
+        f.session->callbacks.on_message = xqc_test_moqt_message_notify;
+        xqc_test_moqt_start(&f);
+        xqc_moqt_stream_t *st = xqc_test_moqt_request_stream(&f);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(st);
+        xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_PUBLISH_NAMESPACE};
+        CU_ASSERT_EQUAL(xqc_test_moqt_request_input(st, &m, m.type, 0),
+                        XQC_OK);
+        CU_ASSERT_EQUAL(f.messages, 0);
+        if (reject == 0) {
+            f.reject = XQC_MOQT_UNAUTHORIZED;
+            xqc_test_moqt_options(xqc_test_moqt_incoming(&f), NULL, 0);
+            CU_ASSERT_EQUAL(f.error, XQC_MOQT_UNAUTHORIZED);
+        } else if (reject == 1) {
+            xqc_moqt_session_timeout(f.session->timer,
+                                      f.session->setup_deadline, f.session);
+            CU_ASSERT_EQUAL(f.error, XQC_MOQT_CONTROL_MESSAGE_TIMEOUT);
+        } else {
+            f.close_in_ready = 1;
+            xqc_test_moqt_options(xqc_test_moqt_incoming(&f), NULL, 0);
+            CU_ASSERT_TRUE(f.session->closed);
+        }
+        CU_ASSERT_EQUAL(f.messages, 0);
+        xqc_test_moqt_destroy(&f);
+    }
 }
 
 void
@@ -2750,15 +2811,23 @@ xqc_test_moqt_delivery_done(void)
             xqc_test_moqt_subscription_closed;
         f.session->callbacks.on_object = xqc_test_moqt_subgroup_object;
         f.session->callbacks.on_stream_closed = xqc_test_moqt_subgroup_closed;
+        sub->object_timeout = 1000;
+        sub->subgroup_timeout = 5000;
         xqc_moqt_request_t *r = sub->request;
         xqc_moqt_stream_t *request_stream = r->stream;
         xqc_moqt_message_t done = {.type = XQC_MOQT_MSG_PUBLISH_DONE,
             .stream_count = 1, .error = {.code = XQC_MOQT_PUBLISH_TRACK_ENDED}};
+        xqc_usec_t start = xqc_monotonic_timestamp();
         CU_ASSERT_EQUAL(xqc_test_moqt_request_input(request_stream, &done,
                             XQC_MOQT_MSG_SUBSCRIBE, 1), XQC_OK);
+        xqc_usec_t end = xqc_monotonic_timestamp();
+        CU_ASSERT(sub->close_deadline >= start + 5 * XQC_MICROS_PER_SECOND);
+        CU_ASSERT(sub->close_deadline <= end + 5 * XQC_MICROS_PER_SECOND);
         xqc_moqt_stream_callbacks.stream_close_notify(
             request_stream->transport_stream, request_stream);
         CU_ASSERT_PTR_NULL(sub->request);
+        xqc_moqt_session_timeout(f.session->timer,
+            start + 4 * XQC_MICROS_PER_SECOND, f.session);
         CU_ASSERT_EQUAL(f.subscription_closed, 0);
         if (cancel) {
             xqc_moqt_subscription_cancel(sub, XQC_MOQT_RESET_CANCELLED);
@@ -2768,6 +2837,7 @@ xqc_test_moqt_delivery_done(void)
         CU_ASSERT_EQUAL(xqc_moqt_stream_input(st, wire, sizeof(wire), 1),
                         XQC_OK);
         CU_ASSERT_EQUAL(f.objects, !cancel);
+        CU_ASSERT_EQUAL(f.object_bytes, !cancel);
         CU_ASSERT_EQUAL(f.subscription_closed, 1);
         CU_ASSERT_EQUAL(f.subscription_error, cancel
             ? XQC_MOQT_RESET_CANCELLED : XQC_MOQT_PUBLISH_TRACK_ENDED);
@@ -2777,9 +2847,58 @@ xqc_test_moqt_delivery_done(void)
     }
 }
 
+static void xqc_test_moqt_delivery_missing_stream(void);
+
+static void
+xqc_test_moqt_delivery_missing_stream(void)
+{
+    moqt_fixture_t f;
+    xqc_test_moqt_request_init(&f, 0);
+    xqc_moqt_subscription_t *sub = xqc_test_moqt_object_subscription(
+        &f, "v", 1, 0, 7);
+    xqc_moqt_subscription_t *other = xqc_test_moqt_object_subscription(
+        &f, "a", 2, 0, 7);
+    f.session->callbacks.on_subscription_closed =
+        xqc_test_moqt_subscription_closed;
+    f.session->callbacks.on_stream_closed = xqc_test_moqt_subgroup_closed;
+    xqc_moqt_stream_t *st = xqc_test_moqt_incoming(&f);
+    const uint8_t header[] = {0x10, 1, 2, 7};
+    CU_ASSERT_EQUAL(xqc_moqt_stream_input(st, header, sizeof(header), 0),
+                    XQC_OK);
+
+    xqc_moqt_message_t done = {.type = XQC_MOQT_MSG_PUBLISH_DONE,
+        .stream_count = 2, .error = {.code = XQC_MOQT_PUBLISH_TRACK_ENDED}};
+    xqc_usec_t start = xqc_monotonic_timestamp();
+    xqc_moqt_subscription_done(sub, &done);
+    xqc_usec_t end = xqc_monotonic_timestamp();
+    xqc_usec_t deadline = sub->close_deadline;
+    CU_ASSERT(deadline >= start + 3 * XQC_MICROS_PER_SECOND);
+    CU_ASSERT(deadline <= end + 3 * XQC_MICROS_PER_SECOND);
+    xqc_moqt_subscription_release(sub->request);
+    xqc_moqt_session_timeout(f.session->timer, deadline - 1, f.session);
+    CU_ASSERT_EQUAL(f.subscription_closed, 0);
+    CU_ASSERT_FALSE(st->discarded);
+
+    xqc_moqt_session_timeout(f.session->timer, deadline, f.session);
+    CU_ASSERT_EQUAL(f.subscription_closed, 1);
+    CU_ASSERT_EQUAL(f.subscription_error, XQC_MOQT_PUBLISH_TRACK_ENDED);
+    CU_ASSERT_EQUAL(f.last_code, XQC_MOQT_RESET_CANCELLED);
+    CU_ASSERT_FALSE(f.session->closed);
+    CU_ASSERT_FALSE(other->stopped);
+
+    f.session->callbacks.on_object = xqc_test_moqt_subgroup_object;
+    xqc_moqt_stream_t *unrelated = xqc_test_moqt_incoming(&f);
+    const uint8_t wire[] = {0x10, 2, 2, 7, 0, 1, 'x'};
+    CU_ASSERT_EQUAL(xqc_moqt_stream_input(unrelated, wire, sizeof(wire), 1),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(f.objects, 1);
+    xqc_test_moqt_destroy(&f);
+}
+
 void
 xqc_test_moqt_delivery_counts(void)
 {
+    xqc_test_moqt_delivery_missing_stream();
     /* Empty and shared-Alias streams still have bounded completion. */
     for (unsigned shared = 0; shared < 2; shared++) {
         moqt_fixture_t f;
@@ -2794,7 +2913,17 @@ xqc_test_moqt_delivery_counts(void)
             xqc_test_moqt_subscription_closed;
         xqc_moqt_message_t done = {.type = XQC_MOQT_MSG_PUBLISH_DONE,
             .stream_count = shared ? 1 : UINT64_MAX};
+        /* The local cleanup budget bounds a peer's delivery timeout. */
+        if (!shared) {
+            sub->object_timeout = UINT64_MAX;
+        }
+        xqc_usec_t wait = shared ? 3 * XQC_MICROS_PER_SECOND
+                                 : f.session->config.timeout;
+        xqc_usec_t start = xqc_monotonic_timestamp();
         xqc_moqt_subscription_done(sub, &done);
+        xqc_usec_t end = xqc_monotonic_timestamp();
+        CU_ASSERT(sub->close_deadline >= start + wait);
+        CU_ASSERT(sub->close_deadline <= end + wait);
         xqc_moqt_subscription_release(sub->request);
         xqc_moqt_stream_t *st = xqc_test_moqt_incoming(&f);
         const uint8_t header[] = {0x10, 0, 2, 7};
@@ -3074,7 +3203,7 @@ xqc_test_moqt_fetch_request(moqt_fixture_t *f, xqc_int_t publisher,
     uint8_t range[] = {XQC_MOQT_FILTER_ABSOLUTE_RANGE, 1, 0, 2, 9};
     uint8_t timeout[] = {0}, priority[] = {7};
     xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_FETCH,
-        .track_name = {"video", 5}, .parameter_count = 4};
+        .track_name = {"video", 5}, .parameter_count = order ? 4 : 3};
     m.parameters[0] = (xqc_moq_message_parameter_t){XQC_MOQT_PARAM_FILL_TIMEOUT,
         sizeof(timeout), timeout};
     m.parameters[1] = (xqc_moq_message_parameter_t){
@@ -3101,9 +3230,56 @@ xqc_test_moqt_fetch_response(xqc_moqt_request_t *r, uint64_t group,
         XQC_MOQT_MSG_FETCH, 0) : xqc_moqt_request_send(r, &ok);
 }
 
+static void xqc_test_moqt_fetch_group_order(void);
+
+static void
+xqc_test_moqt_fetch_group_order(void)
+{
+    /* Draft-22 §9.20.8: only the FETCH request selects its Group Order. */
+    for (unsigned scenario = 0; scenario < 3; scenario++) {
+        xqc_bool_t descending = scenario == 1;
+        xqc_bool_t invalid = scenario == 2;
+        moqt_fixture_t f;
+        xqc_moqt_request_t *r = xqc_test_moqt_fetch_request(&f, 0,
+            descending ? XQC_MOQT_GROUP_DESCENDING : 0);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(r);
+        uint8_t props[] = {XQC_MOQT_PROPERTY_GROUP_ORDER,
+                           XQC_MOQT_GROUP_DESCENDING};
+        xqc_moqt_message_t ok = {.type = XQC_MOQT_MSG_FETCH_OK,
+            .end_group = 3, .end_object = 9,
+            .properties = {props, sizeof(props)}};
+        CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &ok,
+            XQC_MOQT_MSG_FETCH, 0), XQC_OK);
+        CU_ASSERT_EQUAL(f.fetch_ready, 1);
+        CU_ASSERT_EQUAL(r->fetch->track->group_order,
+                        XQC_MOQT_GROUP_DESCENDING);
+        CU_ASSERT_EQUAL(r->fetch->info.group_order, descending
+            ? XQC_MOQT_GROUP_DESCENDING : XQC_MOQT_GROUP_ASCENDING);
+
+        /* The next group has delta zero unless it exceeds the request range. */
+        uint8_t wire[] = {5, 0, 0x1f, descending ? 3 : 1, 0, 0, 7, 1, 'a',
+                         0x1f, invalid ? 2 : 0, 0, 0, 7, 1, 'b'};
+        xqc_moqt_stream_t *st = xqc_test_moqt_incoming(&f);
+        CU_ASSERT_EQUAL(xqc_moqt_stream_input(st, wire, sizeof(wire), 1),
+                        invalid ? -XQC_EILLEGAL_FRAME : XQC_OK);
+        if (invalid) {
+            CU_ASSERT_EQUAL(f.objects, 1);
+            CU_ASSERT_EQUAL(f.error, XQC_MOQT_PROTOCOL_VIOLATION);
+        } else {
+            CU_ASSERT_EQUAL(f.objects, 2);
+            CU_ASSERT_EQUAL(f.object_bytes, 2);
+            CU_ASSERT_EQUAL(f.object.group_id, 2);
+            CU_ASSERT_EQUAL(f.fetch_closed, 1);
+            CU_ASSERT_FALSE(f.session->closed);
+        }
+        xqc_test_moqt_destroy(&f);
+    }
+}
+
 void
 xqc_test_moqt_fetch_receive(void)
 {
+    xqc_test_moqt_fetch_group_order();
     /* Sections 3.2.2/11.4: retain early data across native physical close. */
     for (unsigned early = 0; early < 2; early++) {
         moqt_fixture_t f;
@@ -3454,10 +3630,86 @@ xqc_test_moqt_fill_response(xqc_moqt_request_t *r, xqc_int_t has_largest)
 }
 
 void
+xqc_test_moqt_fill_counted(void)
+{
+    /* Draft-22 9.20/9.20.15: length, count, independent Type Delta scope. */
+    const uint8_t wire[] = {3, 0, 16, 0, 1, 4, 'd', 'i', 'a', 'g', 1, 't',
+        1, 0x23, 4, 1, 0x21, 1, 1};
+    xqc_moqt_message_t m, inner;
+    CU_ASSERT_EQUAL_FATAL(xqc_moqt_message_decode(wire, sizeof(wire), 0, &m),
+                          sizeof(wire));
+    CU_ASSERT_EQUAL(m.parameter_count, 1);
+    CU_ASSERT_EQUAL(xqc_moqt_fill_parameters_decode(&m.parameters[0], &inner),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(inner.parameter_count, 1);
+    CU_ASSERT_EQUAL(inner.parameters[0].type, XQC_MOQT_PARAM_LOCATION_FILTER);
+    CU_ASSERT_EQUAL(inner.parameters[0].length, 2);
+    CU_ASSERT_EQUAL(inner.parameters[0].value[0],
+                    XQC_MOQT_FILTER_RELATIVE_START);
+    CU_ASSERT_EQUAL(inner.parameters[0].value[1], 1);
+    uint8_t encoded[sizeof(wire)];
+    CU_ASSERT_EQUAL(xqc_moqt_message_encode(&m, m.type, encoded,
+                                            sizeof(encoded)), sizeof(wire));
+    CU_ASSERT_EQUAL(xqc_memcmp(encoded, wire, sizeof(wire)), 0);
+
+    moqt_fixture_t f;
+    xqc_test_moqt_request_init(&f, 1);
+    CU_ASSERT_EQUAL(xqc_moqt_stream_input(xqc_test_moqt_request_stream(&f),
+        wire, sizeof(wire), 0), XQC_OK);
+    CU_ASSERT_EQUAL(f.authorized, 1);
+    CU_ASSERT_EQUAL(f.messages, 1);
+    CU_ASSERT_FALSE(f.session->closed);
+    xqc_test_moqt_destroy(&f);
+
+    uint8_t empty[] = {1, 0};
+    xqc_moq_message_parameter_t p = {XQC_MOQT_PARAM_FILL_PARAMETERS,
+        sizeof(empty), empty};
+    CU_ASSERT_EQUAL(xqc_moqt_fill_parameters_decode(&p, &inner), XQC_OK);
+    CU_ASSERT_EQUAL(inner.parameter_count, 0);
+}
+
+void
+xqc_test_moqt_fill_counted_errors(void)
+{
+    /* Draft-22 9.20.15: both the count and byte length must be exhausted. */
+    const struct {
+        uint8_t value[7];
+        size_t length;
+    } cases[] = {
+        {{0}, 1},                         /* Missing inner count. */
+        {{1, 0x80}, 2},                   /* Truncated vi64 count. */
+        {{1, 65}, 2},                     /* Count exceeds local budget. */
+        {{4, 0, 0x21, 1, 1}, 5},          /* Trailing parameter. */
+        {{4, 2, 0x21, 1, 1}, 5},          /* Second parameter missing. */
+        {{3, 1, 0x21, 1}, 4},             /* Truncated Location Filter. */
+        {{3, 1, 0x10, 1}, 4},             /* FORWARD is forbidden in Fill. */
+        {{5, 2, 0x20, 7, 0, 8}, 6},       /* Duplicate priority. */
+        {{3, 0x21, 1, 1}, 4},             /* Old uncounted encoding. */
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        uint8_t wire[32] = {3, 0, 0, 0, 0, 1, 't', 1, 0x23};
+        memcpy(wire + 9, cases[i].value, cases[i].length);
+        size_t len = 9 + cases[i].length;
+        wire[2] = len - 3;
+        xqc_moqt_message_t m;
+        CU_ASSERT_EQUAL(xqc_moqt_message_decode(wire, len, 0, &m),
+                        -XQC_EILLEGAL_FRAME);
+        moqt_fixture_t f;
+        xqc_test_moqt_request_init(&f, 1);
+        CU_ASSERT_EQUAL(xqc_moqt_stream_input(xqc_test_moqt_request_stream(&f),
+            wire, len, 0), -XQC_EILLEGAL_FRAME);
+        CU_ASSERT_EQUAL(f.error, XQC_MOQT_PROTOCOL_VIOLATION);
+        CU_ASSERT_EQUAL(f.authorized, 0);
+        CU_ASSERT_EQUAL(f.messages, 0);
+        xqc_test_moqt_destroy(&f);
+    }
+}
+
+void
 xqc_test_moqt_fill_parameters(void)
 {
     /* Section 9.20.15: length-delimited parameters form a separate scope. */
-    uint8_t values[] = {12, 0x0a, 0, 0x16, 3, 1, 4, 1, 2, 2, 5, 1, 2};
+    uint8_t values[] = {13, 4, 0x0a, 0, 0x16, 3, 1, 4, 1, 2, 2, 5, 1, 2};
     xqc_moq_message_parameter_t p = {XQC_MOQT_PARAM_FILL_PARAMETERS,
         sizeof(values), values};
     xqc_moqt_message_t inner;
@@ -3475,7 +3727,7 @@ xqc_test_moqt_fill_parameters(void)
     CU_ASSERT(n > 0);
     CU_ASSERT_EQUAL(xqc_moqt_message_decode(wire, n, m.type, &inner), n);
     /* Mutating a legal inner type to FORWARD is a peer protocol violation. */
-    wire[n - sizeof(values) + 1] = XQC_MOQT_PARAM_FORWARD;
+    wire[n - sizeof(values) + 2] = XQC_MOQT_PARAM_FORWARD;
     CU_ASSERT_EQUAL(xqc_moqt_message_decode(wire, n, m.type, &inner),
                     -XQC_EILLEGAL_FRAME);
     for (size_t i = 0; i < sizeof(values); i++) {
@@ -3483,8 +3735,8 @@ xqc_test_moqt_fill_parameters(void)
         CU_ASSERT_EQUAL(xqc_moqt_fill_parameters_decode(&p, &inner), XQC_ERROR);
     }
     const uint8_t invalid[][6] = {
-        {2, 0x10, 1}, {2, 0x23, 0}, {4, 0x20, 1, 0, 2},
-        {2, 0x22, 0}, {3, 0x20, 1, 0}, {2, 0x35, 1},
+        {3, 1, 0x10, 1}, {3, 1, 0x23, 0}, {5, 2, 0x20, 1, 0, 2},
+        {3, 1, 0x22, 0}, {4, 2, 0x20, 1, 0}, {3, 1, 0x35, 1},
     };
     for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
         p.value = (uint8_t *)invalid[i];
@@ -3495,7 +3747,7 @@ xqc_test_moqt_fill_parameters(void)
                         -XQC_EPARAM);
     }
     /* Range filters are well-formed inside Fill but exceed our zero budget. */
-    uint8_t ranges[] = {8, 0x25, 0, 1, 0, 1, 0, 1, 0};
+    uint8_t ranges[] = {9, 4, 0x25, 0, 1, 0, 1, 0, 1, 0};
     p.value = ranges;
     p.length = sizeof(ranges);
     CU_ASSERT_EQUAL(xqc_moqt_fill_parameters_decode(&p, &inner), XQC_OK);
@@ -3515,7 +3767,7 @@ xqc_test_moqt_fill_snapshots(void)
 {
     for (xqc_int_t publisher = 0; publisher <= 1; publisher++) {
         moqt_fixture_t f;
-        uint8_t values[] = {12, 0x0a, 0, 0x16, 3, 1, 4, 1, 2, 2, 5, 1, 2};
+        uint8_t values[] = {13, 4, 0x0a, 0, 0x16, 3, 1, 4, 1, 2, 2, 5, 1, 2};
         xqc_moqt_request_t *r = xqc_test_moqt_fill_request(&f, publisher,
             values, sizeof(values), 1, XQC_MOQT_FILTER_NEXT_OBJECT);
         CU_ASSERT_PTR_NOT_NULL_FATAL(r);
@@ -3536,7 +3788,8 @@ xqc_test_moqt_fill_snapshots(void)
         CU_ASSERT_EQUAL(first->info.fill_timeout, 0);
         CU_ASSERT_EQUAL(sub->subscriber_priority, 7);
         CU_ASSERT_TRUE(sub->start_exclusive);
-        uint8_t empty = 0, filter = XQC_MOQT_FILTER_NONE, priority = 9;
+        uint8_t empty[] = {1, 0};
+        uint8_t filter = XQC_MOQT_FILTER_NONE, priority = 9;
         xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
             .request_id = 2, .parameter_count = 3};
         update.parameters[0] = (xqc_moq_message_parameter_t){
@@ -3544,7 +3797,7 @@ xqc_test_moqt_fill_snapshots(void)
         update.parameters[1] = (xqc_moq_message_parameter_t){
             XQC_MOQT_PARAM_LOCATION_FILTER, 1, &filter};
         update.parameters[2] = (xqc_moq_message_parameter_t){
-            XQC_MOQT_PARAM_FILL_PARAMETERS, 1, &empty};
+            XQC_MOQT_PARAM_FILL_PARAMETERS, sizeof(empty), empty};
         CU_ASSERT_EQUAL(publisher ? xqc_test_moqt_request_input(r->stream,
             &update, r->initial_type, 0) : xqc_moqt_request_send(r, &update),
             XQC_OK);
@@ -3588,7 +3841,7 @@ xqc_test_moqt_fill_suppressed(void)
 {
     for (unsigned scenario = 0; scenario < 5; scenario++) {
         moqt_fixture_t f;
-        uint8_t values[] = {0};
+        uint8_t values[] = {1, 0};
         xqc_moqt_request_t *r = xqc_test_moqt_fill_request(&f, 0, values,
             sizeof(values), scenario != 0, scenario == 2
                 ? XQC_MOQT_FILTER_NEXT_OBJECT : XQC_MOQT_FILTER_NONE);
@@ -3610,8 +3863,9 @@ xqc_test_moqt_fill_suppressed(void)
         xqc_test_moqt_destroy(&f);
     }
     moqt_fixture_t f;
-    uint8_t empty = 0, forward = 1;
-    xqc_moqt_request_t *r = xqc_test_moqt_fill_request(&f, 0, &empty, 1, 0,
+    uint8_t empty[] = {1, 0}, forward = 1;
+    xqc_moqt_request_t *r = xqc_test_moqt_fill_request(
+        &f, 0, empty, sizeof(empty), 0,
         XQC_MOQT_FILTER_NONE);
     CU_ASSERT_EQUAL(xqc_test_moqt_fill_response(r, 1), XQC_OK);
     xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
@@ -3623,7 +3877,7 @@ xqc_test_moqt_fill_suppressed(void)
     CU_ASSERT_EQUAL(f.fetch_ready, 0);
     update.parameter_count = 2;
     update.parameters[1] = (xqc_moq_message_parameter_t){
-        XQC_MOQT_PARAM_FILL_PARAMETERS, 1, &empty};
+        XQC_MOQT_PARAM_FILL_PARAMETERS, sizeof(empty), empty};
     CU_ASSERT_EQUAL(xqc_moqt_request_send(r, &update), XQC_OK);
     CU_ASSERT_EQUAL(xqc_test_moqt_fill_response(r, 1), XQC_OK);
     CU_ASSERT_EQUAL(f.fetch_ready, 1);
@@ -3635,8 +3889,9 @@ xqc_test_moqt_fill_lifecycle(void)
 {
     for (unsigned early = 0; early < 2; early++) {
         moqt_fixture_t f;
-        uint8_t empty = 0;
-        xqc_moqt_request_t *r = xqc_test_moqt_fill_request(&f, 0, &empty, 1, 1,
+        uint8_t empty[] = {1, 0};
+        xqc_moqt_request_t *r = xqc_test_moqt_fill_request(
+            &f, 0, empty, sizeof(empty), 1,
             XQC_MOQT_FILTER_NONE);
         CU_ASSERT_PTR_NOT_NULL_FATAL(r);
         f.session->callbacks.on_object = xqc_test_moqt_fetch_object;
@@ -3686,8 +3941,9 @@ xqc_test_moqt_fill_lifecycle(void)
     /* A default source failure must write the header before reliable reset. */
     for (unsigned blocked = 0; blocked < 2; blocked++) {
         moqt_fixture_t f;
-        uint8_t empty = 0;
-        xqc_moqt_request_t *r = xqc_test_moqt_fill_request(&f, 1, &empty, 1, 1,
+        uint8_t empty[] = {1, 0};
+        xqc_moqt_request_t *r = xqc_test_moqt_fill_request(
+            &f, 1, empty, sizeof(empty), 1,
             XQC_MOQT_FILTER_NONE);
         f.conn->remote_settings.reset_stream_at = 1;
         f.conn->conn_flag |= XQC_CONN_FLAG_TLS_HSK_COMPLETED;
@@ -3737,8 +3993,9 @@ void
 xqc_test_moqt_fill_scheduling(void)
 {
     moqt_fixture_t f;
-    uint8_t empty = 0;
-    xqc_moqt_request_t *r = xqc_test_moqt_fill_request(&f, 1, &empty, 1, 1,
+    uint8_t empty[] = {1, 0};
+    xqc_moqt_request_t *r = xqc_test_moqt_fill_request(
+        &f, 1, empty, sizeof(empty), 1,
         XQC_MOQT_FILTER_NONE);
     CU_ASSERT_EQUAL(xqc_test_moqt_fill_response(r, 1), XQC_OK);
     xqc_moqt_fetch_t *fetch = f.session->fetches;
@@ -3787,14 +4044,15 @@ void
 xqc_test_moqt_fill_errors(void)
 {
     moqt_fixture_t f;
-    uint8_t empty = 0;
-    xqc_moqt_request_t *r = xqc_test_moqt_fill_request(&f, 0, &empty, 1, 1,
+    uint8_t empty[] = {1, 0};
+    xqc_moqt_request_t *r = xqc_test_moqt_fill_request(
+        &f, 0, empty, sizeof(empty), 1,
         XQC_MOQT_FILTER_NONE);
     size_t budget = f.session->config.max_buffered_bytes;
     xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
         .request_id = 2, .parameter_count = 1};
     update.parameters[0] = (xqc_moq_message_parameter_t){
-        XQC_MOQT_PARAM_FILL_PARAMETERS, 1, &empty};
+        XQC_MOQT_PARAM_FILL_PARAMETERS, sizeof(empty), empty};
     f.session->config.max_buffered_bytes = f.session->buffered_bytes;
     CU_ASSERT_EQUAL(xqc_moqt_fetch_create(r, &update), XQC_MOQT_INTERNAL_ERROR);
     f.session->config.max_buffered_bytes = budget;
@@ -3810,7 +4068,7 @@ xqc_test_moqt_fill_errors(void)
     xqc_test_moqt_destroy(&f);
 
     /* An early peer stream cannot make an empty range deliver Objects. */
-    uint8_t range[] = {4, XQC_MOQT_PARAM_LOCATION_FILTER,
+    uint8_t range[] = {5, 1, XQC_MOQT_PARAM_LOCATION_FILTER,
         XQC_MOQT_FILTER_ABSOLUTE_START, 6, 0};
     r = xqc_test_moqt_fill_request(&f, 0, range, sizeof(range), 1,
         XQC_MOQT_FILTER_NONE);
@@ -3988,7 +4246,10 @@ xqc_test_moqt_namespace_discovery(void)
                     r->initial_type, 0), XQC_OK);
     CU_ASSERT_EQUAL(f.namespace_fields, 2);
     CU_ASSERT_EQUAL(f.namespace_first, 'a');
+    CU_ASSERT_EQUAL(f.namespace_removes, 0);
     xqc_test_moqt_namespace_ok(r);
+    CU_ASSERT_EQUAL(f.namespace_removes, 2);
+    CU_ASSERT_TRUE(xqc_list_empty(&r->namespaces));
     m.track_namespace.count = 0;
     CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &m,
                     r->initial_type, 0), XQC_OK);
@@ -3997,14 +4258,19 @@ xqc_test_moqt_namespace_discovery(void)
     m.type = XQC_MOQT_MSG_NAMESPACE_DONE;
     CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &m,
                     r->initial_type, 0), XQC_OK);
-    CU_ASSERT_EQUAL(f.namespace_removes, 1);
-    /* Names already observed under a survive the prefix update. */
-    CU_ASSERT_FALSE(xqc_list_empty(&r->namespaces));
+    CU_ASSERT_EQUAL(f.namespace_removes, 3);
+    CU_ASSERT_TRUE(xqc_list_empty(&r->namespaces));
+
+    /* Returning to a prefix allows its namespaces to be announced again. */
+    prefix[2] = 'a';
+    CU_ASSERT_EQUAL(xqc_moqt_request_send(r, &update), XQC_OK);
+    xqc_test_moqt_namespace_ok(r);
     CU_ASSERT_EQUAL(xqc_moqt_request_finish(r), XQC_OK);
     m.type = XQC_MOQT_MSG_NAMESPACE;
     CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &m,
                     r->initial_type, 0), XQC_OK);
     CU_ASSERT_EQUAL(f.namespace_adds, 4);
+    CU_ASSERT_EQUAL(f.namespace_first, 'a');
     CU_ASSERT_EQUAL(xqc_moqt_stream_input(r->stream, NULL, 0, 1), XQC_OK);
     CU_ASSERT_EQUAL(f.namespace_removes, 4);
     CU_ASSERT_TRUE(xqc_list_empty(&r->namespaces));
@@ -4071,7 +4337,7 @@ void
 xqc_test_moqt_namespace_lifecycle(void)
 {
     /* Section 4.2.2: FIN/reset discovery without touching concrete delivery. */
-    for (unsigned mode = 0; mode < 4; mode++) {
+    for (unsigned mode = 0; mode < 5; mode++) {
         moqt_fixture_t f;
         xqc_test_moqt_request_init(&f, 0);
         xqc_moqt_message_t sub = {.type = XQC_MOQT_MSG_SUBSCRIBE};
@@ -4101,11 +4367,24 @@ xqc_test_moqt_namespace_lifecycle(void)
             CU_ASSERT_EQUAL(xqc_moqt_stream_input(r->stream, NULL, 0, 1),
                             XQC_OK);
             CU_ASSERT_EQUAL(f.namespace_removes, 1);
+        } else if (mode == 4) {
+            m.track_namespace.fields[0].iov_base = "b";
+            CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &m,
+                            r->initial_type, 0), XQC_OK);
+            uint8_t prefix[] = {1, 1, 'c'};
+            xqc_moqt_message_t update = {.type = XQC_MOQT_MSG_REQUEST_UPDATE,
+                .parameter_count = 1};
+            update.parameters[0] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX, sizeof(prefix), prefix};
+            CU_ASSERT_EQUAL(xqc_moqt_request_send(r, &update), XQC_OK);
+            f.cancel_in_namespace = 1;
+            xqc_test_moqt_namespace_ok(r);
+            CU_ASSERT_EQUAL(f.namespace_removes, 2);
         }
         CU_ASSERT_FALSE(camera->failed);
         CU_ASSERT_FALSE(camera->subscription->stopped);
         xqc_test_moqt_destroy(&f);
-        CU_ASSERT_EQUAL(f.namespace_removes, mode == 0 ? 2 : 1);
+        CU_ASSERT_EQUAL(f.namespace_removes, mode == 0 || mode == 4 ? 2 : 1);
     }
 
     moqt_fixture_t f;
@@ -4344,6 +4623,9 @@ xqc_test_moqt_namespace_update_races(void)
     m.request_id += XQC_MOQT_REQUEST_ID_STEP;
     CU_ASSERT_EQUAL(xqc_test_moqt_request_input(b->stream, &m,
                     b->initial_type, 0), XQC_OK);
+    xqc_moqt_message_t notice = {.type = XQC_MOQT_MSG_NAMESPACE};
+    b->stream->writing = 1;
+    CU_ASSERT_EQUAL(xqc_moqt_request_send(b, &notice), XQC_OK);
     size_t limit = f.session->config.max_buffered_bytes;
     f.session->config.max_buffered_bytes = f.session->buffered_bytes;
     xqc_moqt_message_t ok = {.type = XQC_MOQT_MSG_REQUEST_OK};
@@ -4351,24 +4633,18 @@ xqc_test_moqt_namespace_update_races(void)
     CU_ASSERT_EQUAL(b->pending_received_updates, 1);
     const xqc_moqt_message_t *state = (void *)b->state->data;
     CU_ASSERT_EQUAL(*(char *)state->track_namespace.fields[0].iov_base, 'b');
+    CU_ASSERT_FALSE(xqc_list_empty(&b->namespaces));
     f.session->config.max_buffered_bytes = limit;
-    m.type = XQC_MOQT_MSG_NAMESPACE;
-    m.parameter_count = 0;
-    b->stream->writing = 1;
-    CU_ASSERT_EQUAL(xqc_moqt_request_send(b, &m), XQC_OK);
     xqc_test_moqt_namespace_ok(b);
-    CU_ASSERT_EQUAL(xqc_moqt_request_send(b, &m), XQC_OK);
-    xqc_list_head_t *pos;
-    unsigned i = 0;
-    xqc_list_for_each(pos, &b->namespaces) {
-        xqc_list_buf_t *entry = xqc_list_entry(pos, xqc_list_buf_t, list_head);
-        xqc_moqt_namespace_t name;
-        CU_ASSERT(xqc_moqt_name_decode(entry->buf->data, entry->buf->data_len,
-                                       &name, NULL) > 0);
-        CU_ASSERT_EQUAL(*(char *)name.fields[0].iov_base, 'b' + i);
-        i++;
-    }
-    CU_ASSERT_EQUAL(i, 2);
+    CU_ASSERT_TRUE(xqc_list_empty(&b->namespaces));
+    CU_ASSERT_EQUAL(xqc_moqt_request_send(b, &notice), XQC_OK);
+    CU_ASSERT_PTR_EQUAL(b->namespaces.next, b->namespaces.prev);
+    xqc_list_buf_t *entry = xqc_list_entry(b->namespaces.next, xqc_list_buf_t,
+                                          list_head);
+    xqc_moqt_namespace_t name;
+    CU_ASSERT(xqc_moqt_name_decode(entry->buf->data, entry->buf->data_len,
+                                   &name, NULL) > 0);
+    CU_ASSERT_EQUAL(*(char *)name.fields[0].iov_base, 'c');
     CU_ASSERT_EQUAL(b->pending_received_updates, 0);
     b->stream->writing = 0;
     CU_ASSERT_EQUAL(xqc_moqt_stream_flush(b->stream), XQC_OK);

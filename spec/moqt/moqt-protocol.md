@@ -63,6 +63,7 @@ Publisher / Subscriber applications    Relay service (separate implementation)
 | `include/moq/xqc_moqt.h` | Separate public API, borrowed message/object views, and callback contracts |
 | `moq/moqt/xqc_moqt_codec.*` | Framing and message/object-header codecs; reuse common vi64, naming, and KVP utilities |
 | `xqc_moqt_session.*` / `xqc_moqt_quic.c` | Session/Stream, SETUP, RX/TX, budgets, timers, and Native QUIC callback adaptation |
+| `xqc_moqt_transport.c` / `xqc_moqt_webtransport.c` | Shared transport operations and optional WT session binding; no second protocol state machine |
 | `xqc_moqt_request.c` | Request IDs, response/update FIFO, authorization, type-specific state, and cancellation |
 | `xqc_moqt_track.c` / `xqc_moqt_object.c` / `xqc_moqt_fetch.c` | Subscriptions, active-content summaries, incremental object delivery, and independent FETCH/Fill lifetimes |
 | Application | Authorization decisions, Track metadata, historical-object existence and data sources, media adaptation, and cross-session application policy |
@@ -82,7 +83,7 @@ messages or full §7 conformance.
 
 ### Integration, Authorization, and Resource Policy
 
-Applications create a Session in `conn_create_notify`, call
+Native QUIC applications create a Session in `conn_create_notify`, call
 `session_start` after handshake completion, and finally destroy it in the
 connection-close callback. The Session copies configuration and local SETUP
 and owns protocol/datagram user data; transport user data remains
@@ -90,12 +91,28 @@ application-owned. Readiness is notified exactly once, after the QUIC
 handshake, full submission of local SETUP, and successful validation of peer
 SETUP.
 
+With WebTransport, applications authorize CONNECT and select `moqt-22`, then
+create/start a MoQT Session from the successful WT session notification using
+`xqc_moqt_session_create_webtransport`. Destroy it in the WT close notification,
+before the H3 connection is destroyed; MoQT callbacks must not destroy it.
+The binding preserves connection-level application data and callbacks. Each
+WT session owns independent MoQT controls, requests, aliases and budgets.
+Local WT close emission waits for the outermost MoQT binding callback to
+return. This keeps application destruction in the WT close notification safe
+even when writing the CLOSE capsule fails; independent sessions keep running.
+
 The required `on_setup` callback supplies authority/path/token policy after
 library format and direction checks. Initial requests and updates invoke
 `on_authorize` before `on_message`, passing the merged candidate target.
 XQC_OK/XQC_ERROR indicate allow/deny; an output parameter supplies the error.
 The default denial is UNAUTHORIZED. A missing application handler produces
 NOT_SUPPORTED followed by FIN.
+
+Incoming bidirectional request streams that overtake SETUP are retained
+within the same Session stream/byte/time budgets. Dispatch them only after
+the handshake, local SETUP submission and peer SETUP authorization complete.
+Rejected or timed-out SETUP never dispatches buffered requests. This bounded
+policy follows draft-22 §6.3 and avoids depending on cross-stream ordering.
 
 Sending validates and copies a frame before accepting it into a bounded
 queue. Writable callbacks resume partial writes/AGAIN without committing state
@@ -392,9 +409,12 @@ return. `subscription_cancel()` remains valid after request-stream closure.
 Cancellation stops only data streams with no other active subscription
 reference. Multiple same-alias subscriptions cannot independently attribute
 stream counts, so wait conservatively for the local deadline. Unknown counts
-and lost headers also use `config.timeout` in microseconds, default 30 seconds.
-This §9.9 early-completion policy may discard later Objects and is timed
-separately from Object/Subgroup Delivery Timeout.
+and lost headers use the same subscription deadline. On receipt of
+`PUBLISH_DONE`, wait up to the larger of three seconds and the subscription's
+Object and Subgroup Delivery Timeout parameters, capped by `config.timeout`.
+If the count is still incomplete at expiration, retire the subscription and
+stop its remaining delivery streams. This §9.9 policy can discard Objects
+that arrive after the deadline.
 
 For §5.2 delivery timeouts, Track holds publisher defaults and Subscription
 holds subscriber parameters. The FIRST_OBJECT-marked first Object first
@@ -889,12 +909,13 @@ table does not add private interface families absent from the public baseline.
 | `xqc_moqt_config_init/config_alpn` | Explicit version 22 only; unique corresponding `moqt-22` |
 | `xqc_moqt_init_alpn/connect` | Independent stream/datagram handlers preserving caller connection callbacks; offer one configured ALPN and require QUIC DATAGRAM |
 | `xqc_moqt_session_create/start` | Validate configuration/ALPN/handlers and copy configuration at creation; start after handshake, verify peer DATAGRAM, send SETUP; notify ready once after both SETUPs |
+| `xqc_moqt_session_create_webtransport` | Bind one open WT draft-16 session selecting `moqt-22`; reject existing streams/bindings and AUTHORITY/PATH; preserve H3 data; reuse common start/request/object/FETCH APIs |
 | `xqc_moqt_message_encode/decode` | Full-frame syntax/codecs; original request type supplies response context, REQUEST_UPDATE supplies update-response context |
-| `xqc_moqt_request_open/send/finish/cancel` | One bidi per initial request, updates on that stream; connection-wide parity/deduplication, cross-stream reordering, credit, FIFO responses, half-close/cancel; application callbacks supply business behavior |
+| `xqc_moqt_request_open/send/finish/cancel` | One bidi per initial request, updates on that stream; session-wide parity/deduplication, cross-stream reordering, credit, FIFO responses, half-close/cancel; application callbacks supply business behavior |
 | `xqc_moqt_request_publish/skip` | Enumerate authorized Tracks for an accepted St; suppress duplicates by publication instance and Full Track Name, create independent Pc or send SKIPPED; resource exhaustion must not forget skipped records and allow retry |
 | `xqc_moqt_datagram_send` | One complete Object for an established local-publisher subscription; check location/pause; MSS overflow EDGRAM_TOO_LARGE, expiry EEXPIRED; AGAIN retains no caller bytes |
 | `xqc_moqt_request_subscription` | Session-owned SUBSCRIBE/PUBLISH delivery handle; control-message views own no long-lived delivery state |
-| `xqc_moqt_session_goaway/close/destroy` | Session/request GOAWAY, finite waiting, reclamation; no version setter, version changes require a new connection |
+| `xqc_moqt_session_goaway/close/destroy` | Session/request GOAWAY, finite waiting, reclamation; no version setter, version changes require a new transport session |
 
 Object APIs use length-delimited binary names, locations/Delivery Mode, and
 incremental payload. Subgroup/Fetch/Fill ownership is in the entity design.
@@ -905,7 +926,7 @@ Failed `config_init` preserves its input; invalid `config_alpn` returns NULL.
 `xqc_moqt_connect` preserves original connection arguments/CID ownership,
 requires local DATAGRAM and ordinary QUIC encryption, and currently rejects
 ticket/cached TP without changing inputs. Resumption opt-in is future work.
-Connection version is immutable; changing the original configuration has no
+MoQT Session version is immutable; changing the original configuration has no
 effect.
 
 Applications migrating to draft-22 must change integration, request, and data
@@ -941,7 +962,8 @@ required and may coexist in one Session.
 | Dynamic Groups | Later opt-in | Do not advertise before implementation; application chooses IDs/timing, Relay aggregation separate |
 | Automatic migration/redirect following | Deferred | Standard messages/overlap constraints; application chooses migration |
 | Native QUIC 0-RTT/request pipelining | Later opt-in | Known Full Track Name SUBSCRIBE/PUBLISH only, under constraints above |
-| Draft-22 WebTransport, external extensions, media upgrade | Deferred | No new support claim; preserve existing legacy draft-05/0-RTT |
+| Draft-22 WebTransport over HTTP/3 | Optional binding | WT draft-16 with `moqt-22` application-protocol selection; both build features required |
+| External extensions, media upgrade | Deferred | No new support claim; preserve existing legacy draft-05/0-RTT |
 | Relay routing, fanout, caching, service process | Separate implementation | [Relay specification](moqt-relay.md) |
 
 ## Protocol Requirements
@@ -1018,19 +1040,58 @@ them to names/Scope. The current Session protocol implementation owns
 `.session` requests; unknown ones return DOES_NOT_EXIST, never application
 fallback or cross-hop forwarding. [§6.1][s6.1], [§6.5][s6.5]
 
-WebTransport is a separate future adapter. Before enabling it, convert moqt
-URI to https, establish extended CONNECT, and select `moqt-22` through
-WT-Available-Protocols/WT-Protocol. Bind MOQT streams/datagrams to that WT
-session, not the entire H3 connection. CONNECT supplies authority/path/query;
-MOQT SETUP must not repeat AUTHORITY/PATH. Both MOQT SETUPs are still required
-after CONNECT; H3 ALPN or WT success is not MOQT readiness. Meet DATAGRAM and
-WT requirements. Native QUIC ticket/0-RTT policy does not automatically apply.
+WebTransport uses the guarded interface in
+[`xqc_moqt_webtransport.h`](../../include/moq/xqc_moqt_webtransport.h).
+Applications convert moqt URI to https, authorize extended CONNECT and select
+`moqt-22` through WT-Available-Protocols/WT-Protocol. The constructor requires
+an open WT draft-16 session with that negotiated protocol and no existing
+streams or binding. The explicit
+`xqc_moqt_session_create_webtransport_compat` entry point also admits draft-07
+peers that negotiate the same application-protocol headers. Missing or wrong
+protocols and other WT revisions remain rejected. This is application
+compatibility over the draft-07 transport, not draft-16 wire negotiation.
+Draft-07 section 4.3 provides best-effort reset association rather than
+reliable identifying prefixes; this mode does not promise draft-16 reset
+delivery guarantees. The default constructor retains its draft-16 requirement.
+CONNECT supplies authority/path/query; MOQT SETUP rejects AUTHORITY/PATH on
+both send and receive. Both MOQT SETUPs are still required after CONNECT;
+H3 ALPN or WT success is not MOQT readiness. Native QUIC ticket/0-RTT policy
+does not automatically apply.
 [§6.2.1][s6.2.1], [§9.1.1–9.1.2][s9.1.1]
+
+The binding reuses protocol state, bounded buffers, scheduling and parsing.
+WT owns Session ID prefixes, datagram association and application reset-code
+mapping. MoQT payload offsets and reliable identifying prefixes exclude WT
+framing in the shared protocol logic. Closing a MoQT Session sends a WT CLOSE
+capsule; pending WT capsules drain before a queued close. Transport closure
+detaches the binding after its streams are cleaned up. Other sessions and the
+shared H3 connection remain usable. Error values beyond WT's 32-bit range
+map to the corresponding MoQT INTERNAL_ERROR.
+
+WT_SESSION_GONE on a control stream is transport session cleanup, not a
+MoQT control-stream violation (WT draft-16 section 6; MoQT section 6.3).
+Cleanup RESET or STOP_SENDING can precede CONNECT close metadata. Retain a
+detached control until the WT session supplies the final application error;
+do not replace that error with PROTOCOL_VIOLATION. Application resets and
+FIN on a live control stream still terminate MoQT with PROTOCOL_VIOLATION.
+
+Build and validate both feature gates with
+`./scripts/validate.sh test --feature moqt_webtransport`. The native endpoint
+example in `tests/complex_case/test_moqt_webtransport.c` demonstrates CONNECT,
+binding and lifecycle; it is not a runner client or relay implementation.
 
 Test same-Scope identity despite query differences, same-name separation across
 Scopes, publisher restart collisions, and nonforwarding of `.session`.
-WT-specific tests cover two WT sessions on one H3 connection, missing SETUP,
-and invalid AUTHORITY/PATH. Mark the absent adapter as a gap.
+WT-specific tests cover two WT sessions on one H3 connection, requests,
+partial object I/O, datagrams, FETCH, reset mapping, missing SETUP, control FIN,
+invalid AUTHORITY/PATH and continued operation of the unaffected session.
+Runner transport glue and external WT interoperability remain separate evidence.
+
+The POSIX `demo_server --moqt` mode demonstrates the compatibility constructor,
+native QUIC and a bounded parser/sink policy. See
+[the demo guide](../../demo/moqt.md) for setup, accepted operations and Origin
+configuration. Native cases 1493/1494 cover opt-in draft-07 transfer and errors,
+including the shipped demo's normal and rejected CONNECT paths.
 
 <a id="wire-codec"></a>
 
@@ -1473,6 +1534,14 @@ unaffected by later live data. Inner parameters override outer values; omitted
 values inherit. Updates without FILL_PARAMETERS do not retrigger Fill.
 Each Fill completes/cancels independently.
 
+FILL_PARAMETERS contains a byte length followed by an inner parameter count
+and exactly that many Parameters. Both the count and byte length must be
+exhausted. Inner Type Deltas start from zero independently of the enclosing
+message. Empty Fill uses value bytes `01 00` (length 1, count 0); a current-group
+Location Filter uses `04 01 21 01 01`. Missing counts, trailing bytes and
+disallowed inner types are session protocol violations. [§9.20][s9.20],
+[§9.20.15][s9.20.15]
+
 `xqc_moqt_fetch_info_t` directly holds public locations, ID, order, priority,
 and timeout. `fetch_info()` returns a read-only view.
 `on_fetch_ready` notifies source/receiver after range confirmation, with
@@ -1522,6 +1591,10 @@ range categories. Missing cache is not nonexistence. No history cache is added.
 The implementation SHALL support standalone FETCH/FETCH_OK/one data stream, both Group Orders,
 within-Group Object order, inclusive End Location, empty responses, partially
 arrived Largest Object, and all three range categories. [§3.2][s3.2]
+
+Standalone FETCH uses Ascending order when `GROUP_ORDER` is absent. An
+explicit `GROUP_ORDER` governs the response even when the Track advertises a
+different publisher preference. [§9.20.8][s9.20]
 
 Send FETCH_OK only with definite End Location. No published Objects or start
 beyond Largest Object gives INVALID_RANGE. A valid range with no existing
@@ -1726,8 +1799,8 @@ interpretation before implementation; do not claim every combination tested.
 The current sending subset inherits FORWARD and GROUP_ORDER from the St
 snapshot and uses INCLUDE_PROPERTIES to control Track Properties. St
 credentials and parameters valid only on St are not copied into PUBLISH.
-Nonzero Range Filters follow F11; until implemented, zero-credit rejection
-remains mandatory rather than pretending to apply filters. The disputed
+When Range Filters are enabled, Track Property filters gate each PUBLISH and
+the resulting subscription owns the applicable Object filters. The disputed
 direct LOCATION_FILTER/FILL_PARAMETERS combinations remain rejected by strict
 allowlists. Independent-peer agreement belongs to protocol-rule validation;
 C10 does not use these combinations.
@@ -1787,10 +1860,10 @@ Two-endpoint self-tests do not replace three-node acceptance.
 
 ### Requirement: Dynamic Group Requests and Completion
 
-Until enabled, use the restricted behavior below. Enabling requires explicit
-application support and a new-Group callback, without transport guessing
-I-frames/minimum GOP. NEW_GROUP_REQUEST is known largest Group+1, or zero if
-unknown. Check UINT64_MAX rather than wrapping to zero. Initial SUBSCRIBE may
+Generating a new Group requires explicit application support. The endpoint
+reports REQUEST_UPDATE to its control callback and the publisher selects the
+next Group and keyframe timing. NEW_GROUP_REQUEST is known largest Group+1,
+or zero if unknown. Check UINT64_MAX rather than wrapping to zero. Initial SUBSCRIBE may
 include it before support is known; unsupported original publishers ignore it.
 Updates require known DYNAMIC_GROUPS=1.
 [§3.5.1][s3.5.1], [§9.20.19][s9.20.19]
@@ -1801,7 +1874,7 @@ constraints. Publisher chooses actual ID, not necessarily the requested value.
 Callback acceptance, REQUEST_UPDATE_OK, and open request stream do not prove
 creation.
 
-A future Relay without Established upstream includes demand in SUBSCRIBE.
+A Relay without Established upstream includes demand in SUBSCRIBE.
 With a supporting upstream, zero or demand above Largest Group requires an
 upstream update unless an equal/larger request is outstanding. Nonzero demand
 at/below Largest Group needs none. Track retains outstanding value and
@@ -1823,12 +1896,12 @@ messages requiring Session closure.
 | Capability | Minimum endpoint behavior |
 | --- | --- |
 | SUBSCRIBE_TRACKS | After authorization/overlap checks, the application accepts or rejects; acceptance permits Track enumeration and independent Pc, with failures following SKIPPED/resource-budget rules |
-| Range Filters | Before support/at zero: advertise MAX_FILTER_RANGES=0 and reject prohibited filters with INVALID_FILTER; TX permission follows peer allowance, not local RX allowance |
+| Range Filters | At zero: reject prohibited filters with INVALID_FILTER. A subscriber uses the peer's advertised allowance. |
 | Token Alias cache | Before support/at zero: MAX_AUTH_TOKEN_CACHE_SIZE=0; excess SETUP REGISTER acts as USE_VALUE, outside SETUP gives AUTH_TOKEN_CACHE_OVERFLOW; peer allowance controls TX, baseline sends only USE_VALUE |
 | Dynamic Groups | No DYNAMIC_GROUPS=1 before completion; ignore initial request under §9.20.19, require known support for updates |
 | RENDEZVOUS_TIMEOUT / FILL_TIMEOUT | Parse/expose through API; original endpoints do not own cross-session waiting; the separate Relay implements its budget |
 | GOAWAY / REDIRECT | Validate, notify application, follow draining/termination; no automatic reconnect or untrusted-URI following |
-| Draft-22 WebTransport | No adapter yet; Native QUIC 0-RTT only by explicit future policy; retain legacy draft-05/0-RTT independently |
+| Draft-22 WebTransport | Optional WT draft-16 Session binding; no WT 0-RTT or runner support claim; retain legacy draft-05/0-RTT independently |
 | Unknown SETUP option / ordinary property | Apply §9.1/§8.4, distinct from non-ignorable unknown parameters/messages |
 
 Applications SHALL explicitly authorize Session, publication, and subscription.
@@ -1935,7 +2008,7 @@ implementation passing.
 
 The reference catalog pins runner
 `41395bbf2aa484d7694757fe06620a1d4c0e7de9` and aiomoqt `0.14.1`
-generation/validation. Version changes require rechecking oracles, not
+generation/validation. Version changes require rechecking validators, not
 inheriting results by case name.
 [Cases][interop-cases], [data contract][interop-data], [validator][interop-validator]
 
@@ -1968,8 +2041,20 @@ not repository endpoint case IDs.
 | C22 | publish-subscribe-media | Catalog→media Track→decode/display and normal exit |
 
 There are 22 target cases; extra nondefault cases are separate extensions.
-Unimplemented WT is gap/skip, never filled by Native QUIC results. C22 remains
-skipped without media tooling/images. FETCH/Fill, full updates/migration,
+The endpoint fixture also exposes the `moq-test-subgroup-per-group-no-eog`
+extension: it verifies a complete Object set and graceful Subgroup FIN without
+the END_OF_GROUP flag; FIN closes the Subgroup but does not declare the final
+Object ID for its Group ([draft-22 Sections 11.3.1 and 11.3.2][draft]).
+The `moq-test-extensions-integer-only` and
+`moq-test-extensions-variable-only` extensions isolate the integer and
+byte-sequence Object Property KVP forms in MoQ Test -00 §§2.14–2.15.
+The `moq-test-object-fragmentation` extension verifies ordered fragment
+reassembly and rejects a sequence that starts at a nonzero offset.
+The `moq-test-object-large-id` extension exercises 64-bit Group and Object
+identities above 2^40 through the Subgroup header and Object ID delta encoding
+([draft-22 Sections 2.1, 2.3 and 11.3][draft]).
+Unimplemented WT is gap/skip, never filled by Native QUIC results. C22 requires
+an installed decoder and real rendered frames. FETCH/Fill, full updates/migration,
 0-RTT, dynamic Groups, renewal, complete filters, padding, congestion, and
 security require separate scenarios; these 22 do not replace this specification.
 
@@ -1983,9 +2068,39 @@ nonzero Range Filters, nor Token Aliases. Three-node execution still depends
 on the separate Relay's authorized enumeration/source routing and runner
 integration; two-endpoint success cannot substitute for it.
 
+#### Endpoint Runner Adapter
+
+The adapter in `interop/moqt/` exposes a TAP v14 client, direct test origin,
+and bounded relay through the public endpoint and relay APIs. Its
+[usage and role boundaries](../../interop/moqt/README.md) define CLI,
+environment, capability discovery, bounded fixtures, and unsupported cases.
+The relay entrypoint shares the library's cross-Session routing, fanout,
+namespace observer propagation, and rendezvous. Both transports use the same
+scenario drivers; a separate direct-origin mode checks deterministic object
+delivery without assuming cross-connection routing. Its bounded C22 profile
+uses public LOC/MSF codecs, catalog-driven Track selection, elementary VP8
+samples and independent FFmpeg decoding with terminal rendering. Missing or
+failed decoding cannot satisfy C22. Named catalog/LOC rejection extensions
+verify subsequent valid delivery on the same Sessions. See the adapter
+documentation for fixture provenance and the restricted media profile.
+
+Native QUIC and WT share the same scenario drivers and object validators. HTTPS
+selects WT, or explicit transport selection uses a canonical moqt URI. The
+WT adapter authorizes the anonymous test CONNECT, selects `moqt-22`, binds
+the existing WT constructor and waits for both SETUPs. Authority/path/query
+remain in CONNECT; MoQT destruction occurs in the WT close callback. Both
+existing role images build both capabilities, with runtime transport choice.
+
+The adapter additionally covers multi-publisher namespace retention using a
+synchronization namespace and late observers. Standalone `fetch` and Fill
+`join` use bounded deterministic history, independent live/history validators,
+complete object sets and retrieval FIN. Application history is separate from
+Relay caching. Opposite sender directions and peer Fill encodings require
+separate results; a diagnostic wire variant is not an unmodified-peer pass.
+
 #### Data and Media Boundaries
 
-Deterministic sources/oracles are independent of the protocol library.
+Deterministic sources/validators are independent of the protocol library.
 Tuple fields, mapping, and counts follow the [pinned generator][interop-origin]
 and [data contract][interop-data]. Validate C08 and eight moq-test vectors
 separately with unique names. Reassemble fragments by offset, then compare
@@ -2001,11 +2116,16 @@ additional property-value/raw-encoding checks. C20 zero downstream delivery
 does not test multi-subscriber aggregation. Draft-22 §9.9 unknown Stream Count
 is `2^64−1`, while the reference aiomoqt constant is `2^62−1`.
 Check adapters and nine-byte vi64; do not alter wire values to satisfy an
-oracle, or infer runtime failure from the difference alone.
+validator, or infer runtime failure from the difference alone.
 
 Pin media fixture/catalog/profile/decoder and provenance. Validate
 “publish catalog → choose Track → receive Objects → decode/display,” without
-media repackaging in the protocol library. Choices remain the F44 gap.
+media repackaging in the protocol library. The
+[LOC/MSF format subset](../../harness/spec/loc-msf/spec.md) supplies public
+properties and independent plaintext LOC catalogs. The adapter pins a
+three-frame VP8/LOC public-properties profile, an independent MSF-01 catalog
+and FFmpeg decoding with terminal rendering. Full live catalog workflow and
+general player interoperability remain outside this subset.
 The [pinned script][interop-media] requires actual displayed≥2, subscriber
 exit zero, and no observed abnormal publisher exit; it has no audio-blocks>0
 threshold. Zero-frame normal exit and enough-frame abnormal exit both fail.
@@ -2040,7 +2160,7 @@ padding probes.
 | --- | --- | --- | --- |
 | F01 [vi64, framing, binary names, KVP](#wire-codec) | Complete | Complete; positive/negative vi64/codec tests | Yes; C01–C22 basic wire |
 | F02 [Native QUIC, ALPN, API isolation](#transport-versions) | Complete | Complete; ALPN dispatch and legacy endpoint tests | Conditional; Native QUIC C01–C22 |
-| F03 [WT CONNECT, SETUP, Session binding](#scope-and-webtransport) | Partial; boundary defined, adapter API/lifetime pending | Not implemented; separate adapter | Conditional; WebTransport C01–C22 |
+| F03 [WT CONNECT, SETUP, Session binding](#scope-and-webtransport) | Complete | Complete; constructor, transport/session isolation units and endpoints 1471/1472; runner adapter reuses the binding | Conditional; WebTransport C01–C22 |
 | F04 [SETUP, ready, directional allowances, extensions](#setup-direction-and-extensions) | Complete | Complete; setup/session tests; nonzero operations in F11/F28 | Yes; C01–C22 |
 | F05 [Scope, URI, .session isolation](#scope-and-webtransport) | Complete | Partial; URI/.session present; Scope/query/restart-collision checks pending | No; no dedicated Scope case; basic connect counted in F02/F03 |
 | F06 [Request IDs, responses, credit, notification, half-close/cancel](#request-lifecycle) | Complete | Complete; request tests | Yes; C02–C22 associations/lifetimes |
@@ -2048,7 +2168,7 @@ padding probes.
 | F08 [Track/Subscription identity, references, Alias](#entity-structure-design) | Complete | Complete; Track tests | Yes; C04–C08, C10–C20, C22 |
 | F09 [SUBSCRIBE/PUBLISH initiation](#publish-subscribe) | Complete | Complete; establishment/rejection tests | Yes; C04–C08, C10–C20, C22 |
 | F10 [Location Filter, FORWARD, updates/pause](#publish-subscribe) | Complete | Complete; filter/update tests | Yes; C20 does not enumerate all six filters |
-| F11 [Nonzero Range Filters, SetIDs, updates](#range-filter-design) | Complete | Not implemented; zero-credit rejection is not support | No; nonzero filters not required |
+| F11 [Nonzero Range Filters, SetIDs, updates](#range-filter-design) | Complete | Bounded at eight ranges with library opt-in and matching for live, FETCH, Fill and Track discovery | Optional; demo relay endpoint case 1495 checks Object ID filtering |
 | F12 [Live priority/Group Order scheduling](#priority-scheduling-design) | Complete | Complete; scheduling/limit tests; combined Fill in F22 | Yes; C08/C12–C20 fields, scheduling abnormalities separate |
 | F13 [Object Datagram TX/RX/association](#object-delivery) | Complete | Complete; codec/lifetime tests | Yes; C16/C17 |
 | F14 [Subgroup streams, three ID modes, deltas, fragments](#object-delivery) | Complete | Complete; Subgroup tests | Yes; C08/C12–C15/C18/C19/C22 |
@@ -2058,8 +2178,8 @@ padding probes.
 | F18 [Ordinary Object Properties codec/fidelity](#properties-cache-and-malformed) | Complete | Complete; KVP/property tests | Yes; C18 ID set; value/byte fidelity separate |
 | F19 [Mandatory/Immutable, Track Properties, INCLUDE_PROPERTIES](#properties-cache-and-malformed) | Complete | Partial; Object validation/immutable reads present; response-phase/set-replacement checks pending | No; Mandatory/nonempty Track Properties not required |
 | F20 [Cross-delivery consistency, Prior Gap, malformed propagation](#properties-cache-and-malformed) | Partial; active-summary bounds defined, longer history policy unresolved | Partial; active Group/Subgroup and FETCH malformed handling present; complete history pending | No; sparse increments do not test Prior Gap conflict |
-| F21 [Standalone FETCH, history, ranges, cancellation](#fetch-decoding-history) | Complete | Complete; positive/negative codec/lifetime tests | No; catalog has no FETCH |
-| F22 [Fill/live concurrency, trigger IDs, cancellation](#fill-design) | Complete | Complete; scope/snapshot/cancel/scheduling tests | No; catalog has no Fill |
+| F21 [Standalone FETCH, history, ranges, cancellation](#fetch-decoding-history) | Complete | Complete; positive/negative codec/lifetime tests | Yes; extra fetch case; range/order/cancellation abnormalities remain separate |
+| F22 [Fill/live concurrency, trigger IDs, cancellation](#fill-design) | Complete | Complete; scope/snapshot/cancel/scheduling tests | Yes; extra join case; update/cancellation abnormalities remain separate |
 | F23 [Namespace publication/withdrawal](#namespace-state-boundaries) | Complete | Complete; registration/withdrawal and request isolation tests | Yes; C02/C03/C06–C10/C13–C22 |
 | F24 [Namespace discovery, suffix/DONE, prefix updates](#namespace-state-boundaries) | Complete | Complete; suffix/DONE, races/auth, FIN/reset, budgets/reentrancy | Yes; C09/C10/C21 |
 | F25 [SUBSCRIBE_TRACKS, independent PUBLISH, SKIPPED](#subscribe-tracks-design) | Partial; explicit sending/rejection subset, Location/Fill inheritance still needs peer agreement | Partial; C10 endpoint prerequisites and positive/negative tests present: bounded enumeration, independent Pc, SKIPPED, inheritance, updates, authorization, lifetimes; nonzero filters depend on F11, disputed combinations need validation | Yes; C10 endpoint subset ready; three-node execution depends on F35/F42, no inferred case pass |
@@ -2067,21 +2187,21 @@ padding probes.
 | F27 [Rendezvous, late PUBLISH matching, termination](#rendezvous-and-relay-contract) | Complete | Core complete; bounded Relay rendezvous, late-publication matching, and cancellation termination | Yes; C05/C07/C13–C20 |
 | F28 [Directional Token Alias caches and ordering](#token-alias-design) | Complete | Not implemented; zero-cache fallback is not support | No; REGISTER/USE_ALIAS/DELETE not required |
 | F29 [Native QUIC 0-RTT, pipelining, rejection recovery](#moqt-0rtt-negotiation) | Complete | Not implemented; legacy fast/0-RTT is not draft-22 support | No; no resumption/early-data checks |
-| F30 [Dynamic Groups/NEW_GROUP_REQUEST, Relay aggregation](#dynamic-group-design) | Complete | Not implemented; application callbacks and Relay outstanding state separate | No; no dynamic-Group case |
+| F30 [Dynamic Groups/NEW_GROUP_REQUEST, Relay aggregation](#dynamic-group-design) | Complete | Direct PUBLISH forwards and coalesces requests. Namespace-grant aggregation remains open. | Yes; demo relay requests a new Group |
 | F31 [EXPIRES renewal and independent clocks](#parameter-context-and-renewal) | Complete | Not implemented; update framework is not renewal | No; no renewal case |
 | F32 [Padding consume/cancel and context-specific Grease](#deployment-and-security) | Complete | Partial; consume/discard/unknown errors present; independent cancel/combinations pending | No; optional active probing excluded |
 | F33 [Overload, budgets, slow endpoints, idle protection](#deployment-and-security) | Complete | Partial; basic budgets/backpressure present; overload/short-prefix/deployment checks pending | No; ordinary interop is not load/security acceptance |
 | F34 [Authentication/authorization and Token/cache reauthorization](#request-errors-and-authorization) | Complete | Partial; namespace/candidate authorization present; Alias/cache cases pending | No; anonymous success is not full security acceptance |
-| F35 [Relay hop IDs, routing, upstream establishment, fanout](#rendezvous-and-relay-contract) | Complete | Core complete; independent hop IDs, Established gating, and fanout; three-node self-tests, external interop pending | Yes; Relay role in C04/C06–C08/C10/C12–C22 |
+| F35 [Relay hop IDs, routing, upstream establishment, fanout](#rendezvous-and-relay-contract) | Complete | Core complete; independent hop IDs, Established gating, and fanout; self-tests and independent-peer results reported separately | Yes; Relay role in C04/C06–C08/C10/C12–C22 |
 | F36 [Relay source retention/discovery](#rendezvous-and-relay-contract) | Complete | Core complete; multiple sources and final-source DONE, with independent discovery/delivery reclamation | Yes; C21 |
 | F37 [Relay aggregation, mixed pause, authorized filter union](#rendezvous-and-relay-contract) | Complete | Partial; mixed/all pause implemented using independent requests; aggregation and filter union deferred | No; C20 requires zero downstream delivery, not aggregation |
 | F38 [Relay cache, MAX_CACHE_DURATION, unknown gaps](#properties-cache-and-malformed) | Partial; key/deadline/gap defined; index/eviction/replacement transaction pending | Partial; enforce MAX_CACHE_DURATION before forwarding; history caching and eviction deferred | No; cache hit/eviction not required |
 | F39 [Relay FETCH/Fill forwarding, source switch, total budget](#rendezvous-and-relay-contract) | Complete | Core complete; single-source FETCH/Fill mappings and total budgets; automatic source switching deferred | No; no historical retrieval |
 | F40 [Relay property fidelity and malformed/auth/slow-peer isolation](#properties-cache-and-malformed) | Complete | Core complete; property fidelity, malformed/authorization/slow-subscriber isolation, and cancellation propagation | No; C18 ordinary properties counted in F18/F35, not these abnormal cases |
 | F41 [Publisher/subscriber migration, overlap, Alias rebuild](#rendezvous-and-relay-contract) | Complete | Core complete; overlapping sources and subscription replacement; application-selected URI/credentials, no automatic reconnection | No; no migration case |
-| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Partial; version/result definitions ready; image entrypoint/runner contract pending | Not implemented; old draft-18 matrix excluded | Yes; prerequisite of C01–C22 |
-| F43 [Deterministic source and complete Object/payload/EOG oracle](#interop-acceptance) | Complete | Not implemented; separate C08/eight moq-test integration | Yes; C08/C13–C20 |
-| F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; pass criteria ready; fixture/profile/decoder choice pending | Not implemented; application integration, legacy APIs unchanged | Yes; C22 |
+| F42 [Draft-22 runner/images, role matrix, evidence](#interop-acceptance) | Complete for Native/WT endpoint CLI and role boundaries | Partial; Native/WT client, direct-origin and relay adapters with local role matrices and bounded media profile; shared-runner publication deferred | Yes; prerequisite of C01–C22 |
+| F43 [Deterministic source and complete Object/payload/EOG validator](#interop-acceptance) | Complete | Partial; bounded C08/eighteen moq-test fixtures and identity/payload validator in interop/moqt; broader delivery conformance remains separate | Yes; C08/C13–C20 |
+| F44 [Catalog, media packaging/decoder adapter, display](#interop-acceptance) | Partial; bounded VP8/LOC catalog, decoder and terminal rendering profile defined; full media workflow separate | Partial; public LOC/MSF codecs plus catalog-driven bounded C22 adapter, paired rejection/recovery and real FFmpeg rendering; general player/live snapshot workflows remain gaps, legacy APIs unchanged | Yes; C22 requires real peer results |
 
 ### Completeness Counts
 
@@ -2089,6 +2209,8 @@ Count rows equally; only Complete enters the numerator. Partial is not 0.5.
 Derive denominators from rows, not development progress/document length.
 Conditional dependencies follow chosen transport; the combined target is a
 union, not a sum.
+The transport dependency subsets cover C01–C22; the additional FETCH/Join
+scenarios and their F21/F22 capabilities are tracked separately.
 
 Core complete records the implemented first-version Relay subset. It does
 not enter the full Complete numerator or imply independent interoperability.
@@ -2096,10 +2218,10 @@ Partial retains combinations or extensions that are still incomplete.
 
 | Scope | Complete SPEC | Complete implementation |
 | --- | --- | --- |
-| All targets F01–F44 | 37/44 (84.1%); 7 partial, 0 missing | 18/44 (40.9%); 6 core complete, 11 partial, 9 not implemented |
-| Native QUIC interop dependencies | 20/23 (87.0%); 3 partial, 0 missing | 16/23 (69.6%); 3 core complete, 1 partial, 3 not implemented |
-| WebTransport interop dependencies | 19/23 (82.6%); 4 partial, 0 missing | 15/23 (65.2%); 3 core complete, 1 partial, 4 not implemented |
-| Union of both transports | 20/24 (83.3%); 4 partial, 0 missing | 16/24 (66.7%); 3 core complete, 1 partial, 4 not implemented |
+| All targets F01–F44 | 39/44 (88.6%); 5 partial, 0 missing | 19/44 (43.2%); 6 core complete, 14 partial, 5 not implemented |
+| Native QUIC interop dependencies | 21/23 (91.3%); 2 partial, 0 missing | 16/23 (69.6%); 3 core complete, 4 partial, 0 not implemented |
+| WebTransport interop dependencies | 21/23 (91.3%); 2 partial, 0 missing | 16/23 (69.6%); 3 core complete, 4 partial, 0 not implemented |
+| Union of both transports | 22/24 (91.7%); 2 partial, 0 missing | 17/24 (70.8%); 3 core complete, 4 partial, 0 not implemented |
 
 These measure **dependency completeness**, not a 22-case pass rate.
 Partial-capability gaps may exceed a case's assertions. Reports independently

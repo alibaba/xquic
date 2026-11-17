@@ -55,6 +55,11 @@ core transport          QUIC Transport, Recovery, QUIC DATAGRAM, Multipath
 network                 UDP/IP
 ```
 
+The [LOC/MSF minimum profile](loc-msf/spec.md) provides optional application
+format codecs in `moq/loc/` and `moq/msf/`. They reuse MoQT KVP/vi64 and cJSON
+without changing Session, Relay, transport, or legacy draft-05 media policy.
+Public `xqc_loc_*`/`xqc_msf_*` APIs do not decode or display media.
+
 These views describe protocol relationships, not compile-time dependency
 direction. The published standards below map only to capabilities represented
 in the repository; they do not imply support for every RFC produced by the
@@ -119,6 +124,12 @@ varint. Legacy `moq/moq_transport/` retains its draft-05 behavior. The separate
 owning cross-session routes and delivery mappings without accessing private
 Session state. Its public API is `include/moq/xqc_moqt_relay.h`; see the
 [Relay specification](../../spec/moqt/moqt-relay.md).
+
+Optional MoQT-over-WebTransport binds to an established WT session through a
+protocol-independent private WT callback binding. Stream/datagram operations
+reuse the existing WT framing and reset mapping; shared MoQT protocol state
+does not duplicate them. WT and HTTP/3 retain connection-level context and
+have no dependency on MoQT types. Native QUIC retains its separate ALPN path.
 
 QUIC transport owns Reliable Stream Reset negotiation, state, and recovery.
 Applications consume this capability through the public stream API.

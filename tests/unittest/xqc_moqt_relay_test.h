@@ -3,11 +3,14 @@
  */
 #ifndef _XQC_MOQT_RELAY_TEST_H_INCLUDED_
 #define _XQC_MOQT_RELAY_TEST_H_INCLUDED_
+void xqc_test_moqt_relay_tracks_forward(void);
+void xqc_test_moqt_relay_tracks_forward_errors(void);
 void xqc_test_moqt_relay_config(void);
 void xqc_test_moqt_relay_routes(void);
 void xqc_test_moqt_relay_errors(void);
 void xqc_test_moqt_relay_delivery(void);
 void xqc_test_moqt_relay_history(void);
+void xqc_test_moqt_relay_direct_status(void);
 void xqc_test_moqt_relay_updates(void);
 void xqc_test_moqt_relay_limits(void);
 void xqc_test_moqt_relay_fill(void);

@@ -40,11 +40,13 @@ typedef struct xqc_wt_stream_base_s {
     xqc_bool_t                    recv_fin;
     xqc_bool_t                    send_reset;
     xqc_bool_t                    recv_reset;
+    xqc_bool_t                    recv_stopped;
     xqc_bool_t                    read_paused;
     xqc_bool_t                    closed;
     xqc_bool_t                    listed;
     xqc_bool_t                    stop_sending;
     xqc_bool_t                    recv_error_valid;
+    xqc_bool_t                    recv_session_gone;
     uint32_t                      recv_error_code;
     xqc_bool_t                    session_id_complete;
     unsigned char                 prefix[2 * XQC_WT_VARINT_MAX_LEN];

@@ -18,6 +18,10 @@ xqc_moqt_fetch_free(xqc_moqt_fetch_t *f)
     *link = f->next;
     xqc_moqt_subscription_t *sub = f->subscription;
     xqc_moqt_track_release(s, f->track);
+    if (f->filters != NULL) {
+        s->buffered_bytes -= sizeof(*f->filters);
+        xqc_free(f->filters);
+    }
     s->buffered_bytes -= sizeof(*f);
     xqc_free(f);
     if (sub != NULL) {
@@ -93,7 +97,9 @@ xqc_moqt_fetch_create(xqc_moqt_request_t *r, const xqc_moqt_message_t *m)
         r->fetch = f;
     }
     f->info.request_id = m->request_id;
-    f->info.group_order = f->track->group_order;
+    /* Draft-22 §9.20.8: standalone FETCH defaults to ascending. */
+    f->info.group_order = sub == NULL ? XQC_MOQT_GROUP_ASCENDING
+                                      : f->track->group_order;
     f->info.subscriber_priority = XQC_MOQT_DEFAULT_PRIORITY;
     f->next = s->fetches;
     s->fetches = f;
@@ -111,7 +117,7 @@ xqc_moqt_fetch_apply(xqc_moqt_request_t *r, const xqc_moqt_message_t *m)
     xqc_moqt_track_t defaults = *f->track;
     size_t count = 0;
     if (xqc_moqt_track_properties_read(&m->properties, &defaults,
-                                       &count) != XQC_OK)
+                                       &count, NULL) != XQC_OK)
     {
         return XQC_MOQT_PROTOCOL_VIOLATION;
     }
@@ -121,7 +127,6 @@ xqc_moqt_fetch_apply(xqc_moqt_request_t *r, const xqc_moqt_message_t *m)
         info.end.group_id = m->end_group;
         info.end.object_id = m->end_object;
         info.end_of_track = m->end_of_track;
-        info.group_order = defaults.group_order;
         parameters = (void *)r->state->data;
     }
     xqc_int_t exclusive = 0;
@@ -289,6 +294,13 @@ xqc_moqt_fill_apply(xqc_moqt_request_t *r, const xqc_moqt_message_t *state,
         }
         return XQC_MOQT_NO_ERROR;
     }
+    xqc_moqt_message_t effective = *state;
+    if (xqc_moqt_merge(&effective, &inner) != XQC_OK
+        || xqc_moqt_delivery_filters(f->session, &effective, &f->filters)
+            != XQC_OK)
+    {
+        return XQC_MOQT_INTERNAL_ERROR;
+    }
     f->info = info;
     f->confirmed = 1;
     return XQC_MOQT_NO_ERROR;
@@ -433,6 +445,14 @@ xqc_moqt_fetch_contains(const xqc_moqt_fetch_t *f,
         ? XQC_OK : XQC_ERROR;
 }
 
+xqc_bool_t
+xqc_moqt_fetch_object_matches(const xqc_moqt_fetch_t *f,
+    const xqc_moqt_object_t *object)
+{
+    return object != NULL && xqc_moqt_fetch_contains(f, object) == XQC_OK
+        && xqc_moqt_filters_match(f->filters, object);
+}
+
 xqc_int_t
 xqc_moqt_fetch_attach(xqc_moqt_stream_t *st)
 {
@@ -496,14 +516,11 @@ xqc_moqt_fetch_open(xqc_moqt_fetch_t *f)
                                            XQC_MOQT_FETCH_STREAM);
     xqc_vi64_write(p, end, f->info.request_id);
     buf->data_len = len;
-    xqc_stream_t *transport = xqc_stream_create_with_direction(s->conn,
-                                                               XQC_STREAM_UNI,
-                                                               NULL);
-    if (transport == NULL || s->closed) {
+    xqc_moqt_stream_t *st = xqc_moqt_transport_open(s, XQC_STREAM_UNI);
+    if (st == NULL || s->closed) {
         xqc_moqt_buffer_free(s, buf, sizeof(*buf));
         return NULL;
     }
-    xqc_moqt_stream_t *st = transport->user_data;
     st->kind = XQC_MOQT_STREAM_FETCH;
     st->state.data.fetch = f;
     st->state.data.track = f->track;

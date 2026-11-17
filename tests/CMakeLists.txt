@@ -82,6 +82,22 @@ if(XQC_ENABLE_MOQ)
         complex_case/test_moqt_negotiation.c
         complex_case/complex_case_common.c)
     target_link_libraries(test_moqt_negotiation ${APP_DEPEND_LIBS})
+    if(XQC_ENABLE_WEBTRANSPORT)
+        add_executable(test_moqt_webtransport
+            complex_case/test_moqt_webtransport.c
+            complex_case/complex_case_common.c)
+        target_link_libraries(test_moqt_webtransport ${APP_DEPEND_LIBS})
+        add_executable(test_moqt_demo_relay
+            complex_case/test_moqt_demo_relay.c
+            complex_case/complex_case_common.c)
+        target_link_libraries(test_moqt_demo_relay ${APP_DEPEND_LIBS})
+    endif()
+    add_executable(moqt_interop
+        ../interop/moqt/endpoint.c
+        ../interop/moqt/fixture.c
+        ../interop/moqt/media.c
+        complex_case/complex_case_common.c)
+    target_link_libraries(moqt_interop ${APP_DEPEND_LIBS})
 endif()
 if(XQC_ENABLE_WEBTRANSPORT)
     add_executable(test_webtransport
@@ -155,10 +171,18 @@ if(HAVE_CUNIT)
 
     if(XQC_ENABLE_MOQ)
         list(APPEND test_SOURCES
+            ${UNIT_TEST_DIR}/xqc_loc_msf_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_relay_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_codec_test.c
+            ${UNIT_TEST_DIR}/xqc_moqt_interop_test.c
+            ${CMAKE_SOURCE_DIR}/interop/moqt/fixture.c
+            ${CMAKE_SOURCE_DIR}/interop/moqt/media.c
             ${UNIT_TEST_DIR}/xqc_moqt_quic_test.c
             ${UNIT_TEST_DIR}/xqc_moqt_session_test.c)
+        if(XQC_ENABLE_WEBTRANSPORT)
+            list(APPEND test_SOURCES
+                ${UNIT_TEST_DIR}/xqc_moqt_webtransport_test.c)
+        endif()
     endif()
 
     if(XQC_ENABLE_WEBTRANSPORT)
@@ -230,10 +254,13 @@ if(HAVE_CUNIT)
     # BabaSSL itself crashes when some of its own allocations fail
     # (EVP_KDF_CTX_new_id(), which every connection's key derivation
     # reaches). The sweep wraps xqc_gen_reset_token() to leave out the
-    # allocations made inside it.
+    # allocations made inside it. The default CA loader also has an unsafe
+    # internal OOM path in BoringSSL's ByDirEntry::Create; test its returned
+    # failure separately while retaining live-allocation accounting.
     if(CMAKE_SYSTEM_NAME MATCHES "Linux" AND ${SSL_TYPE} MATCHES "boringssl")
         target_compile_definitions(run_tests PRIVATE XQC_TEST_ALLOC_SWEEP)
-        target_link_libraries(run_tests "-Wl,--wrap=xqc_gen_reset_token")
+        target_link_libraries(run_tests "-Wl,--wrap=xqc_gen_reset_token"
+            "-Wl,--wrap=SSL_CTX_set_default_verify_paths")
     endif()
 
     add_test(NAME run_tests COMMAND run_tests)

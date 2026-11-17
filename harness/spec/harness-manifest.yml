@@ -335,11 +335,13 @@ modules:
     paths:
       - include/moq/*
       - moq/*
+      - interop/moqt/*
       - spec/moqt/*
       - case_test/moq/*
     read:
       - spec/moqt/moqt-protocol.md
       - spec/moqt/moqt-relay.md
+      - interop/moqt/README.md
       - harness/spec/architecture.md
     update_when:
       protocol_or_public_contract_changed:
@@ -350,6 +352,50 @@ modules:
       level: targeted
       hints: [moq, moqt, alpn, legacy, audio]
     features:
+      loc_msf:
+        paths:
+          - include/moq/xqc_loc.h
+          - include/moq/xqc_msf.h
+          - moq/loc/*
+          - moq/msf/*
+          - tests/unittest/xqc_loc_msf_test.*
+        read:
+          - harness/spec/loc-msf/spec.md
+        update_when:
+          format_or_public_contract_changed:
+            - harness/spec/loc-msf/spec.md
+        feature_flags:
+          - XQC_ENABLE_MOQ=ON
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_loc_properties
+            - xqc_test_loc_errors
+            - xqc_test_msf_catalog
+            - xqc_test_msf_errors
+            - xqc_test_loc_msf_objects
+      moqt_webtransport:
+        paths:
+          - demo/xqc_moqt_demo.*
+          - include/moq/xqc_moqt_webtransport.h
+          - moq/moqt/xqc_moqt_webtransport.c
+          - tests/unittest/xqc_moqt_webtransport_test.*
+          - tests/complex_case/test_moqt_webtransport.c
+          - tests/complex_case/test_moqt_demo_relay.c
+        feature_flags:
+          - XQC_ENABLE_MOQ=ON
+          - XQC_ENABLE_WEBTRANSPORT=ON
+        validation:
+          level: targeted
+          unit:
+            - xqc_test_moqt_webtransport
+            - xqc_test_moqt_webtransport_errors
+            - xqc_test_moqt_webtransport_streams
+            - xqc_test_moqt_webtransport_setup_errors
+            - xqc_test_moqt_webtransport_relay
+            - xqc_test_moqt_webtransport_relay_errors
+            - xqc_test_moqt_webtransport_relay_compat
+            - xqc_test_moqt_webtransport_relay_compat_errors
       moqt:
         paths:
           - include/moq/xqc_moqt.h
@@ -357,6 +403,7 @@ modules:
           - moq/moqt_relay/*
           - tests/complex_case/test_moqt_relay.c
           - moq/moqt/*
+          - interop/moqt/*
           - tests/unittest/xqc_moqt_*_test.*
           - tests/complex_case/test_moqt_negotiation.c
           - case_test/moq/*
@@ -380,6 +427,18 @@ modules:
             - xqc_test_moqt_relay_rendezvous_tracks
             - xqc_test_moqt_relay_tracks_errors
             - xqc_test_moqt_relay_fill
+            - xqc_test_moqt_interop_fixture
+            - xqc_test_moqt_early_request
+            - xqc_test_moqt_early_request_errors
+            - xqc_test_moqt_interop_fixture_errors
+            - xqc_test_moqt_interop_validator
+            - xqc_test_moqt_interop_validator_errors
+            - xqc_test_moqt_interop_properties
+            - xqc_test_moqt_interop_properties_errors
+            - xqc_test_moqt_interop_catalog
+            - xqc_test_moqt_interop_catalog_errors
+            - xqc_test_moqt_interop_media
+            - xqc_test_moqt_interop_media_errors
             - xqc_test_moqt_subgroup_codec
             - xqc_test_moqt_subgroup_codec_errors
             - xqc_test_moqt_subgroup_scheduling

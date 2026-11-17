@@ -51,12 +51,14 @@ static void
 xqc_wt_dgram_deliver(xqc_wt_session_t *session, const void *data,
     size_t len, uint64_t time)
 {
+    const xqc_webtransport_dgram_callbacks_t *cbs =
+        xqc_wt_session_get_dgram_callbacks(session);
     if (xqc_wt_session_is_writable(session)
-        && session->wt_conn->ctx->dgram_cbs.dgram_read_notify)
+        && cbs->dgram_read_notify)
     {
-        session->wt_conn->ctx->dgram_cbs.dgram_read_notify(
+        cbs->dgram_read_notify(
             session, data,
-            len, xqc_wt_session_get_callback_user_data(session), time);
+            len, xqc_wt_session_get_binding_user_data(session), time);
     }
 }
 
@@ -207,16 +209,18 @@ static void
 xqc_wt_dgram_write(xqc_connection_t *transport, void *user_data)
 {
     xqc_wt_conn_t *conn = xqc_wt_dgram_conn(transport);
-    if (!conn || !conn->ctx->dgram_cbs.dgram_write_notify) {
+    if (!conn) {
         return;
     }
     xqc_list_head_t *pos;
     xqc_list_for_each(pos, &conn->session_list) {
         xqc_wt_session_t *session = xqc_list_entry(pos,
                                                    xqc_wt_session_t, conn_list);
-        if (xqc_wt_session_is_writable(session)) {
-            conn->ctx->dgram_cbs.dgram_write_notify(
-                session, xqc_wt_session_get_callback_user_data(session));
+        const xqc_webtransport_dgram_callbacks_t *cbs =
+            xqc_wt_session_get_dgram_callbacks(session);
+        if (xqc_wt_session_is_writable(session) && cbs->dgram_write_notify) {
+            cbs->dgram_write_notify(
+                session, xqc_wt_session_get_binding_user_data(session));
         }
     }
 }
@@ -240,11 +244,13 @@ xqc_wt_dgram_complete(xqc_connection_t *transport, uint64_t id,
             xqc_wt_conn_find_session(conn, item->session_id);
         int ret = 0;
         if (xqc_wt_session_is_writable(session)) {
-            void *ctx = xqc_wt_session_get_callback_user_data(session);
-            if (lost && conn->ctx->dgram_cbs.dgram_lost_notify) {
-                ret = conn->ctx->dgram_cbs.dgram_lost_notify(session, id, ctx);
-            } else if (!lost && conn->ctx->dgram_cbs.dgram_acked_notify) {
-                conn->ctx->dgram_cbs.dgram_acked_notify(session, id, ctx);
+            void *ctx = xqc_wt_session_get_binding_user_data(session);
+            const xqc_webtransport_dgram_callbacks_t *cbs =
+                xqc_wt_session_get_dgram_callbacks(session);
+            if (lost && cbs->dgram_lost_notify) {
+                ret = cbs->dgram_lost_notify(session, id, ctx);
+            } else if (!lost && cbs->dgram_acked_notify) {
+                cbs->dgram_acked_notify(session, id, ctx);
             }
         }
         if (!lost || ret != XQC_DGRAM_RETX_ASKED_BY_APP) {
@@ -288,12 +294,14 @@ xqc_wt_dgram_mss(xqc_connection_t *transport, size_t mss, void *data)
         unsigned char buf[XQC_WT_VARINT_MAX_LEN];
         size_t prefix = xqc_wt_put_varint(session->session_id / 4,
                                           buf, sizeof(buf));
+        const xqc_webtransport_dgram_callbacks_t *cbs =
+            xqc_wt_session_get_dgram_callbacks(session);
         if (xqc_wt_session_is_writable(session)
-            && conn->ctx->dgram_cbs.dgram_mss_updated_notify)
+            && cbs->dgram_mss_updated_notify)
         {
-            conn->ctx->dgram_cbs.dgram_mss_updated_notify(
+            cbs->dgram_mss_updated_notify(
                 session, mss > prefix ? mss - prefix : 0,
-                xqc_wt_session_get_callback_user_data(session));
+                xqc_wt_session_get_binding_user_data(session));
         }
     }
 }

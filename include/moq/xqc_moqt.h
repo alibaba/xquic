@@ -336,6 +336,7 @@ typedef struct {
     xqc_int_t   (*on_authorize)(xqc_moqt_request_t *request,
         const xqc_moqt_message_t *message,
         const xqc_moqt_message_t *candidate, uint64_t *error, void *user_data);
+    /* Also reports a local REQUEST_ERROR for an unsupported Track Property. */
     void        (*on_message)(xqc_moqt_request_t *request,
         const xqc_moqt_message_t *message, void *user_data);
     /* NULL error means graceful closure; the handle expires on return. */
@@ -397,6 +398,10 @@ xqc_int_t xqc_moqt_session_goaway(xqc_moqt_session_t *session,
 XQC_EXPORT_PUBLIC_API
 void xqc_moqt_session_close(xqc_moqt_session_t *session, uint64_t error);
 
+/* True if the Session is missing or it or its QUIC transport is closing. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_session_is_closing(const xqc_moqt_session_t *session);
+
 XQC_EXPORT_PUBLIC_API
 void xqc_moqt_session_destroy(xqc_moqt_session_t *session);
 
@@ -437,6 +442,16 @@ xqc_int_t xqc_moqt_request_finish(xqc_moqt_request_t *request);
 XQC_EXPORT_PUBLIC_API
 void xqc_moqt_request_cancel(xqc_moqt_request_t *request, uint64_t error);
 
+/* Test a complete Object header against the active delivery filters. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_subscription_object_matches(
+    const xqc_moqt_subscription_t *subscription, const xqc_moqt_object_t *object);
+
+/* Test a FETCH Object header against the active delivery filters. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_fetch_object_matches(const xqc_moqt_fetch_t *fetch,
+    const xqc_moqt_object_t *object);
+
 XQC_EXPORT_PUBLIC_API
 uint64_t xqc_moqt_request_id(const xqc_moqt_request_t *request);
 
@@ -460,6 +475,11 @@ xqc_int_t xqc_moqt_subscription_is_matching(
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_moqt_subscription_largest(
     const xqc_moqt_subscription_t *subscription, xqc_moqt_location_t *location);
+
+/* True when the Track has advertised DYNAMIC_GROUPS=1. */
+XQC_EXPORT_PUBLIC_API
+xqc_bool_t xqc_moqt_subscription_dynamic_groups(
+    const xqc_moqt_subscription_t *subscription);
 
 /* Known Track/Group termination excludes this late normal Object. */
 XQC_EXPORT_PUBLIC_API

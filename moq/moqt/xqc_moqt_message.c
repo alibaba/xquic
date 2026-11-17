@@ -7,6 +7,45 @@
 /* Internal scope, never serialized as a message type. */
 #define XQC_MOQT_PARAMETER_SCOPE_FILL UINT64_MAX
 
+xqc_int_t
+xqc_moqt_publish_forward(xqc_moqt_message_t *publish,
+    const xqc_moqt_message_t *interest, uint8_t *forward)
+{
+    xqc_bool_t explicit = XQC_FALSE;
+    *forward = 1;
+    for (size_t i = 0; i < interest->parameter_count; i++) {
+        if (interest->parameters[i].type == XQC_MOQT_PARAM_FORWARD) {
+            *forward = interest->parameters[i].value[0];
+            explicit = XQC_TRUE;
+            break;
+        }
+    }
+    size_t position = 0;
+    while (position < publish->parameter_count
+           && publish->parameters[position].type < XQC_MOQT_PARAM_FORWARD)
+    {
+        position++;
+    }
+    if (position < publish->parameter_count
+        && publish->parameters[position].type == XQC_MOQT_PARAM_FORWARD)
+    {
+        publish->parameters[position] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_FORWARD, 1, forward};
+    } else if (explicit) {
+        if (publish->parameter_count == XQC_MOQT_MAX_PARAMETERS) {
+            return -XQC_ELIMIT;
+        }
+        memmove(publish->parameters + position + 1,
+            publish->parameters + position,
+            (publish->parameter_count - position)
+                * sizeof(publish->parameters[0]));
+        publish->parameters[position] = (xqc_moq_message_parameter_t){
+            XQC_MOQT_PARAM_FORWARD, 1, forward};
+        publish->parameter_count++;
+    }
+    return XQC_OK;
+}
+
 static xqc_int_t
 xqc_moqt_read_uint(const uint8_t **p, const uint8_t *end, uint64_t *value)
 {
@@ -262,7 +301,8 @@ xqc_moqt_parameters_decode(const uint8_t **p, const uint8_t *end,
         if (!xqc_moqt_is_parameter_allowed(type, m->type, context)
             || (i
                 && delta == 0
-                && type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN))
+                && type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN
+                && !xqc_moqt_is_range_filter(type)))
         {
             return XQC_ERROR;
         }
@@ -301,8 +341,9 @@ xqc_moqt_fill_parameters_decode(const xqc_moq_message_parameter_t *parameter,
         return XQC_ERROR;
     }
     xqc_memzero(message, sizeof(*message));
+    /* Draft-22 9.20/9.20.15: the byte length encloses a counted block. */
     if (xqc_moqt_parameters_decode(&p, end, message,
-                                   XQC_MOQT_PARAMETER_SCOPE_FILL, 0) != XQC_OK)
+                                   XQC_MOQT_PARAMETER_SCOPE_FILL, 1) != XQC_OK)
     {
         return XQC_ERROR;
     }
@@ -324,7 +365,8 @@ xqc_moqt_parameters_encode(uint8_t *buf, size_t *pos,
             || !xqc_moqt_is_parameter_allowed(p->type, m->type, context)
             || (i
                 && p->type == previous
-                && p->type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN)
+                && p->type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN
+                && !xqc_moqt_is_range_filter(p->type))
             || p->value == NULL
             || p->length > XQC_MOQT_MESSAGE_MAX_BODY)
         {

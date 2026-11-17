@@ -24,6 +24,12 @@ if(XQC_ENABLE_WEBTRANSPORT)
     list(APPEND DEMO_SERVER_SOURCES "xqc_wt_echo_server.c")
 endif()
 
+if(XQC_ENABLE_MOQ AND XQC_ENABLE_WEBTRANSPORT AND UNIX)
+    list(APPEND DEMO_SERVER_SOURCES
+        "xqc_moqt_demo.c"
+        "../tests/complex_case/complex_case_common.c")
+endif()
+
 if(${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     set(DEMO_SERVER_SOURCES
         ${DEMO_SERVER_SOURCES}
@@ -46,6 +52,10 @@ include_directories(
 
 add_executable(demo_server ${DEMO_SERVER_SOURCES})
 add_executable(demo_client ${DEMO_CLIENT_SOURCES})
+
+if(XQC_ENABLE_MOQ AND XQC_ENABLE_WEBTRANSPORT AND UNIX)
+    target_compile_definitions(demo_server PRIVATE XQC_ENABLE_MOQT_DEMO=1)
+endif()
 
 target_link_libraries(demo_server ${APP_DEPEND_LIBS})
 target_link_libraries(demo_client ${APP_DEPEND_LIBS})

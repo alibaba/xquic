@@ -168,6 +168,11 @@ for disabled local validation. See
 [the WebTransport specification](harness/spec/webtransport/spec.md) for APIs,
 demos and endpoint checks.
 
+With MoQ also enabled, POSIX builds provide `demo_server --moqt`, a draft-22
+parser/sink with explicit WT draft-07 browser compatibility; `--moqt-relay`
+enables the bounded Relay core on the same native/WT endpoints. See
+[the MoQT demo guide](demo/moqt.md).
+
 ## Documentation
 
 * For using the API, see the [API docs](./docs/API.md).

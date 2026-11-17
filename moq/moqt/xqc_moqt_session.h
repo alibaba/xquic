@@ -94,6 +94,7 @@ typedef struct xqc_moqt_track_s {
     uint8_t                     publisher_priority;
     uint8_t                     group_order;
     unsigned                    local_publisher:1;
+    unsigned                    dynamic_groups:1;
     unsigned                    has_largest:1;
     unsigned                    has_end:1;
     unsigned                    end_inclusive:1;
@@ -104,6 +105,7 @@ struct xqc_moqt_subscription_s {
     xqc_moqt_track_t           *track;
     xqc_moqt_request_t         *request;
     xqc_moqt_session_t         *session;
+    xqc_moqt_filters_t         *filters;
     xqc_moqt_error_t            error;
     xqc_usec_t                  close_deadline;
     uint64_t                    stream_count;
@@ -135,6 +137,7 @@ struct xqc_moqt_fetch_s {
     xqc_moqt_subscription_t    *subscription;
     xqc_moqt_stream_t          *stream;
     xqc_moqt_track_t           *track;
+    xqc_moqt_filters_t         *filters;
     xqc_moqt_fetch_info_t       info;
     xqc_usec_t                  deadline;
     unsigned                    active;
@@ -171,6 +174,11 @@ struct xqc_moqt_request_s {
     unsigned                    goaway_received:1;
 };
 
+xqc_int_t xqc_moqt_merge(xqc_moqt_message_t *state,
+    const xqc_moqt_message_t *update);
+xqc_int_t xqc_moqt_delivery_filters(xqc_moqt_session_t *session,
+    const xqc_moqt_message_t *state, xqc_moqt_filters_t **filters);
+
 typedef struct {
     xqc_moqt_track_t           *track;
     xqc_moqt_subscription_t    *subscription; /* Sending side only. */
@@ -202,6 +210,9 @@ struct xqc_moqt_stream_s {
     xqc_moqt_session_t         *session;
     struct xqc_moqt_stream_s   *next;
     xqc_stream_t               *transport_stream;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    struct xqc_wt_stream_base_s *wt_stream;
+#endif
     xqc_moqt_stream_kind_t      kind;
     xqc_var_buf_t               rx;
     xqc_list_head_t             tx;
@@ -216,6 +227,7 @@ struct xqc_moqt_stream_s {
     unsigned                    tx_fin:1;
     unsigned                    tx_fin_sent:1;
     unsigned                    rx_fin:1;
+    unsigned                    session_cleanup:1;
     unsigned                    discarded:1;
     unsigned                    reading:1;
     unsigned                    writing:1;
@@ -223,6 +235,12 @@ struct xqc_moqt_stream_s {
 
 struct xqc_moqt_session_s {
     xqc_connection_t           *conn;
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    struct xqc_webtransport_session_s *wt_session;
+    uint32_t                    wt_close_error;
+    unsigned                    wt_callback_depth;
+    unsigned                    wt_close_pending:1;
+#endif
     xqc_moqt_config_t           config;
     xqc_moqt_callbacks_t        callbacks;
     void                       *user_data;
@@ -256,16 +274,33 @@ struct xqc_moqt_session_s {
     unsigned                    closed:1;
     unsigned                    goaway_sent:1;
     unsigned                    goaway_received:1;
+    unsigned                    webtransport:1;
 };
+
+xqc_moqt_session_t *xqc_moqt_session_create_transport(xqc_connection_t *conn,
+    const xqc_moqt_config_t *config, const xqc_moqt_callbacks_t *callbacks,
+    void *data, xqc_bool_t webtransport);
+void xqc_moqt_notify_closed(xqc_moqt_session_t *s, uint64_t error);
+xqc_moqt_stream_t *xqc_moqt_stream_allocate(xqc_moqt_session_t *s,
+    xqc_stream_t *transport);
+xqc_moqt_stream_t *xqc_moqt_transport_open(xqc_moqt_session_t *s,
+    xqc_stream_direction_t direction);
+ssize_t xqc_moqt_transport_send(xqc_moqt_stream_t *st, const void *data,
+    size_t len, uint8_t fin);
+uint64_t xqc_moqt_transport_offset(xqc_moqt_stream_t *st);
+void xqc_moqt_transport_reset(xqc_moqt_stream_t *st, uint64_t error);
+size_t xqc_moqt_transport_mss(xqc_moqt_session_t *s);
+xqc_int_t xqc_moqt_transport_datagram(xqc_moqt_session_t *s,
+    const void *data, size_t len);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+void xqc_moqt_webtransport_close(xqc_moqt_session_t *s, uint64_t error);
+void xqc_moqt_webtransport_detach(xqc_moqt_session_t *s);
+#endif
 
 xqc_moqt_track_t *xqc_moqt_track_get(xqc_moqt_session_t *s,
     const xqc_moqt_message_t *message, xqc_int_t publisher);
-xqc_int_t xqc_moqt_location_filter_apply(xqc_moqt_location_t *start,
-    xqc_moqt_location_t *end, xqc_int_t *exclusive,
-    const xqc_moq_message_parameter_t *parameter,
-    const xqc_moqt_location_t *largest, xqc_int_t has_largest);
 xqc_int_t xqc_moqt_track_properties_read(const struct iovec *bytes,
-    xqc_moqt_track_t *defaults, size_t *count);
+    xqc_moqt_track_t *defaults, size_t *count, xqc_bool_t *unsupported);
 uint64_t xqc_moqt_fetch_create(xqc_moqt_request_t *request,
     const xqc_moqt_message_t *message);
 uint64_t xqc_moqt_fetch_apply(xqc_moqt_request_t *request,
@@ -322,8 +357,6 @@ void xqc_moqt_subscription_check_done(xqc_moqt_subscription_t *sub);
 xqc_moqt_subscription_t *xqc_moqt_subscriptions_hold(xqc_moqt_session_t *s);
 void xqc_moqt_subscriptions_release(xqc_moqt_subscription_t *head);
 
-xqc_int_t xqc_moqt_location_compare(const xqc_moqt_location_t *a,
-    const xqc_moqt_location_t *b);
 void xqc_moqt_datagram_input(xqc_moqt_session_t *session,
     const uint8_t *data, size_t len);
 void xqc_moqt_datagram_writable(xqc_moqt_session_t *session);

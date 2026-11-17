@@ -448,14 +448,13 @@ xqc_moqt_datagram_send(xqc_moqt_subscription_t *sub, const xqc_moqt_object_t *o)
         return -XQC_EPARAM;
     }
     xqc_moqt_session_t *s = sub->session;
-    xqc_moqt_location_t location = {o->group_id, o->object_id};
     xqc_moqt_group_t *group = xqc_moqt_group_find(sub->track, o->group_id);
     /* Publishing requires an established session and the publisher role. */
     if (s->closed || !s->ready || !sub->track->local_publisher) {
         return -XQC_EPARAM;
     }
     /* The Object must remain inside the subscription and known boundaries. */
-    if (!xqc_moqt_subscription_is_matching(sub, &location)
+    if (!xqc_moqt_subscription_object_matches(sub, o)
         || xqc_moqt_object_is_obsolete(sub->track, group, o))
     {
         return -XQC_EPARAM;
@@ -472,7 +471,7 @@ xqc_moqt_datagram_send(xqc_moqt_subscription_t *sub, const xqc_moqt_object_t *o)
     if (xqc_moqt_object_apply(&candidate, &updated, o, &policy) != XQC_OK) {
         return -XQC_EPARAM;
     }
-    if ((size_t)len > xqc_datagram_get_mss(s->conn)) {
+    if ((size_t)len > xqc_moqt_transport_mss(s)) {
         return -XQC_EDGRAM_TOO_LARGE;
     }
     if (xqc_moqt_datagram_is_blocked(s, sub, o)) {
@@ -500,8 +499,7 @@ xqc_moqt_datagram_send(xqc_moqt_subscription_t *sub, const xqc_moqt_object_t *o)
     }
     xqc_moqt_stream_t *head = xqc_moqt_streams_hold(s);
     xqc_moqt_subscription_t *subscriptions = xqc_moqt_subscriptions_hold(s);
-    xqc_int_t ret = xqc_datagram_send(s->conn, buf->data, len, NULL,
-                                      XQC_DATA_QOS_NORMAL);
+    xqc_int_t ret = xqc_moqt_transport_datagram(s, buf->data, len);
     xqc_moqt_buffer_free(s, buf, sizeof(*buf));
     if (ret == XQC_OK) {
         sub->track->largest = candidate.largest;
@@ -772,7 +770,7 @@ xqc_moqt_stream_cancel(xqc_moqt_stream_t *st, uint64_t error)
             && st->transport_stream != NULL
             && st->transport_stream->stream_state_send
                < XQC_SEND_STREAM_ST_RESET_SENT
-            && st->transport_stream->stream_send_offset < d->prefix_length)
+            && xqc_moqt_transport_offset(st) < d->prefix_length)
         {
             if (!d->reset_pending) {
                 d->reset_pending = 1;
@@ -790,13 +788,7 @@ xqc_moqt_stream_cancel(xqc_moqt_stream_t *st, uint64_t error)
     st->state.data.error = error;
     st->state.data.has_error = 1;
     if (st->transport_stream != NULL) {
-        xqc_stream_t *transport = st->transport_stream;
-        size_t prefix = st->state.data.prefix_length;
-        if (prefix && transport->stream_send_offset >= prefix) {
-            /* Section 11.3.2: retain the identifying header on reset. */
-            xqc_stream_set_reliable_size(transport, prefix);
-        }
-        xqc_stream_close_with_error(transport, error);
+        xqc_moqt_transport_reset(st, error);
     }
     xqc_moqt_subgroup_notify(st);
     st->active--;
@@ -1120,7 +1112,7 @@ xqc_moqt_subgroup_open(xqc_moqt_subscription_t *sub, uint64_t group_id,
     if (first_in_subgroup) {
         flags |= XQC_MOQT_SUBGROUP_FIRST_OBJECT;
     }
-    if (end_of_group) {
+    if (end_of_group && sub->filters == NULL) {
         flags |= XQC_MOQT_SUBGROUP_END_GROUP;
     }
     xqc_int_t len = xqc_moqt_subgroup_header_encode(sub->track_alias, flags,
@@ -1132,14 +1124,11 @@ xqc_moqt_subgroup_open(xqc_moqt_subscription_t *sub, uint64_t group_id,
     xqc_moqt_subgroup_header_encode(sub->track_alias, flags, &o,
                                     buf->data, len);
     buf->data_len = len;
-    xqc_stream_t *transport = xqc_stream_create_with_direction(s->conn,
-                                                               XQC_STREAM_UNI,
-                                                               NULL);
-    if (transport == NULL || s->closed) {
+    xqc_moqt_stream_t *st = xqc_moqt_transport_open(s, XQC_STREAM_UNI);
+    if (st == NULL || s->closed) {
         xqc_moqt_buffer_free(s, buf, sizeof(*buf));
         return NULL;
     }
-    xqc_moqt_stream_t *st = transport->user_data;
     st->kind = XQC_MOQT_STREAM_SUBGROUP;
     xqc_moqt_data_stream_t *d = &st->state.data;
     d->object = o;
@@ -1181,20 +1170,21 @@ xqc_moqt_stream_send_object(xqc_moqt_stream_t *st, const xqc_moqt_object_t *o)
         return -XQC_EPARAM;
     }
     xqc_moqt_data_stream_t *d = &st->state.data;
-    xqc_moqt_location_t location = {o->group_id, o->object_id};
     if (d->finish_time) {
         return -XQC_EPARAM;
     }
     if (st->kind == XQC_MOQT_STREAM_FETCH) {
-        if (xqc_moqt_fetch_contains(d->fetch, o) != XQC_OK
-            || !d->track->local_publisher)
-        {
+        xqc_bool_t matches = o->payload_offset
+            ? xqc_moqt_fetch_contains(d->fetch, o) == XQC_OK
+            : xqc_moqt_fetch_object_matches(d->fetch, o);
+        if (!matches || !d->track->local_publisher) {
             return -XQC_EPARAM;
         }
     } else {
         /* The subscription must still accept this Object location. */
         if (d->subscription == NULL
-            || !xqc_moqt_subscription_is_matching(d->subscription, &location))
+            || (!o->payload_offset
+                && !xqc_moqt_subscription_object_matches(d->subscription, o)))
         {
             return -XQC_EPARAM;
         }

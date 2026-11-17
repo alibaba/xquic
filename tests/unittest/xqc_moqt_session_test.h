@@ -42,6 +42,8 @@ void xqc_test_moqt_fetch_send(void);
 void xqc_test_moqt_fetch_errors(void);
 void xqc_test_moqt_fill_errors(void);
 void xqc_test_moqt_fill_parameters(void);
+void xqc_test_moqt_fill_counted(void);
+void xqc_test_moqt_fill_counted_errors(void);
 void xqc_test_moqt_fill_snapshots(void);
 void xqc_test_moqt_fill_suppressed(void);
 void xqc_test_moqt_fill_lifecycle(void);
@@ -66,5 +68,7 @@ void xqc_test_moqt_tracks_skipped(void);
 void xqc_test_moqt_tracks_skipped_receive(void);
 void xqc_test_moqt_tracks_exclusion(void);
 void xqc_test_moqt_tracks_budget(void);
+void xqc_test_moqt_early_request(void);
+void xqc_test_moqt_early_request_errors(void);
 
 #endif

@@ -64,6 +64,29 @@ Certificate verify flag.
 #### XQC_TLS_CERT_FLAG_NEED_VERIFY (0x01)
 Verify certificate.
 
+Client TLS contexts load the TLS backend's default CA file and directory.
+Install a CA bundle at those locations or select trusted roots with the
+backend's `SSL_CERT_FILE` and `SSL_CERT_DIR` environment variables. These are
+filesystem trust stores; a platform's native certificate store is not loaded.
+Certificate-chain and hostname verification remain enabled by this flag.
+If the backend reports a failure initializing its default trust paths,
+client engine creation fails and frees the TLS context. A missing CA file
+may be tolerated by the backend; it does not disable peer verification.
+
+For Ubuntu with BoringSSL, select the system-managed bundle and hashed
+certificate directory before creating the engine:
+
+```bash
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_DIR=/etc/ssl/certs
+```
+
+The bundle and directory are maintained by Ubuntu's
+[`update-ca-certificates`](https://manpages.ubuntu.com/manpages/noble/man8/update-ca-certificates.8.html).
+This also avoids relying on BoringSSL's default `/etc/ssl/cert.pem`, which
+Ubuntu does not normally provide. For a systemd service, set these variables
+in its `Environment=` configuration.
+
 #### XQC_TLS_CERT_FLAG_ALLOW_SELF_SIGNED (0x02)
 Self-signed certificates is allowed.
 
@@ -1049,3 +1072,29 @@ The [Relay specification](../spec/moqt/moqt-relay.md) defines hop-local IDs,
 source/interest/delivery lifetimes, resource bounds, and acceptance gaps.
 The endpoint's read-only subscription and stream queries expose existing
 filter, Largest, termination, END_OF_GROUP, and Object-arrival state.
+
+## MoQT over WebTransport compatibility
+
+Relay applications can make the same explicit opt-in through
+`xqc_moqt_relay_peer_create_webtransport_compat`; the strict Relay constructor
+remains draft-16-only. Scope, authorization, budgets and peer lifetimes are
+unchanged. See the [Relay contract](../spec/moqt/moqt-relay.md).
+
+With both features enabled, the default
+`xqc_moqt_session_create_webtransport()` and nonempty-protocol
+`xqc_wt_client_open_session_with_protocols()` APIs require WT draft-16.
+Their `_compat` variants explicitly permit draft-07 peers using the same
+WT-Available-Protocols/WT-Protocol header extension. A missing or unoffered
+selection remains an error. No existing public structure or default changes.
+Draft-07 retains its ordinary reset and best-effort association semantics.
+
+See the [MoQT binding contract](../spec/moqt/moqt-protocol.md#scope-and-webtransport),
+[WT contract](../harness/spec/webtransport/spec.md) and
+[parser demo](../demo/moqt.md) for ownership, policy and execution details.
+
+## LOC and MSF Application Formats
+
+With `XQC_ENABLE_MOQ`, `include/moq/xqc_loc.h` provides LOC public-property
+codecs and `include/moq/xqc_msf.h` provides independent MSF LOC catalogs.
+See the [minimum profile](../harness/spec/loc-msf/spec.md) for supported
+fields, memory ownership, limits and application integration obligations.

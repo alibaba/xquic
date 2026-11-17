@@ -3,6 +3,8 @@
  */
 
 #include <CUnit/CUnit.h>
+#include <stdlib.h>
+#include <openssl/pem.h>
 #include "xqc_common_test.h"
 #include "src/transport/xqc_conn.h"
 #include "src/tls/xqc_tls_ctx.h"
@@ -268,6 +270,94 @@ static xqc_tls_ctx_t *ctx_cli, *ctx_svr;
 
 #define TEST_ALPN_1 "transport"
 #define TEST_ALPN_2 "h3"
+
+static int xqc_test_tls_default_ca_verify(const char *ca_file,
+    const char *hostname);
+
+static int
+xqc_test_tls_default_ca_verify(const char *ca_file, const char *hostname)
+{
+    int                   result = X509_V_ERR_UNSPECIFIED;
+    const char           *value;
+    char                 *old_file, *old_dir;
+    BIO                  *bio = NULL;
+    X509                 *cert = NULL;
+    X509_STORE_CTX       *store = NULL;
+    xqc_tls_ctx_t        *ctx = NULL;
+    xqc_log_t            *log = NULL;
+    xqc_log_callbacks_t   log_cb = xqc_null_log_cb;
+    def_engine_ssl_config_cli;
+
+    value = getenv("SSL_CERT_FILE");
+    old_file = value ? strdup(value) : NULL;
+    value = getenv("SSL_CERT_DIR");
+    old_dir = value ? strdup(value) : NULL;
+    CU_ASSERT_EQUAL(setenv("SSL_CERT_FILE", ca_file, 1), 0);
+    CU_ASSERT_EQUAL(setenv("SSL_CERT_DIR", "./absent-client-ca-dir", 1), 0);
+
+    log = xqc_log_init(0, 0, 0, 0, 0, NULL, &log_cb, NULL);
+    if (log == NULL) {
+        goto end;
+    }
+    ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_CLIENT, &engine_ssl_config_cli,
+                             &tls_test_cbs, log);
+    CU_ASSERT_PTR_NOT_NULL(ctx);
+    bio = BIO_new_file("./server.crt", "r");
+    cert = bio ? PEM_read_bio_X509(bio, NULL, NULL, NULL) : NULL;
+    store = X509_STORE_CTX_new();
+    if (ctx == NULL || cert == NULL || store == NULL) {
+        goto end;
+    }
+    if (X509_STORE_CTX_init(store,
+            SSL_CTX_get_cert_store(xqc_tls_ctx_get_ssl_ctx(ctx)), cert, NULL)
+        != XQC_SSL_SUCCESS
+        || X509_VERIFY_PARAM_set1_host(X509_STORE_CTX_get0_param(store),
+                                       hostname, strlen(hostname))
+           != XQC_SSL_SUCCESS)
+    {
+        goto end;
+    }
+    result = X509_verify_cert(store) == XQC_SSL_SUCCESS
+        ? X509_V_OK : X509_STORE_CTX_get_error(store);
+
+end:
+    X509_STORE_CTX_free(store);
+    X509_free(cert);
+    BIO_free(bio);
+    if (ctx != NULL) {
+        xqc_tls_ctx_destroy(ctx);
+    }
+    xqc_free(log);
+    CU_ASSERT_EQUAL(old_file ? setenv("SSL_CERT_FILE", old_file, 1)
+                            : unsetenv("SSL_CERT_FILE"), 0);
+    CU_ASSERT_EQUAL(old_dir ? setenv("SSL_CERT_DIR", old_dir, 1)
+                           : unsetenv("SSL_CERT_DIR"), 0);
+    free(old_file);
+    free(old_dir);
+    return result;
+}
+
+void
+xqc_test_tls_default_ca_trusted(void)
+{
+    CU_ASSERT_EQUAL(xqc_test_tls_default_ca_verify("./server.crt",
+                        "test.xquic.com"), X509_V_OK);
+}
+
+void
+xqc_test_tls_default_ca_unknown(void)
+{
+    CU_ASSERT_EQUAL(xqc_test_tls_default_ca_verify("./absent-client-ca.pem",
+                        "test.xquic.com"),
+                    X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT);
+}
+
+void
+xqc_test_tls_default_ca_hostname_mismatch(void)
+{
+    CU_ASSERT_EQUAL(xqc_test_tls_default_ca_verify("./server.crt",
+                        "wrong.xquic.invalid"), X509_V_ERR_HOSTNAME_MISMATCH);
+}
 
 static xqc_int_t
 xqc_test_tls_default_cert_handshake(xqc_bool_t with_sni,

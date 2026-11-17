@@ -5,6 +5,12 @@
 #include "src/common/xqc_time.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 
+struct xqc_webtransport_session_s;
+static xqc_moqt_relay_peer_t *xqc_moqt_relay_peer_create_internal(
+    xqc_moqt_relay_t *r, xqc_connection_t *conn,
+    struct xqc_webtransport_session_s *wt, const xqc_moqt_config_t *config,
+    const struct iovec *scope, void *data, xqc_bool_t draft07_compat);
+
 void *
 xqc_moqt_relay_alloc(xqc_moqt_relay_t *r, size_t size)
 {
@@ -221,6 +227,7 @@ xqc_moqt_relay_request_create(xqc_moqt_relay_peer_t *peer,
     }
     q->operation_started = xqc_monotonic_timestamp();
     q->type = m->type;
+    q->group_pending = UINT64_MAX;
     if (m->type == XQC_MOQT_MSG_PUBLISH) {
         q->publication_id = ++r->next_publication;
     }
@@ -304,7 +311,8 @@ xqc_moqt_relay_forward_message(xqc_moqt_relay_peer_t *peer,
     size_t count = 0;
     for (size_t i = 0; i < m->parameter_count; i++) {
         if (m->parameters[i].type != XQC_MOQT_PARAM_AUTHORIZATION_TOKEN
-            && m->parameters[i].type != XQC_MOQT_PARAM_FILL_PARAMETERS)
+            && m->parameters[i].type != XQC_MOQT_PARAM_FILL_PARAMETERS
+            && !xqc_moqt_is_range_filter(m->parameters[i].type))
         {
             m->parameters[count++] = m->parameters[i];
         }
@@ -317,7 +325,10 @@ static xqc_int_t
 xqc_moqt_relay_namespace_matches(xqc_moqt_relay_request_t *source,
     xqc_moqt_relay_request_t *destination)
 {
-    if (!source->registered || source->peer->closed) {
+    /* RFC 9000 §10.2.2: draining can precede the Session close callback. */
+    if (!source->registered || source->peer->closed
+        || xqc_moqt_session_is_closing(source->peer->session))
+    {
         return XQC_FALSE;
     }
     if (source->peer == destination->peer
@@ -444,12 +455,34 @@ xqc_moqt_relay_largest(xqc_moqt_message_t *m,
     return XQC_OK;
 }
 
+static xqc_bool_t
+xqc_moqt_relay_direct_delivery(const xqc_moqt_relay_request_t *up,
+    const xqc_moqt_relay_request_t *down)
+{
+    return up->type == XQC_MOQT_MSG_PUBLISH && up->upstream && up->established
+        && !up->stopped && !down->upstream && down->established
+        && !down->stopped && up->track == down->track
+        && down->subscription != NULL
+        && (down->type != XQC_MOQT_MSG_PUBLISH || down->selected == up);
+}
+
 static void
 xqc_moqt_relay_response(xqc_moqt_relay_request_t *down,
     const xqc_moqt_message_t *source)
 {
     if (down->request == NULL || down->stopped) {
         return;
+    }
+    xqc_moqt_relay_t *r = down->peer->relay;
+    if (down->resuming) {
+        /* Draft-22 §§3.1.1, 9.5: confirm after direct sources resume. */
+        for (xqc_moqt_relay_request_t *up = r->requests; up; up = up->next) {
+            if (xqc_moqt_relay_direct_delivery(up, down)
+                && (!up->forward || up->waiting_update))
+            {
+                return;
+            }
+        }
     }
     xqc_moqt_message_t m = *source;
     if (down->waiting_update) {
@@ -483,7 +516,6 @@ xqc_moqt_relay_response(xqc_moqt_relay_request_t *down,
         xqc_moqt_relay_largest(&m, down->selected->subscription, largest);
     }
     /* Track properties remain byte-for-byte views; the endpoint copies them. */
-    xqc_moqt_relay_t *r = down->peer->relay;
     if (xqc_moqt_request_send(down->request, &m) != XQC_OK) {
         xqc_moqt_relay_stop(down, XQC_MOQT_RESET_EXCESSIVE_LOAD);
         return;
@@ -499,6 +531,7 @@ xqc_moqt_relay_response(xqc_moqt_relay_request_t *down,
     }
     down->established = 1;
     down->waiting_update = 0;
+    down->resuming = 0;
     down->deadline = 0;
     xqc_moqt_relay_buffer_free(r, down->update);
     down->update = NULL;
@@ -510,7 +543,17 @@ xqc_moqt_relay_open_upstream(xqc_moqt_relay_request_t *down,
 {
     xqc_moqt_relay_t *r = peer->relay;
     for (xqc_moqt_relay_request_t *q = r->requests; q != NULL; q = q->next) {
-        if (q->parent == down && q->peer == peer && !q->stopped) {
+        if (q->peer != peer || q->stopped) {
+            continue;
+        }
+        if (q->parent == down) {
+            return XQC_OK;
+        }
+        /* Draft-22 §7.6: reuse this peer's established exact-Track grant. */
+        if (down->type == XQC_MOQT_MSG_SUBSCRIBE && q->upstream
+            && q->type == XQC_MOQT_MSG_PUBLISH && q->track == down->track
+            && q->established)
+        {
             return XQC_OK;
         }
     }
@@ -547,7 +590,10 @@ static void
 xqc_moqt_relay_route(xqc_moqt_relay_request_t *down)
 {
     xqc_moqt_relay_t *r = down->peer->relay;
-    if (down->stopped || down->upstream || down->peer->closed) {
+    /* Draft-22 §9.9: transport drainage does not reopen a completed grant. */
+    if (down->stopped || down->upstream || down->peer->closed
+        || down->ending || down->ended)
+    {
         return;
     }
     if (down->type != XQC_MOQT_MSG_SUBSCRIBE
@@ -571,7 +617,9 @@ xqc_moqt_relay_route(xqc_moqt_relay_request_t *down)
             && !source->stopped)
         {
             if (source->peer != down->peer) {
-                if (down->type == XQC_MOQT_MSG_SUBSCRIBE) {
+                if (down->type == XQC_MOQT_MSG_SUBSCRIBE
+                    || down->type == XQC_MOQT_MSG_TRACK_STATUS)
+                {
                     found = XQC_TRUE;
                     if (down->established) {
                         continue;
@@ -580,9 +628,25 @@ xqc_moqt_relay_route(xqc_moqt_relay_request_t *down)
                     xqc_moqt_relay_message_read(source->state, 0, &m);
                     down->selected = source;
                     xqc_moqt_relay_response(down, &m);
+                    /* Draft-22 §9.13: status uses the established Track. */
+                    if (down->type == XQC_MOQT_MSG_TRACK_STATUS) {
+                        return;
+                    }
                 } else {
-                    found |= xqc_moqt_relay_open_upstream(down, source->peer)
-                             == XQC_OK;
+                    if (xqc_moqt_relay_open_upstream(down, source->peer)
+                        == XQC_OK)
+                    {
+                        found = XQC_TRUE;
+                        /* Draft-22 §3.2: the request fixes the live edge. */
+                        if (source->history != NULL
+                            && down->history_source == NULL
+                            && xqc_moqt_subscription_largest(
+                                source->subscription,
+                                &down->history_largest) == XQC_OK)
+                        {
+                            down->history_source = source;
+                        }
+                    }
                 }
             }
         }
@@ -636,6 +700,13 @@ xqc_moqt_relay_publish(xqc_moqt_relay_request_t *watch,
     if (!xqc_moqt_namespace_prefix(&interest.track_namespace,
                                    &publication.track_namespace))
     {
+        return;
+    }
+    /* Store the same independent-hop FORWARD that endpoint enumeration uses. */
+    uint8_t forward;
+    if (xqc_moqt_publish_forward(&publication, &interest, &forward) != XQC_OK) {
+        xqc_moqt_request_skip(watch->request, source->publication_id,
+                              &publication);
         return;
     }
     uint8_t largest[2 * XQC_VI64_MAX_LEN];
@@ -779,6 +850,58 @@ xqc_moqt_relay_authorize(xqc_moqt_request_t *request,
 }
 
 static void
+xqc_moqt_relay_queue_new_group(xqc_moqt_relay_request_t *down,
+    const xqc_moqt_message_t *message)
+{
+    uint64_t group = xqc_moqt_relay_parameter(message,
+        XQC_MOQT_PARAM_NEW_GROUP_REQUEST, UINT64_MAX);
+    if (group == UINT64_MAX || !down->established || down->stopped
+        || down->subscription == NULL)
+    {
+        return;
+    }
+    xqc_moqt_relay_t *r = down->peer->relay;
+    for (xqc_moqt_relay_request_t *up = r->requests; up; up = up->next) {
+        if (!up->upstream || up->type != XQC_MOQT_MSG_PUBLISH
+            || up->track != down->track || up->stopped || !up->established
+            || up->peer == down->peer
+            || (down->type == XQC_MOQT_MSG_PUBLISH && down->selected != up)
+            || !xqc_moqt_subscription_dynamic_groups(up->subscription))
+        {
+            continue;
+        }
+        if (up->group_pending == UINT64_MAX || group > up->group_pending) {
+            up->group_pending = group;
+        }
+    }
+}
+
+static xqc_bool_t
+xqc_moqt_relay_request_new_group(xqc_moqt_relay_request_t *up,
+    xqc_moqt_location_t *largest, xqc_bool_t *has_largest)
+{
+    if (up->group_pending == UINT64_MAX) {
+        return XQC_FALSE;
+    }
+    *has_largest = xqc_moqt_subscription_largest(up->subscription, largest)
+        == XQC_OK;
+    /* Draft-22 §9.20.19: OK alone does not clear an outstanding demand. */
+    if (*has_largest && (!up->group_had_largest
+                         || largest->group_id > up->group_at_request))
+    {
+        up->group_outstanding = 0;
+    }
+    if ((up->group_pending && *has_largest
+         && up->group_pending <= largest->group_id)
+        || (up->group_outstanding && up->group_pending <= up->group_requested))
+    {
+        up->group_pending = UINT64_MAX;
+        return XQC_FALSE;
+    }
+    return XQC_TRUE;
+}
+
+static void
 xqc_moqt_relay_pause_sources(xqc_moqt_relay_t *r)
 {
     for (xqc_moqt_relay_request_t *up = r->requests; up; up = up->next) {
@@ -793,31 +916,45 @@ xqc_moqt_relay_pause_sources(xqc_moqt_relay_t *r)
         for (xqc_moqt_relay_request_t *down = r->requests;
              down != NULL; down = down->next)
         {
-            /* Historical requests do not keep live forwarding enabled. */
-            if (down->subscription == NULL) {
-                continue;
-            }
-            if (down->type == XQC_MOQT_MSG_PUBLISH && down->selected != up) {
-                continue;
-            }
-            if (!down->upstream
-                && down->track == up->track
-                && down->established
-                && !down->stopped)
-            {
-                forward |= down->forward;
+            if (xqc_moqt_relay_direct_delivery(up, down)) {
+                forward |= down->forward || down->resuming;
             }
         }
-        if (up->waiting_update || forward == up->forward) {
+        if (up->waiting_update
+            || (forward == up->forward && up->group_pending == UINT64_MAX))
+        {
             continue;
         }
         uint8_t value = forward;
-        xqc_moqt_message_t m;
-        xqc_memzero(&m, sizeof(m));
-        m.type = XQC_MOQT_MSG_REQUEST_UPDATE;
-        m.parameter_count = 1;
-        m.parameters[0] = (xqc_moq_message_parameter_t){
-            XQC_MOQT_PARAM_FORWARD, 1, &value};
+        xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_REQUEST_UPDATE};
+        if (forward != up->forward) {
+            m.parameters[m.parameter_count++] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_FORWARD, 1, &value};
+        }
+        xqc_moqt_location_t largest = {0};
+        xqc_bool_t has_largest;
+        xqc_bool_t new_group = xqc_moqt_relay_request_new_group(up, &largest,
+                                                              &has_largest);
+        uint8_t group[XQC_VI64_MAX_LEN];
+        if (new_group) {
+            size_t len = xqc_vi64_write(group, group + sizeof(group),
+                                        up->group_pending);
+            m.parameters[m.parameter_count++] = (xqc_moq_message_parameter_t){
+                XQC_MOQT_PARAM_NEW_GROUP_REQUEST, len, group};
+            if (xqc_moqt_relay_forward_message(up->peer, &m) != XQC_OK) {
+                up->group_pending = UINT64_MAX;
+                new_group = XQC_FALSE;
+                m = (xqc_moqt_message_t){.type = XQC_MOQT_MSG_REQUEST_UPDATE};
+                if (forward != up->forward) {
+                    m.parameter_count = 1;
+                    m.parameters[0] = (xqc_moq_message_parameter_t){
+                        XQC_MOQT_PARAM_FORWARD, 1, &value};
+                }
+            }
+        }
+        if (!m.parameter_count) {
+            continue;
+        }
         if (up->request == NULL
             || xqc_moqt_request_send(up->request, &m) != XQC_OK)
         {
@@ -825,6 +962,86 @@ xqc_moqt_relay_pause_sources(xqc_moqt_relay_t *r)
         } else {
             up->forward = forward;
             up->waiting_update = 1;
+            if (new_group) {
+                up->group_requested = up->group_pending;
+                up->group_pending = UINT64_MAX;
+                up->group_at_request = largest.group_id;
+                up->group_had_largest = has_largest;
+                up->group_outstanding = 1;
+            }
+        }
+    }
+    for (xqc_moqt_relay_request_t *down = r->requests; down;
+         down = down->next)
+    {
+        if (!down->resuming || down->stopped || down->pending) {
+            continue;
+        }
+        xqc_moqt_message_t response = {.type = XQC_MOQT_MSG_REQUEST_OK};
+        if (down->response != NULL
+            && xqc_moqt_relay_message_read(down->response,
+                XQC_MOQT_MSG_REQUEST_UPDATE, &response) < 0)
+        {
+            xqc_moqt_relay_stop(down, XQC_MOQT_RESET_EXCESSIVE_LOAD);
+            continue;
+        }
+        xqc_moqt_relay_response(down, &response);
+    }
+}
+
+static xqc_bool_t
+xqc_moqt_relay_live_source(const xqc_moqt_relay_request_t *down,
+    const xqc_moqt_relay_request_t *up)
+{
+    return up->upstream && up->track == down->track && up->subscription != NULL
+        && (down->type == XQC_MOQT_MSG_PUBLISH ? up == down->selected
+             : up->parent == down || up->parent == NULL);
+}
+
+static void
+xqc_moqt_relay_end_subscription(xqc_moqt_relay_request_t *down)
+{
+    down->awaiting_done = 0;
+    down->ending = 1;
+    down->deadline = xqc_moqt_relay_deadline(xqc_monotonic_timestamp(),
+        UINT64_MAX, down->peer->relay->config.timeout);
+}
+
+void
+xqc_moqt_relay_malformed(xqc_moqt_relay_request_t *source)
+{
+    xqc_moqt_relay_t *r = source->peer->relay;
+    r->stats.malformed++;
+
+    /* Draft-22 §12.1: send PUBLISH_DONE on established downstreams. */
+    for (xqc_moqt_relay_request_t *q = r->requests; q; q = q->next) {
+        if (q->track == source->track && !q->upstream && !q->peer->closed
+            && !q->stopped && !q->ended && q->established
+            && q->request != NULL && q->subscription != NULL)
+        {
+            q->done_code = XQC_MOQT_PUBLISH_MALFORMED_TRACK;
+            q->resuming = 0;
+            xqc_moqt_relay_end_subscription(q);
+        }
+    }
+
+    /* Draft-22 §9.9: close unfinished data streams before PUBLISH_DONE. */
+    for (xqc_moqt_relay_stream_t *st = r->streams; st; st = st->next) {
+        if (st->downstream->track == source->track && st->downstream->ending
+            && st->fetch == NULL && st->output != NULL
+            && (st->input != NULL || st->finishing))
+        {
+            xqc_moqt_stream_cancel(st->output, XQC_MOQT_RESET_MALFORMED_TRACK);
+        }
+    }
+    for (xqc_moqt_relay_request_t *q = r->requests; q; q = q->next) {
+        if (q->track != source->track || q->ended) {
+            continue;
+        }
+        if (q->ending) {
+            xqc_moqt_relay_cancel_dependents(q, XQC_MOQT_RESET_MALFORMED_TRACK);
+        } else {
+            xqc_moqt_relay_stop(q, XQC_MOQT_RESET_MALFORMED_TRACK);
         }
     }
 }
@@ -836,6 +1053,8 @@ xqc_moqt_relay_update(xqc_moqt_relay_request_t *q,
     xqc_moqt_relay_t *r = q->peer->relay;
     q->operation_started = xqc_monotonic_timestamp();
     q->waiting_update = 1;
+    q->resuming = !q->forward && q->subscription != NULL
+        && xqc_moqt_relay_parameter(message, XQC_MOQT_PARAM_FORWARD, 0) != 0;
     xqc_moqt_relay_buffer_free(r, q->response);
     q->response = NULL;
     q->update = xqc_moqt_relay_message_copy(r, message, q->type);
@@ -865,6 +1084,7 @@ xqc_moqt_relay_update(xqc_moqt_relay_request_t *q,
     }
     q->deadline = xqc_moqt_relay_deadline(xqc_monotonic_timestamp(),
                                           UINT64_MAX, r->config.timeout);
+    xqc_moqt_relay_queue_new_group(q, message);
     for (xqc_moqt_relay_request_t *up = r->requests; up; up = up->next) {
         if (up->parent != q || up->stopped) {
             continue;
@@ -873,7 +1093,16 @@ xqc_moqt_relay_update(xqc_moqt_relay_request_t *q,
         if (up->type != XQC_MOQT_MSG_SUBSCRIBE) {
             continue;
         }
-        /* A still-pending initial response will enqueue this update later. */
+        /* The same publisher already supplies this Track on PUBLISH. */
+        if (!up->established && q->selected != NULL
+            && q->selected->type == XQC_MOQT_MSG_PUBLISH
+            && q->selected->established && !q->selected->stopped
+            && up->peer == q->selected->peer)
+        {
+            xqc_moqt_relay_stop(up, XQC_MOQT_RESET_CANCELLED);
+            continue;
+        }
+        /* Other publishers can still establish and receive this update. */
         q->pending++;
         if (!up->established) {
             continue;
@@ -895,8 +1124,8 @@ xqc_moqt_relay_update(xqc_moqt_relay_request_t *q,
         xqc_memzero(&m, sizeof(m));
         m.type = XQC_MOQT_MSG_REQUEST_OK;
         xqc_moqt_relay_response(q, &m);
-        xqc_moqt_relay_pause_sources(r);
     }
+    xqc_moqt_relay_pause_sources(r);
 }
 
 static void
@@ -937,6 +1166,14 @@ xqc_moqt_relay_upstream_response(xqc_moqt_relay_request_t *up,
     }
     if (m->type == XQC_MOQT_MSG_REQUEST_ERROR) {
         up->stopped = 1;
+        xqc_moqt_message_t cached;
+        if (down->type == XQC_MOQT_MSG_FETCH && !down->established
+            && m->error.normalized_code == XQC_MOQT_REQUEST_NOT_SUPPORTED
+            && xqc_moqt_relay_history_answer(down, &cached))
+        {
+            xqc_moqt_relay_response(down, &cached);
+            return;
+        }
         /* Initial responses also hold a slot in an in-flight update. */
         if (down->waiting_update && down->pending) {
             down->pending--;
@@ -945,12 +1182,17 @@ xqc_moqt_relay_upstream_response(xqc_moqt_relay_request_t *up,
         for (xqc_moqt_relay_request_t *other = r->requests;
              other != NULL; other = other->next)
         {
-            if (other->parent == down && !other->stopped) {
+            if (!other->stopped && (other->parent == down
+                || (down->established && xqc_moqt_relay_live_source(down,
+                                                                  other))))
+            {
                 remaining = other;
             }
         }
         if (!remaining && down->request != NULL) {
-            if (!down->established || down->waiting_update) {
+            if (down->awaiting_done && !down->waiting_update) {
+                xqc_moqt_relay_end_subscription(down);
+            } else if (!down->established || down->waiting_update) {
                 xqc_moqt_relay_reject(down, m->error.normalized_code);
             } else {
                 xqc_moqt_relay_stop(down, XQC_MOQT_RESET_CANCELLED);
@@ -970,6 +1212,7 @@ xqc_moqt_relay_upstream_response(xqc_moqt_relay_request_t *up,
         return;
     }
     up->established = 1;
+    down->awaiting_done = 0;
     if (!updated) {
         xqc_moqt_relay_buffer_free(r, up->response);
         up->response = xqc_moqt_relay_message_copy(r, m, up->type);
@@ -1063,6 +1306,7 @@ xqc_moqt_relay_message(xqc_moqt_request_t *request,
             break;
         case XQC_MOQT_MSG_PUBLISH:
             q->upstream = 1;
+            xqc_moqt_relay_history_enable(q, m);
             xqc_moqt_relay_response(q, &response);
             xqc_moqt_relay_routes(r);
             xqc_moqt_relay_pause_sources(r);
@@ -1075,6 +1319,7 @@ xqc_moqt_relay_message(xqc_moqt_request_t *request,
                     xqc_monotonic_timestamp(), ms, r->config.timeout);
             }
             xqc_moqt_relay_route(q);
+            xqc_moqt_relay_queue_new_group(q, m);
             xqc_moqt_relay_pause_sources(r);
             break;
         }
@@ -1100,7 +1345,7 @@ xqc_moqt_relay_message(xqc_moqt_request_t *request,
         }
         return;
     }
-    if (q == NULL || q->stopped) {
+    if (q == NULL || q->stopped || q->ending || q->ended) {
         return;
     }
     switch (m->type) {
@@ -1219,8 +1464,14 @@ xqc_moqt_relay_subscription_closed(xqc_moqt_subscription_t *subscription,
     if (q == NULL) {
         return;
     }
+    xqc_bool_t malformed = q->upstream && !q->stopped && error != NULL
+        && error->context == XQC_MOQT_ERROR_RESET
+        && error->normalized_code == XQC_MOQT_RESET_MALFORMED_TRACK;
     q->subscription = NULL;
     q->stopped = 1;
+    if (malformed) {
+        xqc_moqt_relay_malformed(q);
+    }
     for (xqc_moqt_relay_request_t *other = r->requests;
          other != NULL; other = other->next)
     {
@@ -1228,7 +1479,7 @@ xqc_moqt_relay_subscription_closed(xqc_moqt_subscription_t *subscription,
             xqc_moqt_relay_stop(other, XQC_MOQT_RESET_CANCELLED);
         }
     }
-    if (q->upstream) {
+    if (q->upstream && !malformed) {
         for (xqc_moqt_relay_request_t *down = r->requests;
              down != NULL; down = down->next)
         {
@@ -1236,38 +1487,39 @@ xqc_moqt_relay_subscription_closed(xqc_moqt_subscription_t *subscription,
             if (down->subscription == NULL) {
                 continue;
             }
-            if (down->upstream || down->track != q->track || down->stopped) {
+            if (down->upstream || down->track != q->track || down->stopped
+                || down->ending || down->ended)
+            {
+                continue;
+            }
+            if (q->parent != NULL && q->parent != down) {
                 continue;
             }
             if (down->type == XQC_MOQT_MSG_PUBLISH && down->selected != q) {
                 continue;
             }
-            xqc_bool_t remaining = XQC_FALSE;
+            xqc_bool_t remaining = XQC_FALSE, established = XQC_FALSE;
             for (xqc_moqt_relay_request_t *up = r->requests;
                  up != NULL; up = up->next)
             {
-                /* A FETCH is not a remaining live delivery source. */
-                if (up->subscription == NULL) {
-                    continue;
-                }
-                if (up->upstream && up->track == down->track && !up->stopped) {
-                    if (down->type == XQC_MOQT_MSG_PUBLISH) {
-                        remaining |= up == down->selected;
-                    } else {
-                        remaining |= up->parent == down || up->parent == NULL;
-                    }
+                if (!up->stopped && xqc_moqt_relay_live_source(down, up)) {
+                    remaining = XQC_TRUE;
+                    established |= up->established;
                 }
             }
+            if (!established && (error == NULL
+                || error->context == XQC_MOQT_ERROR_PUBLISH_DONE))
+            {
+                /* Draft-22 §9.9: preserve completion across pending sources. */
+                down->awaiting_done = 1;
+                down->done_code = error == NULL ? XQC_MOQT_PUBLISH_TRACK_ENDED
+                                                : error->normalized_code;
+            }
             if (!remaining) {
-                if (error == NULL
-                    || error->context == XQC_MOQT_ERROR_PUBLISH_DONE)
-                {
-                    down->ending = 1;
-                    down->done_code = error == NULL
-                        ? XQC_MOQT_PUBLISH_TRACK_ENDED : error->normalized_code;
-                    down->deadline = xqc_moqt_relay_deadline(
-                        xqc_monotonic_timestamp(), UINT64_MAX,
-                        r->config.timeout);
+                if (down->awaiting_done && down->waiting_update) {
+                    xqc_moqt_relay_reject(down, XQC_MOQT_REQUEST_TIMEOUT);
+                } else if (down->awaiting_done) {
+                    xqc_moqt_relay_end_subscription(down);
                 } else {
                     xqc_moqt_relay_stop(down,
                                         error->context == XQC_MOQT_ERROR_RESET
@@ -1339,9 +1591,11 @@ xqc_moqt_relay_create(const xqc_moqt_relay_config_t *config,
     return r;
 }
 
-xqc_moqt_relay_peer_t *
-xqc_moqt_relay_peer_create(xqc_moqt_relay_t *r, xqc_connection_t *conn,
-    const xqc_moqt_config_t *config, const struct iovec *scope, void *data)
+static xqc_moqt_relay_peer_t *
+xqc_moqt_relay_peer_create_internal(xqc_moqt_relay_t *r,
+    xqc_connection_t *conn, struct xqc_webtransport_session_s *wt,
+    const xqc_moqt_config_t *config, const struct iovec *scope, void *data,
+    xqc_bool_t draft07_compat)
 {
     if (r == NULL || scope == NULL || config == NULL) {
         return NULL;
@@ -1404,7 +1658,19 @@ xqc_moqt_relay_peer_create(xqc_moqt_relay_t *r, xqc_connection_t *conn,
     options[pos].value.integer = XQC_MOQT_RELAY_UPDATE_CREDIT;
     endpoint.setup_options = options;
     endpoint.setup_option_count = count + 1;
-    peer->session = xqc_moqt_session_create(conn, &endpoint, &callbacks, peer);
+#ifdef XQC_ENABLE_WEBTRANSPORT
+    if (wt != NULL) {
+        peer->session = draft07_compat
+            ? xqc_moqt_session_create_webtransport_compat(wt, &endpoint,
+                &callbacks, peer)
+            : xqc_moqt_session_create_webtransport(wt, &endpoint,
+                &callbacks, peer);
+    } else
+#endif
+    {
+        peer->session = xqc_moqt_session_create(conn, &endpoint, &callbacks,
+                                                peer);
+    }
     if (peer->session == NULL) {
         xqc_moqt_relay_buffer_free(r, peer->scope);
         xqc_moqt_relay_free(r, peer, sizeof(*peer));
@@ -1415,6 +1681,40 @@ xqc_moqt_relay_peer_create(xqc_moqt_relay_t *r, xqc_connection_t *conn,
     r->stats.peers++;
     return peer;
 }
+
+xqc_moqt_relay_peer_t *
+xqc_moqt_relay_peer_create(xqc_moqt_relay_t *r, xqc_connection_t *conn,
+    const xqc_moqt_config_t *config, const struct iovec *scope, void *data)
+{
+    return xqc_moqt_relay_peer_create_internal(r, conn, NULL, config, scope,
+                                                data, XQC_FALSE);
+}
+
+#ifdef XQC_ENABLE_WEBTRANSPORT
+xqc_moqt_relay_peer_t *
+xqc_moqt_relay_peer_create_webtransport(xqc_moqt_relay_t *r,
+    xqc_wt_session_t *wt, const xqc_moqt_config_t *config,
+    const struct iovec *scope, void *data)
+{
+    if (wt == NULL) {
+        return NULL;
+    }
+    return xqc_moqt_relay_peer_create_internal(r, NULL, wt, config, scope, data,
+                                                XQC_FALSE);
+}
+
+xqc_moqt_relay_peer_t *
+xqc_moqt_relay_peer_create_webtransport_compat(xqc_moqt_relay_t *r,
+    xqc_wt_session_t *wt, const xqc_moqt_config_t *config,
+    const struct iovec *scope, void *data)
+{
+    if (wt == NULL) {
+        return NULL;
+    }
+    return xqc_moqt_relay_peer_create_internal(r, NULL, wt, config, scope, data,
+                                                XQC_TRUE);
+}
+#endif
 
 xqc_moqt_session_t *
 xqc_moqt_relay_peer_session(xqc_moqt_relay_peer_t *peer)
@@ -1440,12 +1740,12 @@ xqc_moqt_relay_request_is_referenced(xqc_moqt_relay_t *r,
     for (xqc_moqt_relay_request_t *other = r->requests;
          other != NULL; other = other->next)
     {
-        if (other->parent == q) {
+        if (other->parent == q || other->history_source == q) {
             return XQC_TRUE;
         }
     }
     for (xqc_moqt_relay_fetch_t *f = r->fetches; f != NULL; f = f->next) {
-        if (f->upstream == q || f->downstream == q) {
+        if (f->upstream == q || f->downstream == q || f->history_owner == q) {
             return XQC_TRUE;
         }
     }
@@ -1463,7 +1763,7 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
     if (r == NULL) {
         return 0;
     }
-    xqc_usec_t next = 0;
+    xqc_usec_t next = xqc_moqt_relay_history_collect(r, now);
     for (xqc_moqt_relay_request_t *q = r->requests; q != NULL; q = q->next) {
         if (q->type == XQC_MOQT_MSG_SUBSCRIBE_TRACKS
             && q->upstream && !q->stopped)
@@ -1496,6 +1796,7 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
             xqc_int_t ret = xqc_moqt_request_send(q->request, &done);
             if (ret == XQC_OK) {
                 q->ending = 0;
+                q->ended = 1;
                 q->deadline = 0;
                 continue;
             }
@@ -1524,9 +1825,15 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
         if (f->closed || !f->deadline) {
             continue;
         }
-        if (f->deadline <= now) {
-            r->stats.timeouts++;
-            xqc_moqt_relay_fetch_stop(f, XQC_MOQT_RESET_DELIVERY_TIMEOUT);
+        if (f->timed_out || f->deadline <= now) {
+            xqc_moqt_relay_fetch_expire(f, now);
+            if (!f->closed && f->deadline != 0) {
+                xqc_usec_t delay = xqc_min(f->deadline - now,
+                                           XQC_MOQT_RELAY_RETRY_US);
+                if (!next || now + delay < next) {
+                    next = now + delay;
+                }
+            }
         } else if (!next || f->deadline < next) {
             next = f->deadline;
         }
@@ -1558,6 +1865,7 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
         if (f->upstream != NULL) {
             f->upstream->fetch = NULL;
         }
+        xqc_moqt_relay_history_release(f);
         xqc_moqt_relay_free(r, f, sizeof(*f));
     }
     xqc_moqt_relay_request_t **request = &r->requests;
@@ -1584,6 +1892,7 @@ xqc_moqt_relay_process(xqc_moqt_relay_t *r, xqc_usec_t now)
         xqc_moqt_relay_buffer_free(r, q->response);
         xqc_moqt_relay_buffer_free(r, q->candidate);
         xqc_moqt_relay_buffer_free(r, q->update);
+        xqc_moqt_relay_history_clear(q);
         r->stats.requests--;
         xqc_moqt_relay_free(r, q, sizeof(*q));
     }

@@ -9,8 +9,9 @@ Protocol basis: [draft-ietf-moq-transport-22 §7][s7], depending on the
 
 ## Minimum Supported Scope
 
-The first version is a single-process, single-node Native QUIC relay between
-original publishers and final subscribers. It terminates independent
+The first version is a single-process, single-node relay over Native QUIC or
+optional WebTransport between original publishers and final subscribers.
+It terminates independent
 transport Sessions on both sides and routes/forwards Objects through public
 protocol APIs. It depends on no private proxy format and performs no
 cross-draft wire translation.
@@ -26,18 +27,24 @@ provide cross-version bridging.
 | Namespace discovery / TRACK_STATUS | Required; authorized registrations and upstream state |
 | SUBSCRIBE_TRACKS / independent PUBLISH / PUBLISH_SKIPPED | Required for C10; reuse endpoint enumeration to create independent Pc from current sources and downstream authorization |
 | Multiple publishers per Track, pause/resume, withdrawal | Required; §7.2–7.6 obligations |
-| FETCH and subscription Fill | Required; retrieve from matching publishers without a history cache |
+| FETCH and subscription Fill | Retrieve from matching publishers and replay bounded direct-PUBLISH history when its source declines retrieval |
 | Object/property/order/Delivery Mode fidelity | Required; permitted reencoding preserves Object semantics |
 | Authorization, limits, slow-subscriber/error isolation | Required |
 | Upstream subscription aggregation | Bounded compatible aggregation permitted; otherwise independent upstream requests |
-| History cache, persistence, cache-only FETCH | Deferred; only bounded temporary queues needed for transport |
-| Nonzero Range Filters, dynamic Groups | Deferred; retain endpoint rejection/negotiation boundaries |
+| History cache | Bounded direct-PUBLISH capture with a finite advertised cache duration |
+| Range Filters | Optional and bounded by `MAX_FILTER_RANGES`; the relay enforces each subscriber or fetcher's filters independently |
+| Dynamic Groups | Direct PUBLISH forwards authorized requests when the publisher advertises support |
 | Relay cascading, routing protocol, loop discovery, cross-node state | Out of first-version scope; §7 defines no relay-to-relay interconnection mechanism |
 | Automatic failover/GOAWAY migration, operational control plane | Deferred; expose standard messages/state and application policy |
 
 The first version is an intermediate target. Claiming complete draft-22 Relay
 support still requires all messages and §7 rules; endpoint optional subsets
 do not waive Relay obligations.
+
+The demo relay advertises eight concurrent ranges per request. Library
+callers opt in through the `MAX_FILTER_RANGES` SETUP option. The relay can
+request a wider upstream range and apply the downstream filters locally, even
+when the upstream publisher advertises zero.
 
 The pinned interop catalog's `namespace-discovery` case requires
 SUBSCRIBE_TRACKS. Endpoints already provide St enumeration, independent Pc,
@@ -62,6 +69,10 @@ the stream header and takes effect only on complete FIN. Continuation
 fragments omit repeated properties; unknown and Immutable Properties preserve
 their raw bytes. New subscriptions to direct PUBLISH use current Largest,
 not a stale cached initial location.
+An authorized TRACK_STATUS for an established direct PUBLISH uses that
+Track's properties and current Largest Object without opening an upstream
+query or downstream delivery. INCLUDE_PROPERTIES still controls whether
+the response includes properties (draft-22 §§9.13 and 9.20.21).
 
 | Protocol responsibility | Entity | References and lifetime |
 | --- | --- | --- |
@@ -78,6 +89,10 @@ associates handles and never copies hop-local IDs/Aliases into responses.
 Discovery registrations are counted by source Request. Notify DONE only when
 the final source for that Namespace disappears. Direct PUBLISH associates a
 specific Track without registering its Namespace.
+New requests skip Namespace routes whose publisher transport has entered
+closing or draining, even while the Session close callback is pending
+(RFC 9000 §10.2.2 and draft-22 §6.6). Other usable publishers remain
+eligible.
 
 This version advertises one update credit per Request and returns downstream
 OK after the corresponding upstream update completes. Reuse the endpoint
@@ -87,13 +102,44 @@ This version does not aggregate Object subscriptions. Each downstream demand
 creates an independent SUBSCRIBE to each matching publisher, retaining that
 demand's filters and delivery parameters. Direct PUBLISH may fan out to
 multiple authorized downstreams. Each downstream pauses/resumes independently;
-pause direct PUBLISH only when all matching demands are paused. This avoids
-premature filter-union/shared-update scheduling. Incoming Tokens are removed;
+pause direct PUBLISH only when all matching demands are paused. For
+an explicit resume, count the authorized pending demand for upstream purposes
+and acknowledge downstream after the direct sources acknowledge forwarding
+(draft-22 §§3.1.1, 9.5). For
+an already established direct PUBLISH, an overlapping namespace on the same
+publisher Session reuses that exact-Track grant. Namespace matches on other
+publisher Sessions remain independent (draft-22 §7.6). For
+St-created subscriptions, each resulting PUBLISH inherits St FORWARD,
+defaulting to 1 (draft-22 §3.6.2,
+§9.20.18). The Relay snapshot and endpoint use the same initial value;
+updates without FORWARD retain it. Each resulting subscription resumes
+through its own REQUEST_UPDATE; PUBLISH_OK does not carry FORWARD (§9.3).
+Independent demand avoids premature filter-union/shared-update scheduling.
+A downstream grant ending with PUBLISH_DONE stays terminal while its
+transport drains. Later registration can route new requests (draft-22 §9.9).
+For direct PUBLISH with `DYNAMIC_GROUPS=1`, the relay coalesces outstanding
+`NEW_GROUP_REQUEST` values on each upstream receiver. A larger request
+can supersede an outstanding request. Advancing Largest Group allows a new
+request (draft-22 §§9.20.19, 10.6).
+Incoming Tokens are removed;
 application hop policy supplies outbound credentials.
 
 Applications explicitly provide SETUP policy, request authorization, and
 Scope. Peer creation/destruction follows connection creation/closure; start
 its Session after handshake. Relay creates neither threads nor an event loop.
+With `XQC_ENABLE_WEBTRANSPORT`, create a peer through
+`xqc_moqt_relay_peer_create_webtransport` in WT session readiness after the
+application authorizes CONNECT and selects `moqt-22`. It shares the native
+peer's admission, policy, scope, and forwarding logic. The endpoint WT binding
+requires draft-16 and forbids AUTHORITY/PATH SETUP Options (draft-22 §6.2.1,
+§9.1.1/§9.1.2). Start its Session there and destroy the peer in WT session
+close before H3 destruction. Peers on sibling WT Sessions remain independent.
+The explicit `xqc_moqt_relay_peer_create_webtransport_compat` entry point also
+admits draft-07 under the endpoint's opt-in compatibility contract, including
+exact `moqt-22` selection and best-effort reset association. The original
+constructor remains draft-16-only. Both share the same peer/configuration
+admission, scope, routing, queues, accounting and destruction path; no
+transport-specific Relay state machine is introduced.
 Call its processing entry point after QUIC events and at the returned next
 deadline. Closure callbacks immediately clear invalid handles; defer mapping
 reclamation during callback traversal to prevent cross-Session dangling
@@ -158,6 +204,10 @@ must supply explicit authentication/authorization policy.
 
 Relay SHALL retain authorized registrations by tuple prefix. After SUBSCRIBE_NAMESPACE
 OK, send NAMESPACE/DONE rather than forwarding PUBLISH_NAMESPACE.
+An accepted prefix update changes the discovery set on the same stream.
+The ACK implicitly withdraws namespaces outside the new prefix, as clarified
+in [draft-23 §9.5.2][sns-retarget]. Subsequent notifications encode suffixes
+relative to the new prefix. Matching registrations continue to be discoverable.
 Withdrawal, expired authorization, and disconnect update registration.
 Existing subscription termination depends on its own valid upstream state.
 [§4][s4], [§7.6][s7.6]
@@ -227,7 +277,7 @@ raw Immutable Properties bytes, including non-minimum integers.
 Propagate unsupported Mandatory Track Properties under §3.7.
 [§7.7–7.8][s7.7]
 
-Even without history cache, Relay SHALL obey MAX_CACHE_DURATION from each Object's
+Relay SHALL obey MAX_CACHE_DURATION from each Object's
 reception start. Do not begin forwarding after expiry; temporary queues cannot
 bypass it. Expired status is unknown. Applicable delivery timeouts also apply.
 
@@ -238,11 +288,15 @@ inside an apparently complete stream.
 
 Bounded duplicate suppression is permitted. Conflicting payload, Delivery Mode,
 Subgroup ID, or priority among retained/observed duplicates SHALL be treated as malformed Track.
+When the relay detects a malformed live Track, it terminates established
+downstream subscriptions with `PUBLISH_DONE(MALFORMED_TRACK)` after closing
+their unfinished data streams. It also resets related Fetch streams
+([draft-22 §12.1](https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-12.1)).
 Unknown, nonexistent, and late Objects follow §2.1.2; a late Object after
 ordinary nonexistence is not itself malicious conflict.
 [§7.1][s7.1], [§12.1][s12.1]
 
-### Requirement: FETCH and Fill Without a History Cache
+### Requirement: FETCH and Fill
 
 Relay SHALL route downstream FETCH to at least one authorized matching publisher with an
 independent Request ID. No local cache does not mean every historical Object
@@ -254,11 +308,28 @@ Fill uses the triggering Request ID. Without cache, retrieve all required
 history upstream; an arbitrary upstream FETCH stream cannot become a
 downstream live Subgroup.
 
+The relay retains complete Objects from an authorized direct PUBLISH with a
+nonzero MAX_CACHE_DURATION. It accounts for partially received Objects and
+uses up to one quarter of its relay byte budget for history. Expiry and
+publication cleanup release entries. History stays scoped to its publisher
+grant and Track. [§10.3][s10.3]
+
+When the matching publisher returns NOT_SUPPORTED to an upstream FETCH,
+the relay serves retained matches for an authorized FETCH or Fill. A local
+FETCH response uses Largest Object at downstream request admission. Fill
+uses its accepted endpoint snapshot and triggering Request ID. Send groups
+in the requested order and ascending Object IDs inside each group. Mark
+unavailable ranges as unknown. [§3.2.3][s3.2.3], [§3.4][s3.4]
+
 FILL_TIMEOUT SHALL be the total budget across all upstream attempts, never reset
 on retry/source switch. Zero does not wait upstream; unavailable immediate
 Objects become timed-out ranges. Use unknown ranges/applicable reset for
 upstream failure/unknown Objects, timed-out ranges for budget exhaustion.
 Never conceal errors with nonexistent ranges. [§9.20.5][s9.20.5]
+For a known FETCH or Fill range, budget expiry closes the outstanding suffix
+with a timed-out range marker and FIN. If expiry interrupts an Object whose
+header and partial payload are already committed, reset the stream because
+the next record cannot be encoded until that payload ends.
 
 ### Requirement: Resource, Failure, and Slow-Subscriber Isolation
 
@@ -316,8 +387,8 @@ continues old-session sends until interest migrates. Deduplicate by Object
 identity during overlap. Reallocate Aliases; application decides URI/credentials
 without automatic inheritance. [§7.4.1][s7.4.1], [§7.6.1][s7.6.1]
 
-Dynamic Groups, cache indexes, eviction, and replacement transactions remain
-separate extensions. Temporary send queues are not history caches.
+Dynamic Groups, persistent cache indexes, and replacement transactions remain
+separate extensions.
 
 ## Acceptance for the Separate Relay Implementation
 
@@ -333,13 +404,14 @@ errors, and reclamation, not just process exit.
 | Prefix Track subscriptions | B knows only the Namespace, discovers Tracks via Sns→St→Pc, and receives Objects; newly added Tracks are discovered | Existing Pc survives St cancellation; no echo to its publisher; no retry of a skipped publication, but a new publication after reconnection can be enumerated; no new Pc without interest and authorization |
 | Sources/fanout | Complementary two-publisher Objects, two subscriber filters, mixed/all pause then resume | No OK before Established; timeout/cancel prevents late revival; reject excess sources |
 | Objects/properties | Binary payload, Subgroup/Datagram, unknown properties, duplicate fidelity | Conflicts malformed; FIN cannot conceal gaps; no forwarding starts after TTL |
-| FETCH/Fill | Upstream history without cache, concurrent live, correct End Location/mode/order | Total-budget timeout/unknown/reset; cancellation stops only unreferenced operations |
+| FETCH/Fill | Upstream retrieval, cached replay after refusal, concurrent live, correct End Location/mode/order | Expiry preserves unknown gaps; timeout and cancellation affect only the historical operation |
 | Failure/resources | Healthy delivery continues, bounded queues/timers/routes reclaimed | Isolated slow-peer termination, malformed-upstream containment, all-upstream loss terminates affected delivery, no async UAF |
 | Overlapping migration | New subscription succeeds before old cancellation; independent delivery and deduplication during overlap | B1 does not migrate B2; new Sessions inherit neither Aliases nor credentials |
 
 Regression entry point: `case_test/moq/relay.sh`. Case 1475 covers routing,
-discovery, filters/pause, Datagrams, and overlapping migration; 1476 covers
-slow-subscriber, authorization, and malformed-Track isolation. Cases 1477/1478
+discovery retargeting, filters/pause, Datagrams, and overlapping migration.
+Case 1476 covers prefix-overlap rejection, slow-subscriber and malformed-Track
+isolation, and authorization. Cases 1477/1478
 cover FETCH/Fill success and live delivery after history failure; 1479/1480
 cover St→Pc discovery, independent lifetimes, authorization, and SKIPPED.
 Units additionally cover Scope, zero budgets, timeouts, empty streams,
@@ -352,10 +424,6 @@ properties, slow consumers, timeouts, and disconnects separately. Endpoint
 self-tests do not validate Relay. Cross-check independent draft-22
 publishers/subscribers where possible; record unsupported-peer gaps.
 
-A future cache extension separately defines keys, MAX_CACHE_DURATION, field
-integrity, eviction, unknown state, duplicate updates, and poisoning defenses.
-Do not market first-version send queues as caches.
-
 [s4]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-4
 [s6.5]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-6.5
 [s7]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-7
@@ -366,8 +434,11 @@ Do not market first-version send queues as caches.
 [s7.7]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-7.7
 [s7.8]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-7.8
 [s3.2.3]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-3.2.3
+[s3.4]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-3.4
+[s10.3]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-10.3
 [s9.20.5]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-9.20.5
 [s9.20.6]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-9.20.6
+[sns-retarget]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-23#section-9.5.2
 [s12.1]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-12.1
 [s15.7]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-15.7
 [s7.4.1]: https://datatracker.ietf.org/doc/html/draft-ietf-moq-transport-22#section-7.4.1

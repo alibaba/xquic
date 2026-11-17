@@ -1361,7 +1361,8 @@ moqt_fill(moqt_endpoint_t *client, moqt_endpoint_t *server, xqc_int_t errors)
     client->session->callbacks.on_object = moqt_fill_object;
     client->session->callbacks.on_subscription_closed = moqt_delivery_closed;
     uint8_t next = XQC_MOQT_FILTER_NEXT_OBJECT;
-    uint8_t all[] = {2, XQC_MOQT_PARAM_LOCATION_FILTER, XQC_MOQT_FILTER_NONE};
+    uint8_t all[] = {3, 1, XQC_MOQT_PARAM_LOCATION_FILTER,
+        XQC_MOQT_FILTER_NONE};
     xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_SUBSCRIBE,
         .track_name = {"fill", 4}, .parameter_count = 2};
     m.parameters[0] = (xqc_moq_message_parameter_t){
@@ -1399,7 +1400,7 @@ moqt_fill(moqt_endpoint_t *client, moqt_endpoint_t *server, xqc_int_t errors)
     xqc_moqt_check(xqc_moqt_stream_finish(live) == XQC_OK);
     xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
     xqc_moqt_check(client->objects == 1);
-    uint8_t range[] = {6, XQC_MOQT_PARAM_LOCATION_FILTER,
+    uint8_t range[] = {7, 1, XQC_MOQT_PARAM_LOCATION_FILTER,
         XQC_MOQT_FILTER_ABSOLUTE_RANGE, 1, 0, 0, 9};
     m.type = XQC_MOQT_MSG_REQUEST_UPDATE;
     m.parameter_count = 1;
@@ -1523,6 +1524,9 @@ moqt_namespaces(moqt_endpoint_t *client, moqt_endpoint_t *server,
         XQC_MOQT_PARAM_TRACK_NAMESPACE_PREFIX, sizeof(prefix), prefix};
     xqc_moqt_check(xqc_moqt_request_send(sns, &update) == XQC_OK);
     xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);
+    /* Narrowing withdraws live and retains live/room42. */
+    xqc_moqt_check(client->namespace_removes == 2);
+    xqc_moqt_check(client->namespace_fields == 1);
     m.track_namespace.count = 0;
     xqc_moqt_check(xqc_moqt_request_send(publisher, &m) == XQC_OK);
     xqc_complex_case_pump(peers, 2, XQC_MOQT_HANDSHAKE_WAIT_MS);

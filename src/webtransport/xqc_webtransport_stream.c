@@ -166,7 +166,7 @@ xqc_wt_stream_attach(xqc_wt_stream_base_t *stream,
     stream->session_id = session->session_id;
     stream->session_id_complete = XQC_TRUE;
     stream->user_data = user_data ? user_data
-        : xqc_wt_session_get_callback_user_data(session);
+        : xqc_wt_session_get_binding_user_data(session);
     xqc_list_add_tail(&stream->list, &session->stream_list);
     stream->listed = XQC_TRUE;
     if (!stream->outgoing && stream->can_send && stream->h3_stream->stream
@@ -256,10 +256,16 @@ ssize_t
 xqc_wt_stream_notify_read(xqc_wt_stream_base_t *stream,
     const unsigned char *data, size_t len, uint8_t fin)
 {
-    if (stream->closed || !stream->can_recv || stream->recv_reset) {
+    if (stream->closed || !stream->can_recv
+        || (stream->recv_reset && !stream->recv_stopped))
+    {
         return -XQC_ESTATE;
     }
-    if (stream->read_paused) {
+    if (stream->session->closed) {
+        stream->recv_fin |= fin;
+        return (ssize_t)len;
+    }
+    if (stream->read_paused && !stream->recv_stopped) {
         return -XQC_EAGAIN;
     }
     if (len == 0 && (!fin || stream->recv_fin)) {
@@ -273,17 +279,21 @@ xqc_wt_stream_notify_read(xqc_wt_stream_base_t *stream,
         xqc_wt_session_fail_flow_control(session);
         return (ssize_t)len;
     }
-    const xqc_webtransport_stream_callbacks_t *cbs =
-        xqc_wt_session_get_stream_callbacks(stream->session);
+    /*
+     * RFC 9000 §3.5 allows in-flight STREAM data after STOP_SENDING.
+     * Draft-16 §5.4 still counts it towards the session's receive limit.
+     */
+    const xqc_webtransport_stream_callbacks_t *cbs = stream->recv_stopped
+        ? NULL : xqc_wt_session_get_stream_callbacks(session);
     xqc_bool_t previous_fin = stream->recv_fin;
     stream->recv_fin = fin || previous_fin;
     stream->callback_depth++;
     xqc_int_t ret = XQC_OK;
-    if (stream->bidi && cbs->wt_bidistream_read_notify) {
+    if (cbs && stream->bidi && cbs->wt_bidistream_read_notify) {
         ret = cbs->wt_bidistream_read_notify(
             (xqc_wt_bidistream_t *)stream,
             stream->session, (void *)data, len, stream->user_data);
-    } else if (!stream->bidi && cbs->wt_unistream_read_notify) {
+    } else if (cbs && !stream->bidi && cbs->wt_unistream_read_notify) {
         ret = cbs->wt_unistream_read_notify(
             (xqc_wt_unistream_t *)stream,
             stream->session, (void *)data, len, stream->user_data);
@@ -391,6 +401,7 @@ xqc_wt_stream_cancel(xqc_wt_stream_base_t *stream, uint32_t error,
     if (ret == XQC_OK && !stream->closed) {
         if (stop) {
             stream->recv_reset = XQC_TRUE;
+            stream->recv_stopped = XQC_TRUE;
         } else {
             stream->send_reset = XQC_TRUE;
         }
@@ -444,6 +455,7 @@ xqc_wt_stream_notify_closing(xqc_wt_stream_base_t *stream,
         }
     }
     stream->stop_sending = stop_sending;
+    stream->recv_session_gone |= wire_error == XQC_WT_SESSION_GONE;
     /* draft-ietf-webtrans-http3-16 §4.4 skips every 31st wire code. */
     stream->recv_error_valid = wire_error >= XQC_WT_APP_ERROR_FIRST
         && wire_error <= XQC_WT_APP_ERROR_LAST
@@ -456,6 +468,7 @@ xqc_wt_stream_notify_closing(xqc_wt_stream_base_t *stream,
         stream->send_reset = XQC_TRUE;
     } else {
         stream->recv_reset = XQC_TRUE;
+        stream->recv_stopped = XQC_FALSE;
     }
     const xqc_webtransport_stream_callbacks_t *cbs =
         xqc_wt_session_get_stream_callbacks(stream->session);
@@ -555,6 +568,12 @@ xqc_wt_stream_buffer(xqc_wt_conn_t *conn, xqc_wt_stream_base_t *stream)
 void
 xqc_wt_session_close_streams(xqc_wt_session_t *session)
 {
+    if (session->binding && !session->binding_closed) {
+        session->binding_closed = XQC_TRUE;
+        if (session->binding->closed) {
+            session->binding->closed(session, session->binding_data);
+        }
+    }
     xqc_wt_dgram_purge(session);
     while (!xqc_list_empty(&session->stream_list)) {
         xqc_wt_stream_base_t *stream = xqc_list_entry(
@@ -572,6 +591,8 @@ xqc_wt_session_close_streams(xqc_wt_session_t *session)
             xqc_wt_stream_terminate(stream);
         }
     }
+    session->binding = NULL;
+    session->binding_data = NULL;
 }
 
 ssize_t
@@ -656,7 +677,7 @@ xqc_wt_stream_write(xqc_h3_stream_t *h3_stream, void *stream_ctx)
 {
     xqc_wt_stream_base_t *stream = stream_ctx;
     if (stream == NULL || stream->closed || stream->session == NULL
-        || stream->send_fin || stream->send_reset)
+        || stream->session->closed || stream->send_fin || stream->send_reset)
     {
         return XQC_OK;
     }

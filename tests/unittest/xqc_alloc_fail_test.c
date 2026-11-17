@@ -52,6 +52,29 @@ __wrap_xqc_gen_reset_token(xqc_cid_t *cid, unsigned char *token, int token_len,
     xqc_test_alloc_count = count;
 }
 
+/*
+ * BoringSSL's ByDirEntry::Create dereferences a failed MakeUnique result.
+ * Keep its CA-loader allocations out of failure injection, but still count
+ * live allocations. Inject a returned API failure below to cover our cleanup.
+ */
+static int g_af_default_paths_fail;
+
+int __real_SSL_CTX_set_default_verify_paths(SSL_CTX *ctx);
+
+int
+__wrap_SSL_CTX_set_default_verify_paths(SSL_CTX *ctx)
+{
+    if (g_af_default_paths_fail) {
+        return 0;
+    }
+
+    long count = xqc_test_alloc_count;
+    xqc_test_alloc_count = -1;
+    int ret = __real_SSL_CTX_set_default_verify_paths(ctx);
+    xqc_test_alloc_count = count;
+    return ret;
+}
+
 #endif
 
 static unsigned char g_initial[2048];
@@ -254,6 +277,48 @@ xqc_test_engine_create_alloc_failures(void)
         }
     }
     CU_ASSERT(n > 1);
+}
+
+void
+xqc_test_client_trust_store_failure(void)
+{
+    xqc_engine_t *engine;
+
+    /* Warm BoringSSL's retained per-thread state before tracking. */
+    engine = xqc_test_af_engine(XQC_ENGINE_SERVER);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    xqc_engine_destroy(engine);
+    engine = xqc_test_af_engine(XQC_ENGINE_CLIENT);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    xqc_engine_destroy(engine);
+
+    xqc_test_alloc_count = -1;
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+    g_af_default_paths_fail = 1;
+    engine = xqc_test_af_engine(XQC_ENGINE_CLIENT);
+    CU_ASSERT_PTR_NULL(engine);
+    if (engine != NULL) {
+        xqc_engine_destroy(engine);
+    }
+    CU_ASSERT_EQUAL(xqc_test_alloc_live, 0);
+
+    /* A failed client trust load must not change server construction. */
+    engine = xqc_test_af_engine(XQC_ENGINE_SERVER);
+    CU_ASSERT_PTR_NOT_NULL(engine);
+    if (engine != NULL) {
+        xqc_engine_destroy(engine);
+    }
+    CU_ASSERT_EQUAL(xqc_test_alloc_live, 0);
+
+    g_af_default_paths_fail = 0;
+    engine = xqc_test_af_engine(XQC_ENGINE_CLIENT);
+    CU_ASSERT_PTR_NOT_NULL(engine);
+    if (engine != NULL) {
+        xqc_engine_destroy(engine);
+    }
+    CU_ASSERT_EQUAL(xqc_test_alloc_live, 0);
+    xqc_test_alloc_tracking = 0;
 }
 
 #endif
@@ -488,6 +553,12 @@ xqc_test_conn_create_alloc_failures(void)
 
 void
 xqc_test_engine_create_alloc_failures(void)
+{
+    /* needs BoringSSL and the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_client_trust_store_failure(void)
 {
     /* needs BoringSSL and the linker's --wrap (see tests/CMakeLists.txt) */
 }

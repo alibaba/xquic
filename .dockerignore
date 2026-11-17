@@ -1,0 +1,9 @@
+.git
+.agents
+.claude
+.ai-context
+build
+third_party
+openspec
+*.log
+__pycache__

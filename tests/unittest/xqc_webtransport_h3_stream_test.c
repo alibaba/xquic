@@ -968,6 +968,44 @@ xqc_test_wt_h3_reset_flow_accounting(void)
 }
 
 void
+xqc_test_wt_h3_data_after_stop(void)
+{
+    for (unsigned mode = 0; mode < 3; mode++) {
+        xqc_wt_h3_test_t test;
+        CU_ASSERT_FATAL(wt_h3_test_init(&test, XQC_TRUE) == XQC_OK);
+        unsigned char preface[] = {0x40, 0x41, 4};
+        CU_ASSERT(wt_h3_test_input(&test, preface, sizeof(preface), 0)
+                  == XQC_OK);
+        xqc_wt_stream_base_t *wt = xqc_wt_h3_stream_get(test.h3s);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(wt);
+        xqc_wt_session_t *session = wt->session;
+        session->flow_control = XQC_TRUE;
+        session->recv_data_limit = mode == 2 ? 3 : 4;
+        unsigned char data[] = {'a', 'b'};
+        CU_ASSERT(wt_h3_test_input(&test, data, sizeof(data), 0) == XQC_OK);
+        CU_ASSERT(test.received == sizeof(data) && session->recv_data == 2);
+        if (mode) {
+            CU_ASSERT(xqc_wt_bidistream_stop_sending((void *)wt, 0)
+                      == XQC_OK);
+        }
+
+        /* RFC 9000 §3.5 permits STREAM data in flight after STOP_SENDING. */
+        CU_ASSERT(wt_h3_test_input(&test, data, sizeof(data), 1) == XQC_OK);
+        CU_ASSERT(test.h3c->conn->conn_err == 0);
+        CU_ASSERT(test.received == (mode ? 2 : 4));
+        CU_ASSERT(test.fins == (mode ? 0 : 1));
+        if (mode == 2) {
+            CU_ASSERT(session->closed);
+            CU_ASSERT(session->close_error == XQC_WT_FLOW_CONTROL_ERROR);
+        } else {
+            CU_ASSERT(!session->closed && session->recv_data == 4);
+            CU_ASSERT(wt->recv_fin && wt->recv_accounted == 4);
+        }
+        wt_h3_test_close(&test);
+    }
+}
+
+void
 xqc_test_wt_h3_reset_after_short_read(void)
 {
     /* Draft-16 Section 4.4: deliver RESET once its header has been read. */

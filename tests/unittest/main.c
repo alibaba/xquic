@@ -25,10 +25,15 @@
 #include "xqc_common_test.h"
 #include "xqc_vint_test.h"
 #ifdef XQC_ENABLE_MOQ
+#include "xqc_loc_msf_test.h"
 #include "xqc_moqt_codec_test.h"
+#include "xqc_moqt_interop_test.h"
 #include "xqc_moqt_quic_test.h"
 #include "xqc_moqt_session_test.h"
 #include "xqc_moqt_relay_test.h"
+#ifdef XQC_ENABLE_WEBTRANSPORT
+#include "xqc_moqt_webtransport_test.h"
+#endif
 #endif
 #include "xqc_recv_record_test.h"
 #include "xqc_reno_test.h"
@@ -104,6 +109,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_create_alloc_failures", xqc_test_conn_create_alloc_failures)
         || !CU_add_test(pSuite, "xqc_test_engine_create_alloc_failures",
                         xqc_test_engine_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_client_trust_store_failure",
+                        xqc_test_client_trust_store_failure)
         || !CU_add_test(pSuite, "xqc_test_conn_destroy_frees_crypto_data",
                         xqc_test_conn_destroy_frees_crypto_data)
         || !CU_add_test(pSuite, "xqc_test_client_connect_active_queue_full",
@@ -167,6 +174,8 @@ main(int argc, char *argv[])
                         xqc_test_wt_session_id_wire)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_reset_flow_accounting",
                         xqc_test_wt_h3_reset_flow_accounting)
+        || !CU_add_test(pSuite, "xqc_test_wt_h3_data_after_stop",
+                        xqc_test_wt_h3_data_after_stop)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_reset_credit",
                         xqc_test_wt_h3_reset_credit)
         || !CU_add_test(pSuite, "xqc_test_wt_h3_reset_after_short_read",
@@ -292,6 +301,10 @@ main(int argc, char *argv[])
                         xqc_test_wt_application_protocol_errors)
         || !CU_add_test(pSuite, "xqc_test_wt_application_protocol_inputs",
                         xqc_test_wt_application_protocol_inputs)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft07_protocol_compat",
+                        xqc_test_wt_draft07_protocol_compat)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft07_protocol_compat_errors",
+                        xqc_test_wt_draft07_protocol_compat_errors)
 #endif
         || !CU_add_test(pSuite, "xqc_test_reliable_reset_transport_params",
                         xqc_test_reliable_reset_transport_params)
@@ -478,22 +491,64 @@ main(int argc, char *argv[])
                         xqc_test_moqt_relay_delivery)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_history",
                         xqc_test_moqt_relay_history)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_direct_status",
+                        xqc_test_moqt_relay_direct_status)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_updates",
                         xqc_test_moqt_relay_updates)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_limits",
                         xqc_test_moqt_relay_limits)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks",
                         xqc_test_moqt_relay_tracks)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks_forward",
+                        xqc_test_moqt_relay_tracks_forward)
+        || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks_forward_errors",
+                        xqc_test_moqt_relay_tracks_forward_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_rendezvous_tracks",
                         xqc_test_moqt_relay_rendezvous_tracks)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_tracks_errors",
                         xqc_test_moqt_relay_tracks_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_relay_fill",
                         xqc_test_moqt_relay_fill)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_fixture",
+                        xqc_test_moqt_interop_fixture)
+        || !CU_add_test(pSuite, "xqc_test_moqt_early_request",
+                        xqc_test_moqt_early_request)
+        || !CU_add_test(pSuite, "xqc_test_moqt_early_request_errors",
+                        xqc_test_moqt_early_request_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_fixture_errors",
+                        xqc_test_moqt_interop_fixture_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_validator",
+                        xqc_test_moqt_interop_validator)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_validator_errors",
+                        xqc_test_moqt_interop_validator_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_fragmentation",
+                        xqc_test_moqt_interop_fragmentation)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_fragmentation_errors",
+                        xqc_test_moqt_interop_fragmentation_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_large_id",
+                        xqc_test_moqt_interop_large_id)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_large_id_errors",
+                        xqc_test_moqt_interop_large_id_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_properties",
+                        xqc_test_moqt_interop_properties)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_properties_errors",
+                        xqc_test_moqt_interop_properties_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_catalog",
+                        xqc_test_moqt_interop_catalog)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_catalog_errors",
+                        xqc_test_moqt_interop_catalog_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_media",
+                        xqc_test_moqt_interop_media)
+        || !CU_add_test(pSuite, "xqc_test_moqt_interop_media_errors",
+                        xqc_test_moqt_interop_media_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_errors",
                         xqc_test_moqt_fill_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_parameters",
                         xqc_test_moqt_fill_parameters)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_counted",
+                        xqc_test_moqt_fill_counted)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_counted_errors",
+                        xqc_test_moqt_fill_counted_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_snapshots",
                         xqc_test_moqt_fill_snapshots)
         || !CU_add_test(pSuite, "xqc_test_moqt_fill_suppressed",
@@ -606,6 +661,40 @@ main(int argc, char *argv[])
                         xqc_test_moqt_setup_validation)
         || !CU_add_test(pSuite, "xqc_test_moqt_session_lifecycle",
                         xqc_test_moqt_session_lifecycle)
+#ifdef XQC_ENABLE_WEBTRANSPORT
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport",
+                        xqc_test_moqt_webtransport)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_errors",
+                        xqc_test_moqt_webtransport_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_compat",
+                        xqc_test_moqt_webtransport_compat)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_compat_errors",
+                        xqc_test_moqt_webtransport_compat_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_demo_origin",
+                        xqc_test_moqt_demo_origin)
+        || !CU_add_test(pSuite, "xqc_test_moqt_demo_origin_errors",
+                        xqc_test_moqt_demo_origin_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_streams",
+                        xqc_test_moqt_webtransport_streams)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_session_gone",
+                        xqc_test_moqt_webtransport_session_gone)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_control_reset",
+                        xqc_test_moqt_webtransport_control_reset)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_close_reentrancy",
+                        xqc_test_moqt_webtransport_close_reentrancy)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_close_reentrancy_errors",
+                        xqc_test_moqt_webtransport_close_reentrancy_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_setup_errors",
+                        xqc_test_moqt_webtransport_setup_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay",
+                        xqc_test_moqt_webtransport_relay)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay_errors",
+                        xqc_test_moqt_webtransport_relay_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay_compat",
+                        xqc_test_moqt_webtransport_relay_compat)
+        || !CU_add_test(pSuite, "xqc_test_moqt_webtransport_relay_compat_errors",
+                        xqc_test_moqt_webtransport_relay_compat_errors)
+#endif
         || !CU_add_test(pSuite, "xqc_test_moqt_padding_and_goaway_errors",
                         xqc_test_moqt_padding_and_goaway_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_messages",
@@ -636,6 +725,13 @@ main(int argc, char *argv[])
                         xqc_test_moqt_connect)
         || !CU_add_test(pSuite, "xqc_test_moqt_frames",
                         xqc_test_moqt_frames)
+        || !CU_add_test(pSuite, "xqc_test_loc_properties",
+                        xqc_test_loc_properties)
+        || !CU_add_test(pSuite, "xqc_test_loc_errors", xqc_test_loc_errors)
+        || !CU_add_test(pSuite, "xqc_test_msf_catalog", xqc_test_msf_catalog)
+        || !CU_add_test(pSuite, "xqc_test_msf_errors", xqc_test_msf_errors)
+        || !CU_add_test(pSuite, "xqc_test_loc_msf_objects",
+                        xqc_test_loc_msf_objects)
         || !CU_add_test(pSuite, "xqc_test_moqt_frame_errors",
                         xqc_test_moqt_frame_errors)
         || !CU_add_test(pSuite, "xqc_test_moqt_names",
@@ -881,6 +977,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_h3_single_vint_frame_length_error",
                         xqc_test_h3_single_vint_frame_length_error)
+        || !CU_add_test(pSuite, "xqc_test_tls_default_ca_trusted",
+                        xqc_test_tls_default_ca_trusted)
+        || !CU_add_test(pSuite, "xqc_test_tls_default_ca_unknown",
+                        xqc_test_tls_default_ca_unknown)
+        || !CU_add_test(pSuite, "xqc_test_tls_default_ca_hostname_mismatch",
+                        xqc_test_tls_default_ca_hostname_mismatch)
         || !CU_add_test(pSuite, "xqc_test_tls_default_cert_with_sni",
                         xqc_test_tls_default_cert_with_sni)
         || !CU_add_test(pSuite, "xqc_test_tls_default_cert_without_sni",

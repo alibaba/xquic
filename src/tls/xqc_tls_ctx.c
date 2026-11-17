@@ -65,6 +65,13 @@ xqc_create_client_ssl_ctx(xqc_tls_ctx_t *ctx)
     /* set the lifetime of session */
     xqc_ssl_ctx_set_timeout(ssl_ctx, ctx->cfg.session_timeout);
 
+    /* Use the backend's default trust anchors (RFC 9001, Section 4.4). */
+    if (SSL_CTX_set_default_verify_paths(ssl_ctx) != XQC_SSL_SUCCESS) {
+        xqc_log(ctx->log, XQC_LOG_ERROR, "|load default CA paths failed|%s",
+                ERR_error_string(ERR_get_error(), NULL));
+        goto fail;
+    }
+
     ctx->ssl_ctx = ssl_ctx;
     return XQC_OK;
 

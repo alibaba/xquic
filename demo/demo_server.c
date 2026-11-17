@@ -32,6 +32,9 @@
 
 #include "common.h"
 #include "xqc_hq.h"
+#ifdef XQC_ENABLE_MOQT_DEMO
+#include "xqc_moqt_demo.h"
+#endif
 #ifdef XQC_ENABLE_WEBTRANSPORT_INTEROP
 #include "xqc_webtrans_interop.h"
 #endif
@@ -1815,6 +1818,13 @@ th3_demo_proxy_sig_hndlr(int signo)
 int
 main(int argc, char *argv[])
 {
+#ifdef XQC_ENABLE_MOQT_DEMO
+    if (argc > 1 && (!strcmp(argv[1], "--moqt")
+                    || !strcmp(argv[1], "--moqt-relay")))
+    {
+        return xqc_demo_moqt_main(argc - 1, argv + 1);
+    }
+#endif
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     /* init env if necessary */

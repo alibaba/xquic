@@ -81,15 +81,30 @@ malformed responses and unsupported prerequisites
 never trigger a successful session notification. Section 3.3 application
 protocol negotiation uses Structured Fields strings with bounded list sizes.
 A nonempty application-protocol requirement fails locally when -07 is
-selected, including a CONNECT queued before peer SETTINGS. The private msg
+selected, including a CONNECT queued before peer SETTINGS. The explicit
+`xqc_wt_client_open_session_with_protocols_compat` API permits those headers
+on -07 as an application compatibility extension. Its copied opt-in survives
+queued CONNECT and still requires an exact, offered selection. It does not
+change draft-07 tokens, settings, pooling limits or ordinary reset behavior.
+The private msg
 wrapper requires no such negotiation and works with either revision.
 Terminal CONNECT send failures log the cause and notify session closure once.
+The negotiated application-protocol getter exposes the validated selection on
+both endpoints. A server-selected protocol must be a valid offered String;
+invalid application response selections fail before response transmission.
 The request retains session ownership until its normal destruction; a failed
 CONNECT does not turn a session failure into an HTTP/3 connection failure.
 A QPACK-blocked request may outlive its transport stream; failure still
 notifies session closure but sends no transport frames once that stream is gone.
 
 ## Streams, datagrams and lifecycle
+
+An internal protocol binding may install stream/datagram callbacks for one
+session without replacing the connection's application context or session
+callbacks. Unbound sessions retain the normal callbacks. Closing first
+notifies the binding, then cleans up its streams and detaches its context;
+other sessions remain independently usable. A binding may retry a pending
+application close when earlier capsule bytes have drained.
 
 Sections 4.1 through 4.4 govern raw stream types, Session ID prefixes and
 application error mapping. Prefixes are incrementally parsed; partial input,
@@ -177,9 +192,11 @@ waiting for the opposite direction of a bidirectional stream to close.
 Unknown capsules are skipped without
 unbounded allocation. Section 6 (-07 Section 5) governs DRAIN and CLOSE: validate
 the UTF-8 reason (at most 1024 bytes), preserve the 32-bit application error, respond to
-CLOSE before peer FIN, and notify final closure once. Later CONNECT reset
-notifications preserve an established application close code. GOAWAY drains
-sessions.
+CLOSE before peer FIN, and notify final closure once. Local closure queues
+the CONNECT CLOSE capsule and FIN before aborting attached streams. During
+CONNECT send backpressure the closed session stops application I/O. Later
+CONNECT reset notifications preserve an established application close code.
+GOAWAY drains sessions.
 Borrowed strings and handles expire at their final close notification.
 The final session notification receives NULL headers.
 

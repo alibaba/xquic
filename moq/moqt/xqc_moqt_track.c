@@ -4,6 +4,8 @@
 #include "xqc_moqt_session.h"
 #include "xqc_moqt_codec.h"
 
+#define XQC_MOQT_PUBLISH_DONE_GRACE (3 * XQC_MICROS_PER_SECOND)
+
 xqc_int_t
 xqc_moqt_location_compare(const xqc_moqt_location_t *a,
     const xqc_moqt_location_t *b)
@@ -16,7 +18,7 @@ xqc_moqt_location_compare(const xqc_moqt_location_t *a,
 
 xqc_int_t
 xqc_moqt_track_properties_read(const struct iovec *bytes,
-    xqc_moqt_track_t *defaults, size_t *count)
+    xqc_moqt_track_t *defaults, size_t *count, xqc_bool_t *unsupported)
 {
     const uint8_t *data = bytes->iov_base;
     size_t pos = 0;
@@ -34,7 +36,7 @@ xqc_moqt_track_properties_read(const struct iovec *bytes,
         case XQC_MOQT_PROPERTY_IMMUTABLE:
             /* Section 10.7: one budget bounds both lists and nesting. */
             if (xqc_moqt_track_properties_read(&kv.value.bytes, defaults,
-                                               count) != XQC_OK)
+                                               count, unsupported) != XQC_OK)
             {
                 return XQC_ERROR;
             }
@@ -59,7 +61,19 @@ xqc_moqt_track_properties_read(const struct iovec *bytes,
             }
             defaults->group_order = kv.value.integer;
             break;
+        case XQC_MOQT_PROPERTY_DYNAMIC_GROUPS:
+            /* Draft-22 §10.6: only zero and one are valid. */
+            if (kv.value.integer > 1) {
+                return XQC_ERROR;
+            }
+            defaults->dynamic_groups = kv.value.integer;
+            break;
         default:
+            /* Draft-22 section 3.7 reserves this range for mandatory keys. */
+            if (unsupported != NULL && kv.type >= 0x4000 && kv.type <= 0x7fff)
+            {
+                *unsupported = XQC_TRUE;
+            }
             break;
         }
     }
@@ -170,7 +184,7 @@ xqc_moqt_subscription_apply(xqc_moqt_request_t *r,
     }
     size_t count = 0;
     if (xqc_moqt_track_properties_read(&m->properties, &defaults,
-                                       &count) != XQC_OK)
+                                       &count, NULL) != XQC_OK)
     {
         return XQC_MOQT_PROTOCOL_VIOLATION;
     }
@@ -270,6 +284,7 @@ xqc_moqt_subscription_apply(xqc_moqt_request_t *r,
     track->has_largest = has_largest;
     track->publisher_priority = defaults.publisher_priority;
     track->group_order = defaults.group_order;
+    track->dynamic_groups = defaults.dynamic_groups;
     track->object_timeout = defaults.object_timeout;
     track->subgroup_timeout = defaults.subgroup_timeout;
     /* Section 9.9: only established aliases make counts ambiguous. */
@@ -411,6 +426,18 @@ xqc_moqt_subscription_is_matching(const xqc_moqt_subscription_t *sub,
     return xqc_moqt_location_compare(location, &sub->end) <= 0;
 }
 
+xqc_bool_t
+xqc_moqt_subscription_object_matches(const xqc_moqt_subscription_t *sub,
+    const xqc_moqt_object_t *object)
+{
+    if (object == NULL) {
+        return XQC_FALSE;
+    }
+    xqc_moqt_location_t location = {object->group_id, object->object_id};
+    return xqc_moqt_subscription_is_matching(sub, &location)
+        && xqc_moqt_filters_match(sub->filters, object);
+}
+
 xqc_int_t
 xqc_moqt_subscription_largest(const xqc_moqt_subscription_t *sub,
     xqc_moqt_location_t *location)
@@ -420,6 +447,12 @@ xqc_moqt_subscription_largest(const xqc_moqt_subscription_t *sub,
     }
     *location = sub->track->largest;
     return XQC_OK;
+}
+
+xqc_bool_t
+xqc_moqt_subscription_dynamic_groups(const xqc_moqt_subscription_t *sub)
+{
+    return sub != NULL && sub->track->dynamic_groups;
 }
 
 /* Free only after callbacks/iteration release their borrowed references. */
@@ -436,6 +469,10 @@ xqc_moqt_subscription_free(xqc_moqt_subscription_t *sub)
     }
     *link = sub->next;
     xqc_moqt_track_release(s, sub->track);
+    if (sub->filters != NULL) {
+        s->buffered_bytes -= sizeof(*sub->filters);
+        xqc_free(sub->filters);
+    }
     s->buffered_bytes -= sizeof(*sub);
     xqc_free(sub);
 }
@@ -555,9 +592,15 @@ xqc_moqt_subscription_done(xqc_moqt_subscription_t *sub,
     if (sub->track->local_publisher) {
         sub->stopped = 1;
     } else {
+        /* Draft-22 §9.9: allow late data within the local cleanup budget. */
         xqc_usec_t now = xqc_monotonic_timestamp();
-        sub->close_deadline = sub->session->config.timeout > UINT64_MAX - now
-            ? UINT64_MAX : now + sub->session->config.timeout;
+        xqc_usec_t budget = sub->session->config.timeout;
+        uint64_t delivery_ms = xqc_max(sub->object_timeout,
+                                       sub->subgroup_timeout);
+        xqc_usec_t wait = delivery_ms > budget / XQC_MOQT_MICROS_PER_MILLISECOND
+            ? budget : delivery_ms * XQC_MOQT_MICROS_PER_MILLISECOND;
+        wait = xqc_min(budget, xqc_max(wait, XQC_MOQT_PUBLISH_DONE_GRACE));
+        sub->close_deadline = wait > UINT64_MAX - now ? UINT64_MAX : now + wait;
     }
     xqc_moqt_timer_update(sub->session);
     xqc_moqt_subscription_check_done(sub);

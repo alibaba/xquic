@@ -3203,7 +3203,7 @@ xqc_test_moqt_fetch_request(moqt_fixture_t *f, xqc_int_t publisher,
     uint8_t range[] = {XQC_MOQT_FILTER_ABSOLUTE_RANGE, 1, 0, 2, 9};
     uint8_t timeout[] = {0}, priority[] = {7};
     xqc_moqt_message_t m = {.type = XQC_MOQT_MSG_FETCH,
-        .track_name = {"video", 5}, .parameter_count = 4};
+        .track_name = {"video", 5}, .parameter_count = order ? 4 : 3};
     m.parameters[0] = (xqc_moq_message_parameter_t){XQC_MOQT_PARAM_FILL_TIMEOUT,
         sizeof(timeout), timeout};
     m.parameters[1] = (xqc_moq_message_parameter_t){
@@ -3230,9 +3230,56 @@ xqc_test_moqt_fetch_response(xqc_moqt_request_t *r, uint64_t group,
         XQC_MOQT_MSG_FETCH, 0) : xqc_moqt_request_send(r, &ok);
 }
 
+static void xqc_test_moqt_fetch_group_order(void);
+
+static void
+xqc_test_moqt_fetch_group_order(void)
+{
+    /* Draft-22 §9.20.8: only the FETCH request selects its Group Order. */
+    for (unsigned scenario = 0; scenario < 3; scenario++) {
+        xqc_bool_t descending = scenario == 1;
+        xqc_bool_t invalid = scenario == 2;
+        moqt_fixture_t f;
+        xqc_moqt_request_t *r = xqc_test_moqt_fetch_request(&f, 0,
+            descending ? XQC_MOQT_GROUP_DESCENDING : 0);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(r);
+        uint8_t props[] = {XQC_MOQT_PROPERTY_GROUP_ORDER,
+                           XQC_MOQT_GROUP_DESCENDING};
+        xqc_moqt_message_t ok = {.type = XQC_MOQT_MSG_FETCH_OK,
+            .end_group = 3, .end_object = 9,
+            .properties = {props, sizeof(props)}};
+        CU_ASSERT_EQUAL(xqc_test_moqt_request_input(r->stream, &ok,
+            XQC_MOQT_MSG_FETCH, 0), XQC_OK);
+        CU_ASSERT_EQUAL(f.fetch_ready, 1);
+        CU_ASSERT_EQUAL(r->fetch->track->group_order,
+                        XQC_MOQT_GROUP_DESCENDING);
+        CU_ASSERT_EQUAL(r->fetch->info.group_order, descending
+            ? XQC_MOQT_GROUP_DESCENDING : XQC_MOQT_GROUP_ASCENDING);
+
+        /* The next group has delta zero unless it exceeds the request range. */
+        uint8_t wire[] = {5, 0, 0x1f, descending ? 3 : 1, 0, 0, 7, 1, 'a',
+                         0x1f, invalid ? 2 : 0, 0, 0, 7, 1, 'b'};
+        xqc_moqt_stream_t *st = xqc_test_moqt_incoming(&f);
+        CU_ASSERT_EQUAL(xqc_moqt_stream_input(st, wire, sizeof(wire), 1),
+                        invalid ? -XQC_EILLEGAL_FRAME : XQC_OK);
+        if (invalid) {
+            CU_ASSERT_EQUAL(f.objects, 1);
+            CU_ASSERT_EQUAL(f.error, XQC_MOQT_PROTOCOL_VIOLATION);
+        } else {
+            CU_ASSERT_EQUAL(f.objects, 2);
+            CU_ASSERT_EQUAL(f.object_bytes, 2);
+            CU_ASSERT_EQUAL(f.object.group_id, 2);
+            CU_ASSERT_EQUAL(f.fetch_closed, 1);
+            CU_ASSERT_FALSE(f.session->closed);
+        }
+        xqc_test_moqt_destroy(&f);
+    }
+}
+
 void
 xqc_test_moqt_fetch_receive(void)
 {
+    xqc_test_moqt_fetch_group_order();
     /* Sections 3.2.2/11.4: retain early data across native physical close. */
     for (unsigned early = 0; early < 2; early++) {
         moqt_fixture_t f;

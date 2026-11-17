@@ -97,7 +97,9 @@ xqc_moqt_fetch_create(xqc_moqt_request_t *r, const xqc_moqt_message_t *m)
         r->fetch = f;
     }
     f->info.request_id = m->request_id;
-    f->info.group_order = f->track->group_order;
+    /* Draft-22 §9.20.8: standalone FETCH defaults to ascending. */
+    f->info.group_order = sub == NULL ? XQC_MOQT_GROUP_ASCENDING
+                                      : f->track->group_order;
     f->info.subscriber_priority = XQC_MOQT_DEFAULT_PRIORITY;
     f->next = s->fetches;
     s->fetches = f;
@@ -125,7 +127,6 @@ xqc_moqt_fetch_apply(xqc_moqt_request_t *r, const xqc_moqt_message_t *m)
         info.end.group_id = m->end_group;
         info.end.object_id = m->end_object;
         info.end_of_track = m->end_of_track;
-        info.group_order = defaults.group_order;
         parameters = (void *)r->state->data;
     }
     xqc_int_t exclusive = 0;

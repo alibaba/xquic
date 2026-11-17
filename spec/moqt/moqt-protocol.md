@@ -1592,6 +1592,10 @@ The implementation SHALL support standalone FETCH/FETCH_OK/one data stream, both
 within-Group Object order, inclusive End Location, empty responses, partially
 arrived Largest Object, and all three range categories. [§3.2][s3.2]
 
+Standalone FETCH uses Ascending order when `GROUP_ORDER` is absent. An
+explicit `GROUP_ORDER` governs the response even when the Track advertises a
+different publisher preference. [§9.20.8][s9.20]
+
 Send FETCH_OK only with definite End Location. No published Objects or start
 beyond Largest Object gives INVALID_RANGE. A valid range with no existing
 Objects sends FETCH_HEADER then FIN, distinct from invalid range.

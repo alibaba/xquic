@@ -7,7 +7,20 @@
 
 void  xqc_test_stream_frame();
 void  xqc_test_stream_frame_buffered_limit();
+void  xqc_test_stream_frame_cap_reserved_slot();
+void  xqc_test_stream_frame_fin_only_no_accumulation();
+void  xqc_test_stream_frame_cap_tolerant_drop();
+void  xqc_test_stream_frame_fc_before_cap();
+void  xqc_test_stream_frame_fin_dropped_then_retransmitted();
+void  xqc_test_stream_frame_cap_setting();
+void  xqc_test_stream_frame_dup_carries_fin();
+void  xqc_test_stream_frame_dup_then_gap_fill_at_cap();
+void  xqc_test_stream_frame_resplit_dup_at_cap();
+void  xqc_test_stream_frame_cap_one();
 
+void  xqc_test_stream_frame_cap_reject_then_gap_fill();
+void  xqc_test_stream_frame_cap_reject_fin_then_overlap();
+void  xqc_test_stream_frame_fin_below_received();
 void  xqc_test_stop_sending_drops_queued_stream_packets();
 void  xqc_test_stop_sending_spares_other_streams();
 

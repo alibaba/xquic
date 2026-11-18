@@ -968,6 +968,44 @@ case_reliable_reset_zero_close()
 }
 
 
+case_transport_stream_reassembly_cap_default()
+{
+    local result=fail
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+    sleep 1
+    ${CLIENT_BIN} -s 262144 -l d -t 8 -E -d 150 > stdlog
+    if grep -q '>>>>>>>> pass:1' stdlog \
+        && ! grep -q 'stream frame buffered count exceed' slog \
+        && ! grep -q 'fail to process packets' slog
+    then
+        result=pass
+    fi
+    case_print_result "reassembly_cap_default" "${result}"
+}
+
+case_transport_stream_reassembly_cap_pressure()
+{
+    local result=fail
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    case_test_start_server ${SERVER_BIN} -l d -e -x 749 > /dev/null
+    sleep 1
+    ${CLIENT_BIN} -s 65536 -l d -t 12 -E -d 150 > stdlog
+    if grep -q '>>>>>>>> pass:1' stdlog \
+        && grep -q 'stream frame buffered count exceed' slog \
+        && grep -q 'reassembly buffer full, drop packet unacked' slog \
+        && ! grep -q 'fail to process packets' slog \
+        && ! grep -q 'xqc_parse_conn_close_frame|type:18|err_code:[1-9]' clog
+    then
+        result=pass
+    fi
+    case_print_result "reassembly_cap_pressure" "${result}"
+}
+
 case_test_case "server_inited_stream" --id native --mode self-reporting --run case_transport_stream_server_inited_stream
 case_test_case "stream_send_pure_fin" --id native --mode self-reporting --run case_transport_stream_stream_send_pure_fin
 case_test_case "stream_read_notify_fail" --id native --mode self-reporting --run case_transport_stream_stream_read_notify_fail
@@ -1023,6 +1061,8 @@ case_test_case "reliable_reset_zero_error" --id 743 --mode self-reporting --run 
 case_test_case "reliable_reset_direction_error" --id 744 --mode self-reporting --run case_reliable_reset_direction_error
 case_test_case "reliable_reset_zero_fin" --id 745 --mode self-reporting --run case_reliable_reset_zero_fin
 case_test_case "reliable_reset_zero_close" --id 746 --mode self-reporting --run case_reliable_reset_zero_close
+case_test_case "reassembly_cap_default" --id native --mode self-reporting --run case_transport_stream_reassembly_cap_default
+case_test_case "reassembly_cap_pressure" --id 749 --mode self-reporting --run case_transport_stream_reassembly_cap_pressure
 
 
 if case_test_is_discovery; then

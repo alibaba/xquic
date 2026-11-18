@@ -99,6 +99,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_DATAGRAM_1RTT_ALLOWED 1201
 #define XQC_TEST_CASE_CLOSE_RECV_ONLY_STREAM 725
 #define XQC_TEST_CASE_CLOSE_AFTER_DATA_RECVD 726
+#define XQC_TEST_CASE_SIGTERM_IN_ENGINE_CALL 1719
 
 extern long xqc_random(void);
 extern xqc_usec_t xqc_now();
@@ -1673,6 +1674,11 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
         },
     };
 
+    if (g_test_case == XQC_TEST_CASE_SIGTERM_IN_ENGINE_CALL) {
+        /* the SIGTERM of the case runner, in the engine call that answers */
+        raise(SIGTERM);
+    }
+
     send_uppercase = g_test_case == XQC_TEST_CASE_H3_UPPERCASE_RESPONSE
                      && !uppercase_response_sent;
     send_pseudo_header_order =
@@ -2699,14 +2705,14 @@ xqc_retry_packet_check(xqc_engine_t *engine, xqc_connection_t *conn, const xqc_c
     return XQC_FALSE; 
 }
 
+/*
+ * SIGINT and SIGTERM, run by the event loop: main() destroys the engine
+ * once the loop has returned, never in the middle of an engine call
+ */
 void
-stop(int signo)
+stop(evutil_socket_t signo, short what, void *arg)
 {
     event_base_loopbreak(eb);
-    xqc_engine_destroy(ctx.engine);
-    destroy_cdf();
-    fflush(stdout);
-    exit(0);
 }
 
 void usage(int argc, char *argv[]) {
@@ -2754,9 +2760,6 @@ int main(int argc, char *argv[]) {
 
     /* line-buffer stdout so runtime markers are flushed promptly for case_test.sh to grep */
     setvbuf(stdout, NULL, _IOLBF, 0);
-
-    signal(SIGINT, stop);
-    signal(SIGTERM, stop);
 
     g_send_body_size = 1024*1024;
     g_send_body_size_defined = 0;
@@ -3300,6 +3303,12 @@ int main(int argc, char *argv[]) {
 
     eb = event_base_new();
     ctx.ev_engine = event_new(eb, -1, 0, xqc_server_engine_callback, &ctx);
+
+    /* SIGINT and SIGTERM leave the event loop through stop() */
+    struct event *ev_sigint = evsignal_new(eb, SIGINT, stop, NULL);
+    struct event *ev_sigterm = evsignal_new(eb, SIGTERM, stop, NULL);
+    event_add(ev_sigint, NULL);
+    event_add(ev_sigterm, NULL);
 
 #if defined(XQC_SUPPORT_SENDMMSG) && !defined(XQC_SYS_WINDOWS)
     if (g_batch) {

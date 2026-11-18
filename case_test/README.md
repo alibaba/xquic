@@ -268,6 +268,10 @@ When a server callback can run after the client process exits, use
 `case_test_wait_for_log <file> <pattern> [attempts] [interval]` for a bounded
 wait instead of a fixed sleep. Redirect server stdout to `svr_stdlog` when the
 case needs that output so the per-case snapshot preserves the asserted log.
+When a case asserts that the server stops by itself, call
+`case_test_wait_for_server_exit [attempts] [interval]`: it returns the exit
+status of the server, or 124 after killing a server that still runs once the
+bounded wait is over.
 
 Endpoint logs preserve binary payload bytes, including embedded NULs. Use
 `grep -a` when extracting or filtering `clog` and `slog`, including downstream

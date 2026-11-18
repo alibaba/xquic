@@ -20,7 +20,7 @@ order.
 - `src/http3/`: HTTP/3 connection and stream behavior.
 - `src/http3/frame/`: HTTP/3 frame encoding and parsing.
 - `src/http3/qpack/`: QPACK state, encoding, and decoding.
-- `src/webtransport/`: WebTransport over HTTP/3 draft-16 and draft-07 sessions
+- `src/webtransport/`: WebTransport over HTTP/3 draft-16, draft-07 and draft-02 sessions
   and streams.
 - `src/congestion_control/`: congestion-control implementations.
 - `tests/unittest/`: CUnit regression and unit tests.

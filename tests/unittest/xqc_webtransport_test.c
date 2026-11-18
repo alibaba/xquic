@@ -950,7 +950,7 @@ wt_test_connect_request(int scenario)
     }
     xqc_wt_conn_t *wt_conn = xqc_wt_get_conn_from_h3(h3c);
     CU_ASSERT_PTR_NOT_NULL_FATAL(wt_conn);
-    CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 7);
+    CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 8);
     if (scenario == 6) {
         xqc_wt_session_t *session = xqc_wt_session_init(4, wt_conn, NULL);
         CU_ASSERT_PTR_NOT_NULL_FATAL(session);
@@ -1062,7 +1062,7 @@ wt_test_connect_request(int scenario)
         /* QPACK-blocked H3 requests can outlive the WT connection state. */
         xqc_wt_conn_destroy(wt_conn);
         CU_ASSERT_PTR_NULL(xqc_wt_get_conn_from_h3(h3c));
-        CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 7);
+        CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 8);
         CU_ASSERT_PTR_NULL(h3c->extension_data);
         xqc_engine_destroy(engine);
         CU_ASSERT(wt_app_writes == 1 && wt_app_closings == 1);
@@ -1204,6 +1204,7 @@ xqc_test_wt_settings_capacity(void)
     const uint64_t ids[] = {
         XQC_WT_SETTING_DATAGRAM, XQC_WT_SETTING_MAX_SESSIONS,
         XQC_WT_SETTING_CONNECT, XQC_WT_SETTING_ENABLED_16,
+        XQC_WT_SETTING_DRAFT00,
         XQC_WT_SETTING_INITIAL_MAX_STREAMS_UNI,
         XQC_WT_SETTING_INITIAL_MAX_STREAMS_BIDI,
         XQC_WT_SETTING_INITIAL_MAX_DATA,
@@ -1232,9 +1233,9 @@ xqc_test_wt_settings_capacity(void)
                 conn.h3_conn_callbacks = h3->h3_cbs.h3c_cbs;
                 xqc_h3_conn_settings_t settings =
                     default_local_h3_conn_settings;
-                size_t count = (pooled ? 7 : 4) - client;
+                size_t count = (pooled ? 8 : 5) - client;
                 if (mode == 2) {
-                    for (size_t i = 0; i < (pooled ? 7 : 4); i++) {
+                    for (size_t i = 0; i < (pooled ? 8 : 5); i++) {
                         if (client && ids[i] == XQC_WT_SETTING_CONNECT) {
                             continue;
                         }

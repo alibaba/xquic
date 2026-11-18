@@ -38,8 +38,9 @@ The binding preserves those callbacks and their application user data. Settings
 and pending-datagram policy are configured before the first connection starts.
 Default configuration supports one session, 128 streams per direction and a
 1 MiB receive window. `draft_version` sets the highest supported revision:
-the default -16 advertises both -16 and -07; an explicit -07 advertises only
--07. Both enable QUIC DATAGRAM; -16 also enables Reliable Stream Reset.
+the default -16 advertises -16, -07 and -02; an explicit -07 advertises -07
+and -02. Draft-02 is selected through negotiation. Both configurations enable
+QUIC DATAGRAM; -16 also enables Reliable Stream Reset.
 Configured uni/bidi stream counts must not exceed 2^60 (RFC 9000 Section 18.2).
 Per-connect overrides retain the transport's zero-value defaults. Explicit
 uni stream credit of one or two is rejected because the native HTTP/3 binding
@@ -55,17 +56,21 @@ nonzero. It requires H3_DATAGRAM, QUIC DATAGRAM and server
 ENABLE_CONNECT_PROTOCOL, without requiring Reliable Stream Reset
 (-07 Sections 3.1 and 3.2). Missing -16 prerequisites do not trigger fallback
 after -16 has been selected. Unknown peer settings remain compatible with
-other extensions.
+other extensions. When neither newer revision is shared, a peer advertising
+`SETTINGS_ENABLE_WEBTRANSPORT` (0x2b603742) with value 1 selects draft-02.
+That setting enables extended CONNECT for draft-02 (Sections 3.1, 3.2 and 6).
 Malformed boolean values and out-of-range stream limits fail negotiation
 without publishing partial WebTransport state. Settings use the internal
 [batch registry contract](../http3-settings-registration/spec.md).
 Local WT settings are committed atomically. If the application has left too
 few registry slots, initialization logs an error, disables WT advertisement
 and retains ordinary HTTP/3 on that connection. Missing peer Datagram support
-disables the entire native WT binding, while ordinary HTTP/3 remains usable.
+disables the draft-07 and draft-16 WT bindings, while ordinary HTTP/3 remains
+usable.
 
 CONNECT uses `:method=CONNECT`, `:protocol=webtransport-h3` for -16 or
-`:protocol=webtransport` for -07 (-07 Section 3.3), `:scheme=https`,
+`:protocol=webtransport` for -07 and -02 (Section 3.3 of either draft),
+`:scheme=https`,
 and nonempty authority plus an absolute path (Section 3.2; RFC 9114
 Section 4.3.1). Required pseudo-header names occur exactly once, including
 when a duplicate carries a different or empty value. Undefined or response-only
@@ -73,16 +78,20 @@ pseudo-headers are rejected before application acceptance. The server's acceptan
 callback must validate application policy, including Origin for browser
 clients; it receives the HTTP/3 connection user data. A missing callback
 rejects with 403. Only successful 2xx responses
-open a session. The acceptance callback supplies exactly one three-digit final
+open a session. Draft-02 Section 6 requires
+`sec-webtransport-http3-draft02: 1` on the request and
+`sec-webtransport-http3-draft: draft02` on the successful response. The
+adapter retains the response header when the application replaces its headers.
+The acceptance callback supplies exactly one three-digit final
 status; invalid local response headers abort CONNECT before transmission.
 Responses reject request-only and undefined pseudo-headers before opening WT.
 The response-status getter records the actual final status. Rejection,
 malformed responses and unsupported prerequisites
 never trigger a successful session notification. Section 3.3 application
 protocol negotiation uses Structured Fields strings with bounded list sizes.
-A nonempty application-protocol requirement fails locally when -07 is
+A nonempty application-protocol requirement fails locally when -07 or -02 is
 selected, including a CONNECT queued before peer SETTINGS. The private msg
-wrapper requires no such negotiation and works with either revision.
+wrapper works without application-protocol negotiation.
 Terminal CONNECT send failures log the cause and notify session closure once.
 The request retains session ownership until its normal destruction; a failed
 CONNECT does not turn a session failure into an HTTP/3 connection failure.
@@ -105,7 +114,7 @@ without queuing RESET_STREAM, STOP_SENDING, or a deferred reliable prefix,
 and without scheduling that connection again. Before CLOSING, session cleanup
 retains its normal stream reset and stop behavior. Native endpoint regressions
 cover client/server close, peer disappearance, and idle expiry with unread,
-unfinished bidirectional streams for both negotiated WT revisions.
+unfinished bidirectional streams for draft-07 and draft-16.
 Send buffers are immutable. The public API exposes session and stream
 lifecycle, flow control, datagrams and application protocol selection.
 Connection access reuses the HTTP/3 handle; stream termination uses FIN,

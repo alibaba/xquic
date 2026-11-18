@@ -17,6 +17,7 @@ typedef struct {
     uint64_t    peer_initial_max_streams_bidi;
     uint64_t    peer_initial_max_data;
     xqc_bool_t  peer_draft16;
+    xqc_bool_t  peer_draft00;
     xqc_bool_t  peer_datagram;
     xqc_bool_t  peer_connect;
 } xqc_wt_peer_settings_t;
@@ -66,15 +67,27 @@ xqc_wt_get_conn_from_h3(xqc_h3_conn_t *h3_conn)
 }
 
 xqc_bool_t
+xqc_wt_conn_is_draft2(xqc_wt_conn_t *conn)
+{
+    return conn && conn->negotiated_version
+                    == XQC_WEBTRANSPORT_DRAFT_VERSION_2;
+}
+
+xqc_bool_t
 xqc_wt_conn_requirements_met(xqc_wt_conn_t *conn)
 {
-    if (!conn || !conn->settings_received || !conn->negotiated_version
-        || !conn->peer_datagram || !conn->h3_conn->conn)
+    if (!conn || !conn->h3_conn || !conn->h3_conn->conn
+        || !conn->settings_received || !conn->negotiated_version)
     {
         return XQC_FALSE;
     }
     xqc_connection_t *quic = conn->h3_conn->conn;
-    if (!quic->local_settings.max_datagram_frame_size
+    /* Draft-02 Sections 3.1 and 3.2 use its WT setting for CONNECT. */
+    if (xqc_wt_conn_is_draft2(conn)) {
+        return XQC_TRUE;
+    }
+    if (!conn->peer_datagram
+        || !quic->local_settings.max_datagram_frame_size
         || !quic->remote_settings.max_datagram_frame_size
         || (quic->conn_type == XQC_CONN_TYPE_CLIENT && !conn->peer_connect))
     {
@@ -201,6 +214,11 @@ xqc_wt_peer_setting(uint64_t id, uint64_t value,
     /* Draft-16 Section 3.1: capability settings only allow 0 and 1. */
     if (id == XQC_WT_SETTING_MAX_SESSIONS) {
         settings->peer_max_sessions = value;
+    } else if (id == XQC_WT_SETTING_DRAFT00) {
+        if (value > 1) {
+            return -XQC_H3_SETTING_ERROR;
+        }
+        settings->peer_draft00 = value;
     } else if (id == XQC_WT_SETTING_ENABLED_16) {
         if (value > 1) {
             return -XQC_H3_SETTING_ERROR;
@@ -248,14 +266,20 @@ xqc_wt_peer_settings_complete(void *data)
                 || conn->peer_initial_max_data);
     } else if (conn->peer_max_sessions) {
         conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_7;
+    } else if (conn->peer_draft00) {
+        /* draft-02 Section 6: both draft-07 and draft-16 configurations
+         * advertise DRAFT00 and select 02 when no higher version is shared. */
+        conn->negotiated_version = XQC_WEBTRANSPORT_DRAFT_VERSION_2;
     }
     if (conn->negotiated_version) {
         /* Draft-07 Section 4.2 and draft-16 Section 4.3 share this guard. */
         conn->h3_conn->flags |= XQC_H3_CONN_FLAG_WEBTRANSPORT;
         xqc_log(conn->h3_conn->log, XQC_LOG_DEBUG,
                 "|WT version negotiated|draft:%d|",
-                conn->negotiated_version == XQC_WEBTRANSPORT_DRAFT_VERSION_16
-                    ? 16 : 7);
+                conn->negotiated_version
+                    == XQC_WEBTRANSPORT_DRAFT_VERSION_16 ? 16
+                : conn->negotiated_version
+                    == XQC_WEBTRANSPORT_DRAFT_VERSION_2 ? 2 : 7);
     }
     xqc_list_head_t *pos;
     xqc_list_for_each(pos, &conn->session_list) {
@@ -305,6 +329,7 @@ xqc_wt_conn_peer_settings(xqc_h3_conn_t *h3c,
     }
     conn->peer_max_sessions = candidate.peer_max_sessions;
     conn->peer_draft16 = candidate.peer_draft16;
+    conn->peer_draft00 = candidate.peer_draft00;
     conn->peer_datagram = candidate.peer_datagram;
     conn->peer_connect = candidate.peer_connect;
     conn->peer_initial_max_streams_uni = candidate.peer_initial_max_streams_uni;

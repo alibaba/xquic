@@ -8,6 +8,7 @@ void xqc_test_wt_h3_reset_credit(void);
 void xqc_test_wt_h3_reset_after_short_read(void);
 void xqc_test_wt_draft07_reset_dispatch(void);
 void xqc_test_wt_draft07_stream_rules(void);
+void xqc_test_wt_draft2_reset_dispatch(void);
 
 void xqc_test_wt_h3_stream_demux(void);
 void xqc_test_wt_h3_server_bidi(void);

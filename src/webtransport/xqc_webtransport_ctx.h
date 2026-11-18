@@ -18,8 +18,8 @@
 /* RFC 9221 Section 3 recommends accepting any packet-sized DATAGRAM. */
 #define XQC_WT_MAX_DATAGRAM_FRAME_SIZE 65535
 
-/* Draft-07 Section 3.1: Datagram, max sessions and server CONNECT. */
-#define XQC_WT_ENABLE_SETTINGS_COUNT 3
+/* Draft-07 Section 3.1 plus draft-02 Section 6 version advertisement. */
+#define XQC_WT_ENABLE_SETTINGS_COUNT 4
 
 typedef struct xqc_wt_ctx_s {
     xqc_webtransport_stream_callbacks_t   stream_cbs;

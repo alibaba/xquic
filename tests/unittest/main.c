@@ -167,6 +167,8 @@ main(int argc, char *argv[])
                         xqc_test_wt_h3_reset_after_short_read)
         || !CU_add_test(pSuite, "xqc_test_wt_draft07_reset_dispatch",
                         xqc_test_wt_draft07_reset_dispatch)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft2_reset_dispatch",
+                        xqc_test_wt_draft2_reset_dispatch)
         || !CU_add_test(pSuite, "xqc_test_wt_draft07_stream_rules",
                         xqc_test_wt_draft07_stream_rules)
         || !CU_add_test(pSuite, "xqc_test_wt_datagram_retirement",
@@ -249,6 +251,24 @@ main(int argc, char *argv[])
                         xqc_test_wt_version_advertisement)
         || !CU_add_test(pSuite, "xqc_test_wt_version_connect_tokens",
                         xqc_test_wt_version_connect_tokens)
+        || !CU_add_test(pSuite, "xqc_test_wt_highest_version_precedence",
+                        xqc_test_wt_highest_version_precedence)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft2_config_rejected",
+                        xqc_test_wt_draft2_config_rejected)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft2_fallback_local_support",
+                        xqc_test_wt_draft2_fallback_local_support)
+        || !CU_add_test(pSuite, "xqc_test_wt_standard_draft2_close_capsule",
+                        xqc_test_wt_standard_draft2_close_capsule)
+        || !CU_add_test(pSuite, "xqc_test_wt_standard_draft2_handshake_headers",
+                        xqc_test_wt_standard_draft2_handshake_headers)
+        || !CU_add_test(pSuite, "xqc_test_wt_standard_draft2_version_header_injection",
+                        xqc_test_wt_standard_draft2_version_header_injection)
+        || !CU_add_test(pSuite, "xqc_test_wt_response_hit_flags",
+                        xqc_test_wt_response_hit_flags)
+        || !CU_add_test(pSuite, "xqc_test_wt_response_hit_flags_errors",
+                        xqc_test_wt_response_hit_flags_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_response_mixed_case_version",
+                        xqc_test_wt_response_mixed_case_version)
         || !CU_add_test(pSuite, "xqc_test_wt_connect_pseudo_headers",
                         xqc_test_wt_connect_pseudo_headers)
         || !CU_add_test(pSuite, "xqc_test_wt_response_pseudo_headers",

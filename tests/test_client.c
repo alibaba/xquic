@@ -6880,7 +6880,9 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_enable_fec) {
+        /* Unset fields must be 0, which the engine replaces by defaults. */
         xqc_fec_params_t fec_params;
+        memset(&fec_params, 0, sizeof(xqc_fec_params_t));
         if (xqc_client_set_fec_scheme(fec_encoder_scheme, &fec_params.fec_encoder_schemes[0]) == XQC_OK) {
             fec_params.fec_encoder_schemes_num = 1;
             // limit repair number if fec scheme is xor

@@ -1812,6 +1812,37 @@ th3_demo_proxy_sig_hndlr(int signo)
 }
 
 
+/*
+ * The case_test scripts start this server in the background and must not
+ * send before its sockets are bound: they pass the descriptor of a pipe in
+ * XQC_TEST_SERVER_READY_FD, and the server writes a line to it once its
+ * sockets are bound and it waits for datagrams.
+ */
+static void
+xqc_demo_svr_report_ready(void)
+{
+#ifndef XQC_SYS_WINDOWS
+    const char *value = getenv("XQC_TEST_SERVER_READY_FD");
+    char *end;
+    long fd;
+    ssize_t n;
+
+    if (value == NULL || *value == '\0') {
+        return;
+    }
+
+    fd = strtol(value, &end, 10);
+    if (*end != '\0' || fd < 3 || fd >= 1024) {
+        return;
+    }
+
+    n = write((int)fd, "ready\n", 6);
+    (void)n;
+    close((int)fd);
+#endif
+}
+
+
 int
 main(int argc, char *argv[])
 {
@@ -1874,6 +1905,7 @@ main(int argc, char *argv[])
         xqc_demo_svr_socket_event_callback, ctx);
     event_add(ctx->ev_socket6, NULL);
 
+    xqc_demo_svr_report_ready();
     event_base_dispatch(eb);
 
     xqc_engine_destroy(ctx->engine);

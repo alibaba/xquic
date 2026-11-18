@@ -147,3 +147,30 @@ groups:
   runner: case_test/webtransport/demo.sh
   execution: implemented
   port_offset: 140
+- id: moqt.negotiation
+  module: moq
+  feature: moqt
+  requires_cmake: [XQC_ENABLE_MOQ]
+  estimated_seconds: 3
+  source_paths:
+  - moq/moqt/*
+  - include/moq/xqc_moqt.h
+  - tests/complex_case/test_moqt_negotiation.c
+  - moq/demo/xqc_moq_demo_server.c
+  - moq/demo/xqc_moq_demo_client.c
+  - scripts/moq_scripts/moq_alpn_test.py
+  runner: case_test/moq/negotiation.sh
+  execution: implemented
+  port_offset: 160
+- id: moqt.request
+  module: moq
+  feature: moqt
+  requires_cmake: [XQC_ENABLE_MOQ]
+  estimated_seconds: 140
+  source_paths:
+  - moq/moqt/*
+  - include/moq/xqc_moqt.h
+  - tests/complex_case/test_moqt_negotiation.c
+  runner: case_test/moq/request.sh
+  execution: implemented
+  port_offset: 170

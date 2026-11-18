@@ -218,6 +218,7 @@ xqc_list_buf_create(xqc_var_buf_t *buf)
 
     xqc_init_list_head(&list_buf->list_head);
     list_buf->buf = buf;
+    list_buf->timestamp = 0;
 
     return list_buf;
 }

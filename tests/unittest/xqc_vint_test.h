@@ -6,5 +6,8 @@
 #define _XQC_TEST_VINT_H_INCLUDED_
 
 void xqc_test_vint();
+void xqc_test_vi64_vectors(void);
+void xqc_test_vi64_bounds(void);
+void xqc_test_vi64_nonminimal(void);
 
 #endif /* _XQC_TEST_VINT_H_INCLUDED_ */

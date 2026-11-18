@@ -24,6 +24,11 @@
 #include "xqc_engine_test.h"
 #include "xqc_common_test.h"
 #include "xqc_vint_test.h"
+#ifdef XQC_ENABLE_MOQ
+#include "xqc_moqt_codec_test.h"
+#include "xqc_moqt_quic_test.h"
+#include "xqc_moqt_session_test.h"
+#endif
 #include "xqc_recv_record_test.h"
 #include "xqc_reno_test.h"
 #include "xqc_cubic_test.h"
@@ -453,6 +458,168 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_sprintf_counted_string",
                         xqc_test_sprintf_counted_string)
         || !CU_add_test(pSuite, "xqc_test_vint", xqc_test_vint)
+#ifdef XQC_ENABLE_MOQ
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_errors",
+                        xqc_test_moqt_fill_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_parameters",
+                        xqc_test_moqt_fill_parameters)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_snapshots",
+                        xqc_test_moqt_fill_snapshots)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_suppressed",
+                        xqc_test_moqt_fill_suppressed)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_lifecycle",
+                        xqc_test_moqt_fill_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_codec",
+                        xqc_test_moqt_tracks_codec)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_overlap",
+                        xqc_test_moqt_tracks_overlap)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_publish",
+                        xqc_test_moqt_tracks_publish)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_skipped",
+                        xqc_test_moqt_tracks_skipped)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_skipped_receive",
+                        xqc_test_moqt_tracks_skipped_receive)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_exclusion",
+                        xqc_test_moqt_tracks_exclusion)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks_budget",
+                        xqc_test_moqt_tracks_budget)
+        || !CU_add_test(pSuite, "xqc_test_moqt_namespace_update_races",
+                        xqc_test_moqt_namespace_update_races)
+        || !CU_add_test(pSuite, "xqc_test_moqt_namespace_codec",
+                        xqc_test_moqt_namespace_codec)
+        || !CU_add_test(pSuite, "xqc_test_moqt_namespace_codec_errors",
+                        xqc_test_moqt_namespace_codec_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_namespace_discovery",
+                        xqc_test_moqt_namespace_discovery)
+        || !CU_add_test(pSuite, "xqc_test_moqt_namespace_overlap",
+                        xqc_test_moqt_namespace_overlap)
+        || !CU_add_test(pSuite, "xqc_test_moqt_namespace_lifecycle",
+                        xqc_test_moqt_namespace_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_moqt_namespace_errors",
+                        xqc_test_moqt_namespace_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_namespace_budget",
+                        xqc_test_moqt_namespace_budget)
+        || !CU_add_test(pSuite, "xqc_test_moqt_track_status",
+                        xqc_test_moqt_track_status)
+        || !CU_add_test(pSuite, "xqc_test_moqt_track_status_errors",
+                        xqc_test_moqt_track_status_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fill_scheduling",
+                        xqc_test_moqt_fill_scheduling)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fetch_codec",
+                        xqc_test_moqt_fetch_codec)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fetch_codec_errors",
+                        xqc_test_moqt_fetch_codec_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fetch_receive",
+                        xqc_test_moqt_fetch_receive)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fetch_send",
+                        xqc_test_moqt_fetch_send)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fetch_lifecycle",
+                        xqc_test_moqt_fetch_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fetch_track_error",
+                        xqc_test_moqt_fetch_track_error)
+        || !CU_add_test(pSuite, "xqc_test_moqt_fetch_errors",
+                        xqc_test_moqt_fetch_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subgroup_codec",
+                        xqc_test_moqt_subgroup_codec)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subgroup_codec_errors",
+                        xqc_test_moqt_subgroup_codec_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subgroup_send",
+                        xqc_test_moqt_subgroup_send)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subgroup_shared",
+                        xqc_test_moqt_subgroup_shared)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subgroup_lifecycle",
+                        xqc_test_moqt_subgroup_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subgroup_scheduling",
+                        xqc_test_moqt_subgroup_scheduling)
+        || !CU_add_test(pSuite, "xqc_test_moqt_delivery_policy",
+                        xqc_test_moqt_delivery_policy)
+        || !CU_add_test(pSuite, "xqc_test_moqt_delivery_done",
+                        xqc_test_moqt_delivery_done)
+        || !CU_add_test(pSuite, "xqc_test_moqt_delivery_counts",
+                        xqc_test_moqt_delivery_counts)
+        || !CU_add_test(pSuite, "xqc_test_moqt_delivery_timeout",
+                        xqc_test_moqt_delivery_timeout)
+        || !CU_add_test(pSuite, "xqc_test_moqt_object_expiry",
+                        xqc_test_moqt_object_expiry)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subgroup_limits",
+                        xqc_test_moqt_subgroup_limits)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subgroup_receive",
+                        xqc_test_moqt_subgroup_receive)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subgroup_errors",
+                        xqc_test_moqt_subgroup_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_datagram_codec",
+                        xqc_test_moqt_datagram_codec)
+        || !CU_add_test(pSuite, "xqc_test_moqt_datagram_codec_errors",
+                        xqc_test_moqt_datagram_codec_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_datagram_receive",
+                        xqc_test_moqt_datagram_receive)
+        || !CU_add_test(pSuite, "xqc_test_moqt_datagram_properties",
+                        xqc_test_moqt_datagram_properties)
+        || !CU_add_test(pSuite, "xqc_test_moqt_datagram_boundaries",
+                        xqc_test_moqt_datagram_boundaries)
+        || !CU_add_test(pSuite, "xqc_test_moqt_datagram_send",
+                        xqc_test_moqt_datagram_send)
+        || !CU_add_test(pSuite, "xqc_test_moqt_datagram_lifecycle",
+                        xqc_test_moqt_datagram_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_moqt_tracks",
+                        xqc_test_moqt_tracks)
+        || !CU_add_test(pSuite, "xqc_test_moqt_track_errors",
+                        xqc_test_moqt_track_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subscription_filters",
+                        xqc_test_moqt_subscription_filters)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subscription_updates",
+                        xqc_test_moqt_subscription_updates)
+        || !CU_add_test(pSuite, "xqc_test_moqt_subscription_boundaries",
+                        xqc_test_moqt_subscription_boundaries)
+        || !CU_add_test(pSuite, "xqc_test_moqt_setup_validation",
+                        xqc_test_moqt_setup_validation)
+        || !CU_add_test(pSuite, "xqc_test_moqt_session_lifecycle",
+                        xqc_test_moqt_session_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_moqt_padding_and_goaway_errors",
+                        xqc_test_moqt_padding_and_goaway_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_messages",
+                        xqc_test_moqt_messages)
+        || !CU_add_test(pSuite, "xqc_test_moqt_request_ids",
+                        xqc_test_moqt_request_ids)
+        || !CU_add_test(pSuite, "xqc_test_moqt_request_updates",
+                        xqc_test_moqt_request_updates)
+        || !CU_add_test(pSuite, "xqc_test_moqt_request_errors",
+                        xqc_test_moqt_request_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_request_lifecycle",
+                        xqc_test_moqt_request_lifecycle)
+        || !CU_add_test(pSuite, "xqc_test_moqt_request_validation",
+                        xqc_test_moqt_request_validation)
+        || !CU_add_test(pSuite, "xqc_test_moqt_setup",
+                        xqc_test_moqt_setup)
+        || !CU_add_test(pSuite, "xqc_test_moqt_setup_errors",
+                        xqc_test_moqt_setup_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_session_limits",
+                        xqc_test_moqt_session_limits)
+        || !CU_add_test(pSuite, "xqc_test_moqt_goaway",
+                        xqc_test_moqt_goaway)
+        || !CU_add_test(pSuite, "xqc_test_moqt_config",
+                        xqc_test_moqt_config)
+        || !CU_add_test(pSuite, "xqc_test_moqt_alpn",
+                        xqc_test_moqt_alpn)
+        || !CU_add_test(pSuite, "xqc_test_moqt_connect",
+                        xqc_test_moqt_connect)
+        || !CU_add_test(pSuite, "xqc_test_moqt_frames",
+                        xqc_test_moqt_frames)
+        || !CU_add_test(pSuite, "xqc_test_moqt_frame_errors",
+                        xqc_test_moqt_frame_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_names",
+                        xqc_test_moqt_names)
+        || !CU_add_test(pSuite, "xqc_test_moqt_name_errors",
+                        xqc_test_moqt_name_errors)
+        || !CU_add_test(pSuite, "xqc_test_moqt_kv",
+                        xqc_test_moqt_kv)
+        || !CU_add_test(pSuite, "xqc_test_moqt_kv_errors",
+                        xqc_test_moqt_kv_errors)
+#endif
+        || !CU_add_test(pSuite, "xqc_test_vi64_vectors", xqc_test_vi64_vectors)
+        || !CU_add_test(pSuite, "xqc_test_vi64_bounds", xqc_test_vi64_bounds)
+        || !CU_add_test(pSuite, "xqc_test_vi64_nonminimal",
+                        xqc_test_vi64_nonminimal)
         || !CU_add_test(pSuite, "xqc_test_flow_ctl_clamp_boundary", xqc_test_flow_ctl_clamp_boundary)
         || !CU_add_test(pSuite, "xqc_test_stream_flow_ctl_clamp", xqc_test_stream_flow_ctl_clamp)
         || !CU_add_test(pSuite, "xqc_test_conn_flow_ctl_clamp", xqc_test_conn_flow_ctl_clamp)

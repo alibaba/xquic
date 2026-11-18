@@ -1,6 +1,14 @@
 if (XQC_ENABLE_MOQ)
     set(
         MOQ_SOURCES
+        "moq/moqt/xqc_moqt_codec.c"
+        "moq/moqt/xqc_moqt_message.c"
+        "moq/moqt/xqc_moqt_request.c"
+        "moq/moqt/xqc_moqt_track.c"
+        "moq/moqt/xqc_moqt_object.c"
+        "moq/moqt/xqc_moqt_fetch.c"
+        "moq/moqt/xqc_moqt_quic.c"
+        "moq/moqt/xqc_moqt_session.c"
         "moq/moq_transport/xqc_moq_message.c"
         "moq/moq_transport/xqc_moq_message_handler.c"
         "moq/moq_transport/xqc_moq_message_writer.c"

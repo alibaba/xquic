@@ -454,7 +454,8 @@ xqc_tls_ctx_register_alpn(xqc_tls_ctx_t *ctx, const char *alpn, size_t alpn_len)
         return -XQC_EPARAM;
     }
 
-    if (alpn_len + 1 > ctx->alpn_list_sz - ctx->alpn_list_len) {
+    /* Reserve the NUL terminator as well as the length-prefixed name. */
+    if (alpn_len + 1 >= ctx->alpn_list_sz - ctx->alpn_list_len) {
         /* realloc buffer */
         size_t new_alpn_list_sz = 2 * (ctx->alpn_list_sz + alpn_len) + 1;
         char *alpn_list_new = xqc_malloc(new_alpn_list_sz);

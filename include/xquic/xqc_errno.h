@@ -166,6 +166,8 @@ typedef enum {
     /** RFC 9001 Section 6.6: AEAD confidentiality or integrity limit */
     XQC_EAEAD_LIMIT                     = 644,
 
+    XQC_EEXPIRED                        = 645,      /**< delivery expired */
+
     XQC_EMP_NOT_SUPPORT_MP              = 650,      /**< Multipath - don't support multipath */
     XQC_EMP_NO_AVAIL_PATH_ID            = 651,      /**< Multipath - no available path id */
     XQC_EMP_CREATE_PATH                 = 652,      /**< Multipath - create path error */

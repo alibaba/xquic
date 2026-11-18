@@ -209,7 +209,7 @@ xqc_test_hp_dirty_stack(void)
  * When the header protection mask cannot be computed, here for want of its
  * cipher context, encrypt_header and decrypt_header fail and log the
  * length of the mask, which the failed computation did not set: the log
- * must show 0. With keys and contexts, both succeed.
+ * must show 0 when logging is enabled. With keys and contexts, both succeed.
  */
 static void
 xqc_test_hp_mask_error_log_one(xqc_bool_t is_encrypt)
@@ -258,9 +258,13 @@ xqc_test_hp_mask_error_log_one(xqc_bool_t is_encrypt)
                                     buf + 1, buf + sizeof(buf));
     CU_ASSERT(ret == (is_encrypt ? -XQC_EENCRYPT
                                  : -XQC_TLS_DECRYPT_DATA_ERROR));
+#ifndef XQC_DISABLE_LOG
     CU_ASSERT(strstr(line, "|calculate header protection mask error|")
               != NULL);
     CU_ASSERT(strstr(line, "|nwrite:0|") != NULL);
+#else
+    CU_ASSERT(line[0] == '\0');
+#endif
 
     xqc_crypto_destroy(crypto);
 }

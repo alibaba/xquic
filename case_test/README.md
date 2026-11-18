@@ -87,6 +87,14 @@ Shard observability is controlled by environment variables:
   default `60`, `0` disables heartbeat output.
 - `CASE_TEST_SHARD_TIMEOUT`: per-shard timeout in seconds when the platform
   provides `timeout`; default `600`, `0` disables the timeout.
+- `CASE_TEST_SHARD_KILL_AFTER`: seconds after the shard timeout's SIGTERM at
+  which the shard's processes get SIGKILL if they still run. The processes
+  left by a runner that this SIGTERM or a SIGKILL ended get SIGKILL as soon
+  as the runner has exited. Default `30`, `0` disables the SIGKILL.
+- `CASE_TEST_SERVER_STOP_TIMEOUT`: seconds that `case_test_stop_server` waits
+  for the server after SIGTERM; default `10`, `0` waits without a limit. A
+  server that still runs then gets SIGKILL, the shard log records
+  `server-stop-timeout`, and the running case fails.
 - `CASE_TEST_CASE_TIMEOUT`: per-case timeout in seconds; default `0`
   disables it. When it fires, the shard log records the active case as
   `case-timeout`, terminates that case's subprocess tree, and reports the case
@@ -263,6 +271,11 @@ case_test_case "negotiate_encoder_fec_scheme" \
     --id native \
     --run fec_negotiate_encoder_fec_scheme
 ```
+
+Case functions run in the group runner's shell, so a case reports a failure
+through its result and returns. Do not call `exit` in a case or helper
+function: it ends the group runner, and that case and every later case of the
+group then have no result. The architecture check rejects such an `exit`.
 
 When a server callback can run after the client process exits, use
 `case_test_wait_for_log <file> <pattern> [attempts] [interval]` for a bounded

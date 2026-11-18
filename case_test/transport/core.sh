@@ -824,7 +824,6 @@ if [ -n "$result" ] && [ -n "$cloing_notify" ] && [ -n "$svr_hsk" ]; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "stateless_reset_during_hsk" "fail"
-    exit
 fi
 
 }

@@ -2116,7 +2116,8 @@ ssize_t xqc_stream_recv(xqc_stream_t *stream, unsigned char *recv_buf, size_t re
 /**
  * Send data in stream.
  * @param fin  0 or 1,  1 - final data block send in this stream.
- * @return bytes sent, -XQC_EAGAIN try next time, <0 for error
+ * @return bytes sent, -XQC_EAGAIN try next time, <0 for error. A call with
+ * no data and fin 0 sends nothing and returns 0.
  */
 XQC_EXPORT_PUBLIC_API
 ssize_t xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data_size,

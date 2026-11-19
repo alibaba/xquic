@@ -364,3 +364,68 @@ xqc_test_stop_sending_spares_other_streams()
 
     xqc_engine_destroy(conn->engine);
 }
+
+static xqc_stream_t *
+test_send_stream_create(xqc_connection_t *conn)
+{
+    xqc_stream_t *stream;
+
+    conn->conn_flag |= XQC_CONN_FLAG_CAN_SEND_1RTT
+                       | XQC_CONN_FLAG_TLS_HSK_COMPLETED;
+    conn->conn_flow_ctl.fc_max_data_can_send = 1024 * 1024;
+
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    if (stream == NULL) {
+        return NULL;
+    }
+
+    stream->stream_flow_ctl.fc_max_stream_data_can_send = 1024 * 1024;
+    /* leave the engine's connection logic out of the sends below */
+    stream->stream_flag |= XQC_STREAM_FLAG_HAS_H3;
+
+    return stream;
+}
+
+void
+xqc_test_stream_send_data_and_fin(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_stream_t *stream;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = test_send_stream_create(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+
+    CU_ASSERT_EQUAL(xqc_stream_send(stream, (unsigned char *)"ab", 2, 0), 2);
+    CU_ASSERT(!(stream->stream_flag & XQC_STREAM_FLAG_FIN_WRITE));
+
+    /* a FIN without data sends no byte and finishes the stream */
+    CU_ASSERT_EQUAL(xqc_stream_send(stream, NULL, 0, 1), 0);
+    CU_ASSERT(stream->stream_flag & XQC_STREAM_FLAG_FIN_WRITE);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_stream_send_nothing(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_stream_t *stream;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    stream = test_send_stream_create(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(stream);
+
+    /* no data and no FIN: nothing is sent, and the connection stays up */
+    CU_ASSERT_EQUAL(xqc_stream_send(stream, NULL, 0, 0), 0);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+    CU_ASSERT(!(conn->conn_flag & XQC_CONN_FLAG_ERROR));
+    CU_ASSERT(!(stream->stream_flag & XQC_STREAM_FLAG_FIN_WRITE));
+
+    /* the stream sends normally afterwards */
+    CU_ASSERT_EQUAL(xqc_stream_send(stream, (unsigned char *)"ab", 2, 0), 2);
+    CU_ASSERT_EQUAL(conn->conn_err, 0);
+
+    xqc_engine_destroy(conn->engine);
+}

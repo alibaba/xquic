@@ -216,15 +216,18 @@ fi
 
 case_transport_stream_reset_stream_when_receiving()
 {
-grep_err_log|grep -a -v stream
-
+# The case 21 server acknowledges every packet at once, so the client gets
+# the ACK of its last request packet before the response it closes on.
+case_test_start_server ${SERVER_BIN} -l d -e -x 21 > /dev/null
 
 clear_log
+rm -f test_session tp_localhost xqc_token
 echo -e "Reset stream when receiving...\c"
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E -x 21 > stdlog
+close=`grep -a -m1 -o 'xqc_stream_close_with_error|stream_id:0|[^|]*' clog`
 reset=`grep -a "xqc_write_reset_stream_to_packet" clog`
 # RFC 9000 Sections 3.1 and 3.4: an acknowledged send stays Data Recvd.
-flag=`grep -a 'xqc_destroy_stream|err:0x10c|.*send_state:[35]|recv_state:5|stream_id:0|' clog`
+flag=`grep -a 'xqc_destroy_stream|err:0x10c|.*send_state:3|recv_state:5|stream_id:0|' clog`
 errlog=`grep_err_log|grep -a -v stream`
 if [ -n "$flag" ] && [ -z "$errlog" ] && [ -z "$reset" ]; then
     echo ">>>>>>>> pass:1"
@@ -232,6 +235,7 @@ if [ -n "$flag" ] && [ -z "$errlog" ] && [ -z "$reset" ]; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "reset_stream_when_receiving" "fail"
+    echo "$close"
     echo "$flag"
     echo "$errlog"
     echo "$reset"

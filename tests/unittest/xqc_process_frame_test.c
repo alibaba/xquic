@@ -1988,6 +1988,42 @@ xqc_test_stream_close_data_recvd_bidirectional(void)
 }
 
 
+void
+xqc_test_stream_close_data_sent_bidirectional(void)
+{
+    xqc_connection_t *conn;
+    xqc_stream_t *stream;
+    int reset_before, stop_before;
+    xqc_int_t ret;
+
+    conn = xqc_test_dir_make_conn(XQC_CONN_TYPE_CLIENT);
+    CU_ASSERT_FATAL(conn != NULL);
+    stream = xqc_stream_create_with_direction(conn, XQC_STREAM_BIDI, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+
+    /*
+     * RFC 9000 Section 3.1: until all its data is acknowledged, a send side
+     * in Data Sent that the application abandons sends RESET_STREAM.
+     */
+    xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_DATA_SENT);
+    reset_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_RESET_STREAM);
+    stop_before = xqc_test_count_queued_frame(
+        conn, XQC_FRAME_BIT_STOP_SENDING);
+
+    ret = xqc_stream_close(stream);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(stream->stream_state_send == XQC_SEND_STREAM_ST_RESET_SENT);
+    CU_ASSERT(stream->stream_err == H3_REQUEST_CANCELLED);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_RESET_STREAM) == reset_before + 1);
+    CU_ASSERT(xqc_test_count_queued_frame(
+                  conn, XQC_FRAME_BIT_STOP_SENDING) == stop_before + 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 static xqc_connection_t *
 xqc_test_reset_stream_final_size_setup(xqc_stream_t **stream)
 {

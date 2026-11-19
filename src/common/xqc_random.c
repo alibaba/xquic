@@ -7,7 +7,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <assert.h>
 #include <errno.h>
 
 #include <include/xquic/xquic_typedef.h>
@@ -26,7 +25,8 @@ long xqc_random(void) {
     unsigned int  val = 0;
     long result = 0;
 
-    if (rand_s(&val) == 0) {
+    /* rand_s() returns 0 on success */
+    if (rand_s(&val) != 0) {
         val = rand();
     }
 
@@ -57,8 +57,15 @@ xqc_random_generator_create(xqc_log_t *log)
     rand_gen->log = log;
 #ifdef XQC_SYS_WINDOWS
     rand_gen->hProvider = 0;
-    int res = CryptAcquireContextW(&rand_gen->hProvider, 0, 0, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT | CRYPT_SILENT);
-    assert(res);
+    if (!CryptAcquireContextW(&rand_gen->hProvider, 0, 0, PROV_RSA_FULL,
+                              CRYPT_VERIFYCONTEXT | CRYPT_SILENT))
+    {
+        xqc_log(log, XQC_LOG_ERROR, "|random|CryptAcquireContextW error|%ud|",
+                (unsigned int) GetLastError());
+        xqc_free(rand_gen->rand_buf.data);
+        xqc_free(rand_gen);
+        return NULL;
+    }
 #endif
     return rand_gen;
 }
@@ -140,8 +147,14 @@ xqc_get_random(xqc_random_generator_t *rand_gen, u_char *buf, size_t need_len)
 
     rand_gen->rand_buf_offset += need_len;
 #else
-    DWORD result = CryptGenRandom(rand_gen->hProvider, need_len, buf);
-    assert(result);
+    /* CryptGenRandom() takes a DWORD length */
+    if (need_len > MAXDWORD
+        || !CryptGenRandom(rand_gen->hProvider, (DWORD) need_len, buf))
+    {
+        xqc_log(rand_gen->log, XQC_LOG_WARN, "|random|CryptGenRandom error|%ud|",
+                (unsigned int) GetLastError());
+        return XQC_ERROR;
+    }
 #endif
     return XQC_OK;
 }

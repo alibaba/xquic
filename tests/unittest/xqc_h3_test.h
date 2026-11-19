@@ -63,6 +63,11 @@ void xqc_test_h3_request_frame_unexpected();
 void xqc_test_h3_data_after_headers_accepted();
 void xqc_test_h3_data_before_headers_rejected();
 
+/* RFC 9204 Sections 2.2.2.1 and 4.5.1: the end of a field section */
+void xqc_test_h3_qpack_section_ack();
+void xqc_test_h3_qpack_section_cut_short();
+void xqc_test_h3_qpack_section_cut_short_after_close();
+
 /* issue #849: RFC 9114 §7.2.5 PUSH_PROMISE sender role */
 void xqc_test_h3_server_reserved_request_frame_accepted();
 void xqc_test_h3_server_push_promise_rejected();

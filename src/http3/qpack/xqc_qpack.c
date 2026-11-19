@@ -526,6 +526,12 @@ xqc_qpack_get_req_rqrd_insert_cnt(void *ctx)
     return xqc_rep_get_ric((xqc_rep_ctx_t *)ctx);
 }
 
+xqc_bool_t
+xqc_qpack_is_field_section_complete(xqc_rep_ctx_t *ctx)
+{
+    return ctx->state == XQC_REP_DECODE_STATE_OPCODE;
+}
+
 
 xqc_int_t
 xqc_qpack_enc_headers(xqc_qpack_t *qpk, uint64_t stream_id,
@@ -640,7 +646,13 @@ xqc_qpack_dec_headers(xqc_qpack_t *qpk, xqc_rep_ctx_t *req_ctx, unsigned char *d
         }
     }
 
-    if (fin == XQC_TRUE && xqc_rep_get_ric(req_ctx) > 0) {
+    /*
+     * RFC 9204 Section 2.2.2.1: acknowledge a field section that refers to
+     * the dynamic table once decoded; the caller rejects one cut short
+     */
+    if (fin == XQC_TRUE && xqc_rep_get_ric(req_ctx) > 0
+        && xqc_qpack_is_field_section_complete(req_ctx))
+    {
         xqc_int_t ret = xqc_qpack_notify_section_ack(qpk, req_ctx->stream_id);
         if (ret < 0) {
             xqc_log(qpk->log, XQC_LOG_ERROR, "|notify SECTION ACK error|ret:%d|", ret);

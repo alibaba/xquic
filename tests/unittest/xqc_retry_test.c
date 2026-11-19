@@ -57,6 +57,41 @@ xqc_test_retry()
 }
 
 
+/*
+ * RFC 9001 Section 5.8: the Retry Pseudo-Packet is the ODCID Length, the
+ * ODCID and the Retry packet without its tag. The longest Retry, with
+ * connection IDs of XQC_MAX_CID_LEN bytes and a token of XQC_MAX_TOKEN_LEN
+ * bytes, gets its tag; a Retry one byte longer does not fit the
+ * pseudo-packet and is refused.
+ */
+void
+xqc_test_retry_pseudo_packet_size()
+{
+    unsigned char cid[XQC_MAX_CID_LEN];
+    unsigned char token[XQC_MAX_TOKEN_LEN + 1];
+    unsigned char buf[512];
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    memset(cid, 0xc1, sizeof(cid));
+    memset(token, 0x7e, sizeof(token));
+
+    CU_ASSERT(xqc_gen_retry_packet(conn, buf, cid, sizeof(cid), cid,
+                                   sizeof(cid), cid, sizeof(cid), token,
+                                   XQC_MAX_TOKEN_LEN, XQC_VERSION_V1)
+              == 1 + 4 + 2 * (1 + XQC_MAX_CID_LEN) + XQC_MAX_TOKEN_LEN
+                 + XQC_RETRY_INTEGRITY_TAG_LEN);
+
+    CU_ASSERT(xqc_gen_retry_packet(conn, buf, cid, sizeof(cid), cid,
+                                   sizeof(cid), cid, sizeof(cid), token,
+                                   XQC_MAX_TOKEN_LEN + 1, XQC_VERSION_V1)
+              == XQC_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_retry_same_length_dcid()
 {

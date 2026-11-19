@@ -61,6 +61,15 @@ void xqc_test_mp_new_cid_above_curr_max_path_id();
 /* rejected MP_NEW_CONNECTION_ID frames leave no connection ID set behind */
 void xqc_test_mp_new_cid_rejected_without_cid_set();
 
+/* RFC 10069 Section 2.2: a new path opens without disable_active_migration */
+void xqc_test_mp_create_path_peer_allows();
+
+/* RFC 10069 Section 2.2: no new path after disable_active_migration */
+void xqc_test_mp_create_path_migration_disabled();
+
+/* no ready_to_create_path_notify after disable_active_migration */
+void xqc_test_mp_ready_notify_migration_disabled();
+
 /*
  * a path ID abandoned above the peer's limit stays abandoned after the
  * peer's MAX_PATH_ID allows it

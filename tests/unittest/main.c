@@ -465,6 +465,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_reno", xqc_test_reno)
         || !CU_add_test(pSuite, "xqc_test_reno_loss_ssthresh",
                         xqc_test_reno_loss_ssthresh)
+        || !CU_add_test(pSuite, "xqc_test_reno_loss_ssthresh_large_window",
+                        xqc_test_reno_loss_ssthresh_large_window)
         || !CU_add_test(pSuite, "xqc_test_reno_loss_ssthresh_min_clamp",
                         xqc_test_reno_loss_ssthresh_min_clamp)
         || !CU_add_test(pSuite, "xqc_test_reno_init_cwnd", xqc_test_reno_init_cwnd)

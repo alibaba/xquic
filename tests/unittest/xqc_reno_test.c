@@ -93,6 +93,31 @@ xqc_test_reno_loss_ssthresh()
     CU_ASSERT_EQUAL(reno.reno_congestion_window, expected_ssthresh);
 }
 
+/*
+ * RFC 9002 Section 7.3.2: ssthresh is half the window, also for windows a
+ * float cannot hold exactly (above 2^24 bytes).
+ */
+void
+xqc_test_reno_loss_ssthresh_large_window()
+{
+#ifndef XQC_ENABLE_RENO
+    return;
+#endif
+    xqc_new_reno_t  reno;
+    xqc_cc_params_t params = {0};
+    uint32_t        cwnds[] = {(1u << 24) - 1, (1u << 25) + 3,
+                               (1u << 31) + 1, 0xffffffff};
+
+    for (size_t i = 0; i < sizeof(cwnds) / sizeof(cwnds[0]); i++) {
+        xqc_reno_cb.xqc_cong_ctl_init(&reno, NULL, params);
+        reno.reno_congestion_window = cwnds[i];
+        xqc_reno_cb.xqc_cong_ctl_on_lost(&reno, 1);
+
+        CU_ASSERT_EQUAL(reno.reno_ssthresh, cwnds[i] / 2);
+        CU_ASSERT_EQUAL(reno.reno_congestion_window, cwnds[i] / 2);
+    }
+}
+
 void
 xqc_test_reno_loss_ssthresh_min_clamp()
 {

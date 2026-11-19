@@ -1072,6 +1072,110 @@ xqc_process_ping_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 }
 
 
+/*
+ * RFC 9000 Section 19.15: the connection IDs of path_id below an increased
+ * Retire Prior To are retired "before adding the newly provided connection
+ * ID to the set of active connection IDs". Mark them retired, so that they
+ * neither count toward active_connection_id_limit nor get picked to replace
+ * a path's connection ID any more. Their RETIRE_CONNECTION_ID frames go out
+ * with xqc_send_retired_dcids() once the new connection ID is stored, which
+ * the paths still using one of them can then switch to, and each is
+ * forgotten once its frame is acknowledged: see
+ * xqc_conn_on_retire_conn_id_acked().
+ *
+ * RFC 9000 Section 5.1.2: "An endpoint SHOULD limit the number of connection
+ * IDs it has retired locally for which RETIRE_CONNECTION_ID frames have not
+ * yet been acknowledged. An endpoint SHOULD allow for sending and tracking a
+ * number of RETIRE_CONNECTION_ID frames of at least twice the value of the
+ * active_connection_id_limit transport parameter." Past that, it "MAY choose
+ * to treat having connection IDs in need of retirement that exceed this limit
+ * as a connection error of type CONNECTION_ID_LIMIT_ERROR".
+ */
+static xqc_int_t
+xqc_retire_dcids_prior_to(xqc_connection_t *conn, uint64_t path_id,
+    uint64_t from, uint64_t retire_prior_to)
+{
+    uint64_t                limit;
+    xqc_cid_inner_t        *inner_cid;
+    xqc_list_head_t        *pos, *next;
+    xqc_cid_set_inner_t    *inner_set;
+
+    inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
+    if (inner_set == NULL) {
+        return XQC_OK;
+    }
+
+    xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        if ((inner_cid->state == XQC_CID_UNUSED
+             || inner_cid->state == XQC_CID_USED)
+            && inner_cid->cid.cid_seq_num >= from
+            && inner_cid->cid.cid_seq_num < retire_prior_to)
+        {
+            xqc_cid_switch_to_next_state(&conn->dcid_set, inner_cid,
+                                         XQC_CID_RETIRED, path_id);
+        }
+    }
+
+    /* the retired ones whose frames are not acknowledged yet included */
+    limit = conn->local_settings.active_connection_id_limit;
+    if (inner_set->retired_cnt > 2 * limit) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|too many retired dcids|path:%ui|retired:%ui|limit:%ui|",
+                path_id, inner_set->retired_cnt, limit);
+        XQC_CONN_ERR(conn, TRA_CONNECTION_ID_LIMIT_ERROR);
+        return -XQC_EPROTO;
+    }
+
+    return XQC_OK;
+}
+
+
+/* send the frames retiring what xqc_retire_dcids_prior_to() marked */
+static xqc_int_t
+xqc_send_retired_dcids(xqc_connection_t *conn, uint64_t path_id,
+    uint64_t from, uint64_t retire_prior_to, xqc_bool_t mp_frame)
+{
+    xqc_int_t               ret;
+    uint64_t                seq_num;
+    xqc_cid_inner_t        *inner_cid;
+    xqc_list_head_t        *pos, *next;
+    xqc_cid_set_inner_t    *inner_set;
+
+    inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
+    if (inner_set == NULL) {
+        return XQC_OK;
+    }
+
+    xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
+        inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
+        seq_num = inner_cid->cid.cid_seq_num;
+        if (inner_cid->state != XQC_CID_RETIRED
+            || seq_num < from || seq_num >= retire_prior_to)
+        {
+            continue;
+        }
+
+        if (mp_frame) {
+            ret = xqc_write_mp_retire_conn_id_frame_to_packet(conn, seq_num,
+                                                              path_id);
+
+        } else {
+            ret = xqc_write_retire_conn_id_frame_to_packet(conn, seq_num);
+        }
+
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|retire connection id error|path:%ui|seq:%ui|ret:%d|",
+                    path_id, seq_num, ret);
+            return ret;
+        }
+    }
+
+    return XQC_OK;
+}
+
+
 xqc_int_t
 xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
@@ -1080,9 +1184,6 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
     uint64_t retire_prior_to, curr_rpi;
     int64_t largest_rpi;
 
-    xqc_cid_inner_t *inner_cid;
-    xqc_list_head_t *pos, *next;
-    xqc_cid_set_inner_t *inner_set;
     xqc_bool_t sr_token_inserted = XQC_FALSE;
 
     ret = xqc_parse_new_conn_id_frame(packet_in, &new_conn_cid, &retire_prior_to, conn);
@@ -1143,19 +1244,10 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
          * corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames before
          * adding the newly provided connection ID to the set of active connection IDs.
          */
-        inner_set = xqc_get_path_cid_set(&conn->dcid_set, XQC_INITIAL_PATH_ID);
-        xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
-            inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
-            uint64_t seq_num = inner_cid->cid.cid_seq_num;
-            if ((inner_cid->state == XQC_CID_UNUSED || inner_cid->state == XQC_CID_USED)
-                 && (seq_num >= curr_rpi && seq_num < retire_prior_to))
-            {
-                ret = xqc_write_retire_conn_id_frame_to_packet(conn, seq_num);
-                if (ret != XQC_OK) {
-                    xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_retire_conn_id_frame_to_packet error|");
-                    return ret;
-                }
-            }
+        ret = xqc_retire_dcids_prior_to(conn, XQC_INITIAL_PATH_ID, curr_rpi,
+                                        retire_prior_to);
+        if (ret != XQC_OK) {
+            return ret;
         }
 
         xqc_log(conn->log, XQC_LOG_DEBUG, "|retire_prior_to|%ui|increase to|%ui|",
@@ -1165,7 +1257,7 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
 
     /* store dcid & add unused_dcid_count */
     if (xqc_cid_in_cid_set(&conn->dcid_set, &new_conn_cid, XQC_INITIAL_PATH_ID) != NULL) {
-        return XQC_OK;
+        goto retire;
     }
 
     /* insert into dcid-connection hash, for processing the deprecated stateless
@@ -1220,6 +1312,11 @@ xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
         return ret;
     }
 
+retire:
+    if (retire_prior_to > curr_rpi) {
+        return xqc_send_retired_dcids(conn, XQC_INITIAL_PATH_ID, curr_rpi,
+                                      retire_prior_to, XQC_FALSE);
+    }
 
     return XQC_OK;
 }
@@ -2348,9 +2445,6 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     uint64_t retire_prior_to, curr_rpi;
     int64_t largest_rpi;
 
-    xqc_cid_inner_t *inner_cid;
-    xqc_list_head_t *pos, *next;
-    xqc_cid_set_inner_t *inner_set;
     xqc_bool_t sr_token_inserted = XQC_FALSE;
     uint64_t path_id;
 
@@ -2434,21 +2528,10 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
          * corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames before
          * adding the newly provided connection ID to the set of active connection IDs.
          */
-        inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id);
-        xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
-            inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
-            uint64_t seq_num = inner_cid->cid.cid_seq_num;
-            if ((inner_cid->state == XQC_CID_UNUSED || inner_cid->state == XQC_CID_USED)
-                 && (seq_num >= curr_rpi && seq_num < retire_prior_to))
-            {
-                ret = xqc_write_mp_retire_conn_id_frame_to_packet(conn, seq_num, path_id);
-                if (ret != XQC_OK) {
-                    xqc_log(conn->log, XQC_LOG_ERROR, 
-                            "|path_id:%ui|xqc_write_mp_retire_conn_id_frame_to_packet error|",
-                            path_id);
-                    return ret;
-                }
-            }
+        ret = xqc_retire_dcids_prior_to(conn, path_id, curr_rpi,
+                                        retire_prior_to);
+        if (ret != XQC_OK) {
+            return ret;
         }
 
         xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|retire_prior_to|%ui|increase to|%ui|",
@@ -2458,7 +2541,7 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 
     /* store dcid & add unused_dcid_count */
     if (xqc_cid_in_cid_set(&conn->dcid_set, &new_conn_cid, path_id) != NULL) {
-        return XQC_OK;
+        goto retire;
     }
 
     /* insert into dcid-connection hash, for processing the deprecated stateless
@@ -2512,6 +2595,12 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
             return -XQC_EPROTO;
         }
         return ret;
+    }
+
+retire:
+    if (retire_prior_to > curr_rpi) {
+        return xqc_send_retired_dcids(conn, path_id, curr_rpi, retire_prior_to,
+                                      XQC_TRUE);
     }
 
     return XQC_OK;

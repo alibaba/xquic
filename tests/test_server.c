@@ -1430,6 +1430,25 @@ xqc_server_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *conn_user_da
         fflush(stdout);
     }
 
+    /*
+     * case 747: one connection ID whose Retire Prior To retires every one
+     * issued before it, the handshake connection ID in use included
+     */
+    if (g_test_case == 747) {
+        xqc_connection_t *conn = xqc_h3_conn_get_xqc_conn(h3_conn);
+        int64_t largest_seq;
+        uint64_t retire_prior_to;
+        xqc_int_t ret;
+
+        largest_seq = xqc_cid_set_get_largest_seq_or_rpt(&conn->scid_set,
+                                                         XQC_INITIAL_PATH_ID);
+        retire_prior_to = (uint64_t) largest_seq + 1;
+        ret = xqc_write_new_conn_id_frame_to_packet(conn, retire_prior_to);
+        printf("[retire-prior-to-test]|retire_prior_to:%"PRIu64"|ret:%d|\n",
+               retire_prior_to, ret);
+        fflush(stdout);
+    }
+
     /* pretend to create a server-inited http3 stream */
     if (g_test_case == 17) {
         xqc_stream_t * stream = xqc_stream_create_with_direction(

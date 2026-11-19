@@ -72,7 +72,7 @@ xqc_generate_sample(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl,
 
     xqc_log(sampler->send_ctl->ctl_conn->log, XQC_LOG_DEBUG, 
             "|sampler: send_elapse %ui, ack_elapse %ui, "
-            "delivered %ud|rate %ui|lost %ud|",
+            "delivered %ud|rate %ud|lost %ud|",
             sampler->send_elapse, sampler->ack_elapse,
             sampler->delivered, sampler->delivery_rate,
             sampler->total_lost_pkts);

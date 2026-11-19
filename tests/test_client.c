@@ -1813,9 +1813,13 @@ xqc_client_bind_to_interface(int fd, const char *interface_name)
 {
 #if !defined(XQC_SYS_WINDOWS)
     struct ifreq ifr;
+    size_t name_len = strlen(interface_name);
+    if (name_len >= sizeof(ifr.ifr_name)) {
+        printf("interface name too long: %s\n", interface_name);
+        return XQC_ERROR;
+    }
     memset(&ifr, 0x00, sizeof(ifr));
-    strncpy(ifr.ifr_name, interface_name, sizeof(ifr.ifr_name) - 1);
-    ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';
+    memcpy(ifr.ifr_name, interface_name, name_len + 1);
 #if !defined(__APPLE__)
     printf("fd: %d. bind to nic: %s\n", fd, interface_name);
     if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (char *)&ifr, sizeof(ifr)) < 0) {
@@ -7126,7 +7130,9 @@ int main(int argc, char *argv[]) {
                 user_stream->recv_log_bytes = 0;
                 if (user_conn->h3 == 0 || user_conn->h3 == 2) {
                     if (g_test_case == 11) { /* create stream fail */
+                        /* a CID of no connection */
                         xqc_cid_t tmp;
+                        memset(&tmp, 0, sizeof(tmp));
                         xqc_h3_request_create(ctx.engine, &tmp, NULL, user_stream);
                         continue;
                     }

@@ -1931,6 +1931,13 @@ xqc_conn_should_close(xqc_connection_t *conn, xqc_path_ctx_t *path)
     return XQC_FALSE;
 }
 
+/*
+ * The packet size of the connection is the smallest one of its open paths
+ * (RFC 10069 Section 5.8). It goes up as PMTUD finds that they carry more,
+ * and down when one of them carries less (RFC 9000 Section 14.2): the lost
+ * packets that no longer fit are then resent in packets that do
+ * (xqc_send_queue_split_lost()).
+ */
 void 
 xqc_conn_try_to_update_mss(xqc_connection_t *conn)
 {
@@ -1953,7 +1960,9 @@ xqc_conn_try_to_update_mss(xqc_connection_t *conn)
         }
     }
 
-    if (min_pkt_out_size > conn->pkt_out_size) {
+    if (min_pkt_out_size != 0 && min_pkt_out_size != conn->pkt_out_size) {
+        xqc_log(conn->log, XQC_LOG_INFO, "|PMTUD|packet size|from:%uz|to:%uz|",
+                conn->pkt_out_size, min_pkt_out_size);
         conn->pkt_out_size = min_pkt_out_size;
         /* try to update PMTUD probing info */
         conn->max_pkt_out_size = max_pkt_out_size;
@@ -3096,6 +3105,14 @@ xqc_path_send_one_or_two_ack_elicit_pkts(xqc_path_ctx_t *path,
         }
 
         if (!xqc_packet_out_can_pto_probe(packet_out, path->path_id)) {
+            continue;
+        }
+
+        /*
+         * built before the path MTU went down: a copy would be lost as well,
+         * and elicit no ACK. Without a packet that fits, PINGs probe.
+         */
+        if (xqc_packet_out_exceeds_mss(c, packet_out)) {
             continue;
         }
 
@@ -6881,15 +6898,26 @@ xqc_conn_get_queue_fin_timeout(xqc_connection_t *conn)
     return conn->conn_settings.fec_conn_queue_rpr_timeout;
 }
 
-void
-xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
+/*
+ * The stream references that packet_out and its copies hold are given back
+ * once: when the first of them is acknowledged or dropped, or when their
+ * frames go into smaller packets (split, xqc_send_queue_split_lost()),
+ * which take references of their own and carry the FIN to acknowledge.
+ */
+static void
+xqc_conn_put_unacked_stream_ref(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out, xqc_bool_t split)
 {
     int first_time_ack = 1;
+    xqc_packet_out_t *origin = packet_out->po_origin ? packet_out->po_origin
+                                                     : packet_out;
+
     if (packet_out->po_flag & XQC_POF_STREAM_UNACK) {
         first_time_ack = first_time_ack && (!packet_out->po_acked);
         if (packet_out->po_origin) {
             first_time_ack = first_time_ack && (!packet_out->po_origin->po_acked);
         }
+        first_time_ack = first_time_ack && !(origin->po_flag & XQC_POF_SPLIT);
         if (first_time_ack) {
             xqc_stream_t *stream;
             for (int i = 0; i < XQC_MAX_STREAM_FRAME_IN_PO; i++) {
@@ -6905,7 +6933,9 @@ xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *p
                         stream->stream_unacked_pkt--;
                     }
 
-                    if (packet_out->po_stream_frames[i].ps_has_fin && stream->stream_stats.first_fin_ack_time == 0) {
+                    if (!split && packet_out->po_stream_frames[i].ps_has_fin
+                        && stream->stream_stats.first_fin_ack_time == 0)
+                    {
                         stream->stream_stats.first_fin_ack_time = xqc_monotonic_timestamp();
                     }
 
@@ -6922,6 +6952,21 @@ xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *p
         }
         packet_out->po_flag &= ~XQC_POF_STREAM_UNACK;
     }
+}
+
+void
+xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out)
+{
+    xqc_conn_put_unacked_stream_ref(conn, packet_out, XQC_FALSE);
+}
+
+/* the stream references of a packet whose frames went into smaller packets */
+void
+xqc_conn_release_unacked_stream_ref(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out)
+{
+    xqc_conn_put_unacked_stream_ref(conn, packet_out, XQC_TRUE);
 }
 
 void

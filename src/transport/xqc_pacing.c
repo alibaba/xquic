@@ -153,10 +153,35 @@ xqc_pacing_can_write(xqc_pacing_t *pacing, uint32_t total_bytes)
     return TRUE;
 }
 
+/*
+ * Restart an app-limited sender from a small burst, but never from less than
+ * one timer granularity of data at the pacing rate. Once the credit is spent,
+ * xqc_pacing_time_until_send() waits at least XQC_PACING_DELAY_US, so a
+ * smaller credit stalls the sender for that whole wait as soon as more than
+ * the credit is queued. Below a pacing rate of about 115 Mbit/s, one
+ * granularity is less than XQC_MAX_BURST_NUM and nothing changes.
+ *
+ * Every write that finds nothing queued for the path restarts the pacer,
+ * however recently the path sent. A restart less than one granularity after
+ * the last send gives no more than the pacer earned since then (and still
+ * XQC_MAX_BURST_NUM), or writes faster than the pacing rate would leave
+ * unpaced up to the congestion window (RFC 9002 Section 7.7).
+ */
 void
 xqc_pacing_on_app_limit(xqc_pacing_t *pacing) {
-    pacing->bytes_budget = XQC_MAX_BURST_NUM;
-    pacing->last_sent_time = xqc_monotonic_timestamp();
+    xqc_usec_t now = xqc_monotonic_timestamp();
+    xqc_usec_t idle = now - pacing->last_sent_time;
+    uint64_t rate = xqc_pacing_rate_calc(pacing);
+    uint64_t credit = rate * XQC_PACING_DELAY_US / 1000000;
+
+    if (pacing->last_sent_time != 0 && idle < XQC_PACING_DELAY_US) {
+        credit = xqc_min(credit,
+                         pacing->bytes_budget + idle * rate / 1000000);
+    }
+
+    credit = xqc_max(credit, XQC_MAX_BURST_NUM);
+    pacing->bytes_budget = (uint32_t)xqc_min(credit, UINT32_MAX);
+    pacing->last_sent_time = now;
 }
 
 int

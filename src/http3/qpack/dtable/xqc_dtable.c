@@ -230,6 +230,7 @@ xqc_dtable_enqueue_nv(xqc_dtable_t *dt, xqc_dtable_entry_t *entry,
         ret = xqc_ring_mem_enqueue(dt->rmem, value, vlen, &entry->nv.vidx);
         if (ret != XQC_OK) {
             xqc_log(dt->log, XQC_LOG_ERROR, "|enqueue value error|ret:%d|", ret);
+            xqc_ring_mem_undo(dt->rmem, entry->nv.nidx, nlen);
             return ret;
         }
     }
@@ -238,6 +239,23 @@ xqc_dtable_enqueue_nv(xqc_dtable_t *dt, xqc_dtable_entry_t *entry,
     entry->nv.vlen = vlen;
 
     return XQC_OK;
+}
+
+
+/*
+ * Undo the enqueue of the name and value of the newest entry, value first:
+ * only the newest block in ring memory can be undone.
+ */
+static void
+xqc_dtable_undo_enqueue_nv(xqc_dtable_t *dt, xqc_dtable_entry_t *entry)
+{
+    if (entry->nv.vlen > 0) {
+        xqc_ring_mem_undo(dt->rmem, entry->nv.vidx, entry->nv.vlen);
+    }
+
+    if (entry->nv.nlen > 0) {
+        xqc_ring_mem_undo(dt->rmem, entry->nv.nidx, entry->nv.nlen);
+    }
 }
 
 
@@ -438,10 +456,15 @@ xqc_dtable_add(xqc_dtable_t *dt, unsigned char *name, uint64_t nlen, unsigned ch
     memset(entry, 0, sizeof(xqc_dtable_entry_t));
     entry->abs_index = dt->insert_cnt;
 
-    /* store name-value into ring memory */
+    /*
+     * store name-value into ring memory. an insertion that fails from here
+     * on takes the entry back, or the next entry would take its index while
+     * the entry keeps its place in ring array and ring memory.
+     */
     ret = xqc_dtable_enqueue_nv(dt, entry, name, nlen, value, vlen);
     if (ret != XQC_OK) {
         xqc_log(dt->log, XQC_LOG_ERROR, "|enqueue entry error|ret:%d|", ret);
+        xqc_rarray_pop_back(dt->entries);
         return ret;
     }
 
@@ -452,6 +475,8 @@ xqc_dtable_add(xqc_dtable_t *dt, unsigned char *name, uint64_t nlen, unsigned ch
         ret = xqc_2d_hash_table_add(dt->ht2d, nhash, vhash, entry);
         if (ret != XQC_OK) {
             xqc_log(dt->log, XQC_LOG_ERROR, "|add entry to 2dht error|ret:%d|", ret);
+            xqc_dtable_undo_enqueue_nv(dt, entry);
+            xqc_rarray_pop_back(dt->entries);
             return ret;
         }
     }
@@ -701,11 +726,12 @@ xqc_dtable_duplicate_compat(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
     new_entry->abs_index = dt->insert_cnt;
     new_entry->sum = dt->byte_sum;
 
-    /* duplicate name first */
+    /* duplicate name first. a failure takes the new entry back */
     ret = xqc_ring_mem_duplicate(
         dt->rmem, entry->nv.nidx, entry->nv.nlen, &new_entry->nv.nidx);
     if (XQC_OK != ret) {
         xqc_log(dt->log, XQC_LOG_ERROR, "|duplicate name error|ret:%d", ret);
+        xqc_rarray_pop_back(dt->entries);
         return ret;
     }
     new_entry->nv.nlen = entry->nv.nlen;
@@ -716,6 +742,8 @@ xqc_dtable_duplicate_compat(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
         dt->rmem, entry->nv.vidx, entry->nv.vlen, &new_entry->nv.vidx);
     if (XQC_OK != ret) {
         xqc_log(dt->log, XQC_LOG_ERROR, "|duplicate value error|ret:%d", ret);
+        xqc_dtable_undo_enqueue_nv(dt, new_entry);
+        xqc_rarray_pop_back(dt->entries);
         return ret;
     }
     new_entry->nv.vlen = entry->nv.vlen;
@@ -725,6 +753,8 @@ xqc_dtable_duplicate_compat(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
     ret = xqc_2d_hash_table_add(dt->ht2d, new_entry->nhash, new_entry->vhash, new_entry);
     if (XQC_OK != ret) {
         xqc_log(dt->log, XQC_LOG_ERROR, "|duplicate 2dht error|ret:%d", ret);
+        xqc_dtable_undo_enqueue_nv(dt, new_entry);
+        xqc_rarray_pop_back(dt->entries);
         return ret;
     }
 

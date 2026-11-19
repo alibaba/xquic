@@ -1,7 +1,9 @@
 /**
  * @copyright Copyright (c) 2022, Alibaba Group Holding Limited
  */
+#include <ctype.h>
 #include <inttypes.h>
+#include <limits.h>
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_stream.h"
 #include "src/transport/xqc_engine.h"
@@ -1172,66 +1174,125 @@ xqc_write_http_priority(xqc_h3_priority_t *prio,
 }
 
 
+/*
+ * The Priority field value that xqc_parse_http_priority() parses is the
+ * str_len bytes at str, which need not be followed by a NUL: these helpers
+ * stop at e, the end of the value, as the C string functions they replace
+ * stop at a NUL.
+ */
+static xqc_bool_t
+xqc_h3_priority_has_prefix(const uint8_t *p, const uint8_t *e,
+    const char *prefix)
+{
+    size_t len = strlen(prefix);
+
+    return (size_t) (e - p) >= len && memcmp(p, prefix, len) == 0;
+}
+
+
+static const uint8_t *
+xqc_h3_priority_find(const uint8_t *p, const uint8_t *e, uint8_t c)
+{
+    return memchr(p, c, e - p);
+}
+
+
+/* what strtoul(p, NULL, XQC_DECIMAL) returns for the bytes before e */
+static unsigned long
+xqc_h3_priority_strtoul(const uint8_t *p, const uint8_t *e)
+{
+    unsigned long val = 0, digit;
+    xqc_bool_t negative = XQC_FALSE;
+
+    while (p < e && isspace(*p)) {
+        p++;
+    }
+
+    if (p < e && (*p == '+' || *p == '-')) {
+        negative = *p == '-';
+        p++;
+    }
+
+    for (; p < e && isdigit(*p); p++) {
+        digit = *p - '0';
+        if (val > (ULONG_MAX - digit) / XQC_DECIMAL) {
+            return ULONG_MAX;
+        }
+        val = val * XQC_DECIMAL + digit;
+    }
+
+    return negative ? -val : val;
+}
+
+
 xqc_int_t
 xqc_parse_http_priority(xqc_h3_priority_t *dst,
     const uint8_t *str, size_t str_len)
 {
     xqc_h3_priority_t prio;
+    const uint8_t *p, *e, *v, *next_k;
+
     xqc_h3_priority_init(&prio);
 
-    uint8_t *p = (uint8_t *)str;
-    uint8_t *e = p + str_len;
+    if (str_len == 0) {
+        goto end;
+    }
 
-    uint8_t *v, *next_k;
+    /* the value ends after str_len bytes, or at a NUL before that */
+    p = str;
+    e = xqc_h3_priority_find(str, str + str_len, '\0');
+    if (e == NULL) {
+        e = str + str_len;
+    }
 
-    while (*p != '\0' && p < e) {
+    while (p < e) {
         if (*p == ' ') {
             p++;
             continue;
         }
 
-        if (strncmp(p, "u=", xqc_lengthof("u=")) == 0) {
+        if (xqc_h3_priority_has_prefix(p, e, "u=")) {
             p += xqc_lengthof("u=");
-            prio.urgency = strtoul(p, NULL, XQC_DECIMAL);
+            prio.urgency = xqc_h3_priority_strtoul(p, e);
 
-        } else if (strncmp(p, "i", xqc_lengthof("i")) == 0) {
-            v = strchr(p, '=');
-            next_k =  strchr(p, ',');
+        } else if (xqc_h3_priority_has_prefix(p, e, "i")) {
+            v = xqc_h3_priority_find(p, e, '=');
+            next_k = xqc_h3_priority_find(p, e, ',');
 
             if ((v == NULL) || (next_k != NULL && v > next_k)) {
                 p += xqc_lengthof("i");
                 prio.incremental = XQC_TRUE;
 
-            } else if (strncmp(p, "i=?", xqc_lengthof("i=?")) == 0) {
+            } else if (xqc_h3_priority_has_prefix(p, e, "i=?")) {
                 p += xqc_lengthof("i=?");
-                prio.incremental = strtoul(p, NULL, XQC_DECIMAL);
+                prio.incremental = xqc_h3_priority_strtoul(p, e);
 
             } else {
                 return -XQC_H3_INVALID_PRIORITY;
             }
 
-        } else if (strncmp(p, "s=", xqc_lengthof("s=")) == 0) {
+        } else if (xqc_h3_priority_has_prefix(p, e, "s=")) {
             p += xqc_lengthof("s=");
-            prio.schedule = strtoul(p, NULL, XQC_DECIMAL);
+            prio.schedule = xqc_h3_priority_strtoul(p, e);
 
-        } else if (strncmp(p, "r=", xqc_lengthof("r=")) == 0) {
+        } else if (xqc_h3_priority_has_prefix(p, e, "r=")) {
             p += xqc_lengthof("r=");
-            prio.reinject = strtoul(p, NULL, XQC_DECIMAL);
+            prio.reinject = xqc_h3_priority_strtoul(p, e);
 
-        } else if (strncmp(p, "f=", xqc_lengthof("f=")) == 0) {
+        } else if (xqc_h3_priority_has_prefix(p, e, "f=")) {
             p += xqc_lengthof("f=");
             // when encounter invalid priority length, set prio.fec to close stats
-            if (p + XQC_PRIORITY_FEC_VAL_LEN > e) {
+            if ((size_t) (e - p) < XQC_PRIORITY_FEC_VAL_LEN) {
                 prio.fec = XQC_FEC_CLOSE;
                 goto end;
             }
-            prio.fec = strtoul(p, NULL, XQC_DECIMAL);
-        } else if (strncmp(p, "p", xqc_lengthof("p")) == 0) {
+            prio.fec = xqc_h3_priority_strtoul(p, e);
+        } else if (xqc_h3_priority_has_prefix(p, e, "p")) {
             p += xqc_lengthof("p");
             prio.fastpath = 1;
         }
 
-        p = strchr(p, ',');
+        p = xqc_h3_priority_find(p, e, ',');
         if (p == NULL) {
             goto end;
         }

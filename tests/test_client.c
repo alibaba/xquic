@@ -120,6 +120,8 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_RELIABLE_RESET_DIRECTION_ERROR 744
 #define XQC_TEST_CASE_RELIABLE_RESET_ZERO_FIN 745
 #define XQC_TEST_CASE_RELIABLE_RESET_ZERO_CLOSE 746
+#define XQC_TEST_CASE_RETRY_LOST 759
+#define XQC_TEST_CASE_RETRY_LOST_INVALID_TOKEN 760
 #define XQC_TEST_CASE_RESET_0RTT_DOWNGRADE 909
 #define XQC_TEST_CASE_RESET_0RTT_UPGRADE 910
 #define XQC_TEST_CASE_RESET_0RTT_DISABLED 911
@@ -382,6 +384,7 @@ uint64_t g_last_sock_op_time;
  * 711/712 for PMTUD peer-option omission validation
  * 713/714 for max_ack_delay boundary validation
  * 715/716 for Retry invalid token and old Initial validation
+ * 759/760 for a Retry packet that the client does not receive
  * 717 for RESET_STREAM on a peer-initiated unidirectional stream
  * 718/719 for MAX_STREAM_DATA stream direction validation
  * 722/723 for RESET_STREAM final-size validation
@@ -1116,6 +1119,48 @@ xqc_test_parse_initial_token_range(const unsigned char *buf, size_t size,
 }
 
 
+/*
+ * cases 759/760: drop the first Retry packet, as a lossy path can, and
+ * print the Source Connection ID of each Retry packet. RFC 9000 Section
+ * 17.2.5.1 lets the server answer the next Initial packet, which still
+ * carries the original Destination Connection ID, with a Retry packet.
+ */
+static xqc_bool_t
+xqc_client_drop_first_retry(const unsigned char *buf, size_t size)
+{
+    static xqc_bool_t dropped = XQC_FALSE;
+    size_t offset = 5;      /* first byte and version */
+    size_t scid_len;
+
+    if (size <= offset || !XQC_PACKET_IS_LONG_HEADER(buf)
+        || XQC_PACKET_LONG_HEADER_GET_TYPE(buf) != XQC_PTYPE_RETRY)
+    {
+        return XQC_FALSE;
+    }
+
+    offset += 1 + buf[offset];  /* Destination Connection ID */
+    if (offset >= size) {
+        return XQC_FALSE;
+    }
+    scid_len = buf[offset++];
+    if (scid_len > size - offset) {
+        return XQC_FALSE;
+    }
+
+    printf("[retry-loss-test]|retry|scid:");
+    for (size_t i = 0; i < scid_len; i++) {
+        printf("%02x", buf[offset + i]);
+    }
+    printf("|dropped:%d|\n", !dropped);
+
+    if (dropped) {
+        return XQC_FALSE;
+    }
+    dropped = XQC_TRUE;
+    return XQC_TRUE;
+}
+
+
 static void
 xqc_client_handle_retry_token_tests(unsigned char *send_buf, size_t send_buf_size,
     int fd, const struct sockaddr *peer_addr, socklen_t peer_addrlen)
@@ -1155,7 +1200,8 @@ xqc_client_handle_retry_token_tests(unsigned char *send_buf, size_t send_buf_siz
         }
     }
 
-    if (g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
+    if ((g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
+         || g_test_case == XQC_TEST_CASE_RETRY_LOST_INVALID_TOKEN)
         && token_len > 0 && !g_retry_token_corrupted)
     {
         send_buf[token_offset] ^= 0xff;
@@ -1289,6 +1335,7 @@ xqc_client_write_socket(const unsigned char *buf, size_t size,
         }
 
         if (g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
+            || g_test_case == XQC_TEST_CASE_RETRY_LOST_INVALID_TOKEN
             || g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID)
         {
             xqc_client_handle_retry_token_tests(send_buf, send_buf_size, fd,
@@ -1587,6 +1634,7 @@ xqc_client_write_socket_ex(uint64_t path_id,
         }
 
         if (g_test_case == XQC_TEST_CASE_RETRY_INVALID_TOKEN_CLOSE
+            || g_test_case == XQC_TEST_CASE_RETRY_LOST_INVALID_TOKEN
             || g_test_case == XQC_TEST_CASE_RETRY_IGNORE_OLD_INITIAL_DCID)
         {
             xqc_client_handle_retry_token_tests(send_buf, send_buf_size, fd,
@@ -4999,6 +5047,13 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
             g_test_case = -1;
             recv_size = sizeof(XQC_TEST_SHORT_HEADER_PACKET_B) - 1;
             memcpy(packet_buf, XQC_TEST_SHORT_HEADER_PACKET_B, recv_size);
+        }
+
+        if ((g_test_case == XQC_TEST_CASE_RETRY_LOST
+             || g_test_case == XQC_TEST_CASE_RETRY_LOST_INVALID_TOKEN)
+            && xqc_client_drop_first_retry(packet_buf, recv_size))
+        {
+            continue;
         }
 
         /* amplification limit */

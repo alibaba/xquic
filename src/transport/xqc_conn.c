@@ -3358,13 +3358,25 @@ xqc_conn_send_retry(xqc_connection_t *conn, unsigned char *token, unsigned token
 {
     xqc_engine_t *engine = conn->engine;
     unsigned char buf[XQC_PACKET_OUT_BUF_CAP];
+    /*
+     * RFC 9000 Sections 7.3 and 17.2.5.2: the client addresses its next
+     * Initial packets, and derives their keys, from the Source Connection
+     * ID of the one Retry packet it processes, and the server repeats that
+     * ID in retry_source_connection_id. A Retry packet sent again thus
+     * reuses the first one's, which is already in the connection hash.
+     */
+    xqc_bool_t first_retry = !(conn->conn_flag & XQC_CONN_FLAG_RETRY_SENT);
+
     if (conn->transport_cbs.conn_send_packet_before_accept == NULL) {
         xqc_log(engine->log, XQC_LOG_WARN, "|xqc_conn_send_retry|"
                 "send retry packet failed, conn_send_packet_before_accept is NULL|");
         return XQC_ERROR; 
     }
 
-    if (xqc_generate_cid(engine, &conn->original_dcid, &conn->retry_scid, 0) != XQC_OK) {
+    if (first_retry
+        && xqc_generate_cid(engine, &conn->original_dcid,
+                            &conn->retry_scid, 0) != XQC_OK)
+    {
         xqc_log(engine->log, XQC_LOG_WARN, "|xqc_conn_send_retry|"
                 "generate retry scid failed|");
         return XQC_ERROR;
@@ -3397,8 +3409,10 @@ xqc_conn_send_retry(xqc_connection_t *conn, unsigned char *token, unsigned token
     }
 
     /* retry scid insert into the conns_hash after send the retry packet successfully*/
-    if (xqc_insert_conns_hash(conn->engine->conns_hash, conn,
-                              conn->retry_scid.cid_buf, conn->retry_scid.cid_len))
+    if (first_retry
+        && xqc_insert_conns_hash(conn->engine->conns_hash, conn,
+                                 conn->retry_scid.cid_buf,
+                                 conn->retry_scid.cid_len))
     {
         xqc_log(conn->log, XQC_LOG_ERROR, "|insert retry_scid failed|");
         return XQC_ERROR;
@@ -4276,6 +4290,8 @@ xqc_int_t
 xqc_conn_server_accept(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret = XQC_OK;
+    xqc_bool_t send_retry = XQC_FALSE;
+
     /* check whether to send retry packet */
     if (!(c->conn_flag & XQC_CONN_FLAG_TOKEN_OK)) {
         /* validate token with Initial packet before server_accept called */
@@ -4291,21 +4307,32 @@ xqc_conn_server_accept(xqc_connection_t *c, xqc_packet_in_t *packet_in)
                     XQC_CONN_ERR(c, TRA_INVALID_TOKEN);
                     return -XQC_EPROTO;
                 }
-                return -XQC_EIGNORE_PKT;
+
+                /*
+                 * RFC 9000 Section 17.2.5.1: a server can send a Retry packet
+                 * for each Initial packet. An Initial packet still sent to the
+                 * original Destination Connection ID shows that the client has
+                 * not received the Retry packet, which is sent again.
+                 */
+                send_retry = XQC_TRUE;
+
             } else {
                 if (c->transport_cbs.conn_retry_packet_condition_check) {
                     if (c->transport_cbs.conn_retry_packet_condition_check(c->engine, 
                         c, &c->scid_set.user_scid, c->user_data) == XQC_TRUE)
                     {
-                        ret = xqc_conn_send_retry_packet(c); 
-                        if (ret == XQC_OK) { 
-                            return -XQC_EIGNORE_PKT; /* send retry packet, then ignore this packet */
-                        } else {
-                            xqc_log(c->log, XQC_LOG_ERROR, "|send retry packet failed|");
-                            return -XQC_ESEND_RETRY; 
-                        }
+                        send_retry = XQC_TRUE;
                     }
                 }
+            }
+
+            if (send_retry) {
+                /* send retry packet, then ignore this packet */
+                if (xqc_conn_send_retry_packet(c) == XQC_OK) {
+                    return -XQC_EIGNORE_PKT;
+                }
+                xqc_log(c->log, XQC_LOG_ERROR, "|send retry packet failed|");
+                return -XQC_ESEND_RETRY;
             }
         }
     }

@@ -1,0 +1,396 @@
+name: Platforms
+
+# Runs the CUnit suite on the architectures and systems that the Build
+# workflow does not test: 64-bit ARM natively, with the client-to-server
+# cases as well; 32-bit x86, with the cases; 32-bit ARM, 64-bit RISC-V and
+# big-endian s390x under QEMU user emulation; and macOS on Apple silicon
+# and on Intel. BoringSSL supports little-endian targets only, so s390x
+# links Tongsuo (BabaSSL) instead.
+#
+# known-failures names the unit tests that a platform still fails, each
+# list until the change in its comment; the job fails when another test
+# fails, and warns when a listed test passes. cflags lists the warnings that
+# a platform reports without failing, likewise.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The BoringSSL release that the jobs build: a tag, not BoringSSL's main
+  # branch, so that a BoringSSL commit cannot break the jobs on its own.
+  # Raise it to a newer tag of https://github.com/google/boringssl/tags
+  # once the jobs pass with it.
+  XQC_BORINGSSL_TAG: 0.20261105.0
+  # The Tongsuo commit that s390x builds: the head of its 8.3-stable branch
+  # (2025-05-07), fixed for the same reason.
+  XQC_TONGSUO_COMMIT: 1206e6b7c0e13a7813b03e30b136202afd494f50
+  XQC_FEATURE_FLAGS: >-
+    -DXQC_ENABLE_TESTING=1
+    -DXQC_PRINT_SECRET=1
+    -DXQC_ENABLE_EVENT_LOG=1
+    -DXQC_ENABLE_BBR2=1
+    -DXQC_ENABLE_RENO=1
+    -DXQC_ENABLE_UNLIMITED=1
+    -DXQC_ENABLE_COPA=1
+    -DXQC_COMPAT_DUPLICATE=1
+    -DXQC_ENABLE_FEC=1
+    -DXQC_ENABLE_XOR=1
+    -DXQC_ENABLE_RSC=1
+    -DXQC_ENABLE_PKM=1
+    -DXQC_ENABLE_WEBTRANSPORT=1
+
+jobs:
+
+  linux:
+
+    name: Linux ${{ matrix.arch }}
+
+    runs-on: ${{ matrix.os }}
+
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - arch: arm64
+          os: ubuntu-24.04-arm
+          cases: true
+        # i386 builds only: until the log conversions match their arguments
+        # (#1037, #1038, #1040, #1041), a 32-bit HTTP_FRAME_CREATED log
+        # test crashes the unit suite and 29 cases fail. cflags until the
+        # packet-number log of xqc_send_ctl.c no longer casts the origin
+        # packet pointer to a 64-bit integer.
+        - arch: i386
+          os: ubuntu-24.04
+          multiarch: i386
+          packages: gcc-multilib g++-multilib
+          ssl-cmake: -DCMAKE_TOOLCHAIN_FILE=util/32-bit-toolchain.cmake
+          xqc-cmake: -DCMAKE_LIBRARY_PATH=/usr/lib/i386-linux-gnu
+          cflags: -m32 -Wno-error=pointer-to-int-cast
+          tests: none
+        # cflags as i386, and until the log timestamp no longer prints the
+        # 64-bit tv_usec of a time64 system with %ld; known-failures until
+        # the HTTP_FRAME_CREATED log prints its 64-bit frame type with a
+        # 64-bit conversion (#1038).
+        - arch: armhf
+          os: ubuntu-24.04
+          multiarch: armhf
+          triplet: arm-linux-gnueabihf
+          processor: armv7-a
+          cflags: -Wno-error=pointer-to-int-cast -Wno-error=format
+          known-failures: >-
+            xqc_test_h3_frame_created_log_headers
+            xqc_test_h3_frame_created_log_truncated
+        - arch: riscv64
+          os: ubuntu-24.04
+          multiarch: riscv64
+          triplet: riscv64-linux-gnu
+          processor: riscv64
+        # known-failures until xqc_put_uint64be() and xqc_put_uint48be()
+        # write big-endian bytes on big-endian hosts too.
+        - arch: s390x
+          os: ubuntu-24.04
+          multiarch: s390x
+          triplet: s390x-linux-gnu
+          processor: s390x
+          ssl: babassl
+          known-failures: >-
+            xqc_test_wt_h3_stream_stop_sending
+            xqc_test_wt_session_id_wire
+            xqc_test_reliable_reset_receive_errors
+            xqc_test_h3_registered_settings
+
+    env:
+      XQC_ARCH: ${{ matrix.arch }}
+      XQC_MULTIARCH: ${{ matrix.multiarch }}
+      XQC_TRIPLET: ${{ matrix.triplet }}
+      XQC_PROCESSOR: ${{ matrix.processor }}
+      XQC_PACKAGES: ${{ matrix.packages }}
+      XQC_SSL: ${{ matrix.ssl || 'boringssl' }}
+      XQC_SSL_CMAKE: ${{ matrix.ssl-cmake }}
+      XQC_CMAKE: ${{ matrix.xqc-cmake }}
+      XQC_CFLAGS: ${{ matrix.cflags }}
+      XQC_CASES: ${{ matrix.cases }}
+      XQC_KNOWN_FAILURES: ${{ matrix.known-failures }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 8
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        suffix=""
+        packages=(build-essential lsof psmisc)
+        if [ -n "$XQC_MULTIARCH" ]; then
+          suffix=":$XQC_MULTIARCH"
+          sudo dpkg --add-architecture "$XQC_MULTIARCH"
+        fi
+        if [ -n "$XQC_TRIPLET" ]; then
+          # The ports archive serves the emulated architectures; keep the
+          # runner's own sources to the host architectures.
+          sudo sed -i '/^Types: deb$/a Architectures: amd64 i386' \
+            /etc/apt/sources.list.d/ubuntu.sources
+          printf '%s\n' \
+            'Types: deb' \
+            'URIs: http://ports.ubuntu.com/ubuntu-ports' \
+            'Suites: noble noble-updates noble-security' \
+            'Components: main universe' \
+            "Architectures: $XQC_MULTIARCH" \
+            'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+            | sudo tee /etc/apt/sources.list.d/ports.sources > /dev/null
+          packages+=("gcc-$XQC_TRIPLET" "g++-$XQC_TRIPLET" qemu-user-static
+                     "libstdc++6$suffix")
+        fi
+        # shellcheck disable=SC2206
+        packages+=($XQC_PACKAGES "libcunit1-dev$suffix" "libevent-dev$suffix")
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            "${packages[@]}"
+
+    - name: Set up the cross toolchain
+      if: matrix.triplet != ''
+      run: |
+        {
+          echo "XQC_CROSS_CMAKE=-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=$XQC_PROCESSOR -DCMAKE_C_COMPILER=$XQC_TRIPLET-gcc -DCMAKE_CXX_COMPILER=$XQC_TRIPLET-g++"
+          echo "XQC_LIB_PATH_CMAKE=-DCMAKE_LIBRARY_PATH=/usr/lib/$XQC_TRIPLET"
+        } >> "$GITHUB_ENV"
+
+    - name: Build BoringSSL
+      if: matrix.ssl != 'babassl'
+      run: |
+        git clone --depth 1 --branch "$XQC_BORINGSSL_TAG" \
+          https://github.com/google/boringssl.git ./third_party/boringssl
+        # shellcheck disable=SC2086
+        cmake -S third_party/boringssl -B third_party/boringssl/build \
+          ${XQC_CROSS_CMAKE} ${XQC_SSL_CMAKE} \
+          -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        cmake --build third_party/boringssl/build --parallel "$(nproc)" \
+          --target ssl crypto
+        {
+          echo "SSL_INC=${PWD}/third_party/boringssl/include"
+          echo "SSL_LIBS=${PWD}/third_party/boringssl/build/libssl.a;${PWD}/third_party/boringssl/build/libcrypto.a"
+        } >> "$GITHUB_ENV"
+
+    - name: Build Tongsuo
+      if: matrix.ssl == 'babassl'
+      run: |
+        git init -q ./third_party/babassl
+        cd ./third_party/babassl
+        git fetch -q --depth 1 https://github.com/Tongsuo-Project/Tongsuo.git \
+          "$XQC_TONGSUO_COMMIT"
+        git checkout -q FETCH_HEAD
+        ./Configure "linux64-$XQC_PROCESSOR" \
+          --cross-compile-prefix="$XQC_TRIPLET-" \
+          no-shared no-tests no-asm
+        make -j"$(nproc)" build_libs > /dev/null
+        {
+          echo "SSL_INC=${PWD}/include"
+          echo "SSL_LIBS=${PWD}/libssl.a;${PWD}/libcrypto.a"
+        } >> "$GITHUB_ENV"
+
+    - name: Build XQUIC
+      run: |
+        # shellcheck disable=SC2086
+        cmake -S . -B build \
+          ${XQC_CROSS_CMAKE} ${XQC_LIB_PATH_CMAKE} ${XQC_CMAKE} \
+          -DCMAKE_C_FLAGS="${XQC_CFLAGS}" \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          ${XQC_FEATURE_FLAGS} \
+          -DSSL_TYPE="$XQC_SSL" \
+          -DSSL_PATH="${PWD}/third_party/$XQC_SSL" \
+          -DSSL_INC_PATH="$SSL_INC" \
+          -DSSL_LIB_PATH="$SSL_LIBS"
+        cmake --build build --parallel "$(nproc)"
+        file build/tests/run_tests
+
+    - name: Test
+      if: matrix.tests != 'none'
+      run: |
+        cd build
+        openssl req -newkey rsa:2048 -x509 -nodes \
+          -keyout server.key \
+          -new \
+          -out server.crt \
+          -subj /CN=test.xquic.com
+        ./tests/run_tests > ../xquic_platform_unit.log 2>&1 || true
+        unit_summary=$(awk '
+          $1 == "tests" && NF == 6 && $2 ~ /^[0-9]+$/ \
+            && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/ {
+            summary = $2 " " $3 " " $4 " " $5
+          }
+          END {print summary}
+        ' ../xquic_platform_unit.log)
+        read -r unit_total unit_ran unit_passed unit_failed \
+          <<< "${unit_summary:-0 0 0 1}"
+        echo "unit test total:$unit_total ran:$unit_ran" \
+          "passed:$unit_passed failed:$unit_failed"
+        failed_tests=$(awk '/^  Test: .* \.\.\.FAILED$/ {print $2}' \
+          ../xquic_platform_unit.log | sort -u)
+        # shellcheck disable=SC2086
+        known=$(printf '%s\n' $XQC_KNOWN_FAILURES | sort -u)
+        unexpected=$(comm -23 <(printf '%s\n' "$failed_tests" | sed '/^$/d') \
+          <(printf '%s\n' "$known" | sed '/^$/d'))
+        fixed=$(comm -13 <(printf '%s\n' "$failed_tests" | sed '/^$/d') \
+          <(printf '%s\n' "$known" | sed '/^$/d'))
+        echo "failed tests: ${failed_tests:-none}"
+        if [ -n "$fixed" ]; then
+          echo "::warning::listed failures that passed, to remove from known-failures: ${fixed//$'\n'/ }"
+        fi
+        unit_result=0
+        if [ "$unit_total" -eq 0 ] || [ "$unit_ran" -ne "$unit_total" ] \
+          || [ -n "$unexpected" ]; then
+          grep -E -A3 '\.\.\.FAILED$' ../xquic_platform_unit.log | head -60
+          unit_result=1
+        fi
+
+        case_result=0
+        if [ "$XQC_CASES" = true ]; then
+          case_plan="$(bash ../scripts/case_test.sh --execution-plan)"
+          expected="$(printf '%s\n' "$case_plan" | awk -F= '/^implemented_unique_cases=/{print $2}')"
+          set +e
+          XQC_BUILD_DIR="${PWD}" \
+            CASE_TEST_CASE_TIMEOUT=300 \
+            CASE_TEST_SHARD_TIMEOUT=600 \
+            bash ../scripts/case_test.sh --execute --parallel --jobs auto --require-complete \
+            > ../xquic_platform_case_test.log 2>&1
+          case_status=$?
+          set -e
+          case_passed=$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:1$/ {count++} END {print count + 0}' ../xquic_platform_case_test.log)
+          case_failed=$(awk '/^\[case-test:[^]]+\] .+ >>>>>>>> pass:0$/ {count++} END {print count + 0}' ../xquic_platform_case_test.log)
+          echo "case test passed:$case_passed failed:$case_failed expected:$expected status:$case_status"
+          grep -E '^\[case-test:[^]]+\] .+ >>>>>>>> pass:0$' ../xquic_platform_case_test.log || true
+          if [ "$case_status" -ne 0 ] || [ "$case_failed" -ne 0 ] \
+            || [ "$case_passed" -ne "${expected:-0}" ]; then
+            case_result=1
+          fi
+        fi
+
+        if [ "$unit_result" -eq 0 ] && [ "$case_result" -eq 0 ]; then
+          echo "===== No unexpected test result ====="
+        else
+          echo "===== Unexpected test result ====="
+          exit 1
+        fi
+
+    - name: Upload test logs
+      if: failure()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: platforms-${{ matrix.arch }}-logs
+        path: |
+          xquic_platform_unit.log
+          xquic_platform_case_test.log
+          build/case_test_parallel/*/*/case_test.log
+          build/case_test_parallel/*/*/case_test.failures
+          build/case_test_parallel/*/*/case-output-*.log
+        retention-days: 3
+
+  macos:
+
+    name: macOS ${{ matrix.arch }}
+
+    runs-on: ${{ matrix.os }}
+
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        # cflags until the tests stop passing uninitialized CIDs and
+        # addresses, and the QPACK unit test sizes its header array with a
+        # constant expression: Apple clang 21 reports both.
+        - { arch: arm64, os: macos-26,
+            cflags: -Wno-error=uninitialized-const-pointer -Wno-error=gnu-folding-constant }
+        - { arch: x86_64, os: macos-15-intel }
+
+    env:
+      XQC_CFLAGS: ${{ matrix.cflags }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: macOS Setup
+      run: |
+        brew install cunit libevent
+
+    - name: Build BoringSSL
+      run: |
+        git clone --depth 1 --branch "$XQC_BORINGSSL_TAG" \
+          https://github.com/google/boringssl.git ./third_party/boringssl
+        cmake -S third_party/boringssl -B third_party/boringssl/build \
+          -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        cmake --build third_party/boringssl/build \
+          --parallel "$(sysctl -n hw.ncpu)" --target ssl crypto
+
+    - name: Build XQUIC
+      run: |
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        # shellcheck disable=SC2086
+        cmake -S . -B build \
+          -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
+          -DCMAKE_C_FLAGS="${XQC_CFLAGS}" \
+          -DPLATFORM=mac \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=0 \
+          ${XQC_FEATURE_FLAGS} \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        cmake --build build --parallel "$(sysctl -n hw.ncpu)"
+
+    - name: Test
+      run: |
+        cd build
+        openssl req -newkey rsa:2048 -x509 -nodes \
+          -keyout server.key \
+          -new \
+          -out server.crt \
+          -subj /CN=test.xquic.com
+        ./tests/run_tests 2>&1 | tee ../xquic_platform_unit.log
+        unit_summary=$(awk '
+          $1 == "tests" && NF == 6 && $2 ~ /^[0-9]+$/ \
+            && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/ {
+            summary = $2 " " $3 " " $4 " " $5
+          }
+          END {print summary}
+        ' ../xquic_platform_unit.log)
+        read -r unit_total unit_ran unit_passed unit_failed \
+          <<< "${unit_summary:-0 0 0 1}"
+        echo "unit test total:$unit_total ran:$unit_ran" \
+          "passed:$unit_passed failed:$unit_failed"
+        if [ "$unit_total" -gt 0 ] \
+          && [ "$unit_ran" -eq "$unit_total" ] \
+          && [ "$unit_passed" -eq "$unit_total" ] \
+          && [ "$unit_failed" -eq 0 ]; then
+          echo "===== All unit tests passed! ====="
+        else
+          echo "===== Unit test failed! ====="
+          exit 1
+        fi

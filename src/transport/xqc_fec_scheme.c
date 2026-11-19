@@ -19,7 +19,7 @@ xqc_fec_encoder_check_params(xqc_connection_t *conn, xqc_int_t repair_symbol_num
     }
 
     if (st_size > XQC_MAX_SYMBOL_SIZE) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|stream size is too large to get fec encode|st_size:%zu|", st_size);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|stream size is too large to get fec encode|st_size:%uz|", st_size);
         return -XQC_EPARAM;
     }
 
@@ -139,7 +139,7 @@ xqc_fec_cc_decoder(xqc_connection_t *conn, xqc_fec_rpr_syb_t *rpr_symbol, uint8_
             xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|process source symbol error|ret:%d", ret);
         }
     } else {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|process recovered packet error|ret:%d|bid:%d|symbol_size:%d", ret, block_id, rpr_symbol->payload_size);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|process recovered packet error|ret:%d|bid:%d|symbol_size:%uz", ret, block_id, rpr_symbol->payload_size);
     }
 
 cc_decoder_end:

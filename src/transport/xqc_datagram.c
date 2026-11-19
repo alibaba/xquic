@@ -160,13 +160,13 @@ xqc_int_t xqc_datagram_send(xqc_connection_t *conn, void *data,
     }
 
     if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
-        xqc_conn_log(conn, XQC_LOG_INFO, "|conn closing, cannot send datagram|size:%ud|", data_len);
+        xqc_conn_log(conn, XQC_LOG_INFO, "|conn closing, cannot send datagram|size:%uz|", data_len);
         return -XQC_CLOSING;
     }
 
     if (conn->remote_settings.max_datagram_frame_size == 0) {
         if (conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT) {
-            xqc_conn_log(conn, XQC_LOG_INFO, "|does not support datagram|size:%ud|", data_len);
+            xqc_conn_log(conn, XQC_LOG_INFO, "|does not support datagram|size:%uz|", data_len);
             return -XQC_EDGRAM_NOT_SUPPORTED;
         } else {
             /*may receive max_datagram_frame_size later */
@@ -177,7 +177,7 @@ xqc_int_t xqc_datagram_send(xqc_connection_t *conn, void *data,
     }
 
     if (conn->dgram_mss < data_len) {
-        xqc_log(conn->log, XQC_LOG_INFO, "|datagram_is_too_large|data_len:%ud|",
+        xqc_log(conn->log, XQC_LOG_INFO, "|datagram_is_too_large|data_len:%uz|",
                 data_len);
         return -XQC_EDGRAM_TOO_LARGE;
     }
@@ -206,7 +206,7 @@ xqc_int_t xqc_datagram_send(xqc_connection_t *conn, void *data,
 
     if (!xqc_send_queue_can_write(conn->conn_send_queue)) {
         conn->conn_send_queue->sndq_full = XQC_TRUE;
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|too many packets used|ctl_packets_used:%ud|", conn->conn_send_queue->sndq_packets_used);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|too many packets used|ctl_packets_used:%ui|", conn->conn_send_queue->sndq_packets_used);
         return -XQC_EAGAIN;
     }
 
@@ -356,14 +356,14 @@ xqc_datagram_send_multiple_internal(xqc_connection_t *conn,
         }
 
         if (conn->dgram_mss < data_len) {
-            xqc_log(conn->log, XQC_LOG_INFO, "|datagram_is_too_large|data_len:%ud|",
+            xqc_log(conn->log, XQC_LOG_INFO, "|datagram_is_too_large|data_len:%uz|",
                     data_len);
             return -XQC_EDGRAM_TOO_LARGE;
         }
 
         if (!xqc_send_queue_can_write(conn->conn_send_queue)) {
             conn->conn_send_queue->sndq_full = XQC_TRUE;
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|too many packets used|ctl_packets_used:%ud|", conn->conn_send_queue->sndq_packets_used);
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|too many packets used|ctl_packets_used:%ui|", conn->conn_send_queue->sndq_packets_used);
             ret =  -XQC_EAGAIN;
             break;
         }

@@ -894,7 +894,7 @@ xqc_destroy_stream(xqc_stream_t *stream)
             "finrcv_delay:%ui|finread_delay:%ui|all_acked_delay:%ui|"
             "firstfinack_dely:%ui|close_delay:%ui|"
             "apprst_delay:%ui|rstsnd_delay:%ui|rstrcv_delay:%ui|%s|"
-            "path_info:%s|fec_recv_delay:%"PRIu64"|fec_send_rpr_cnt:%d|retrans:%d|",
+            "path_info:%s|fec_recv_delay:%ui|fec_send_rpr_cnt:%ud|retrans:%ud|",
             stream->stream_err, stream->stream_close_msg ? stream->stream_close_msg : "",
             stream->stream_conn->enable_multipath ? 1:0,
             stream->stream_state_send, stream->stream_state_recv, 
@@ -1325,7 +1325,7 @@ xqc_crypto_stream_send(xqc_stream_t *stream,
                 packet_out->po_sent_time = now;
                 xqc_long_packet_update_length(packet_out);
                 xqc_log(stream->stream_conn->log, XQC_LOG_INFO,
-                        "|crypto send data|pkt_num:%ui|size:%ud|sent:%d|pkt_type:%s|frame:%s|now:%ui|",
+                        "|crypto send data|pkt_num:%ui|size:%ud|sent:%z|pkt_type:%s|frame:%s|now:%ui|",
                         packet_out->po_pkt.pkt_num, packet_out->po_used_size, n_written,
                         xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
                         xqc_frame_type_2_str(stream->stream_conn->engine, packet_out->po_frame_types), now);
@@ -1734,7 +1734,7 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
 
         if (!xqc_send_queue_can_write(conn->conn_send_queue)) {
             conn->conn_send_queue->sndq_full = XQC_TRUE;
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|too many packets used|sndq_packets_used:%ud|", conn->conn_send_queue->sndq_packets_used);
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|too many packets used|sndq_packets_used:%ui|", conn->conn_send_queue->sndq_packets_used);
             ret = -XQC_EAGAIN;
             goto do_buff;
         }

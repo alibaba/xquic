@@ -14,6 +14,7 @@ void xqc_test_multipath_version_requires_negotiation(void);
 void xqc_test_negotiated_multipath_frozen_frame(void);
 
 void xqc_test_parse_padding_frame();
+void xqc_test_stream_frame_length_error_log(void);
 
 #ifdef XQC_PING_ATTACK_PROTECT
 void xqc_test_initial_ping_before_crypto_accepted(void);

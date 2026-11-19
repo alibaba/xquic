@@ -1985,7 +1985,7 @@ xqc_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, struct iovec *iov, 
             if (sent_size < 0) {
                 xqc_log(conn->log, XQC_LOG_ERROR,  
                         "|pkt_filter_cb error|conn:%p|"
-                        "size:%ud|sent:%z|sent_cnt:%d|", 
+                        "size:%uz|sent:%z|sent_cnt:%d|", 
                         conn, iov[sent_cnt].iov_len, sent_size, 
                         sent_cnt);
                 
@@ -2346,7 +2346,7 @@ xqc_path_send_burst_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
         return ret;
 
     } else if (ret != burst_cnt) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|error send msg|sent:%ui||cnt:%d|", ret, burst_cnt);
+        xqc_log(conn->log, XQC_LOG_ERROR, "|error send msg|sent:%z||cnt:%d|", ret, burst_cnt);
     }
 
     xqc_on_packets_send_burst(conn, path, ret, now, send_type);
@@ -3392,7 +3392,7 @@ xqc_conn_send_retry(xqc_connection_t *conn, unsigned char *token, unsigned token
     
     if (send != size) {
         xqc_log(engine->log, XQC_LOG_WARN, "|xqc_conn_send_retry|send retry packet failed|"
-                "size:%d|send:%d|", size, send);
+                "size:%d|send:%z|", size, send);
         return XQC_ERROR;
     }
 
@@ -3989,7 +3989,7 @@ xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *enc_data, unsi
         struct in6_addr *in6 = (struct in6_addr *)pos;
         struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)sa;
         if (token_len != 21) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|token_len error|token_len:%ui|", token_len);
+            xqc_log(conn->log, XQC_LOG_ERROR, "|token_len error|token_len:%ud|", token_len);
             return XQC_ERROR;
         }
         if (memcmp(&sa6->sin6_addr, in6, sizeof(struct in6_addr)) != 0) {
@@ -4002,7 +4002,7 @@ xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *enc_data, unsi
         struct in_addr *in4 = (struct in_addr *)pos;
         struct sockaddr_in *sa4 = (struct sockaddr_in *)sa;
         if (token_len != 9) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|token_len error|token_len:%ui|", token_len);
+            xqc_log(conn->log, XQC_LOG_ERROR, "|token_len error|token_len:%ud|", token_len);
             return XQC_ERROR;
         }
         xqc_log(conn->log, XQC_LOG_DEBUG, "|peer_addr:%s|", inet_ntoa(sa4->sin_addr));
@@ -4670,7 +4670,7 @@ xqc_conn_write_buffed_1rtt_packets(xqc_connection_t *conn)
             }
             ++total;
         }
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|total:%ui|", total);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|total:%ud|", total);
     }
 }
 
@@ -5582,7 +5582,7 @@ xqc_conn_confirm_key_update(xqc_connection_t *conn, xqc_bool_t initiated)
     ctx->awaiting_peer_key_update = initiated;
 
     xqc_tls_set_1rtt_key_phase(conn->tls, ctx->cur_out_key_phase);
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|key phase changed to %ui|", ctx->cur_out_key_phase);
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|key phase changed to %ud|", ctx->cur_out_key_phase);
 
     if (initiated) {
         /*
@@ -6630,7 +6630,7 @@ xqc_conn_tls_crypto_data_cb(xqc_encrypt_level_t level, const uint8_t *data,
     conn->crypto_data_total_len += len;
     if (conn->crypto_data_total_len > XQC_CONN_MAX_CRYPTO_DATA_TOTAL_LEN) {
         xqc_log(conn->log, XQC_LOG_ERROR,
-                "|crypto_data_total_len exceed limit|total_len:%ui|", conn->crypto_data_total_len);
+                "|crypto_data_total_len exceed limit|total_len:%uz|", conn->crypto_data_total_len);
 
         xqc_free(hs_buf);
         XQC_CONN_ERR(conn, TRA_CRYPTO_BUFFER_EXCEEDED);
@@ -6744,7 +6744,7 @@ void
 xqc_conn_tls_error_cb(xqc_int_t tls_err, void *user_data)
 {
     xqc_connection_t *conn = (xqc_connection_t *)user_data;
-    xqc_log(conn->log, XQC_LOG_ERROR, "|tls error|0x%xi|", tls_err);
+    xqc_log(conn->log, XQC_LOG_ERROR, "|tls error|0x%xd|", tls_err);
     XQC_CONN_ERR(conn, (tls_err | TRA_CRYPTO_ERROR_BASE));
 }
 
@@ -6753,7 +6753,7 @@ static void
 xqc_conn_tls_transport_error_cb(xqc_int_t transport_err, void *user_data)
 {
     xqc_connection_t *conn = (xqc_connection_t *)user_data;
-    xqc_log(conn->log, XQC_LOG_ERROR, "|transport error from tls|0x%xi|",
+    xqc_log(conn->log, XQC_LOG_ERROR, "|transport error from tls|0x%xd|",
             transport_err);
     XQC_CONN_ERR(conn, transport_err);
 }
@@ -6914,7 +6914,7 @@ xqc_conn_decrease_unacked_stream_ref(xqc_connection_t *conn, xqc_packet_out_t *p
                         && stream->reset_at.send_state != XQC_RESET_AT_SENT
                         && stream->stream_state_send == XQC_SEND_STREAM_ST_DATA_SENT) {
                         xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_DATA_RECVD);
-                        xqc_log(conn->log, XQC_LOG_DEBUG, "|stream enter DATA RECVD|stream_id:%d", stream->stream_id);
+                        xqc_log(conn->log, XQC_LOG_DEBUG, "|stream enter DATA RECVD|stream_id:%ui", stream->stream_id);
                         xqc_stream_maybe_need_close(stream);
                     }
                 }

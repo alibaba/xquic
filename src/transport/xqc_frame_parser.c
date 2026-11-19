@@ -331,7 +331,7 @@ xqc_parse_stream_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
 
         p += vlen;
         if (length > end - p) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|parse stream frame error|stream length:%d|packet length:%d",length, end - p);
+            xqc_log(conn->log, XQC_LOG_ERROR, "|parse stream frame error|stream length:%ui|packet length:%uz",length, (size_t) (end - p));
             return -XQC_EILLEGAL_FRAME;
         }
         frame->data_length = length;
@@ -788,7 +788,7 @@ xqc_check_gen_sid_param(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 
     if (po_remained_size < packet_out->po_reserved_size || packet_out->po_reserved_size == 0) {
         if (packet_out->po_reserved_size != 0) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|packet_out reserved buff are taken|po_frame:%d|po_buf_size:%d|po_used_size:%d|po_reserved_size:%d",
+            xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|packet_out reserved buff are taken|po_frame:%ui|po_buf_size:%ud|po_used_size:%ud|po_reserved_size:%uz",
                     packet_out->po_frame_types, packet_out->po_buf_size, packet_out->po_used_size, packet_out->po_reserved_size);
 
         } else if (conn->conn_settings.fec_params.fec_encoder_scheme != 0){

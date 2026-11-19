@@ -381,7 +381,7 @@ xqc_send_ctl_info_circle_record(xqc_send_ctl_t *send_ctl)
     uint64_t srtt = send_ctl->ctl_srtt;
     xqc_conn_log(conn, XQC_LOG_STATS,
                  "|path:%ui|"
-                 "|cwnd:%ui|inflight:%ud|mode:%ud|applimit:%ud|pacing_rate:%ui|bw:%ui|"
+                 "|cwnd:%ui|inflight:%ud|mode:%ud|applimit:%ui|pacing_rate:%ui|bw:%ui|"
                  "srtt:%ui|latest_rtt:%ui|min_rtt:%ui|send:%ud|lost:%ud|tlp:%ud|recv:%ud|"
                  "recovery:%ud|slow_start:%ud|conn_life:%ui|acked:%ui|delivered:%ui|"
                  "is_cwnd_limited:%d|",
@@ -967,7 +967,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
 
             xqc_send_queue_maybe_remove_unacked(packet_out, send_queue, NULL);
 
-            xqc_log(conn->log, XQC_LOG_DEBUG, "|sndq_packets_used:%ud||sndq_packets_used_bytes:%ud|sndq_packets_free:%ud|",
+            xqc_log(conn->log, XQC_LOG_DEBUG, "|sndq_packets_used:%ui||sndq_packets_used_bytes:%ui|sndq_packets_free:%ui|",
                     send_queue->sndq_packets_used, send_queue->sndq_packets_used_bytes, send_queue->sndq_packets_free);
 
             if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
@@ -1390,7 +1390,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
                 lost_n++;
 
                 xqc_log(conn->log, XQC_LOG_DEBUG, "|mark lost|pns:%d|pkt_num:%ui|"
-                        "lost_pn:%ui|po_sent_time:%ui|lost_send_time:%ui|loss_delay:%ui|frame:%s|repair:%d|",
+                        "lost_pn:%ui|po_sent_time:%ui|lost_send_time:%ui|loss_delay:%ui|frame:%s|repair:%ui|",
                         pns, po->po_pkt.pkt_num, lost_pn, po->po_sent_time, lost_send_time, loss_delay,
                         xqc_frame_type_2_str(conn->engine, po->po_frame_types), XQC_NEED_REPAIR(po->po_frame_types));
                 xqc_log_event(conn->log, REC_PACKET_LOST, po, lost_pn, lost_send_time, loss_delay);
@@ -1441,7 +1441,7 @@ xqc_send_ctl_detect_lost(xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue,
          * has passed the end of the previous recovery epoch.
          * enter loss recovery here
          */
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|OnLostDetection|largest_lost sent time: %lu|", largest_lost->po_sent_time);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|OnLostDetection|largest_lost sent time: %ui|", largest_lost->po_sent_time);
         xqc_send_ctl_congestion_event(send_ctl, largest_lost->po_sent_time);
 
         if (send_ctl->ctl_first_rtt_sample_time == 0) {

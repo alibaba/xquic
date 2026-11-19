@@ -51,6 +51,14 @@ void xqc_test_h3_valid_headers_smoke();
 void xqc_test_h3_blocked_stream_reject_after_close();
 /* a stream blocked beyond the limit is destroyed, not leaked, on close */
 void xqc_test_h3_blocked_stream_limit_leak();
+/* unblocking one stream frees a sibling's record mid-walk (use-after-free) */
+void xqc_test_h3_blocked_stream_walk_uaf();
+/* a stream blocked with no field line byte buffered is unblocked */
+void xqc_test_h3_blocked_stream_unblock_no_bytes();
+/* a stream resumed blocks again on its trailer section, then resumes */
+void xqc_test_h3_blocked_stream_reblock();
+/* a resumed stream kept for a delayed destroy fails: it is destroyed */
+void xqc_test_h3_blocked_stream_unblock_error();
 void xqc_test_h3_qpack_duplicate_uses_excessive_load();
 void xqc_test_h3_frame_parse_error_uses_frame_error();
 void xqc_test_h3_control_frame_unexpected();
@@ -62,6 +70,14 @@ void xqc_test_h3_request_frame_unexpected();
 /* issue #742: RFC 9114 §4.1 request-stream frame sequence */
 void xqc_test_h3_data_after_headers_accepted();
 void xqc_test_h3_data_before_headers_rejected();
+
+/* RFC 9204 Sections 2.2.2.1 and 4.5.1: the end of a field section */
+void xqc_test_h3_qpack_section_ack();
+void xqc_test_h3_qpack_section_cut_short();
+void xqc_test_h3_qpack_section_cut_short_after_close();
+/* RFC 9204 Section 2.2.2.2: abandonment of a stream */
+void xqc_test_h3_qpack_stream_cancel();
+void xqc_test_h3_qpack_stream_cancel_omitted();
 
 /* issue #849: RFC 9114 §7.2.5 PUSH_PROMISE sender role */
 void xqc_test_h3_server_reserved_request_frame_accepted();

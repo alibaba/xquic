@@ -1266,7 +1266,8 @@ xqc_test_wt_settings_capacity(void)
                     }
                     CU_ASSERT(memcmp(&before, &settings, sizeof(settings))
                               == 0);
-                    CU_ASSERT(wt_error_logs == 1 && ctx->started);
+                    CU_ASSERT(wt_error_logs == XQC_TEST_LOGGED(XQC_LOG_ERROR, 1)
+                              && ctx->started);
                     CU_ASSERT(conn.h3_conn_callbacks.h3_conn_create_notify
                               == ctx->app_conn_callbacks.h3_conn_create_notify);
                     xqc_stream_callbacks_t *stream_callbacks =
@@ -1354,13 +1355,16 @@ xqc_test_wt_datagram_retirement(void)
     cbs.datagram_read_notify(&transport, NULL, "\x02x", 2, 1);
     CU_ASSERT(conn->pending_count == 3 && conn->pending_bytes == 3);
     cbs.datagram_read_notify(&transport, NULL, "\x02x", 2, 1);
-    CU_ASSERT(wt_drop_limit == 1 && conn->pending_count == 3);
+    CU_ASSERT(wt_drop_limit == XQC_TEST_LOGGED(XQC_LOG_WARN, 1)
+              && conn->pending_count == 3);
     xqc_wt_session_notify_closed(first);
     CU_ASSERT(conn->pending_count == 1 && conn->pending_bytes == 1);
     cbs.datagram_read_notify(&transport, NULL, "\x01x", 2, 1);
-    CU_ASSERT(wt_drop_normal == 1 && wt_drop_limit == 1);
+    CU_ASSERT(wt_drop_normal == XQC_TEST_LOGGED(XQC_LOG_DEBUG, 1)
+              && wt_drop_limit == XQC_TEST_LOGGED(XQC_LOG_WARN, 1));
     cbs.datagram_read_notify(&transport, NULL, "\x3fx", 2, 1);
-    CU_ASSERT(wt_drop_limit == 2 && conn->pending_count == 1);
+    CU_ASSERT(wt_drop_limit == XQC_TEST_LOGGED(XQC_LOG_WARN, 2)
+              && conn->pending_count == 1);
     xqc_wt_session_t *second = xqc_wt_session_init(8, conn, NULL);
     CU_ASSERT_PTR_NOT_NULL_FATAL(second);
     second->open = XQC_TRUE;

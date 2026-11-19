@@ -258,9 +258,14 @@ xqc_test_hp_mask_error_log_one(xqc_bool_t is_encrypt)
                                     buf + 1, buf + sizeof(buf));
     CU_ASSERT(ret == (is_encrypt ? -XQC_EENCRYPT
                                  : -XQC_TLS_DECRYPT_DATA_ERROR));
+#ifndef XQC_DISABLE_LOG
     CU_ASSERT(strstr(line, "|calculate header protection mask error|")
               != NULL);
     CU_ASSERT(strstr(line, "|nwrite:0|") != NULL);
+#else
+    /* the error line is compiled out */
+    CU_ASSERT(line[0] == '\0');
+#endif
 
     xqc_crypto_destroy(crypto);
 }

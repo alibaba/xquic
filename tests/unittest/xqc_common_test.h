@@ -34,4 +34,17 @@ xqc_engine_t *test_create_engine_server();
 
 extern const xqc_log_callbacks_t xqc_null_log_cb;
 
+/*
+ * The n log lines of a level that a test reads, or none when the build
+ * compiles them out: XQC_DISABLE_LOG all of them, XQC_ONLY_ERROR_LOG those
+ * below XQC_LOG_ERROR.
+ */
+#if defined(XQC_DISABLE_LOG)
+#define XQC_TEST_LOGGED(level, n)   0
+#elif defined(XQC_ONLY_ERROR_LOG)
+#define XQC_TEST_LOGGED(level, n)   ((level) <= XQC_LOG_ERROR ? (n) : 0)
+#else
+#define XQC_TEST_LOGGED(level, n)   (n)
+#endif
+
 #endif

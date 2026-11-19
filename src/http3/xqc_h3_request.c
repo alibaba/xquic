@@ -28,15 +28,22 @@ xqc_h3_request_create(xqc_engine_t *engine,
 
     h3_conn = (xqc_h3_conn_t*)stream->stream_conn->proto_data;
 
+    /*
+     * Until the request is created, nothing was sent on the stream and the
+     * application does not know it: a failure destroys the stream, whose
+     * close notification destroys the h3 stream if there is one.
+     */
     h3_stream = xqc_h3_stream_create(h3_conn, stream, XQC_H3_STREAM_TYPE_REQUEST, user_data);
     if (!h3_stream) {
         xqc_log(engine->log, XQC_LOG_ERROR, "|xqc_h3_stream_create error|");
+        xqc_destroy_stream(stream);
         return NULL;
     }
 
     h3_request = xqc_h3_request_create_inner(h3_conn, h3_stream, user_data);
     if (!h3_request) {
         xqc_log(engine->log, XQC_LOG_ERROR, "|xqc_h3_request_create_inner error|");
+        xqc_destroy_stream(stream);
         return NULL;
     }
 

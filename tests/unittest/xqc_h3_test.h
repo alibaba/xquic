@@ -10,6 +10,7 @@ void xqc_test_h3_optional_frame_accepted(void);
 void xqc_test_h3_optional_frame_errors(void);
 void xqc_test_h3_single_vint_frame_valid();
 void xqc_test_h3_single_vint_frame_length_error();
+void xqc_test_h3_push_promise_push_id_length();
 void xqc_test_stream();
 void xqc_test_ins();
 void xqc_test_rep();

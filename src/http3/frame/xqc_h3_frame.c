@@ -144,16 +144,31 @@ xqc_h3_frm_parse_push_promise(const unsigned char *p, size_t sz, xqc_h3_frame_t 
     xqc_bool_t fin_t;
     xqc_h3_frame_push_promise_t *push_promise = &frame->frame_payload.push_promise;
     if (push_promise->count == 0 && sz > 0) {
-        XQC_H3_DECODE_DISCRETE_VINT_VALUE(pos, sz, push_promise->push_id, &fin_t);
+        ssize_t nread = xqc_discrete_vint_parse(pos, sz, &push_promise->push_id,
+                                                &fin_t);
+        if (nread < 0) {
+            return -XQC_H3_DECODE_ERROR;
+        }
+        pos += nread;
+        sz -= nread;
+
+        /*
+         * RFC 9000 Section 16 lets the Push ID take more bytes than its
+         * value needs: count the bytes that it takes in the frame.
+         */
+        frame->consumed_len += nread;
+        if (frame->consumed_len > frame->len) {
+            return -XQC_H3_DECODE_ERROR;
+        }
+
         if (fin_t) {
             push_promise->count = 1;
         }
     }
     if (push_promise->count == 1 && sz > 0) {
-        if (frame->len < xqc_vint_len_by_val(push_promise->push_id.vi)) {
-            return -XQC_EVINTREAD;
-        }
-        ssize_t payload_len = frame->len - xqc_vint_len_by_val(push_promise->push_id.vi);
+        /* the Push ID is all that was read of the payload */
+        uint64_t push_id_len = frame->consumed_len;
+        ssize_t payload_len = frame->len - push_id_len;
         if (push_promise->encoded_field_section == NULL) {
             /* reject oversized PUSH_PROMISE to prevent memory exhaustion */
             if (payload_len > XQC_H3_PUSH_PROMISE_MAX_PAYLOAD_SIZE) {
@@ -174,7 +189,7 @@ xqc_h3_frm_parse_push_promise(const unsigned char *p, size_t sz, xqc_h3_frame_t 
             return -XQC_H3_DECODE_ERROR;
         }
         pos += len;
-        *fin = xqc_vint_len_by_val(push_promise->push_id.vi) + push_promise->encoded_field_section->data_len == frame->len ? XQC_TRUE : XQC_FALSE;
+        *fin = push_id_len + push_promise->encoded_field_section->data_len == frame->len ? XQC_TRUE : XQC_FALSE;
     }
     return pos -p;
 }

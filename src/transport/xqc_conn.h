@@ -618,6 +618,9 @@ xqc_int_t xqc_conn_version_check(xqc_connection_t *c, uint32_t version);
 xqc_int_t xqc_conn_send_version_negotiation(xqc_connection_t *c);
 xqc_int_t xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *token, unsigned token_len);
 xqc_int_t xqc_conn_gen_token(xqc_connection_t *conn, unsigned char *token, unsigned *token_len);
+/* a server sends a token once a path validates a new client IP address */
+void xqc_conn_token_on_path_validated(xqc_connection_t *conn,
+    xqc_path_ctx_t *path);
 xqc_int_t xqc_conn_early_data_reject(xqc_connection_t *conn);
 xqc_int_t xqc_conn_early_data_accept(xqc_connection_t *conn);
 xqc_bool_t xqc_conn_is_ready_to_send_early_data(xqc_connection_t *conn);

@@ -277,6 +277,30 @@ float xqc_send_ctl_get_spurious_loss_rate(xqc_send_ctl_t *send_ctl);
  */
 xqc_bool_t xqc_send_ctl_check_anti_amplification(xqc_send_ctl_t *send_ctl, size_t send_bytes);
 
+/*
+ * RFC 9000 Section 8: the bytes that may still be sent to an address before
+ * it is validated, limit times the bytes received from it less the bytes
+ * sent to it
+ */
+static inline uint64_t
+xqc_anti_amplification_budget(uint64_t recv_bytes, uint64_t sent_bytes,
+    uint64_t limit)
+{
+    uint64_t allowed = limit != 0 && recv_bytes > XQC_MAX_UINT64_VALUE / limit
+                       ? XQC_MAX_UINT64_VALUE : recv_bytes * limit;
+
+    return sent_bytes < allowed ? allowed - sent_bytes : 0;
+}
+
+/**
+ * whether packet_out may be sent on its path now under the anti-amplification
+ * limit, after the datagrams of pending bytes prepared before it. On a new
+ * path that a server has not validated, it also decides whether a
+ * PATH_CHALLENGE or PATH_RESPONSE datagram is expanded to 1200 bytes.
+ */
+xqc_bool_t xqc_send_ctl_amplification_allows(xqc_send_ctl_t *send_ctl,
+    xqc_packet_out_t *packet_out, size_t pending);
+
 void xqc_send_ctl_rearm_ld_timer(xqc_send_ctl_t *send_ctl);
 
 xqc_bool_t xqc_send_ctl_ack_received_in_pns(xqc_send_ctl_t *send_ctl, xqc_pkt_num_space_t pns);

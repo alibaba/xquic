@@ -1917,15 +1917,20 @@ xqc_send_ctl_check_anti_amplification(xqc_send_ctl_t *send_ctl, size_t send_byte
     xqc_bool_t limit = XQC_FALSE;
     xqc_bool_t check = XQC_FALSE;
 
-    if (conn->conn_type == XQC_CONN_TYPE_SERVER && send_ctl->ctl_bytes_send > 0) {
+    if (conn->conn_type == XQC_CONN_TYPE_SERVER) {
         if (xqc_path_is_initial_path(path)) {
             /* initial path => Before Address Validation */
-            if (!(conn->conn_flag & XQC_CONN_FLAG_ADDR_VALIDATED)) {
+            if (send_ctl->ctl_bytes_send > 0
+                && !(conn->conn_flag & XQC_CONN_FLAG_ADDR_VALIDATED))
+            {
                 check = XQC_TRUE;
             }
 
         } else {
-            /* multipath => Before Path Active */
+            /*
+             * multipath => Before Path Active, from the first datagram: the
+             * bytes of the datagram that opened the path were received
+             */
             if (path->path_state < XQC_PATH_STATE_ACTIVE) {
                 check = XQC_TRUE;
             }
@@ -1939,6 +1944,60 @@ xqc_send_ctl_check_anti_amplification(xqc_send_ctl_t *send_ctl, size_t send_byte
     }
 
     return limit;
+}
+
+
+/*
+ * RFC 9000 Sections 8.1, 8.2.1 and 8.2.2: until a server validates the peer
+ * address of a new path, it sends to it at most anti_amplification_limit
+ * times the bytes it received from it, the datagram being sent included, and
+ * it expands a datagram with a PATH_CHALLENGE or a PATH_RESPONSE to 1200
+ * bytes only when that stays within the limit. The initial path keeps its
+ * handshake rules (xqc_send_ctl_check_anti_amplification()).
+ */
+xqc_bool_t
+xqc_send_ctl_amplification_allows(xqc_send_ctl_t *send_ctl,
+    xqc_packet_out_t *packet_out, size_t pending)
+{
+    xqc_connection_t   *conn = send_ctl->ctl_conn;
+    xqc_path_ctx_t     *path = send_ctl->ctl_path;
+    uint64_t            budget;
+    size_t              size;
+    xqc_bool_t          expand;
+
+    if (conn->conn_type != XQC_CONN_TYPE_SERVER
+        || xqc_path_is_initial_path(path)
+        || path->path_state >= XQC_PATH_STATE_ACTIVE)
+    {
+        return !xqc_send_ctl_check_anti_amplification(send_ctl, pending);
+    }
+
+    budget = xqc_anti_amplification_budget(send_ctl->ctl_bytes_recv,
+                 send_ctl->ctl_bytes_send + pending,
+                 conn->conn_settings.anti_amplification_limit);
+    size = packet_out->po_used_size + XQC_TLS_AEAD_OVERHEAD_MAX_LEN;
+
+    if (packet_out->po_frame_types
+        & (XQC_FRAME_BIT_PATH_CHALLENGE | XQC_FRAME_BIT_PATH_RESPONSE))
+    {
+        expand = budget >= XQC_PACKET_INITIAL_MIN_LENGTH;
+        packet_out->po_flag &= ~(XQC_POF_PATH_MIN_PADDING
+                                 | XQC_POF_NO_PATH_PADDING);
+        packet_out->po_flag |= expand ? XQC_POF_PATH_MIN_PADDING
+                                      : XQC_POF_NO_PATH_PADDING;
+        if (expand) {
+            size = xqc_max(size, XQC_PACKET_INITIAL_MIN_LENGTH);
+        }
+
+        /* RFC 9000 Section 8.2.1: the path MTU is to be validated later */
+        if (!expand && size <= budget
+            && (packet_out->po_frame_types & XQC_FRAME_BIT_PATH_CHALLENGE))
+        {
+            path->path_challenge_unpadded = XQC_TRUE;
+        }
+    }
+
+    return size <= budget;
 }
 
 

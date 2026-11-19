@@ -176,6 +176,26 @@ xqc_generate_path_challenge_data(xqc_connection_t *conn, xqc_path_ctx_t *path)
                           path->path_challenge_data, XQC_PATH_CHALLENGE_DATA_LEN);
 }
 
+
+/* challenge the validated path in a datagram expanded to 1200 bytes */
+static void
+xqc_path_challenge_mtu(xqc_path_ctx_t *path)
+{
+    xqc_connection_t *conn = path->parent_conn;
+    xqc_int_t ret;
+
+    ret = xqc_generate_path_challenge_data(conn, path);
+    if (ret == XQC_OK) {
+        ret = xqc_write_path_challenge_frame_to_packet(conn, path, XQC_FALSE);
+    }
+
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|path MTU challenge error|path:%ui|ret:%d|", path->path_id,
+                ret);
+    }
+}
+
 static void
 xqc_path_rebinding_add_recv(xqc_path_rebinding_t *rebinding, size_t bytes)
 {
@@ -203,16 +223,9 @@ xqc_path_rebinding_add_sent(xqc_path_rebinding_t *rebinding, size_t bytes)
 static uint64_t
 xqc_path_rebinding_remaining_budget(xqc_path_rebinding_t *rebinding)
 {
-    uint64_t limit;
-
-    if (rebinding->recv_bytes > XQC_MAX_UINT64_VALUE / 3) {
-        limit = XQC_MAX_UINT64_VALUE;
-
-    } else {
-        limit = rebinding->recv_bytes * 3;
-    }
-
-    return rebinding->sent_bytes < limit ? limit - rebinding->sent_bytes : 0;
+    return xqc_anti_amplification_budget(rebinding->recv_bytes,
+                                         rebinding->sent_bytes,
+                                         XQC_DEFAULT_ANTI_AMPLIFICATION_LIMIT);
 }
 
 
@@ -1443,6 +1456,16 @@ xqc_path_validate(xqc_path_ctx_t *path)
         xqc_timer_set(&path->path_send_ctl->path_timer_manager,
                       XQC_TIMER_PATH_IDLE, xqc_monotonic_timestamp(),
                       xqc_path_get_idle_timeout(path) * 1000);
+
+        /*
+         * RFC 9000 Section 8.2.3: a PATH_CHALLENGE that the anti-amplification
+         * limit kept from being expanded validated the peer address, not the
+         * path MTU: validate it again with an expanded datagram.
+         */
+        if (path->path_challenge_unpadded) {
+            path->path_challenge_unpadded = XQC_FALSE;
+            xqc_path_challenge_mtu(path);
+        }
 
         xqc_log(conn->log, XQC_LOG_DEBUG, 
                 "|path validated|path_id:%ui|validated_path_count:%ud|", 

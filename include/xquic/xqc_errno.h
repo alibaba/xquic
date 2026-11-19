@@ -301,6 +301,7 @@ typedef enum {
     XQC_H3_INVALID_CANCEL_PUSH_ID       = 838,  /**< RFC 9114 §7.2.3 */
     XQC_H3_RESERVED_FRAME_UNEXPECTED    = 839,  /**< HTTP/2 reserved frame received, RFC 9114 §7.2.8 */
     XQC_H3_INVALID_GOAWAY_ID            = 840,  /**< RFC 9114 §5.2 */
+    XQC_H3_INVALID_PUSH_PROMISE_ID      = 841,  /**< RFC 9114 §4.6 and §7.2.5 */
 
     XQC_H3_ERR_MAX,
 } xqc_h3_error_t;

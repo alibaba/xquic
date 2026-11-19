@@ -678,6 +678,20 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
         pn_ctl->ctl_largest_sent[pns] = packet_out->po_pkt.pkt_num;
     }
 
+    /* the packet carries the codepoint of the datagram written last */
+    if (send_ctl->ctl_ecn_last_write == XQC_ECN_ECT_0) {
+        packet_out->po_flag |= XQC_POF_ECN_ECT0;
+        if (send_ctl->ctl_ecn_state == XQC_ECN_STATE_TESTING
+            && ++send_ctl->ctl_ecn_testing_sent >= XQC_ECN_TESTING_PACKETS)
+        {
+            /* RFC 9000 Appendix A.4: wait for the ACKs of the marked ones */
+            send_ctl->ctl_ecn_state = XQC_ECN_STATE_UNKNOWN;
+        }
+
+    } else {
+        packet_out->po_flag &= ~XQC_POF_ECN_ECT0;
+    }
+
     send_ctl->ctl_bytes_send += packet_out->po_enc_size;
     if (packet_out->po_frame_types & (XQC_FRAME_BIT_STREAM | XQC_FRAME_BIT_DATAGRAM)) {
         send_ctl->ctl_app_bytes_send += packet_out->po_enc_size;
@@ -854,6 +868,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     xqc_usec_t spurious_loss_sent_time = 0;
     unsigned char need_del_record = 0;
     int stream_frame_acked = 0;
+    uint64_t acked_ect0 = 0;
 
     if (xqc_send_ctl_detect_optimistic_ack_attack(send_ctl, pn_ctl, ack_info, ack_recv_time) < 0) {
         XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
@@ -943,6 +958,10 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
             // 更新sample
             xqc_update_sample(&send_ctl->sampler, packet_out, send_ctl, ack_recv_time);
 
+            if (packet_out->po_flag & XQC_POF_ECN_ECT0) {
+                acked_ect0++;
+            }
+
             /* Packet previously declared lost gets acked */
             if (!(packet_out->po_flag & XQC_POF_SPURIOUS_LOSS) && (packet_out->po_flag & XQC_POF_RETRANSED)) {
                 ++send_ctl->ctl_spurious_loss_count;
@@ -994,7 +1013,7 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
 
     }
 
-    /* TODO: ECN */
+    xqc_send_ctl_ecn_on_ack(send_ctl, ack_info, acked_ect0, update_largest_ack);
 
     /* spurious loss */
     if (spurious_loss_detected) {
@@ -1525,6 +1544,109 @@ xqc_send_ctl_congestion_event(xqc_send_ctl_t *send_ctl, xqc_usec_t sent_time)
 {
     if (send_ctl->ctl_cong_callback->xqc_cong_ctl_on_lost) {
         send_ctl->ctl_cong_callback->xqc_cong_ctl_on_lost(send_ctl->ctl_cong, sent_time);
+    }
+}
+
+
+/*
+ * The codepoint of a datagram written on the path with write_socket_ecn,
+ * recorded for the packets it carries: the first datagram starts testing
+ * ECN on the path.
+ */
+uint8_t
+xqc_send_ctl_ecn_on_write(xqc_send_ctl_t *send_ctl)
+{
+    if (send_ctl->ctl_ecn_state == XQC_ECN_STATE_NONE) {
+        send_ctl->ctl_ecn_state = XQC_ECN_STATE_TESTING;
+        xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
+                "|ECN testing|path:%ui|", send_ctl->ctl_path->path_id);
+    }
+
+    send_ctl->ctl_ecn_last_write =
+        (send_ctl->ctl_ecn_state == XQC_ECN_STATE_TESTING
+         || send_ctl->ctl_ecn_state == XQC_ECN_STATE_CAPABLE)
+        ? XQC_ECN_ECT_0 : XQC_ECN_NOT_ECT;
+    return send_ctl->ctl_ecn_last_write;
+}
+
+
+static void
+xqc_send_ctl_ecn_fail(xqc_send_ctl_t *send_ctl, const char *reason)
+{
+    xqc_log(send_ctl->ctl_conn->log, XQC_LOG_INFO,
+            "|ECN validation failed|path:%ui|%s|",
+            send_ctl->ctl_path->path_id, reason);
+    send_ctl->ctl_ecn_state = XQC_ECN_STATE_FAILED;
+}
+
+
+/*
+ * RFC 9000 Section 13.4.2.1: validate the ECN counts of an ACK frame that
+ * newly acknowledges acked_ect0 packets sent with ECT(0), and RFC 9002
+ * Section 7.1: react to new CE marks as to a congestion event.
+ */
+void
+xqc_send_ctl_ecn_on_ack(xqc_send_ctl_t *send_ctl,
+    const xqc_ack_info_t *ack_info, uint64_t acked_ect0,
+    xqc_bool_t largest_acked_increased)
+{
+    xqc_pkt_num_space_t pns = ack_info->pns;
+    xqc_ecn_counts_t *last = &send_ctl->ctl_ecn_acked[pns];
+    const xqc_ecn_counts_t *cur = &ack_info->ecn;
+
+    if (send_ctl->ctl_ecn_state == XQC_ECN_STATE_NONE
+        || send_ctl->ctl_ecn_state == XQC_ECN_STATE_FAILED)
+    {
+        return;
+    }
+
+    /* an ACK frame that does not increase the largest acknowledged */
+    if (!largest_acked_increased) {
+        return;
+    }
+
+    if (!ack_info->ecn_present) {
+        if (acked_ect0 > 0) {
+            xqc_send_ctl_ecn_fail(send_ctl, "no ECN counts");
+        }
+        return;
+    }
+
+    if (cur->ect0 < last->ect0 || cur->ect1 < last->ect1
+        || cur->ce < last->ce)
+    {
+        xqc_send_ctl_ecn_fail(send_ctl, "ECN counts decreased");
+        return;
+    }
+
+    /* ECT(1) is never sent */
+    if (cur->ect1 > 0) {
+        xqc_send_ctl_ecn_fail(send_ctl, "ECT(1) count");
+        return;
+    }
+
+    if ((cur->ect0 - last->ect0) + (cur->ce - last->ce) < acked_ect0) {
+        xqc_send_ctl_ecn_fail(send_ctl, "ECT(0) marks missing");
+        return;
+    }
+
+    if (cur->ce > last->ce) {
+        xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
+                "|ECN-CE|path:%ui|pns:%d|ce:%ui|",
+                send_ctl->ctl_path->path_id, pns, cur->ce);
+        xqc_send_ctl_congestion_event(send_ctl,
+            send_ctl->ctl_largest_acked_sent_time[pns]);
+    }
+
+    *last = *cur;
+
+    if (acked_ect0 > 0
+        && (send_ctl->ctl_ecn_state == XQC_ECN_STATE_TESTING
+            || send_ctl->ctl_ecn_state == XQC_ECN_STATE_UNKNOWN))
+    {
+        xqc_log(send_ctl->ctl_conn->log, XQC_LOG_DEBUG,
+                "|ECN validated|path:%ui|", send_ctl->ctl_path->path_id);
+        send_ctl->ctl_ecn_state = XQC_ECN_STATE_CAPABLE;
     }
 }
 

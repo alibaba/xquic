@@ -214,6 +214,9 @@ xqc_multipath_mode_t xqc_conn_enable_multipath(xqc_connection_t *conn);
 /* check multipath version negotiation */
 xqc_multipath_version_t xqc_conn_multipath_version_negotiation(xqc_connection_t *conn);
 
+/* whether this endpoint may open a new path on the connection */
+xqc_bool_t xqc_conn_may_open_paths(const xqc_connection_t *conn);
+
 /* init path_list & initial path for connection */
 xqc_int_t xqc_conn_init_paths_list(xqc_connection_t *conn);
 

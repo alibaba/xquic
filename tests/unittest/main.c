@@ -408,6 +408,11 @@ main(int argc, char *argv[])
                         xqc_test_transport_error_code_passthrough)
         || !CU_add_test(pSuite, "xqc_test_0rtt_error_wire_codes",
                         xqc_test_0rtt_error_wire_codes)
+        || !CU_add_test(pSuite, "xqc_test_conn_mp_server_cannot_open_path",
+                        xqc_test_conn_mp_server_cannot_open_path)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_mp_server_not_ready_to_open_path",
+                        xqc_test_conn_mp_server_not_ready_to_open_path)
         || !CU_add_test(pSuite,
                         "xqc_test_conn_close_transport_crypto_namespace",
                         xqc_test_conn_close_transport_crypto_namespace)

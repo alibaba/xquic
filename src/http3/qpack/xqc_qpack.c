@@ -143,20 +143,35 @@ xqc_qpack_destroy(xqc_qpack_t *qpk)
     xqc_free(qpk);
 }
 
-/* write and notify Set Dynamic Table Capacity instruction to peer */
+/*
+ * write and notify Set Dynamic Table Capacity instruction to peer, and set
+ * the encoder's capacity with it. The decoder changes its capacity only on
+ * this instruction (RFC 9204 Section 4.3.1): the encoder sets its own once
+ * the instruction is written, and takes the instruction back if it can't.
+ */
 static inline xqc_int_t
 xqc_qpack_notify_set_dtable_cap(xqc_qpack_t *qpk, uint64_t cap)
 {
     ssize_t         cb_ret;
+    size_t          ins_len;
     xqc_var_buf_t  *buf = qpk->ins_cb.get_buf_cb(XQC_INS_TYPE_ENCODER, qpk->user_data);
     if (NULL == buf) {
         xqc_log(qpk->log, XQC_LOG_ERROR, "|get encoder instruction error|");
         return -XQC_ENOBUF;
     }
 
+    ins_len = buf->data_len;
     xqc_int_t ret = xqc_ins_write_set_dtable_cap(buf, cap);
     if (ret != XQC_OK) {
         xqc_log(qpk->log, XQC_LOG_ERROR, "|write sdtc error|ret:%d|", ret);
+        goto fail;
+    }
+
+    ret = xqc_encoder_set_dtable_cap(qpk->enc, cap);
+    if (ret != XQC_OK) {
+        xqc_log(qpk->log, XQC_LOG_WARN,
+                "|set encoder dynamic table cap error|ret:%d|", ret);
+        buf->data_len = ins_len;
         goto fail;
     }
     xqc_log_event(qpk->log, QPACK_INSTRUCTION_CREATED, XQC_LOG_ENCODER_EVENT,
@@ -246,13 +261,7 @@ xqc_qpack_set_dtable_cap(xqc_qpack_t *qpk, size_t cap)
 {
     /* set encoder's dtable capacity, which is the minor of max_cap and cap */
     uint64_t min_cap = xqc_min(cap, qpk->enc_max_cap);
-    xqc_int_t ret = xqc_encoder_set_dtable_cap(qpk->enc, min_cap);
-    if (ret != XQC_OK) {
-        xqc_log(qpk->log, XQC_LOG_WARN, "|set encoder dynamic table cap error|ret:%d|", ret);
-        return ret;
-    }
-
-    ret = xqc_qpack_notify_set_dtable_cap(qpk, min_cap);
+    xqc_int_t ret = xqc_qpack_notify_set_dtable_cap(qpk, min_cap);
     if (ret != XQC_OK) {
         xqc_log(qpk->log, XQC_LOG_ERROR, "|notify sdtc error|%d|", ret);
         return ret;

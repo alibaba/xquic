@@ -60,6 +60,14 @@ xqc_int_t xqc_dtable_duplicate_compat(xqc_dtable_t *dt, uint64_t idx, uint64_t *
  */
 xqc_int_t xqc_dtable_duplicate(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx);
 
+
+/**
+ * @brief take back the newest entry, added or duplicated last, as if it had
+ * never been inserted. entries evicted to make room for it stay evicted
+ * @param dt dynamic table handler
+ */
+void xqc_dtable_pop_back(xqc_dtable_t *dt);
+
 /* Get the logical QPACK size of an entry without copying or mutating it. */
 xqc_int_t xqc_dtable_get_entry_size(xqc_dtable_t *dt, uint64_t idx, size_t *size);
 

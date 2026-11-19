@@ -474,6 +474,41 @@ xqc_dtable_add(xqc_dtable_t *dt, unsigned char *name, uint64_t nlen, unsigned ch
 }
 
 
+void
+xqc_dtable_pop_back(xqc_dtable_t *dt)
+{
+    size_t cnt = xqc_rarray_size(dt->entries);
+    if (cnt == 0) {
+        return;
+    }
+
+    xqc_dtable_entry_t *entry = xqc_rarray_get(dt->entries, cnt - 1);
+    size_t space = xqc_dtable_entry_size(entry->nv.nlen, entry->nv.vlen);
+
+    xqc_log_event(dt->log, QPACK_DYNAMIC_TABLE_UPDATED,
+                  XQC_LOG_DTABLE_EVICTED, entry->abs_index);
+
+    if (dt->ht2d) {
+        xqc_2d_hash_table_remove(dt->ht2d, entry->nhash, entry->vhash, entry);
+    }
+
+    /* ring memory undoes its newest block only: the value, then the name */
+    if (entry->nv.vlen > 0) {
+        xqc_ring_mem_undo(dt->rmem, entry->nv.vidx, entry->nv.vlen);
+    }
+
+    if (entry->nv.nlen > 0) {
+        xqc_ring_mem_undo(dt->rmem, entry->nv.nidx, entry->nv.nlen);
+    }
+
+    xqc_rarray_pop_back(dt->entries);
+
+    dt->insert_cnt--;
+    dt->used -= space;
+    dt->byte_sum -= space;
+}
+
+
 xqc_int_t
 xqc_dtable_get_nv(xqc_dtable_t *dt, uint64_t idx, 
     xqc_var_buf_t *name_buf, xqc_var_buf_t *value_buf)

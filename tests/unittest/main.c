@@ -370,6 +370,11 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
         || !CU_add_test(pSuite, "xqc_test_datagram_transport_param_65536",
                         xqc_test_datagram_transport_param_65536)
+        || !CU_add_test(pSuite, "xqc_test_conn_public_local_trans_settings",
+                        xqc_test_conn_public_local_trans_settings)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_public_local_trans_settings_no_conn",
+                        xqc_test_conn_public_local_trans_settings_no_conn)
         || !CU_add_test(pSuite,
                         "xqc_test_datagram_transport_param_varint_max",
                         xqc_test_datagram_transport_param_varint_max)

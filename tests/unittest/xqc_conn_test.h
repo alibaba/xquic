@@ -14,6 +14,8 @@ void xqc_test_conn_pmtud_deferred_until_handshake();
 void xqc_test_conn_pmtud_starts_after_handshake();
 void xqc_test_conn_pmtud_force_enable();
 void xqc_test_conn_pmtud_legacy_compatibility();
+void xqc_test_conn_public_local_trans_settings(void);
+void xqc_test_conn_public_local_trans_settings_no_conn(void);
 void xqc_test_conn_early_data_reject();
 void xqc_test_conn_early_data_reject_flow_ctl();
 void xqc_test_key_update_old_key_retention();

@@ -448,7 +448,14 @@ struct xqc_connection_s {
     /* for multi-path */
     xqc_multipath_mode_t            enable_multipath;
     xqc_path_ctx_t                 *conn_initial_path;
+    /* Paths short of CLOSED. A path that reaches CLOSED moves to
+     * conn_closed_paths_list and stays there until the connection is
+     * destroyed: its path ID must not be reused, late ACKs can still name
+     * it, and its counters still feed the connection's statistics. The
+     * per-packet code walks conn_paths_list only, so its cost does not
+     * grow with the number of paths a long-lived connection has closed. */
     xqc_list_head_t                 conn_paths_list;
+    xqc_list_head_t                 conn_closed_paths_list;
     uint64_t                        validating_path_id;
     uint32_t                        create_path_count;
     uint32_t                        validated_path_count;

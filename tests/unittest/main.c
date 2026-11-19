@@ -423,6 +423,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_first_writer_wins", xqc_test_conn_tls_error_first_writer_wins)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_alert_zero", xqc_test_conn_tls_error_cb_alert_zero)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)
+        || !CU_add_test(pSuite,
+                        "xqc_test_initial_retransmission_uses_server_cid",
+                        xqc_test_initial_retransmission_uses_server_cid)
+        || !CU_add_test(pSuite,
+                        "xqc_test_initial_header_kept_with_server_cid",
+                        xqc_test_initial_header_kept_with_server_cid)
         || !CU_add_test(pSuite, "xqc_test_pq", xqc_test_pq)
         || !CU_add_test(pSuite, "xqc_test_metrics_updated_log_bbr",
                         xqc_test_metrics_updated_log_bbr)

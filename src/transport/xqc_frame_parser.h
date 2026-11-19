@@ -13,7 +13,6 @@
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_recv_timestamps_info.h"
 
-#define XQC_PATH_CHALLENGE_DATA_LEN  8
 #define XQC_DATAGRAM_LENGTH_FIELD_BYTES 2
 #define XQC_DATAGRAM_HEADER_BYTES (XQC_DATAGRAM_LENGTH_FIELD_BYTES + 1)
 

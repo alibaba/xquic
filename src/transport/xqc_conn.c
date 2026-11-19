@@ -5293,6 +5293,92 @@ xqc_conn_check_handshake_complete(xqc_connection_t *conn)
 }
 
 
+/*
+ * Unused connection IDs that this endpoint keeps issued per path ID: spares
+ * for migration on a path in use (RFC 9000 Section 9.5), two for the next
+ * unused path ID, and one for each further unused path ID, the minimum that
+ * RFC 10069 Section 3.2.1 recommends to let the peer open a path.
+ */
+#define XQC_PATH_IN_USE_UNUSED_SCIDS    2
+#define XQC_NEXT_PATH_UNUSED_SCIDS      2
+#define XQC_LATER_PATH_UNUSED_SCIDS     1
+
+/*
+ * Issue MP_NEW_CONNECTION_ID frames until the path ID of inner_set has
+ * unused_cnt unused connection IDs, within the peer's
+ * active_connection_id_limit, which counts per path (RFC 10069 Section 2.2).
+ */
+static xqc_int_t
+xqc_conn_issue_path_scids(xqc_connection_t *conn,
+    xqc_cid_set_inner_t *inner_set, uint64_t unused_cnt,
+    uint64_t retire_prior_to)
+{
+    xqc_int_t ret;
+
+    while (xqc_cid_set_countable_cnt(inner_set)
+           < conn->remote_settings.active_connection_id_limit
+           && inner_set->unused_cnt < unused_cnt)
+    {
+        ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to,
+                                                       inner_set->path_id);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_write_mp_new_conn_id_frame_to_packet error"
+                    "|path_id:%ui|", inner_set->path_id);
+            return ret;
+        }
+    }
+
+    return XQC_OK;
+}
+
+/*
+ * Every path ID in use keeps its spares. RFC 10069 Section 3.2.1 recommends
+ * connection IDs for each unused path ID within both limits, so that the
+ * peer can open several paths at once: they go to the lowest unused path
+ * IDs, without a gap, and only to as many as the paths that can still be
+ * opened while the open ones stay open (XQC_MAX_OPEN_PATHS).
+ */
+static xqc_int_t
+xqc_conn_try_add_new_path_conn_ids(xqc_connection_t *conn,
+    uint64_t retire_prior_to)
+{
+    xqc_list_head_t     *pos, *next;
+    xqc_cid_set_inner_t *inner_set;
+    uint32_t             new_paths = xqc_conn_openable_path_count(conn);
+    xqc_bool_t           next_path = XQC_TRUE;
+    uint64_t             unused_cnt;
+    xqc_int_t            ret;
+
+    xqc_list_for_each_safe(pos, next, &conn->scid_set.cid_set_list) {
+        inner_set = xqc_list_entry(pos, xqc_cid_set_inner_t, next);
+
+        if (inner_set->set_state == XQC_CID_SET_USED) {
+            unused_cnt = XQC_PATH_IN_USE_UNUSED_SCIDS;
+
+        } else if (inner_set->set_state == XQC_CID_SET_UNUSED
+                   && inner_set->path_id <= conn->curr_max_path_id
+                   && new_paths > 0)
+        {
+            unused_cnt = next_path ? XQC_NEXT_PATH_UNUSED_SCIDS
+                                   : XQC_LATER_PATH_UNUSED_SCIDS;
+            next_path = XQC_FALSE;
+            new_paths--;
+
+        } else {
+            continue;
+        }
+
+        ret = xqc_conn_issue_path_scids(conn, inner_set, unused_cnt,
+                                        retire_prior_to);
+        if (ret != XQC_OK) {
+            return ret;
+        }
+    }
+
+    return XQC_OK;
+}
+
 xqc_int_t
 xqc_conn_get_available_path_id(xqc_connection_t *conn, uint64_t *path_id)
 {
@@ -5422,53 +5508,19 @@ xqc_int_t
 xqc_conn_try_add_new_conn_id(xqc_connection_t *conn, uint64_t retire_prior_to)
 {
     xqc_int_t ret = XQC_OK;
-    uint8_t unused_limit = 2;
     xqc_cid_set_inner_t *inner_set;
 
     if (xqc_conn_is_handshake_confirmed(conn)) {
         if (conn->enable_multipath && conn->conn_settings.multipath_version >= XQC_MULTIPATH_10) 
         {
-            /* principle #1 there are two CIDs for the next path ID */
-            inner_set = xqc_get_next_unused_path_cid_set(&conn->scid_set);
-            while (inner_set 
-                   && xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
-                   && inner_set->unused_cnt < unused_limit) 
-            {
-                ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, inner_set->path_id);
-                if (ret != XQC_OK) {
-                    xqc_log(conn->log, XQC_LOG_ERROR, 
-                            "|xqc_write_mp_new_conn_id_frame_to_packet error|path_id:%ui|", 
-                            inner_set->path_id);
-                    return ret;
-                }
-            }
-
-            /* principle #2 there are two CIDs for every in-use path ID */
-            xqc_list_head_t *pos, *next;
-            xqc_list_for_each_safe(pos, next, &conn->scid_set.cid_set_list) {
-                inner_set = xqc_list_entry(pos, xqc_cid_set_inner_t, next);
-                if (inner_set->set_state == XQC_CID_SET_USED) {
-                    while (inner_set 
-                           && xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
-                           && inner_set->unused_cnt < unused_limit) 
-                    {
-                        ret = xqc_write_mp_new_conn_id_frame_to_packet(conn, retire_prior_to, inner_set->path_id);
-                        if (ret != XQC_OK) {
-                            xqc_log(conn->log, XQC_LOG_ERROR, 
-                                    "|xqc_write_mp_new_conn_id_frame_to_packet error|path_id:%ui|", 
-                                    inner_set->path_id);
-                            return ret;
-                        }
-                    }
-                }
-            }
+            return xqc_conn_try_add_new_path_conn_ids(conn, retire_prior_to);
 
         } else {
 
             inner_set = xqc_get_path_cid_set(&conn->scid_set, XQC_INITIAL_PATH_ID);
             /* origin logic for new connection id */
             while (xqc_cid_set_countable_cnt(inner_set) < conn->remote_settings.active_connection_id_limit
-                   && inner_set->unused_cnt < unused_limit)
+                   && inner_set->unused_cnt < XQC_PATH_IN_USE_UNUSED_SCIDS)
             {
                 ret = xqc_write_new_conn_id_frame_to_packet(conn, retire_prior_to);
                 if (ret != XQC_OK) {

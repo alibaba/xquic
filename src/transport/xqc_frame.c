@@ -461,8 +461,15 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
             break;
 #endif
         default:
-            xqc_log(conn->log, XQC_LOG_ERROR, "|unknown frame type|");
-            return -XQC_EIGNORE_PKT;
+            /*
+             * RFC 9000 Section 12.4: "An endpoint MUST treat the receipt of
+             * a frame of unknown type as a connection error of type
+             * FRAME_ENCODING_ERROR."
+             */
+            xqc_log(conn->log, XQC_LOG_ERROR, "|unknown frame type|f:%xL|",
+                    frame_type);
+            XQC_CONN_ERR(conn, TRA_FRAME_ENCODING_ERROR);
+            return -XQC_EILLEGAL_FRAME;
         }
 
         if (ret != XQC_OK) {

@@ -60,6 +60,24 @@ typedef enum xqc_tls_early_data_accept_s {
 
 
 /**
+ * @brief server limits that a client's 0-RTT data relies on. A server that
+ * accepts 0-RTT MUST NOT set them below the values remembered with the
+ * session ticket (RFC 9000 Section 7.4.1).
+ */
+typedef enum xqc_tls_early_data_limit_e {
+    XQC_EARLY_DATA_LIMIT_ACTIVE_CONNECTION_ID,
+    XQC_EARLY_DATA_LIMIT_MAX_DATA,
+    XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_BIDI_LOCAL,
+    XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_BIDI_REMOTE,
+    XQC_EARLY_DATA_LIMIT_MAX_STREAM_DATA_UNI,
+    XQC_EARLY_DATA_LIMIT_MAX_STREAMS_BIDI,
+    XQC_EARLY_DATA_LIMIT_MAX_STREAMS_UNI,
+
+    XQC_EARLY_DATA_LIMIT_COUNT,
+} xqc_tls_early_data_limit_t;
+
+
+/**
  * @brief tls config for create xqc_tls_t instance
  */
 typedef struct xqc_tls_config_s {
@@ -90,6 +108,9 @@ typedef struct xqc_tls_config_s {
 
     /* Advertised server capability bound to the early-data context. */
     xqc_bool_t              reset_stream_at;
+
+    /* Advertised server limits bound to the early-data context. */
+    uint64_t                early_data_limits[XQC_EARLY_DATA_LIMIT_COUNT];
 
 } xqc_tls_config_t;
 

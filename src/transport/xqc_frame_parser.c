@@ -2270,14 +2270,14 @@ xqc_parse_new_conn_id_frame(xqc_packet_in_t *packet_in, xqc_cid_t *new_cid, uint
     }
 
     /* Connection ID (8..160) */
-    if (p + new_cid->cid_len > end) {
+    if (end - p < new_cid->cid_len) {
         return -XQC_EPROTO;
     }
     xqc_memcpy(new_cid->cid_buf, p, new_cid->cid_len);
     p += new_cid->cid_len;
 
     /* Stateless Reset Token (128) */
-    if (p + XQC_STATELESS_RESET_TOKENLEN > end) {
+    if (end - p < XQC_STATELESS_RESET_TOKENLEN) {
         return -XQC_EPROTO;
     }
     xqc_memcpy(new_cid->sr_token, p, XQC_STATELESS_RESET_TOKENLEN);
@@ -2390,7 +2390,7 @@ xqc_parse_path_challenge_frame(xqc_packet_in_t *packet_in, unsigned char *data)
     const unsigned char *end = packet_in->last;
     const unsigned char first_byte = *p++;
 
-    if (p + XQC_PATH_CHALLENGE_DATA_LEN > end) {
+    if (end - p < XQC_PATH_CHALLENGE_DATA_LEN) {
         return -XQC_EVINTREAD;
     }
     xqc_memcpy(data, p, XQC_PATH_CHALLENGE_DATA_LEN);
@@ -2450,7 +2450,7 @@ xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data)
     const unsigned char *end = packet_in->last;
     const unsigned char first_byte = *p++;
 
-    if (p + XQC_PATH_CHALLENGE_DATA_LEN > end) {
+    if (end - p < XQC_PATH_CHALLENGE_DATA_LEN) {
         return -XQC_EVINTREAD;
     }
 
@@ -3091,14 +3091,14 @@ xqc_parse_mp_new_conn_id_frame(xqc_packet_in_t *packet_in,
     }
 
     /* Connection ID (8..160) */
-    if (p + new_cid->cid_len > end) {
+    if (end - p < new_cid->cid_len) {
         return -XQC_EPROTO;
     }
     xqc_memcpy(new_cid->cid_buf, p, new_cid->cid_len);
     p += new_cid->cid_len;
 
     /* Stateless Reset Token (128) */
-    if (p + XQC_STATELESS_RESET_TOKENLEN > end) {
+    if (end - p < XQC_STATELESS_RESET_TOKENLEN) {
         return -XQC_EPROTO;
     }
     xqc_memcpy(new_cid->sr_token, p, XQC_STATELESS_RESET_TOKENLEN);

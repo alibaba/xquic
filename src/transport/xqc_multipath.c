@@ -636,6 +636,12 @@ xqc_set_path_state(xqc_path_ctx_t *path, xqc_path_state_t dst_state)
         conn->active_path_count++;
     }
 
+    if (path->path_state < XQC_PATH_STATE_CLOSING
+        && dst_state >= XQC_PATH_STATE_CLOSING)
+    {
+        conn->abandoned_path_count++;
+    }
+
     path->path_state = dst_state;
 }
 
@@ -737,6 +743,66 @@ xqc_conn_enable_multipath(xqc_connection_t *conn)
         return XQC_CONN_MP_ENABLED;
     }
     return XQC_CONN_MP_DISABLED;
+}
+
+xqc_int_t
+xqc_conn_update_curr_max_path_id(xqc_connection_t *conn)
+{
+    uint64_t curr_max_path_id = xqc_min(conn->local_max_path_id,
+                                        conn->remote_max_path_id);
+
+    if (curr_max_path_id > conn->curr_max_path_id) {
+        if (xqc_conn_add_path_cid_sets(conn, conn->curr_max_path_id + 1,
+                                       curr_max_path_id) != XQC_OK)
+        {
+            xqc_log(conn->log, XQC_LOG_ERROR, "|add_path_cid_sets_error|");
+            return -XQC_EMALLOC;
+        }
+        conn->curr_max_path_id = curr_max_path_id;
+    }
+
+    return XQC_OK;
+}
+
+/*
+ * RFC 10069 Section 3.2.1: "When an endpoint cannot open a path because
+ * there are no unused path IDs, it SHOULD either send a MAX_PATH_ID frame to
+ * increase the maximum path ID limit (when limited by the sender) or a
+ * PATHS_BLOCKED frame". A client, which opens the paths (Section 3), keeps
+ * as many path IDs usable as initial_max_path_id allowed: each of its paths
+ * that is abandoned raises its limit by one, up to the 2^32-1 of Section
+ * 4.6. A server keeps its limit: a path that a client makes it set up keeps
+ * its memory until the connection is destroyed, and the maximum path ID
+ * "limits the number of paths an endpoint is willing to maintain" (Section
+ * 7.1), so the server's application bounds that memory with
+ * init_max_path_id.
+ */
+xqc_int_t
+xqc_conn_try_grant_path_ids(xqc_connection_t *conn)
+{
+    uint64_t    max_path_id;
+    xqc_int_t   ret;
+
+    if (conn->conn_type != XQC_CONN_TYPE_CLIENT || !conn->enable_multipath
+        || !xqc_conn_is_handshake_confirmed(conn))
+    {
+        return XQC_OK;
+    }
+
+    max_path_id = xqc_min(conn->local_settings.init_max_path_id
+                          + conn->abandoned_path_count,
+                          XQC_PATH_ID_MAX_VALUE);
+    if (max_path_id <= conn->local_max_path_id) {
+        return XQC_OK;
+    }
+
+    ret = xqc_write_max_path_id_to_packet(conn, max_path_id);
+    if (ret != XQC_OK) {
+        return ret;
+    }
+    conn->local_max_path_id = max_path_id;
+
+    return xqc_conn_update_curr_max_path_id(conn);
 }
 
 xqc_multipath_version_t

@@ -232,6 +232,15 @@ xqc_int_t xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_i
     const struct sockaddr *local_addr, socklen_t local_addrlen,
     const struct sockaddr *peer_addr, socklen_t peer_addrlen);
 
+/*
+ * after a path ID limit grew, take the largest path ID that both limits
+ * allow, with the connection ID sets of the path IDs it newly allows
+ */
+xqc_int_t xqc_conn_update_curr_max_path_id(xqc_connection_t *conn);
+
+/* client: send MAX_PATH_ID to replace the path IDs of abandoned paths */
+xqc_int_t xqc_conn_try_grant_path_ids(xqc_connection_t *conn);
+
 void xqc_path_rebinding_clear(xqc_path_ctx_t *path);
 xqc_path_ctx_t *xqc_path_rebinding_find_by_challenge(xqc_connection_t *conn,
     const unsigned char *challenge_data);

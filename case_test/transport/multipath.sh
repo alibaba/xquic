@@ -331,6 +331,63 @@ rm -f test_session tp_localhost xqc_token
 
 }
 
+# RFC 10069 Section 3.2.1: the client allows path IDs 0 and 1 only, the
+# server its default of 8. The client closes path 1 and sends MAX_PATH_ID
+# to replace its path ID, then opens path ID 2 on the same interface.
+case_transport_multipath_MPNS_max_path_id_replaces_closed_path()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    rm -f test_session tp_localhost xqc_token
+    clear_log
+    echo -e "MAX_PATH_ID replaces the path ID of a closed path ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 5 -M -i lo -i lo -E -x 1327 \
+        -e 10 --epoch_timeout 1000000 > stdlog
+    closed=`grep -a "|path closed|path:1|" slog`
+    cli_grant=`grep -a "|====>|.*frame:.*MAX_PATH_ID" slog`
+    reopened=`grep "create a new path. index: 1, path_id: 2" stdlog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$closed" ] && [ -n "$cli_grant" ] && [ -n "$reopened" ] \
+        && [ -n "$result" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MPNS_max_path_id_replaces_closed_path" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MPNS_max_path_id_replaces_closed_path" "fail"
+    fi
+}
+
+# A server keeps its path ID limit, which bounds the paths it keeps: the
+# client closes path 1 and sends MAX_PATH_ID, and the server sends none.
+case_transport_multipath_MPNS_server_keeps_path_id_limit()
+{
+    case_test_stop_server
+    case_test_start_server ${SERVER_BIN} -l d -e -M > /dev/null
+    sleep 1
+
+    rm -f test_session tp_localhost xqc_token
+    clear_log
+    echo -e "server keeps its path ID limit ...\c"
+    case_test_sudo ${CLIENT_BIN} -s 10240 -l d -t 5 -M -i lo -i lo -E -x 101 \
+        -e 10 --epoch_timeout 1000000 > stdlog
+    closed=`grep -a "|path closed|path:1|" slog`
+    cli_grant=`grep -a "|====>|.*frame:.*MAX_PATH_ID" slog`
+    svr_grant=`grep -a "|====>|.*frame:.*MAX_PATH_ID" clog`
+    result=`grep ">>>>>>>> pass:1" stdlog`
+    errlog=`grep_err_log`
+    if [ -n "$closed" ] && [ -n "$cli_grant" ] && [ -z "$svr_grant" ] \
+        && [ -n "$result" ] && [ -z "$errlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "MPNS_server_keeps_path_id_limit" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "MPNS_server_keeps_path_id_limit" "fail"
+    fi
+}
+
 case_transport_multipath_MPNS_reinject_unack_packets_by_capacity()
 {
 rm -f test_session tp_localhost xqc_token
@@ -844,6 +901,8 @@ case_test_case "No_reinjection_for_normal_datagrams" --id native --mode self-rep
 case_test_case "No_reinjection_for_normal_h3_ext_datagrams" --id native --mode self-reporting --run case_transport_multipath_No_reinjection_for_normal_h3_ext_datagrams
 case_test_case "MP_reinject_datagrams" --id native --mode self-reporting --run case_transport_multipath_MP_reinject_datagrams
 case_test_case "MP_reinject_h3_ext_datagrams" --id native --mode self-reporting --run case_transport_multipath_MP_reinject_h3_ext_datagrams
+case_test_case "MPNS_max_path_id_replaces_closed_path" --id 1327 --mode self-reporting --run case_transport_multipath_MPNS_max_path_id_replaces_closed_path
+case_test_case "MPNS_server_keeps_path_id_limit" --id native --mode self-reporting --run case_transport_multipath_MPNS_server_keeps_path_id_limit
 case_test_case "MP_datagrams_redundancy" --id native --mode self-reporting --run case_transport_multipath_MP_datagrams_redundancy
 case_test_case "MP_h3_ext_datagrams_redundancy" --id native --mode self-reporting --run case_transport_multipath_MP_h3_ext_datagrams_redundancy
 case_test_case "MP_no_reinjection_for_normal_datagrams" --id native --mode self-reporting --run case_transport_multipath_MP_no_reinjection_for_normal_datagrams

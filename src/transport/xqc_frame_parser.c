@@ -19,6 +19,21 @@
 static size_t xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned char *dst_buf, size_t dst_buf_len,
     xqc_recv_timestamps_info_t *recv_timestamps, uint64_t po_largest_ack);
 
+/*
+ * RFC 9000 Section 19.3: the ACK Delay field is multiplied by 2 to the power
+ * of ack_delay_exponent. A 62-bit field shifted by up to 20 bits can exceed
+ * 64 bits; saturate rather than keep the low 64 bits, so that the delay
+ * stays at least as large as the peer reported and max_ack_delay limits it.
+ */
+static xqc_usec_t
+xqc_decode_ack_delay(uint64_t ack_delay, uint64_t ack_delay_exponent)
+{
+    if (ack_delay > (XQC_MAX_UINT64_VALUE >> ack_delay_exponent)) {
+        return XQC_MAX_UINT64_VALUE;
+    }
+    return ack_delay << ack_delay_exponent;
+}
+
 /**
  * generate datagram frame
  */
@@ -1275,7 +1290,8 @@ xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_
     }
     p += vlen;
 
-    ack_info->ack_delay = ack_info->ack_delay << conn->remote_settings.ack_delay_exponent;
+    ack_info->ack_delay = xqc_decode_ack_delay(ack_info->ack_delay,
+                                              conn->remote_settings.ack_delay_exponent);
 
     vlen = xqc_vint_read(p, end, &ack_range_count);
     if (vlen < 0) {
@@ -2669,7 +2685,8 @@ xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     }
     p += vlen;
 
-    ack_info->ack_delay = ack_info->ack_delay << conn->remote_settings.ack_delay_exponent;
+    ack_info->ack_delay = xqc_decode_ack_delay(ack_info->ack_delay,
+                                              conn->remote_settings.ack_delay_exponent);
 
     vlen = xqc_vint_read(p, end, &ack_range_count);
     if (vlen < 0) {

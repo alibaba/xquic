@@ -780,3 +780,34 @@ xqc_test_aead_integrity_limit_conn_no_crypto()
     should_close = (cipher_id != 0 && dropped_count > limit);
     CU_ASSERT_EQUAL(should_close, XQC_TRUE);
 }
+
+/* RFC 9001 Appendix A.5: the nonce of packet 654360564 */
+void
+xqc_test_crypto_nonce(void)
+{
+    static const uint8_t iv[] = {0xe0, 0x45, 0x9b, 0x34, 0x74, 0xbd,
+                                 0xd0, 0xe4, 0x4a, 0x41, 0xc1, 0x44};
+    static const uint8_t nonce[] = {0xe0, 0x45, 0x9b, 0x34, 0x74, 0xbd,
+                                    0xd0, 0xe4, 0x6d, 0x41, 0x7e, 0xb0};
+    uint8_t out[sizeof(iv)];
+
+    xqc_crypto_create_nonce(out, iv, sizeof(iv), 654360564, 0);
+    CU_ASSERT(memcmp(out, nonce, sizeof(nonce)) == 0);
+}
+
+/* the path id goes before the packet number, and only into a 96-bit IV */
+void
+xqc_test_crypto_nonce_path_id(void)
+{
+    static const uint8_t iv[12] = {0};
+    static const uint8_t nonce[] = {0x0a, 0x0b, 0x0c, 0x0d, 0x01, 0x02,
+                                    0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+    uint8_t out[12];
+
+    xqc_crypto_create_nonce(out, iv, 12, 0x0102030405060708ULL, 0x0a0b0c0d);
+    CU_ASSERT(memcmp(out, nonce, 12) == 0);
+
+    /* an 8-byte IV, as the null AEAD has, takes the packet number only */
+    xqc_crypto_create_nonce(out, iv, 8, 0x0102030405060708ULL, 0x0a0b0c0d);
+    CU_ASSERT(memcmp(out, nonce + 4, 8) == 0);
+}

@@ -178,6 +178,14 @@ xqc_crypto_t *xqc_crypto_create(uint32_t cipher_id, xqc_log_t *log);
 void xqc_crypto_destroy(xqc_crypto_t *crypto);
 
 /**
+ * @brief AEAD nonce of a packet: the IV, XORed with the packet number in
+ * network byte order and, for an IV of at least 96 bits, with the path id in
+ * network byte order before it
+ */
+void xqc_crypto_create_nonce(uint8_t *dest, const uint8_t *iv, size_t ivlen,
+                             uint64_t pktno, uint32_t path_id);
+
+/**
  * AEAD integrity limits, RFC 9001 §6.6:
  * "For AEAD_AES_128_GCM and AEAD_AES_256_GCM, the integrity limit is 2^52
  *  invalid packets."

@@ -278,7 +278,10 @@ typedef struct {
     uint64_t                init_max_path_id;
 
     uint64_t                extended_ack_features;
-    /* Currently, max_receive_timestamps_per_ack must be less than or equal to 63. */
+    /*
+     * At most 63 in local_settings, the most that an ACK_EXTENDED frame
+     * carries; the peer's value in remote_settings can be larger.
+     */
     uint64_t                max_receive_timestamps_per_ack;
     uint64_t                receive_timestamps_exponent;
     uint64_t                enable_pmtud;

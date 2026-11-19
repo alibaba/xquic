@@ -320,11 +320,15 @@ echo -e "ack_timestamp_frame: server enable, 0 < max_ts_per_ack < 64 and client 
 case_test_start_server ${SERVER_BIN} -l d -e -x 450 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 452 > stdlog
-cli_res1=`grep "conn errno" stdlog`
+cli_res=`grep -a ">>>>>>>> pass" stdlog`
+cli_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
-svr_res1=`grep -a "[error]" slog | grep -a "xqc_conn_tls_transport_params_cb" | wc -l`
+svr_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
 
-if [ -n "$cli_res1" ] && [ -n "$svr_res1" ]; then
+# the client asks for 64 timestamps per frame and advertises 63, the most that a frame carries
+if [ "$cli_res" == ">>>>>>>> pass:1" ] && [ "$cli_res1" -gt 0 ] && [ "$cli_res2" -gt 0 ] && [ "$svr_res1" -gt 0 ] && [ "$svr_res2" -gt 0 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "ack_timestamp_frame_case_3" "pass"
 else
@@ -399,12 +403,15 @@ echo -e "ack_timestamp_frame: server enable, max_ts_per_ack > 64 and client enab
 case_test_start_server ${SERVER_BIN} -l d -e -x 452 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 102400 -l d -t 1 -E -x 450 > stdlog
-cli_res1=`grep -a "[error]" clog | grep -a "xqc_conn_tls_transport_params_cb" | wc -l`
+cli_res=`grep -a ">>>>>>>> pass" stdlog`
+cli_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" clog | wc -l`
+cli_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" clog | wc -l`
 
-svr_res1=`grep -a "[error]" slog | grep -a "xqc_process_conn_close_frame" | wc -l`
+svr_res1=`grep -a "xqc_write_packet_receive_timestamps_into_buf|ts_info_len" slog | wc -l`
+svr_res2=`grep -a "xqc_parse_timestamps_in_ack_ext|report_num:" slog | wc -l`
 
-
-if [ "$cli_res1" -gt 0 ] && [ "$svr_res1" -gt 0 ]; then
+# the server asks for 64 timestamps per frame and advertises 63, the most that a frame carries
+if [ "$cli_res" == ">>>>>>>> pass:1" ] && [ "$cli_res1" -gt 0 ] && [ "$cli_res2" -gt 0 ] && [ "$svr_res1" -gt 0 ] && [ "$svr_res2" -gt 0 ]; then
     echo ">>>>>>>> pass:1"
     case_print_result "ack_timestamp_frame_case_6" "pass"
 else

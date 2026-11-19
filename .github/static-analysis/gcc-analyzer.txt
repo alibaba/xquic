@@ -1,0 +1,40 @@
+# GCC -fanalyzer findings in the library sources (src/) on main, counted by
+# file and warning. The Static analysis workflow fails when a file reports
+# more findings of a warning than listed here, and asks for the count to be
+# lowered when it reports fewer. Each group says what its findings report.
+#
+# <count> <file> <warning>
+
+# xqc_stream_send() logs and returns ret uninitialized when it is called
+# with no data and no FIN.
+2 src/common/xqc_log.h -Wanalyzer-use-of-uninitialized-value
+1 src/transport/xqc_stream.c -Wanalyzer-use-of-uninitialized-value
+
+# xqc_write_http_priority() writes its FEC value into an unchecked calloc()
+# result, and leaks it when dstcap is too small.
+2 src/common/xqc_str.h -Wanalyzer-possible-null-dereference
+1 src/http3/xqc_h3_request.c -Wanalyzer-malloc-leak
+
+# xqc_h3_frm_parse_setting() stores a setting through entries on a path
+# where entries is NULL.
+1 src/http3/frame/xqc_h3_frame.c -Wanalyzer-null-dereference
+
+# xqc_engine_unregister_alpn() compares the bytes of alpn_reg->alpn before
+# it checks it for NULL.
+1 src/transport/xqc_engine.c -Wanalyzer-deref-before-check
+
+# xqc_try_process_fec_decode() reads the repair symbol that
+# xqc_get_rpr_syb() returns as NULL.
+1 src/transport/xqc_frame_parser.c -Wanalyzer-null-dereference
+
+# xqc_recv_timestamps_info_create() writes to its calloc() result before it
+# checks it.
+1 src/transport/xqc_recv_timestamps_info.c -Wanalyzer-possible-null-dereference
+
+# xqc_wt_h3_init_settings() uses the context that xqc_wt_ctx_get() returns
+# as NULL.
+1 src/webtransport/xqc_webtransport_ctx.c -Wanalyzer-null-dereference
+
+# xqc_wt_stream_abort() releases a stream that the release in
+# xqc_wt_stream_notify_close() may already have freed.
+1 src/webtransport/xqc_webtransport_stream.c -Wanalyzer-use-after-free

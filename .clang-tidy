@@ -1,0 +1,79 @@
+---
+# clang-tidy checks for XQUIC (clang-tidy 19 or later). The Static analysis
+# workflow runs them over the library sources with clang-tidy 20 and fails on
+# any finding. The same run, from a build directory that CMake configured with
+# -DCMAKE_EXPORT_COMPILE_COMMANDS=ON:
+#
+#   run-clang-tidy -p build -warnings-as-errors='*' src/
+#
+# Every check of the modules below runs, except those that report findings
+# on main, each listed with its number of findings (distinct locations in
+# src/ and include/): the defects until they are fixed, and the rules of a
+# style that XQUIC does not follow, marked "style". The checks of the hicpp,
+# cppcoreguidelines and google modules that apply to C are mostly aliases of
+# the checks below.
+Checks:
+  - -*
+  - android-cloexec-*
+  - -android-cloexec-open                   # 1: /dev/urandom in xqc_random.c
+  - bugprone-*
+  - -bugprone-branch-clone                  # 16
+  - -bugprone-easily-swappable-parameters   # 215, style
+  - -bugprone-implicit-widening-of-multiplication-result  # 133
+  - -bugprone-inc-dec-in-conditions         # 6
+  - -bugprone-macro-parentheses             # 120
+  - -bugprone-multi-level-implicit-pointer-conversion  # 8
+  - -bugprone-narrowing-conversions         # 297: the -Wconversion findings
+  - -bugprone-reserved-identifier           # 93: the _XQC_*_H_INCLUDED_ guards
+  - -bugprone-signed-char-misuse            # 1
+  - -bugprone-suspicious-string-compare     # 1
+  - -bugprone-switch-missing-default-case   # 29
+  - -bugprone-too-small-loop-variable       # 1
+  - cert-*
+  - -cert-dcl37-c                           # 93: bugprone-reserved-identifier
+  - -cert-dcl51-cpp                         # 93: bugprone-reserved-identifier
+  - -cert-err33-c                           # 5: unchecked results
+  - -cert-int09-c                           # 9: readability-enum-initial-value
+  - clang-analyzer-*
+  - -clang-analyzer-core.CallAndMessage     # 2: xqc_stream_send() reads ret
+  - -clang-analyzer-core.NullDereference    # 5
+  - -clang-analyzer-core.UndefinedBinaryOperatorResult  # 1: the same ret
+  - -clang-analyzer-deadcode.DeadStores     # 81
+  - -clang-analyzer-optin.core.EnumCastOutOfRange  # 4
+  - -clang-analyzer-optin.performance.Padding  # 6
+  - -clang-analyzer-optin.portability.UnixAPI  # 1: a zero-size calloc()
+  - -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling  # 456, style: memcpy() and memset()
+  - -clang-analyzer-unix.Malloc             # 8: xqc_write_http_priority() leak, WebTransport release
+  - concurrency-*
+  - -concurrency-mt-unsafe                  # 2: inet_ntoa() in xqc_conn.c
+  - misc-*
+  - -misc-header-include-cycle              # 2
+  - -misc-include-cleaner                   # 3804, style
+  - -misc-redundant-expression              # 1: X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY twice in xqc_tls.c
+  - -misc-unused-parameters                 # 246, style: callbacks
+  - performance-*
+  - -performance-no-int-to-ptr              # 3
+  - portability-*
+  - readability-*
+  - -readability-avoid-const-params-in-decls  # 2
+  - -readability-avoid-unconditional-preprocessor-if  # 2
+  - -readability-braces-around-statements   # 9
+  - -readability-duplicate-include          # 6
+  - -readability-else-after-return          # 67, style
+  - -readability-enum-initial-value         # 9
+  - -readability-function-cognitive-complexity  # 293, style
+  - -readability-identifier-length          # 747, style
+  - -readability-inconsistent-declaration-parameter-name  # 16
+  - -readability-isolate-declaration        # 426, style
+  - -readability-magic-numbers              # 923, style
+  - -readability-math-missing-parentheses   # 42, style
+  - -readability-named-parameter            # 1
+  - -readability-non-const-parameter        # 18
+  - -readability-redundant-casting          # 21
+  - -readability-redundant-control-flow     # 26
+  - -readability-redundant-declaration      # 18
+  - -readability-suspicious-call-argument   # 8
+  - -readability-uppercase-literal-suffix   # 268, style
+HeaderFilterRegex: '/(src|include/xquic|include/moq)/'
+ExcludeHeaderFilterRegex: '/third_party/'
+...

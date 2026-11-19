@@ -3587,6 +3587,19 @@ xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *co
                 return -XQC_EVINTREAD;
             }
             p += vlen;
+
+            /*
+             * The arrays of ack_ts_info hold
+             * XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH timestamps, and
+             * max_receive_timestamps_per_ack, which comes from the
+             * connection settings, can be larger.
+             */
+            if (ack_ts_info->report_num
+                >= XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH)
+            {
+                return -XQC_EACK_EXT_ABN_VAL;
+            }
+
             if (is_first_pkt_in_range) {
                 if (is_first_range) {
                     ack_ts_info->pkt_nums[ack_ts_info->report_num] = largest_acked - cur_range_gap;

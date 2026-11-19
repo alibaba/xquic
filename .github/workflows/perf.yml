@@ -1,0 +1,103 @@
+name: Performance
+
+# Counts the instructions that tests/bench/xqc_bench executes in the XQUIC
+# sources, under valgrind, and fails when a scenario of
+# tests/bench/baseline.txt moves more than 1% away from its count. The
+# benchmark runs a client and a server in one process over a simulated link
+# with a virtual clock, so the counts repeat from run to run, to a few
+# instructions (see scripts/perf_bench.sh); no wall clock is read. The counts
+# depend on the compiler, so the baseline holds the counts of this job's
+# toolchain: the GCC and the C library of the ubuntu-24.04 image.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The BoringSSL release that the job builds: a tag, not BoringSSL's main
+  # branch, so that a BoringSSL commit cannot break the job on its own.
+  XQC_BORINGSSL_TAG: 0.20261105.0
+
+jobs:
+
+  instruction-counts:
+
+    name: Instruction counts
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            libevent-dev \
+            valgrind
+
+    - name: Build BoringSSL
+      run: |
+        git clone --depth 1 --branch "$XQC_BORINGSSL_TAG" \
+          https://github.com/google/boringssl.git ./third_party/boringssl
+        cmake -S third_party/boringssl -B third_party/boringssl/build \
+          -DBUILD_SHARED_LIBS=0 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_FLAGS="-fPIC" \
+          -DCMAKE_CXX_FLAGS="-fPIC"
+        cmake --build third_party/boringssl/build --parallel --target ssl crypto
+
+    - name: Build XQUIC
+      run: |
+        gcc --version | head -n 1
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        cmake -S . -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DXQC_ENABLE_TESTING=1 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        cmake --build build --parallel --target xqc_bench
+
+    - name: Count instructions
+      run: |
+        openssl req -newkey rsa:2048 -x509 -nodes -days 1 \
+          -keyout build/server.key -out build/server.crt \
+          -subj /CN=test.xquic.com
+        valgrind --version
+        bash scripts/perf_bench.sh build
+
+    - name: Upload cachegrind outputs
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: perf-bench-cachegrind
+        path: build/perf_bench/
+        retention-days: 7

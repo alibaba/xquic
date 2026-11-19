@@ -1595,6 +1595,96 @@ xqc_test_alpn_client_handshake_no_alpn(void)
 
 
 /*
+ * The peer's connection ID 1 for path ID 0, unused until it is taken
+ * with xqc_get_unused_cid(), and the stateless reset token it came with.
+ */
+static void
+xqc_test_sr_peer_cid(xqc_connection_t *conn, uint8_t *sr_token)
+{
+    xqc_cid_t   cid;
+
+    memset(&cid, 0, sizeof(cid));
+    cid.cid_len = 8;
+    memset(cid.cid_buf, 0x5a, cid.cid_len);
+    cid.cid_seq_num = 1;
+    memset(sr_token, 0xa5, XQC_STATELESS_RESET_TOKENLEN);
+    memcpy(cid.sr_token, sr_token, XQC_STATELESS_RESET_TOKENLEN);
+
+    CU_ASSERT_FATAL(xqc_cid_set_insert_cid(&conn->dcid_set, &cid, XQC_CID_UNUSED,
+                                           conn->local_settings.active_connection_id_limit,
+                                           XQC_INITIAL_PATH_ID) == XQC_OK);
+}
+
+/*
+ * RFC 9000 Section 10.3.1: "An endpoint MUST NOT check for any stateless
+ * reset tokens associated with connection IDs it has not used". The
+ * token of the peer's connection ID 1, unused, matches it but resets
+ * nothing.
+ */
+void
+xqc_test_stateless_reset_token_of_unused_cid(void)
+{
+    xqc_connection_t   *conn = test_engine_connect();
+    uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
+
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_test_sr_peer_cid(conn, sr_token);
+
+    CU_ASSERT(xqc_conn_handle_stateless_reset(conn, sr_token) == XQC_OK);
+    CU_ASSERT(conn->conn_state < XQC_CONN_STATE_DRAINING);
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* once that connection ID is in use, its token resets the connection */
+void
+xqc_test_stateless_reset_token_of_used_cid(void)
+{
+    xqc_cid_t           cid;
+    xqc_connection_t   *conn = test_engine_connect();
+    uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
+
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_test_sr_peer_cid(conn, sr_token);
+
+    CU_ASSERT(xqc_get_unused_cid(&conn->dcid_set, &cid, XQC_INITIAL_PATH_ID) == XQC_OK);
+    CU_ASSERT(cid.cid_seq_num == 1);
+
+    CU_ASSERT(xqc_conn_handle_stateless_reset(conn, sr_token) == XQC_OK);
+    CU_ASSERT(conn->conn_state == XQC_CONN_STATE_DRAINING);
+    CU_ASSERT(conn->conn_err == XQC_ESTATELESS_RESET);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* "or for connection IDs that have been retired": once retired, none */
+void
+xqc_test_stateless_reset_token_of_retired_cid(void)
+{
+    xqc_cid_t           cid;
+    xqc_cid_inner_t    *inner_cid;
+    xqc_connection_t   *conn = test_engine_connect();
+    uint8_t             sr_token[XQC_STATELESS_RESET_TOKENLEN];
+
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_test_sr_peer_cid(conn, sr_token);
+
+    CU_ASSERT(xqc_get_unused_cid(&conn->dcid_set, &cid, XQC_INITIAL_PATH_ID) == XQC_OK);
+    inner_cid = xqc_get_inner_cid_by_seq(&conn->dcid_set, 1, XQC_INITIAL_PATH_ID);
+    CU_ASSERT_FATAL(inner_cid != NULL);
+    CU_ASSERT(xqc_cid_switch_to_next_state(&conn->dcid_set, inner_cid, XQC_CID_RETIRED,
+                                           XQC_INITIAL_PATH_ID) == XQC_OK);
+
+    CU_ASSERT(xqc_conn_handle_stateless_reset(conn, sr_token) == XQC_OK);
+    CU_ASSERT(conn->conn_state < XQC_CONN_STATE_DRAINING);
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
  * RFC 9001 Section 6.1: an endpoint MUST retain old read keys until it has
  * successfully unprotected a packet sent using the new keys. When the local
  * endpoint initiates a key update, xqc_conn_confirm_key_update(conn, TRUE)

@@ -14,6 +14,9 @@
 #include "src/transport/xqc_stream.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_recv_record.h"
+#include "src/transport/xqc_recv_timestamps_info.h"
+#include "src/common/xqc_malloc.h"
 #include "xquic/xqc_errno.h"
 
 char XQC_TEST_ILL_FRAME_1[] = {0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -675,6 +678,98 @@ xqc_test_ack_range_negative_rejected()
                     sizeof(after_storage_limit));
     xqc_test_ack_range_rejected(after_storage_limit,
                                 sizeof(after_storage_limit));
+}
+
+
+/*
+ * The fields of ACK frames are 62-bit integers: the ACK, ACK_MP and
+ * ACK_EXTENDED generators write a First ACK Range and a Gap of 2^32
+ * packet numbers or more whole, and the frames parse back to the
+ * recorded ranges.
+ */
+void
+xqc_test_ack_frame_64_bit_ranges(void)
+{
+    const xqc_pktno_range_t ranges[] = {
+        { .low = 1ULL << 33, .high = (1ULL << 34) + 5 },
+        { .low = 0, .high = 10 },
+    };
+    const size_t n_ranges = sizeof(ranges) / sizeof(ranges[0]);
+    xqc_connection_t *conn;
+    xqc_recv_record_t record;
+    xqc_recv_timestamps_info_t *ts_info;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    conn->local_settings.extended_ack_features = 2;
+
+    memset(&record, 0, sizeof(record));
+    xqc_init_list_head(&record.list_head);
+    for (size_t i = 0; i < n_ranges; i++) {
+        xqc_pktno_range_node_t *node = xqc_calloc(1, sizeof(*node));
+        CU_ASSERT_PTR_NOT_NULL_FATAL(node);
+        node->pktno_range = ranges[i];
+        xqc_list_add_tail(&node->list, &record.list_head);
+        record.node_count++;
+    }
+    ts_info = xqc_recv_timestamps_info_create();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(ts_info);
+
+    for (int kind = 0; kind < 3; kind++) {
+        xqc_packet_out_t *packet_out = xqc_packet_out_create(XQC_QUIC_MAX_MSS);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(packet_out);
+        packet_out->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+
+        int has_gap = 0;
+        xqc_packet_number_t largest_ack = 0;
+        ssize_t len;
+        if (kind == 0) {
+            len = xqc_gen_ack_frame(conn, packet_out, 1000, 0, &record, 1000,
+                                    &has_gap, &largest_ack);
+        } else if (kind == 1) {
+            len = xqc_gen_ack_mp_frame(conn, 1, packet_out, 1000, 0, &record, 1000,
+                                       &has_gap, &largest_ack);
+        } else {
+            len = xqc_gen_ack_ext_frame(conn, packet_out, 1000, 0, &record, 1000,
+                                        &has_gap, &largest_ack, ts_info);
+        }
+        CU_ASSERT_FATAL(len > 0);
+        CU_ASSERT_EQUAL(largest_ack, ranges[0].high);
+
+        xqc_packet_in_t packet_in;
+        xqc_ack_info_t ack_info;
+        xqc_ack_timestamp_info_t ack_ts;
+        uint64_t path_id = 0;
+        xqc_int_t ret;
+        memset(&packet_in, 0, sizeof(packet_in));
+        memset(&ack_info, 0, sizeof(ack_info));
+        ack_ts.report_num = 0;
+        packet_in.pos = packet_out->po_buf;
+        packet_in.last = packet_out->po_buf + len;
+        packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+
+        if (kind == 0) {
+            ret = xqc_parse_ack_frame(&packet_in, conn, &ack_info);
+        } else if (kind == 1) {
+            ret = xqc_parse_ack_mp_frame(&packet_in, conn, &path_id, &ack_info);
+        } else {
+            ret = xqc_parse_ack_ext_frame(&packet_in, conn, &ack_info, &ack_ts);
+        }
+        CU_ASSERT_EQUAL(ret, XQC_OK);
+        CU_ASSERT(packet_in.pos == packet_in.last);
+        CU_ASSERT_EQUAL(ack_info.n_ranges, n_ranges);
+        for (size_t i = 0; i < n_ranges && i < ack_info.n_ranges; i++) {
+            CU_ASSERT_EQUAL(ack_info.ranges[i].high, ranges[i].high);
+            CU_ASSERT_EQUAL(ack_info.ranges[i].low, ranges[i].low);
+        }
+
+        xqc_packet_out_destroy(packet_out);
+    }
+
+    xqc_recv_timestamps_info_destroy(ts_info);
+    xqc_recv_record_destroy(&record);
+    xqc_engine_destroy(conn->engine);
 }
 
 

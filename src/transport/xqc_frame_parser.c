@@ -1113,7 +1113,8 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
     const unsigned char *begin = dst_buf;
     const unsigned char *end = dst_buf + dst_buf_len;
     unsigned char *p_range_count;
-    unsigned range_count = 0, first_ack_range, gap, acks, gap_bits, acks_bits, need;
+    unsigned range_count = 0, gap_bits, acks_bits, need;
+    uint64_t first_ack_range, gap, acks;
 
     xqc_list_head_t *pos, *next;
     xqc_pktno_range_node_t *range_node;
@@ -1134,7 +1135,7 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
     first_ack_range = largest_recv - first_range->pktno_range.low;
     prev_low = first_range->pktno_range.low;
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_recv:%ui|ack_delay:%ui|first_ack_range:%ui|largest_pkt_recv_time:%ui|",
             largest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
 
     ack_delay = ack_delay >> ack_delay_exponent;
@@ -2505,7 +2506,8 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     const unsigned char *begin = dst_buf;
     const unsigned char *end = dst_buf + dst_buf_len;
     unsigned char *p_range_count;
-    unsigned range_count = 0, first_ack_range, gap, acks, gap_bits, acks_bits, need;
+    unsigned range_count = 0, gap_bits, acks_bits, need;
+    uint64_t first_ack_range, gap, acks;
 
     xqc_list_head_t *pos, *next;
     xqc_pktno_range_node_t *range_node;
@@ -2534,7 +2536,7 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
     first_ack_range = largest_recv - first_range->pktno_range.low;
     prev_low = first_range->pktno_range.low;
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_recv:%ui|ack_delay:%ui|first_ack_range:%ui|largest_pkt_recv_time:%ui|",
             largest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
 
     ack_delay = ack_delay >> ack_delay_exponent;
@@ -3279,7 +3281,8 @@ xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_
     const unsigned char *begin = dst_buf;
     const unsigned char *end = dst_buf + dst_buf_len;
     unsigned char *p_range_count;
-    unsigned range_count = 0, first_ack_range, gap, acks, gap_bits, acks_bits, need;
+    unsigned range_count = 0, gap_bits, acks_bits, need;
+    uint64_t first_ack_range, gap, acks;
 
     xqc_list_head_t *pos, *next;
     xqc_pktno_range_node_t *range_node;
@@ -3300,7 +3303,7 @@ xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_
     first_ack_range = largest_recv - first_range->pktno_range.low;
     prev_low = first_range->pktno_range.low;
 
-    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_recv:%ui|ack_delay:%ui|first_ack_range:%ud|largest_pkt_recv_time:%ui|",
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|largest_recv:%ui|ack_delay:%ui|first_ack_range:%ui|largest_pkt_recv_time:%ui|",
             largest_recv, ack_delay, first_ack_range, largest_pkt_recv_time);
 
     ack_delay = ack_delay >> ack_delay_exponent;

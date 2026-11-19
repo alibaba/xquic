@@ -72,6 +72,8 @@ typedef struct xqc_demo_cli_user_stream_s {
     size_t                      send_body_len;
     size_t                      recv_body_len;
     int                         recv_fin;
+    /* counted in req_fin_cnt, at the response's end or at the close */
+    int                         req_finished;
     xqc_msec_t                  start_time;
 
     /* hq request content */
@@ -602,6 +604,11 @@ xqc_demo_cli_on_stream_fin(xqc_demo_cli_user_stream_t *user_stream)
     xqc_demo_cli_user_conn_t *user_conn = user_stream->user_conn;
     xqc_demo_cli_ctx_t *conn_ctx = user_conn->ctx;
     int task_idx = user_stream->user_conn->task->task_idx;
+
+    if (user_stream->req_finished) {
+        return;
+    }
+    user_stream->req_finished = 1;
 
     /* all reqs are finished, close the connection */
     if (++ctx->schedule.schedule_info[task_idx].req_fin_cnt
@@ -1200,7 +1207,11 @@ xqc_demo_cli_hq_req_read_notify(xqc_hq_request_t *hqr, void *req_user_data)
             user_stream->recv_body_fp = NULL;
         }
 
-        // xqc_demo_cli_on_stream_fin(user_stream);
+        /*
+         * close the connection after the last response, rather than when
+         * the stream is destroyed 3 PTOs later
+         */
+        xqc_demo_cli_on_stream_fin(user_stream);
     }
     return 0;
 }
@@ -1299,6 +1310,7 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
         if (fin) {
             /* only header in request */
             user_stream->recv_fin = 1;
+            xqc_demo_cli_on_stream_fin(user_stream);
             return 0;
         }
     }
@@ -1359,7 +1371,7 @@ xqc_demo_cli_h3_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_no
             fclose(user_stream->recv_body_fp);
             user_stream->recv_body_fp = NULL;
         }
-        // xqc_demo_cli_on_stream_fin(user_stream);
+        xqc_demo_cli_on_stream_fin(user_stream);
         task_idx = user_stream->user_conn->task->task_idx;
         if (ctx->schedule.schedule_info[task_idx].req_create_cnt
             < ctx->tasks[task_idx].user_conn->task->req_cnt

@@ -331,7 +331,7 @@ xqc_qpack_on_encoder_ins(xqc_qpack_t *qpk, xqc_ins_enc_ctx_t *ctx)
     case XQC_INS_TYPE_ENC_SET_DTABLE_CAP:
         if (ctx->capacity.value > qpk->dec_max_cap) {
             xqc_log(qpk->log, XQC_LOG_ERROR,
-                    "|set dtable capacity error|capacity value:%u, max capacity:%u|",
+                    "|set dtable capacity error|capacity value:%ui, max capacity:%ui|",
                     ctx->capacity.value, qpk->dec_max_cap);
             return -XQC_QPACK_SET_DTABLE_CAP_ERROR;
         }
@@ -357,7 +357,7 @@ xqc_qpack_on_encoder_ins(xqc_qpack_t *qpk, xqc_ins_enc_ctx_t *ctx)
         break;
 
     default:
-        xqc_log(qpk->log, XQC_LOG_ERROR, "|unknown encoder instruction|type:%ui|", ctx->type);
+        xqc_log(qpk->log, XQC_LOG_ERROR, "|unknown encoder instruction|type:%d|", ctx->type);
         return -XQC_QPACK_UNKNOWN_INSTRUCTION;
     }
 
@@ -385,8 +385,8 @@ xqc_qpack_process_encoder(xqc_qpack_t *qpk, unsigned char *data, size_t data_len
         /* parse instruction bytes */
         read = xqc_ins_parse_encoder(data + processed, data_len - processed, ctx);
         if (read < 0) {
-            xqc_log(qpk->log, XQC_LOG_ERROR, "|parse encoder instruction error|ret:%d|type:%d"
-                    "|state:%d|data_len:%d|processed:%d|", read, ctx->type,
+            xqc_log(qpk->log, XQC_LOG_ERROR, "|parse encoder instruction error|ret:%z|type:%d"
+                    "|state:%d|data_len:%uz|processed:%z|", read, ctx->type,
                     ctx->state, data_len, processed);
             return read;
         }
@@ -437,7 +437,7 @@ xqc_qpack_on_decoder_ins(xqc_qpack_t *qpk, xqc_ins_dec_ctx_t *ctx)
     case XQC_INS_TYPE_DEC_SECTION_ACK:
         ret = xqc_encoder_section_ack(qpk->enc, ctx->stream_id.value);
         if (ret != XQC_OK) {
-            xqc_log(qpk->log, XQC_LOG_ERROR, "|on section ack error|ret:%i|stream_id:%ui|",
+            xqc_log(qpk->log, XQC_LOG_ERROR, "|on section ack error|ret:%d|stream_id:%ui|",
                     ret, ctx->stream_id.value);
             return -XQC_QPACK_ENCODER_ERROR;
         }
@@ -446,7 +446,7 @@ xqc_qpack_on_decoder_ins(xqc_qpack_t *qpk, xqc_ins_dec_ctx_t *ctx)
     case XQC_INS_TYPE_DEC_STREAM_CANCEL:
         ret = xqc_encoder_cancel_stream(qpk->enc, ctx->stream_id.value);
         if (ret != XQC_OK) {
-            xqc_log(qpk->log, XQC_LOG_ERROR, "|on stream cancel error|ret:%i|stream_id:%ui|",
+            xqc_log(qpk->log, XQC_LOG_ERROR, "|on stream cancel error|ret:%d|stream_id:%ui|",
                     ret, ctx->stream_id.value);
             return -XQC_QPACK_ENCODER_ERROR;
         }
@@ -455,13 +455,13 @@ xqc_qpack_on_decoder_ins(xqc_qpack_t *qpk, xqc_ins_dec_ctx_t *ctx)
     case XQC_INS_TYPE_DEC_INSERT_CNT_INC:
         ret = xqc_encoder_increase_known_rcvd_count(qpk->enc, ctx->increment.value);
         if (ret != XQC_OK) {
-            xqc_log(qpk->log, XQC_LOG_ERROR, "|on ici error|ret:%i|", ret);
+            xqc_log(qpk->log, XQC_LOG_ERROR, "|on ici error|ret:%d|", ret);
             return -XQC_QPACK_ENCODER_ERROR;
         }
         break;
 
     default:
-        xqc_log(qpk->log, XQC_LOG_ERROR, "|unknown decoder instruction|type:%ui|", ctx->type);
+        xqc_log(qpk->log, XQC_LOG_ERROR, "|unknown decoder instruction|type:%d|", ctx->type);
         return -XQC_QPACK_UNKNOWN_INSTRUCTION;
     }
 
@@ -477,7 +477,7 @@ xqc_qpack_process_decoder(xqc_qpack_t *qpk, unsigned char *data, size_t data_len
         /* parse decoder instruction bytes */
         ssize_t read = xqc_ins_parse_decoder(data + processed, data_len - processed, ctx);
         if (read < 0) {
-            xqc_log(qpk->log, XQC_LOG_ERROR, "|parse decoder instruction error|ret:%i|", read);
+            xqc_log(qpk->log, XQC_LOG_ERROR, "|parse decoder instruction error|ret:%z|", read);
             return read;
         }
         processed += read;
@@ -546,7 +546,7 @@ xqc_qpack_enc_headers(xqc_qpack_t *qpk, uint64_t stream_id,
     ssize_t processed = qpk->ins_cb.write_ins_cb(XQC_INS_TYPE_ENCODER, ins_buf,
                                                       qpk->user_data);
     if (processed < 0) {
-        xqc_log(qpk->log, XQC_LOG_ERROR, "|write instruction error|%d|", processed);
+        xqc_log(qpk->log, XQC_LOG_ERROR, "|write instruction error|%z|", processed);
         return -XQC_H3_EQPACK_ENCODE;
     }
 
@@ -601,7 +601,7 @@ xqc_qpack_dec_headers(xqc_qpack_t *qpk, xqc_rep_ctx_t *req_ctx, unsigned char *d
         xqc_http_header_t *hdr = &headers->headers[headers->count];
         read = xqc_decoder_dec_header(qpk->dec, req_ctx, pos, end - pos, hdr, blocked);
         if (read < 0) {
-            xqc_log(qpk->log, XQC_LOG_ERROR, "|decode headers error!|ret:%d|", read);
+            xqc_log(qpk->log, XQC_LOG_ERROR, "|decode headers error!|ret:%z|", read);
             return -XQC_QPACK_DECODER_ERROR;
         }
         pos += read;

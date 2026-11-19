@@ -250,7 +250,7 @@ xqc_dtable_dequeue_nv(xqc_dtable_t *dt, xqc_dtable_entry_t *entry)
     if (entry->nv.nlen > 0) {
         ret = xqc_ring_mem_dequeue(dt->rmem, entry->nv.nidx, entry->nv.nlen);
         if (ret != XQC_OK) {
-            xqc_log(dt->log, XQC_LOG_ERROR, "|dequeue name error|ret:%d|nidx:%ui|nlen:%ui|", ret,
+            xqc_log(dt->log, XQC_LOG_ERROR, "|dequeue name error|ret:%d|nidx:%ui|nlen:%uz|", ret,
                     entry->nv.nidx, entry->nv.nlen);
             return ret;
         }
@@ -260,7 +260,7 @@ xqc_dtable_dequeue_nv(xqc_dtable_t *dt, xqc_dtable_entry_t *entry)
     if (entry->nv.vlen > 0) {
         ret = xqc_ring_mem_dequeue(dt->rmem, entry->nv.vidx, entry->nv.vlen);
         if (ret != XQC_OK) {
-            xqc_log(dt->log, XQC_LOG_ERROR, "|dequeue value error|ret:%d|vidx:%ui|vlen:%ui|", ret,
+            xqc_log(dt->log, XQC_LOG_ERROR, "|dequeue value error|ret:%d|vidx:%ui|vlen:%uz|", ret,
                     entry->nv.vidx, entry->nv.vlen);
             return ret;
         }
@@ -418,7 +418,7 @@ xqc_dtable_add(xqc_dtable_t *dt, unsigned char *name, uint64_t nlen, unsigned ch
      * or it might cause FATAL state error after pop failure
      */
     if (space > dt->capacity) {
-        xqc_log(dt->log, XQC_LOG_ERROR, "|entry too large|space:%zu|cap:%zu|", space, dt->capacity);
+        xqc_log(dt->log, XQC_LOG_ERROR, "|entry too large|space:%uz|cap:%uz|", space, dt->capacity);
         return -XQC_ELIMIT;
     }
 
@@ -788,7 +788,7 @@ xqc_dtable_duplicate(xqc_dtable_t *dt, uint64_t idx, uint64_t *new_idx)
 
     ret = xqc_dtable_add(dt, name.data, name.data_len, value.data, value.data_len, new_idx);
     if (ret != XQC_OK) {
-        xqc_log(dt->log, XQC_LOG_ERROR, "|duplicate error|ret:%d|");
+        xqc_log(dt->log, XQC_LOG_ERROR, "|duplicate error|ret:%d|", ret);
     }
 
 end:
@@ -841,14 +841,15 @@ xqc_log_QPACK_STATE_UPDATED_callback(xqc_log_t *log, const char *func, ...)
     va_start(args, func);
     xqc_int_t type = va_arg(args, xqc_int_t);
     xqc_dtable_t *dt = va_arg(args, xqc_dtable_t*);
-    uint64_t krc = va_arg(args, uint64_t);
-    if (type == XQC_LOG_DECODER_EVENT) {
-        xqc_log_implement(log, QPACK_STATE_UPDATED, func, "|encoder|dtable_cap:%ui|dtable_size:%ui"
+    if (type == XQC_LOG_ENCODER_EVENT) {
+        /* only the encoder passes its known received count */
+        uint64_t krc = va_arg(args, uint64_t);
+        xqc_log_implement(log, QPACK_STATE_UPDATED, func, "|encoder|dtable_cap:%uz|dtable_size:%uz"
                           "|know_received_count:%ui|insert_count:%ui|", dt->capacity, dt->used,
                           krc, dt->insert_cnt);
     } else {
         xqc_log_implement(log, QPACK_STATE_UPDATED, func,
-                          "|decoder|dtable_cap:%ui|dtable_size:%ui|insert_count:%ui|",
+                          "|decoder|dtable_cap:%uz|dtable_size:%uz|insert_count:%ui|",
                           dt->capacity, dt->used, dt->insert_cnt);
     }
     va_end(args);

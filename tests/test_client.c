@@ -3828,12 +3828,12 @@ xqc_client_try_inject_mp_frozen(user_stream_t *user_stream)
         return;
     }
 
-    path_status = path->app_path_status;
+    path_status = path->local_status.wanted;
     mp_version = conn->conn_settings.multipath_version;
     conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
-    path->app_path_status = XQC_APP_PATH_STATUS_FROZEN;
+    path->local_status.wanted = XQC_APP_PATH_STATUS_FROZEN;
     ret = xqc_write_path_status_frame_to_packet(conn, path);
-    path->app_path_status = path_status;
+    path->local_status.wanted = path_status;
     conn->conn_settings.multipath_version = mp_version;
     printf("mp_frozen_injected:%d\n", ret == XQC_OK);
 

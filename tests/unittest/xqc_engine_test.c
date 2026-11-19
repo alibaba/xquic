@@ -399,6 +399,143 @@ xqc_test_rebinding_ignores_unauthenticated_packet()
 }
 
 
+/* 192.0.2.<host>:4433, a documentation address (RFC 5737) */
+#define XQC_TEST_MOVED_NET      0xc0000200
+#define XQC_TEST_MOVED_PORT     4433
+
+static void
+xqc_test_moved_addr(struct sockaddr_in *addr, uint8_t host)
+{
+    xqc_memzero(addr, sizeof(*addr));
+    addr->sin_family = AF_INET;
+    addr->sin_port = htons(XQC_TEST_MOVED_PORT);
+    addr->sin_addr.s_addr = htonl(XQC_TEST_MOVED_NET | host);
+}
+
+static void
+xqc_test_moved_set_path_addr(xqc_path_ctx_t *path, uint8_t host)
+{
+    struct sockaddr_in addr;
+
+    xqc_test_moved_addr(&addr, host);
+    xqc_memcpy(path->peer_addr, &addr, sizeof(addr));
+    path->peer_addrlen = sizeof(addr);
+}
+
+/* the path that xqc_path_rebinding_find_moved() finds, or NULL */
+static xqc_path_ctx_t *
+xqc_test_moved_find(xqc_connection_t *conn, xqc_cid_t *scid, uint8_t host)
+{
+    struct sockaddr_in addr;
+    xqc_path_ctx_t *path = NULL;
+
+    xqc_test_moved_addr(&addr, host);
+    if (!xqc_path_rebinding_find_moved(conn, scid, (struct sockaddr *)&addr,
+                                       &path))
+    {
+        return NULL;
+    }
+    return path;
+}
+
+/* a server with paths 0, 1 and 2 at 192.0.2.1, .2 and .3 */
+static xqc_connection_t *
+xqc_test_moved_connect(xqc_path_ctx_t **path1, xqc_path_ctx_t **path2)
+{
+    xqc_connection_t *conn = test_engine_connect();
+
+    *path1 = NULL;
+    *path2 = NULL;
+    if (conn == NULL) {
+        return NULL;
+    }
+    conn->conn_type = XQC_CONN_TYPE_SERVER;
+    test_enable_multipath(conn);
+    *path1 = test_add_path(conn, 1);
+    *path2 = test_add_path(conn, 2);
+    if (*path1 == NULL || *path2 == NULL) {
+        return NULL;
+    }
+    xqc_test_moved_set_path_addr(conn->conn_initial_path, 1);
+    xqc_test_moved_set_path_addr(*path1, 2);
+    xqc_test_moved_set_path_addr(*path2, 3);
+    return conn;
+}
+
+/*
+ * RFC 10069 Sections 3.1.2 and 5.2: a datagram with a connection ID of
+ * path 2 from the address of path 1 is a move of path 2; so is one from
+ * the address of a path that is closed, and, without multipath, one from
+ * a new address.
+ */
+void
+xqc_test_rebinding_moved_to_other_path_addr()
+{
+    xqc_path_ctx_t *path1, *path2;
+    xqc_connection_t *conn = xqc_test_moved_connect(&path1, &path2);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_EQUAL(xqc_test_moved_find(conn, &path2->path_scid, 2),
+                        path2);
+    CU_ASSERT_PTR_EQUAL(xqc_test_moved_find(conn, &path1->path_scid, 3),
+                        path1);
+
+    xqc_set_path_state(path1, XQC_PATH_STATE_CLOSED);
+    CU_ASSERT_PTR_EQUAL(xqc_test_moved_find(conn, &path2->path_scid, 2),
+                        path2);
+
+    /* without multipath, the initial path moves */
+    conn->enable_multipath = XQC_CONN_MP_DISABLED;
+    CU_ASSERT_PTR_EQUAL(xqc_test_moved_find(conn,
+                        &conn->conn_initial_path->path_scid, 9),
+                        conn->conn_initial_path);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * No move: a datagram from the address of its path, with any connection
+ * ID of the path and with or without multipath, one on a path being
+ * validated, and one with a connection ID of no path.
+ */
+void
+xqc_test_rebinding_not_moved()
+{
+    xqc_path_ctx_t *path1, *path2;
+    xqc_connection_t *conn = xqc_test_moved_connect(&path1, &path2);
+    xqc_cid_t unknown, rotated;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_NULL(xqc_test_moved_find(conn, &path2->path_scid, 3));
+    CU_ASSERT_PTR_NULL(xqc_test_moved_find(conn,
+                       &conn->conn_initial_path->path_scid, 1));
+
+    /* another connection ID of path 2, to which the peer moved */
+    rotated = path2->path_scid;
+    rotated.cid_buf[0] ^= 0xff;
+    CU_ASSERT_EQUAL(xqc_cid_set_insert_cid(&conn->scid_set, &rotated,
+                    XQC_CID_UNUSED, XQC_CONN_ACTIVE_CID_LIMIT, path2->path_id),
+                    XQC_OK);
+    CU_ASSERT_PTR_NULL(xqc_test_moved_find(conn, &rotated, 3));
+    CU_ASSERT_PTR_EQUAL(xqc_test_moved_find(conn, &rotated, 2), path2);
+
+    xqc_set_path_state(path2, XQC_PATH_STATE_VALIDATING);
+    CU_ASSERT_PTR_NULL(xqc_test_moved_find(conn, &path2->path_scid, 9));
+
+    xqc_memzero(&unknown, sizeof(unknown));
+    unknown.cid_len = XQC_DEFAULT_CID_LEN;
+    memset(unknown.cid_buf, 0xee, unknown.cid_len);
+    CU_ASSERT_PTR_NULL(xqc_test_moved_find(conn, &unknown, 9));
+
+    /* without multipath, a datagram from the initial path's address */
+    conn->enable_multipath = XQC_CONN_MP_DISABLED;
+    CU_ASSERT_PTR_NULL(xqc_test_moved_find(conn,
+                       &conn->conn_initial_path->path_scid, 1));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 void
 xqc_test_rebinding_path_challenge_requires_confirmed()
 {

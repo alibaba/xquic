@@ -14,6 +14,7 @@
 #include "src/transport/xqc_packet.h"
 #include "src/transport/xqc_recv_record.h"
 #include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_path_status.h"
 
 
 /* enable multipath */
@@ -46,8 +47,6 @@ typedef enum {
 } xqc_send_type_t;
 
 typedef enum {
-    XQC_PATH_FLAG_SEND_STATUS_SHIFT,
-    XQC_PATH_FLAG_RECV_STATUS_SHIFT,
     XQC_PATH_FLAG_SOCKET_ERROR_SHIFT,
     XQC_PATH_FLAG_SHOULD_ACK_INIT_SHIFT,
     XQC_PATH_FLAG_SHOULD_ACK_HSK_SHIFT,
@@ -55,8 +54,6 @@ typedef enum {
 } xqc_path_flag_shift_t;
 
 typedef enum {
-    XQC_PATH_FLAG_SEND_STATUS       = 1 << XQC_PATH_FLAG_SEND_STATUS_SHIFT,
-    XQC_PATH_FLAG_RECV_STATUS       = 1 << XQC_PATH_FLAG_RECV_STATUS_SHIFT,
     XQC_PATH_FLAG_SOCKET_ERROR      = 1 << XQC_PATH_FLAG_SOCKET_ERROR_SHIFT,
     XQC_PATH_FLAG_SHOULD_ACK_INIT   = 1 << XQC_PATH_FLAG_SHOULD_ACK_INIT_SHIFT,
     XQC_PATH_FLAG_SHOULD_ACK_HSK    = 1 << XQC_PATH_FLAG_SHOULD_ACK_HSK_SHIFT,
@@ -132,11 +129,13 @@ struct xqc_path_ctx_s {
 
     xqc_path_flag_t     path_flag;
 
-    /* application layer path status, sync via PATH_STATUS frame */
+    /*
+     * The status the path is used with for sending: the stricter of the
+     * local and the peer's (see xqc_path_update_app_status).
+     */
     xqc_app_path_status_t   app_path_status;
-    xqc_app_path_status_t   next_app_path_state;
-    uint64_t                app_path_status_send_seq_num;
-    uint64_t                app_path_status_recv_seq_num;
+    xqc_path_local_status_t local_status;
+    xqc_path_peer_status_t  peer_status;
 
     xqc_usec_t              last_app_path_status_changed_time;
 
@@ -261,7 +260,16 @@ void xqc_path_send_buffer_append(xqc_path_ctx_t *path, xqc_packet_out_t *packet_
 void xqc_path_send_buffer_remove(xqc_path_ctx_t *path, xqc_packet_out_t *packet_out);
 void xqc_path_send_buffer_clear(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_list_head_t *head, xqc_send_type_t send_type);
 
-xqc_int_t xqc_set_application_path_status(xqc_path_ctx_t *path, xqc_app_path_status_t status, xqc_bool_t is_tx);
+/*
+ * Set the status this endpoint indicates for the path. It is sent at once
+ * on an active path, and once the path is validated otherwise.
+ */
+xqc_int_t xqc_path_set_local_status(xqc_path_ctx_t *path,
+    xqc_app_path_status_t status);
+
+/* the peer indicates a status for a path ID (RFC 10069 Section 4.3) */
+void xqc_conn_on_peer_path_status(xqc_connection_t *conn, uint64_t path_id,
+    xqc_path_status_seq_t seq, xqc_app_path_status_t status);
 
 /* path statistics */
 void xqc_conn_path_metrics_print(xqc_connection_t *conn, xqc_conn_stats_t *stats);

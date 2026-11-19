@@ -18,6 +18,7 @@
 
 #include "xqc_common_test.h"
 #include "xqc_h3_test.h"
+#include "xqc_alloc_wrap.h"
 
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
@@ -1342,6 +1343,517 @@ xqc_test_h3_valid_headers_smoke()
     CU_ASSERT(h3s->h3r->completed_header_count == 1);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+/*
+ * Lifecycle of request streams that QPACK blocks (RFC 9204 Section 2.2.1).
+ * A response's field section refers to a dynamic table entry that the
+ * peer's encoder has not inserted yet: its stream is recorded in the h3
+ * connection's list of blocked streams, ordered by Required Insert Count,
+ * and resumes once the insertion arrives. The h3 stream is destroyed when
+ * its transport stream closes, unless it is still blocked with its FIN
+ * read: it is then kept until it resumes, or until the h3 connection is
+ * destroyed.
+ *
+ * The bytes of a request stream take the transport stream's receive path,
+ * and an insertion takes the decoder's, then resumes the blocked streams
+ * as xqc_h3_stream_process_data() does. The teardown follows
+ * xqc_conn_destroy(): the transport streams close first, then the h3
+ * connection is destroyed. Each request's close must be notified once,
+ * and, where the linker wraps the allocator (xqc_alloc_wrap.h), nothing
+ * that a test allocated may be left.
+ */
+#define XQC_H3_LIFE_REQUESTS    3
+
+typedef struct {
+    int                 opened;
+    xqc_stream_t       *stream;     /* NULL once destroyed */
+    xqc_h3_stream_t    *h3s;        /* NULL once its close is notified */
+    int                 headers;    /* header sections read */
+    char                value;      /* the value of their x-life field */
+    size_t              body;       /* body bytes read */
+    int                 fin;        /* the FIN was read */
+    int                 closed;     /* close notifications */
+} xqc_h3_life_req_t;
+
+typedef struct {
+    xqc_connection_t   *conn;
+    xqc_h3_conn_t      *h3c;
+    xqc_stream_t       *dec_stream; /* our QPACK decoder stream */
+    xqc_h3_life_req_t   req[XQC_H3_LIFE_REQUESTS];
+    int                 inserted;   /* entries the peer inserted */
+} xqc_h3_life_t;
+
+/* declared in src/transport/xqc_frame.h */
+xqc_int_t xqc_insert_stream_frame(xqc_connection_t *conn,
+    xqc_stream_t *stream, xqc_stream_frame_t *new_frame);
+/* the read callback of h3 streams (src/http3/xqc_h3_stream.c) */
+extern int xqc_h3_stream_read_notify(xqc_stream_t *stream, void *user_data);
+
+static int
+xqc_h3_life_on_read(xqc_h3_request_t *h3r, xqc_request_notify_flag_t flag,
+    void *user_data)
+{
+    xqc_h3_life_req_t *req = user_data;
+    xqc_http_headers_t *hdrs;
+    unsigned char buf[16];
+    ssize_t read;
+    uint8_t fin = 0;
+
+    if (flag & XQC_REQ_NOTIFY_READ_HEADER) {
+        hdrs = xqc_h3_request_recv_headers(h3r, &fin);
+        req->headers++;
+        req->value = '?';
+        if (hdrs != NULL && hdrs->count == 1
+            && hdrs->headers[0].name.iov_len == 6
+            && memcmp(hdrs->headers[0].name.iov_base, "x-life", 6) == 0
+            && hdrs->headers[0].value.iov_len == 1)
+        {
+            req->value = *(char *) hdrs->headers[0].value.iov_base;
+        }
+        req->fin |= fin;
+    }
+
+    if (flag & XQC_REQ_NOTIFY_READ_BODY) {
+        read = xqc_h3_request_recv_body(h3r, buf, sizeof(buf), &fin);
+        if (read > 0) {
+            req->body += read;
+        }
+        req->fin |= fin;
+    }
+
+    if (flag & XQC_REQ_NOTIFY_READ_EMPTY_FIN) {
+        req->fin = 1;
+    }
+
+    return XQC_OK;
+}
+
+static int
+xqc_h3_life_on_close(xqc_h3_request_t *h3r, void *user_data)
+{
+    xqc_h3_life_req_t *req = user_data;
+
+    req->closed++;
+    req->h3s = NULL;
+    return XQC_OK;
+}
+
+#ifdef XQC_TEST_ALLOC_WRAP
+/* the allocations that the process makes only once are left uncounted */
+static void
+xqc_h3_life_warm_up(void)
+{
+    static int done;
+    xqc_connection_t *conn;
+
+    if (!done) {
+        conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+        xqc_engine_destroy(conn->engine);
+        done = 1;
+    }
+}
+#endif
+
+/* a client connection whose decoder admits blocked_streams blocked streams */
+static void
+xqc_h3_life_setup(xqc_h3_life_t *t, uint64_t blocked_streams)
+{
+    xqc_connection_t *conn;
+
+    memset(t, 0, sizeof(*t));
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_h3_life_warm_up();
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+#endif
+
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    if (conn->alpn) {
+        xqc_free(conn->alpn);
+    }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    CU_ASSERT_FATAL(conn->alpn != NULL);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+    conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 16;
+    conn->conn_flow_ctl.fc_max_streams_uni_can_send = 16;
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+    t->conn = conn;
+
+    t->h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(t->h3c != NULL);
+    t->h3c->local_h3_conn_settings.qpack_blocked_streams = blocked_streams;
+    t->h3c->h3_request_callbacks.h3_request_read_notify = xqc_h3_life_on_read;
+    t->h3c->h3_request_callbacks.h3_request_close_notify =
+        xqc_h3_life_on_close;
+
+    /* our QPACK decoder stream takes the Insert Count Increments */
+    t->dec_stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                                XQC_CLI_UNI, NULL, NULL);
+    CU_ASSERT_FATAL(t->dec_stream != NULL);
+    t->h3c->qdec_stream = xqc_h3_stream_create(t->h3c, t->dec_stream,
+        XQC_H3_STREAM_TYPE_QPACK_DECODER, NULL);
+    CU_ASSERT_FATAL(t->h3c->qdec_stream != NULL);
+}
+
+/* a request whose response is read on its stream */
+static xqc_h3_life_req_t *
+xqc_h3_life_request(xqc_h3_life_t *t, int i)
+{
+    xqc_h3_life_req_t *req = &t->req[i];
+
+    req->opened = 1;
+    req->stream = xqc_create_stream_with_conn(t->conn, XQC_UNDEFINE_STREAM_ID,
+                                              XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(req->stream != NULL);
+    req->h3s = xqc_h3_stream_create(t->h3c, req->stream,
+                                    XQC_H3_STREAM_TYPE_REQUEST, req);
+    CU_ASSERT_FATAL(req->h3s != NULL);
+    CU_ASSERT_FATAL(xqc_h3_request_create_inner(t->h3c, req->h3s, req)
+                    != NULL);
+    return req;
+}
+
+/* the peer's bytes arrive on a request stream, and are read */
+static int
+xqc_h3_life_recv(xqc_h3_life_req_t *req, const unsigned char *data,
+    size_t len, uint8_t fin)
+{
+    xqc_stream_t *stream = req->stream;
+    xqc_stream_frame_t *frame;
+
+    frame = xqc_calloc(1, sizeof(*frame));
+    CU_ASSERT_FATAL(frame != NULL);
+    frame->data = xqc_malloc(len);
+    CU_ASSERT_FATAL(frame->data != NULL);
+    memcpy(frame->data, data, len);
+    frame->data_length = len;
+    frame->data_offset = stream->stream_data_in.merged_offset_end;
+    frame->fin = fin;
+    if (xqc_insert_stream_frame(stream->stream_conn, stream, frame)
+        != XQC_OK)
+    {
+        xqc_destroy_stream_frame(frame);
+        return -XQC_EPARAM;
+    }
+
+    if (fin) {
+        stream->stream_data_in.stream_determined = 1;
+        stream->stream_data_in.stream_length = frame->data_offset + len;
+        stream->stream_state_recv = XQC_RECV_STREAM_ST_DATA_RECVD;
+    }
+
+    return xqc_h3_stream_read_notify(stream, stream->user_data);
+}
+
+/*
+ * The peer's encoder inserts x-life: <value>, after it sets the table
+ * capacity the first time, and the blocked streams resume.
+ */
+static xqc_int_t
+xqc_h3_life_insert(xqc_h3_life_t *t, const char *value)
+{
+    xqc_var_buf_t *ins = xqc_var_buf_create(64);
+    ssize_t read;
+
+    CU_ASSERT_FATAL(ins != NULL);
+    if (t->inserted++ == 0) {
+        CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 256) == XQC_OK);
+    }
+    CU_ASSERT(xqc_ins_write_insert_literal_name(ins,
+                  (unsigned char *) "x-life", 6, (unsigned char *) value,
+                  strlen(value)) == XQC_OK);
+    read = xqc_qpack_process_encoder(t->h3c->qpack, ins->data,
+                                     ins->data_len);
+    CU_ASSERT(read == (ssize_t) ins->data_len);
+    xqc_var_buf_free(ins);
+    CU_ASSERT(xqc_qpack_get_dec_insert_count(t->h3c->qpack)
+              == (uint64_t) t->inserted);
+
+    return xqc_h3_conn_process_blocked_stream(t->h3c);
+}
+
+/* the transport stream of a request closes */
+static void
+xqc_h3_life_close(xqc_h3_life_req_t *req)
+{
+    CU_ASSERT(xqc_h3_stream_close_notify(req->stream, req->stream->user_data)
+              == XQC_OK);
+    req->stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_destroy_stream(req->stream);
+    req->stream = NULL;
+}
+
+/* the request's h3 stream is blocked, and recorded as blocked */
+static int
+xqc_h3_life_blocked(xqc_h3_life_req_t *req)
+{
+    return req->h3s != NULL
+           && (req->h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED)
+           && req->h3s->blocked_stream != NULL;
+}
+
+/* the request's h3 stream exists, neither blocked nor recorded as blocked */
+static int
+xqc_h3_life_resumed(xqc_h3_life_req_t *req)
+{
+    return req->h3s != NULL
+           && !(req->h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED)
+           && req->h3s->blocked_stream == NULL;
+}
+
+/*
+ * Tear the connection down as xqc_conn_destroy() does: every request's
+ * close is then notified once, and nothing allocated is left.
+ */
+static void
+xqc_h3_life_teardown(xqc_h3_life_t *t)
+{
+    int i;
+
+    for (i = 0; i < XQC_H3_LIFE_REQUESTS; i++) {
+        if (t->req[i].stream != NULL) {
+            xqc_h3_life_close(&t->req[i]);
+        }
+    }
+
+    t->dec_stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(t->h3c->qdec_stream);
+    t->h3c->qdec_stream = NULL;
+    xqc_destroy_stream(t->dec_stream);
+
+    xqc_h3_conn_destroy(t->h3c);
+    xqc_engine_destroy(t->conn->engine);
+
+    for (i = 0; i < XQC_H3_LIFE_REQUESTS; i++) {
+        CU_ASSERT(t->req[i].h3s == NULL);
+        CU_ASSERT(t->req[i].closed == t->req[i].opened);
+    }
+
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(xqc_test_alloc_live == 0);
+#endif
+}
+
+/* HEADERS: Required Insert Count 1, Base 1, dynamic index 0 (x-life: 0) */
+static const unsigned char xqc_h3_life_headers_0[] = {
+    0x01, 0x03, 0x02, 0x00, 0x80
+};
+/* HEADERS: Required Insert Count 2, Base 2, dynamic index 1 (x-life: 1) */
+static const unsigned char xqc_h3_life_headers_1[] = {
+    0x01, 0x03, 0x03, 0x00, 0x80
+};
+
+
+/*
+ * Two responses block on different entries, the one on the later entry
+ * first. The first insertion resumes only the stream that refers to it,
+ * the second insertion the other one, and each stream then reads its body
+ * and FIN on the normal receive path.
+ */
+void
+xqc_test_h3_blocked_life_unblock()
+{
+    static const unsigned char data[] = { 0x00, 0x02, 'o', 'k' };
+    xqc_h3_life_t t;
+    xqc_h3_life_req_t *a, *b;
+
+    xqc_h3_life_setup(&t, 2);
+    a = xqc_h3_life_request(&t, 0);
+    b = xqc_h3_life_request(&t, 1);
+
+    /* b blocks first, on the later entry */
+    CU_ASSERT(xqc_h3_life_recv(b, xqc_h3_life_headers_1,
+                               sizeof(xqc_h3_life_headers_1), 0) == XQC_OK);
+    CU_ASSERT(xqc_h3_life_recv(a, xqc_h3_life_headers_0,
+                               sizeof(xqc_h3_life_headers_0), 0) == XQC_OK);
+    CU_ASSERT(xqc_h3_life_blocked(a) && xqc_h3_life_blocked(b));
+    CU_ASSERT(t.h3c->block_stream_count == 2);
+    CU_ASSERT(t.h3c->total_blocked_buf_size == 2);
+    CU_ASSERT(a->headers == 0 && b->headers == 0);
+
+    /* the first entry resumes a */
+    CU_ASSERT(xqc_h3_life_insert(&t, "0") == XQC_OK);
+    CU_ASSERT(a->headers == 1 && a->value == '0' && !a->fin);
+    CU_ASSERT(xqc_h3_life_resumed(a));
+    CU_ASSERT(xqc_h3_life_blocked(b) && b->headers == 0);
+    CU_ASSERT(t.h3c->block_stream_count == 1);
+
+    /* the second entry resumes b */
+    CU_ASSERT(xqc_h3_life_insert(&t, "1") == XQC_OK);
+    CU_ASSERT(b->headers == 1 && b->value == '1' && !b->fin);
+    CU_ASSERT(xqc_h3_life_resumed(b));
+    CU_ASSERT(xqc_list_empty(&t.h3c->block_stream_head));
+    CU_ASSERT(t.h3c->block_stream_count == 0);
+    CU_ASSERT(t.h3c->total_blocked_buf_size == 0);
+
+    /* the bytes that follow take the normal receive path */
+    CU_ASSERT(xqc_h3_life_recv(a, data, sizeof(data), 1) == XQC_OK);
+    CU_ASSERT(xqc_h3_life_recv(b, data, sizeof(data), 1) == XQC_OK);
+    CU_ASSERT(a->body == 2 && a->fin && b->body == 2 && b->fin);
+    CU_ASSERT(a->closed == 0 && b->closed == 0);
+
+    xqc_h3_life_teardown(&t);
+}
+
+
+/*
+ * A response blocks with its FIN read, and resumes while its transport
+ * stream is open: its header section is read with the FIN, and its h3
+ * stream is destroyed when the transport stream closes.
+ */
+void
+xqc_test_h3_blocked_life_unblock_before_close()
+{
+    xqc_h3_life_t t;
+    xqc_h3_life_req_t *a;
+
+    xqc_h3_life_setup(&t, 1);
+    a = xqc_h3_life_request(&t, 0);
+
+    CU_ASSERT(xqc_h3_life_recv(a, xqc_h3_life_headers_0,
+                               sizeof(xqc_h3_life_headers_0), 1) == XQC_OK);
+    CU_ASSERT(xqc_h3_life_blocked(a)
+              && (a->h3s->flags & XQC_HTTP3_STREAM_FLAG_READ_EOF));
+
+    CU_ASSERT(xqc_h3_life_insert(&t, "0") == XQC_OK);
+    CU_ASSERT(a->headers == 1 && a->value == '0' && a->fin);
+    CU_ASSERT(xqc_h3_life_resumed(a));
+    CU_ASSERT(xqc_list_empty(&t.h3c->block_stream_head));
+    CU_ASSERT(t.h3c->total_blocked_buf_size == 0);
+    CU_ASSERT(a->closed == 0);
+
+    xqc_h3_life_close(a);
+    CU_ASSERT(a->closed == 1);
+
+    xqc_h3_life_teardown(&t);
+}
+
+
+/*
+ * A response blocks with its FIN read, and its transport stream closes:
+ * the h3 stream is kept, still recorded as blocked, for a delayed destroy.
+ * The insertion resumes it: its header section is read with the FIN, and
+ * the h3 stream is destroyed then.
+ */
+void
+xqc_test_h3_blocked_life_unblock_after_close()
+{
+    xqc_h3_life_t t;
+    xqc_h3_life_req_t *a;
+
+    xqc_h3_life_setup(&t, 1);
+    a = xqc_h3_life_request(&t, 0);
+
+    CU_ASSERT(xqc_h3_life_recv(a, xqc_h3_life_headers_0,
+                               sizeof(xqc_h3_life_headers_0), 1) == XQC_OK);
+    CU_ASSERT(xqc_h3_life_blocked(a));
+
+    xqc_h3_life_close(a);
+    CU_ASSERT(a->closed == 0 && xqc_h3_life_blocked(a));
+    CU_ASSERT(a->h3s != NULL && a->h3s->stream == NULL
+              && (a->h3s->flags & XQC_HTTP3_STREAM_FLAG_CLOSED));
+    CU_ASSERT(t.h3c->block_stream_count == 1);
+
+    CU_ASSERT(xqc_h3_life_insert(&t, "0") == XQC_OK);
+    CU_ASSERT(a->headers == 1 && a->value == '0' && a->fin);
+    CU_ASSERT(a->closed == 1);
+    CU_ASSERT(xqc_list_empty(&t.h3c->block_stream_head));
+    CU_ASSERT(t.h3c->block_stream_count == 0);
+    CU_ASSERT(t.h3c->total_blocked_buf_size == 0);
+
+    xqc_h3_life_teardown(&t);
+}
+
+
+/*
+ * The connection is torn down with blocked streams in its list: two kept
+ * for a delayed destroy, their transport streams closed after their FIN
+ * was read, and one whose transport stream is still open. The open one is
+ * destroyed when its transport stream closes, and the h3 connection
+ * destroys the two others: each request's close is notified once.
+ */
+void
+xqc_test_h3_blocked_life_conn_teardown()
+{
+    xqc_h3_life_t t;
+    xqc_h3_life_req_t *a, *b, *c;
+
+    xqc_h3_life_setup(&t, 3);
+    a = xqc_h3_life_request(&t, 0);
+    b = xqc_h3_life_request(&t, 1);
+    c = xqc_h3_life_request(&t, 2);
+
+    CU_ASSERT(xqc_h3_life_recv(a, xqc_h3_life_headers_0,
+                               sizeof(xqc_h3_life_headers_0), 1) == XQC_OK);
+    CU_ASSERT(xqc_h3_life_recv(b, xqc_h3_life_headers_1,
+                               sizeof(xqc_h3_life_headers_1), 1) == XQC_OK);
+    CU_ASSERT(xqc_h3_life_recv(c, xqc_h3_life_headers_0,
+                               sizeof(xqc_h3_life_headers_0), 0) == XQC_OK);
+    CU_ASSERT(xqc_h3_life_blocked(a) && xqc_h3_life_blocked(b)
+              && xqc_h3_life_blocked(c));
+    CU_ASSERT(t.h3c->block_stream_count == 3);
+
+    xqc_h3_life_close(a);
+    xqc_h3_life_close(b);
+    CU_ASSERT(a->closed == 0 && b->closed == 0);
+    CU_ASSERT(t.h3c->block_stream_count == 3);
+
+    xqc_h3_life_close(c);
+    CU_ASSERT(c->closed == 1);
+    CU_ASSERT(t.h3c->block_stream_count == 2);
+
+    xqc_h3_life_teardown(&t);
+    CU_ASSERT(a->headers == 0 && b->headers == 0 && c->headers == 0);
+}
+
+
+/*
+ * The decoder admits one blocked stream (SETTINGS_QPACK_BLOCKED_STREAMS,
+ * RFC 9204 Section 2.1.2), and a second response blocks: reading it fails
+ * with a connection error, and its stream is not recorded as blocked.
+ * With or without its FIN read, its h3 stream is destroyed when its
+ * transport stream closes, while the admitted stream stays recorded, and
+ * is destroyed with the h3 connection.
+ */
+void
+xqc_test_h3_blocked_life_limit()
+{
+    xqc_h3_life_t t;
+    xqc_h3_life_req_t *a, *b;
+    uint8_t fin;
+
+    for (fin = 0; fin <= 1; fin++) {
+        xqc_h3_life_setup(&t, 1);
+        a = xqc_h3_life_request(&t, 0);
+        b = xqc_h3_life_request(&t, 1);
+
+        CU_ASSERT(xqc_h3_life_recv(a, xqc_h3_life_headers_0,
+                                   sizeof(xqc_h3_life_headers_0), 1)
+                  == XQC_OK);
+        CU_ASSERT(xqc_h3_life_blocked(a));
+        CU_ASSERT(t.conn->conn_err == 0);
+
+        CU_ASSERT(xqc_h3_life_recv(b, xqc_h3_life_headers_0,
+                                   sizeof(xqc_h3_life_headers_0), fin) < 0);
+        CU_ASSERT(t.conn->conn_err != 0);
+        CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(t.conn->conn_err));
+        CU_ASSERT(b->h3s != NULL && b->h3s->blocked_stream == NULL);
+        CU_ASSERT(t.h3c->block_stream_count == 1);
+        CU_ASSERT(xqc_h3_life_blocked(a));
+
+        xqc_h3_life_close(b);
+        CU_ASSERT(b->closed == 1);
+        CU_ASSERT(xqc_h3_life_blocked(a) && a->closed == 0);
+
+        xqc_h3_life_teardown(&t);
+        CU_ASSERT(a->headers == 0 && b->headers == 0);
+    }
 }
 
 

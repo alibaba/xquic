@@ -47,6 +47,12 @@ void xqc_test_h3_message_error_code_value();
 void xqc_test_h3_malformed_headers_uses_message_error();
 void xqc_test_h3_headers_capacity_uses_internal_error();
 void xqc_test_h3_valid_headers_smoke();
+/* lifecycle of QPACK-blocked request streams (RFC 9204 Section 2.2.1) */
+void xqc_test_h3_blocked_life_unblock();
+void xqc_test_h3_blocked_life_unblock_before_close();
+void xqc_test_h3_blocked_life_unblock_after_close();
+void xqc_test_h3_blocked_life_conn_teardown();
+void xqc_test_h3_blocked_life_limit();
 /* transport stream closed while QPACK-blocked, then oversized HEADERS rejected */
 void xqc_test_h3_blocked_stream_reject_after_close();
 /* a stream blocked beyond the limit is destroyed, not leaked, on close */

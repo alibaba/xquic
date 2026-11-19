@@ -96,6 +96,9 @@ xqc_wt_h3_init_settings(xqc_h3_conn_t *h3c,
     xqc_h3_conn_settings_t *settings, void *data)
 {
     xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(h3c->conn->engine);
+    if (ctx == NULL) {
+        return;
+    }
     if (ctx->app_conn_callbacks.h3_conn_init_settings) {
         ctx->app_conn_callbacks.h3_conn_init_settings(h3c, settings, data);
     }

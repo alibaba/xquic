@@ -564,6 +564,188 @@ xqc_test_rfc9001_server_initial_keys()
 }
 
 
+/*
+ * RFC 9001 Section 5.4.3: an AES header protection mask is
+ * AES-ECB(hp_key, sample). Appendix A.2 and A.3 give the masks of the
+ * client and server Initial packets for the hp keys of the initial secrets
+ * above; FIPS-197 Appendix C.1 and C.3 give one block of AES-128 and
+ * AES-256.
+ */
+static const uint8_t rfc9001_client_hp_sample[16] = {
+    0xd1, 0xb1, 0xc9, 0x8d, 0xd7, 0x68, 0x9f, 0xb8,
+    0xec, 0x11, 0xd2, 0x42, 0xb1, 0x23, 0xdc, 0x9b
+};
+
+static const uint8_t rfc9001_client_hp_mask[5] = {
+    0x43, 0x7b, 0x9a, 0xec, 0x36
+};
+
+static const uint8_t rfc9001_server_hp_sample[16] = {
+    0x2c, 0xd0, 0x99, 0x1c, 0xd2, 0x5b, 0x0a, 0xac,
+    0x40, 0x6a, 0x58, 0x16, 0xb6, 0x39, 0x41, 0x00
+};
+
+static const uint8_t rfc9001_server_hp_mask[5] = {
+    0x2e, 0xc0, 0xd8, 0x35, 0x6a
+};
+
+static const uint8_t fips197_key[32] = {
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
+};
+
+static const uint8_t fips197_plaintext[16] = {
+    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+    0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff
+};
+
+/* the first 5 bytes of the FIPS-197 C.1 (AES-128) and C.3 (AES-256) blocks */
+static const uint8_t fips197_aes128_mask[5] = {
+    0x69, 0xc4, 0xe0, 0xd8, 0x6a
+};
+
+static const uint8_t fips197_aes256_mask[5] = {
+    0x8e, 0xa2, 0xb7, 0xca, 0x51
+};
+
+
+static void
+xqc_test_aes_hp_mask_derived(const uint8_t *secret, const uint8_t *sample,
+    const uint8_t *expected)
+{
+    uint8_t     zeros[5] = {0};
+    uint8_t     mask[5];
+    size_t      masklen = 0;
+
+    xqc_engine_t *engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+    xqc_crypto_t *crypto = xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256,
+                                             engine->log);
+    CU_ASSERT_FATAL(crypto != NULL);
+    CU_ASSERT_FATAL(xqc_crypto_derive_keys(crypto, secret,
+                                           INITIAL_SECRET_MAX_LEN,
+                                           XQC_KEY_TYPE_RX_READ) == XQC_OK);
+
+    memset(mask, 0xa5, sizeof(mask));
+    CU_ASSERT(crypto->hp_cipher.hp_mask(&crypto->hp_cipher,
+                                        crypto->keys.rx_hp_ctx,
+                                        mask, sizeof(mask), &masklen,
+                                        zeros, sizeof(zeros),
+                                        crypto->keys.rx_hp.base,
+                                        crypto->keys.rx_hp.len,
+                                        sample, 16) == XQC_OK);
+    CU_ASSERT(masklen == sizeof(mask));
+    CU_ASSERT(memcmp(mask, expected, sizeof(mask)) == 0);
+
+    xqc_crypto_destroy(crypto);
+    xqc_engine_destroy(engine);
+}
+
+static void
+xqc_test_aes_hp_mask_key(uint32_t cipher_id, size_t keylen,
+    const uint8_t *expected)
+{
+    uint8_t     zeros[5] = {0};
+    uint8_t     mask[5];
+    size_t      masklen = 0;
+    void       *hp_ctx;
+
+    xqc_engine_t *engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+    xqc_crypto_t *crypto = xqc_crypto_create(cipher_id, engine->log);
+    CU_ASSERT_FATAL(crypto != NULL);
+    CU_ASSERT_FATAL(crypto->hp_cipher.keylen == keylen);
+
+    hp_ctx = xqc_hp_ctx_new(&crypto->hp_cipher, fips197_key);
+    CU_ASSERT_FATAL(hp_ctx != NULL);
+
+    memset(mask, 0xa5, sizeof(mask));
+    CU_ASSERT(crypto->hp_cipher.hp_mask(&crypto->hp_cipher, hp_ctx,
+                                        mask, sizeof(mask), &masklen,
+                                        zeros, sizeof(zeros),
+                                        fips197_key, keylen,
+                                        fips197_plaintext, 16) == XQC_OK);
+    CU_ASSERT(masklen == sizeof(mask));
+    CU_ASSERT(memcmp(mask, expected, sizeof(mask)) == 0);
+
+    xqc_hp_ctx_free(hp_ctx);
+    xqc_crypto_destroy(crypto);
+    xqc_engine_destroy(engine);
+}
+
+void
+xqc_test_rfc9001_aes_hp_mask()
+{
+    xqc_test_aes_hp_mask_derived(rfc9001_client_initial_secret,
+                                 rfc9001_client_hp_sample,
+                                 rfc9001_client_hp_mask);
+    xqc_test_aes_hp_mask_derived(rfc9001_server_initial_secret,
+                                 rfc9001_server_hp_sample,
+                                 rfc9001_server_hp_mask);
+    xqc_test_aes_hp_mask_key(XQC_TLS13_AES_128_GCM_SHA256, 16,
+                             fips197_aes128_mask);
+    xqc_test_aes_hp_mask_key(XQC_TLS13_AES_256_GCM_SHA384, 32,
+                             fips197_aes256_mask);
+}
+
+/*
+ * The BoringSSL AES mask is one cipher block: it rejects a mask longer than
+ * a block, a sample shorter than one, a mask that does not fit the
+ * destination and a missing key schedule, and leaves the length unset.
+ */
+void
+xqc_test_aes_hp_mask_bounds()
+{
+#ifdef OPENSSL_IS_BORINGSSL
+    uint8_t     zeros[17] = {0};
+    uint8_t     mask[17];
+    size_t      masklen = 0;
+    void       *hp_ctx;
+
+    xqc_engine_t *engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+    xqc_crypto_t *crypto = xqc_crypto_create(XQC_TLS13_AES_128_GCM_SHA256,
+                                             engine->log);
+    CU_ASSERT_FATAL(crypto != NULL);
+    hp_ctx = xqc_hp_ctx_new(&crypto->hp_cipher, fips197_key);
+    CU_ASSERT_FATAL(hp_ctx != NULL);
+
+    /* a whole block is the longest mask */
+    CU_ASSERT(xqc_bssl_hp_mask(&crypto->hp_cipher, hp_ctx, mask, 16,
+                               &masklen, zeros, 16, fips197_key, 16,
+                               fips197_plaintext, 16) == XQC_OK);
+    CU_ASSERT(masklen == 16);
+    CU_ASSERT(memcmp(mask, fips197_aes128_mask,
+                     sizeof(fips197_aes128_mask)) == 0);
+
+    masklen = 0;
+    CU_ASSERT(xqc_bssl_hp_mask(&crypto->hp_cipher, hp_ctx, mask,
+                               sizeof(mask), &masklen, zeros, 17,
+                               fips197_key, 16, fips197_plaintext, 16)
+              == -XQC_TLS_ENCRYPT_DATA_ERROR);
+    CU_ASSERT(xqc_bssl_hp_mask(&crypto->hp_cipher, hp_ctx, mask,
+                               sizeof(mask), &masklen, zeros, 5,
+                               fips197_key, 16, fips197_plaintext, 15)
+              == -XQC_TLS_ENCRYPT_DATA_ERROR);
+    CU_ASSERT(xqc_bssl_hp_mask(&crypto->hp_cipher, hp_ctx, mask, 4,
+                               &masklen, zeros, 5, fips197_key, 16,
+                               fips197_plaintext, 16)
+              == -XQC_TLS_ENCRYPT_DATA_ERROR);
+    CU_ASSERT(xqc_bssl_hp_mask(&crypto->hp_cipher, NULL, mask,
+                               sizeof(mask), &masklen, zeros, 5,
+                               fips197_key, 16, fips197_plaintext, 16)
+              == -XQC_TLS_INVALID_ARGUMENT);
+    CU_ASSERT(masklen == 0);
+
+    xqc_hp_ctx_free(hp_ctx);
+    xqc_crypto_destroy(crypto);
+    xqc_engine_destroy(engine);
+#endif
+}
+
+
 void
 xqc_test_initial_salt_length()
 {

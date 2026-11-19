@@ -3,7 +3,10 @@
  */
 
 #include "src/tls/xqc_crypto.h"
+#include "src/common/xqc_malloc.h"
+#include <openssl/aes.h>
 #include <openssl/chacha.h>
+#include <openssl/mem.h>
 
 
 void *
@@ -86,33 +89,44 @@ err:
 }
 
 
+/*
+ * The header protection context of an AES cipher is the AES key schedule of
+ * the header protection key: each mask is one AES block, see
+ * xqc_bssl_hp_mask().
+ */
 void *
 xqc_hp_ctx_new(const xqc_hdr_protect_cipher_t *hp_cipher, const uint8_t *key)
 {
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (!ctx) {
+    AES_KEY *aes_key = xqc_malloc(sizeof(AES_KEY));
+    if (aes_key == NULL) {
         return NULL;
     }
 
-    if (EVP_EncryptInit_ex(ctx, hp_cipher->cipher, NULL, key, NULL) != XQC_SSL_SUCCESS) {
-        goto err;
+    if (AES_set_encrypt_key(key, (unsigned) hp_cipher->keylen * 8, aes_key)
+        != 0)
+    {
+        xqc_free(aes_key);
+        return NULL;
     }
 
-    return ctx;
-err:
-    xqc_hp_ctx_free(ctx);
-    return NULL;
+    return aes_key;
 }
 
 void
 xqc_hp_ctx_free(void *hp_ctx)
 {
     if (hp_ctx) {
-        EVP_CIPHER_CTX_free(hp_ctx);
+        OPENSSL_cleanse(hp_ctx, sizeof(AES_KEY));
+        xqc_free(hp_ctx);
     }
 }
 
-/* AES-CTR(key, iv=sample, zeros) == AES-ECB(key, sample) per RFC 9001 S5.4.3 */
+/*
+ * RFC 9001 Section 5.4.3: the AES-based header protection mask is
+ * AES-ECB(hp_key, sample), the first block of AES-CTR with the sample as
+ * the counter block. One block cipher call computes it, with the key
+ * schedule that xqc_hp_ctx_new() prepared.
+ */
 xqc_int_t
 xqc_bssl_hp_mask(const xqc_hdr_protect_cipher_t *hp_cipher, void *hp_ctx,
     uint8_t *dest, size_t destcap, size_t *destlen,
@@ -120,43 +134,31 @@ xqc_bssl_hp_mask(const xqc_hdr_protect_cipher_t *hp_cipher, void *hp_ctx,
     const uint8_t *key, size_t keylen,
     const uint8_t *sample, size_t samplelen)
 {
-    size_t outlen = 0;
-    int len = 0;
+    uint8_t  block[AES_BLOCK_SIZE];
+    size_t   i;
+
     (void)hp_cipher;
-    (void)destcap;
     (void)key;
     (void)keylen;
-    (void)samplelen;
 
-    EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX *)hp_ctx;
-    if (!ctx) {
+    if (hp_ctx == NULL) {
         return -XQC_TLS_INVALID_ARGUMENT;
     }
 
-    if (EVP_EncryptInit_ex(ctx, NULL, NULL, NULL, sample) != XQC_SSL_SUCCESS) {
-        goto err;
+    if (samplelen < AES_BLOCK_SIZE || plaintextlen > AES_BLOCK_SIZE
+        || plaintextlen > destcap)
+    {
+        return -XQC_TLS_ENCRYPT_DATA_ERROR;
     }
 
-    if (EVP_EncryptUpdate(ctx, dest, &len, plaintext, plaintextlen) != XQC_SSL_SUCCESS) {
-        goto err;
+    AES_encrypt(sample, block, (const AES_KEY *) hp_ctx);
+
+    for (i = 0; i < plaintextlen; i++) {
+        dest[i] = block[i] ^ plaintext[i];
     }
-
-    outlen = len;
-
-    if (EVP_EncryptFinal_ex(ctx, dest + outlen, &len) != XQC_SSL_SUCCESS) {
-        goto err;
-    }
-
-    if (len != 0 /* NO PADDING */) {
-        goto err;
-    }
-
-    *destlen = outlen;
+    *destlen = plaintextlen;
 
     return XQC_OK;
-
-err:
-    return -XQC_TLS_ENCRYPT_DATA_ERROR;
 }
 
 xqc_int_t

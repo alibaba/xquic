@@ -1945,18 +1945,25 @@ xqc_int_t
 xqc_process_new_token_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
     xqc_int_t ret;
+    unsigned token_len = XQC_MAX_TOKEN_LEN;
+
     if (XQC_CONN_TYPE_SERVER == conn->conn_type) {
         return -XQC_EPROTO;
     }
 
-    conn->conn_token_len = XQC_MAX_TOKEN_LEN;
-    ret = xqc_parse_new_token_frame(packet_in, conn->conn_token, &conn->conn_token_len, conn);
+    ret = xqc_parse_new_token_frame(packet_in, conn->conn_token, &token_len, conn);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|xqc_parse_new_token_frame error|");
         return ret;
     }
 
+    /* a token that xqc_connect() could not take back is not saved */
+    if (token_len == 0) {
+        return XQC_OK;
+    }
+
+    conn->conn_token_len = token_len;
     conn->transport_cbs.save_token(conn->conn_token, conn->conn_token_len,
                                    xqc_conn_get_user_data(conn));
 

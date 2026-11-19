@@ -383,7 +383,8 @@ xqc_gen_long_packet_header (xqc_packet_out_t *packet_out,
     }
 
     unsigned char first_byte = 0xC0;
-    first_byte |= type << 4;
+    first_byte |= xqc_packet_long_header_type_bits(xqc_proto_version_value[ver],
+                                                   type) << 4;
     first_byte |= pktno_bits;
     *dst_buf++ = first_byte;
 
@@ -1042,7 +1043,7 @@ xqc_gen_retry_packet(xqc_connection_t *conn, unsigned char *dst_buf,
 
     unsigned char *begin = dst_buf;
     unsigned char first_byte = 0xC0;
-    first_byte |= XQC_PTYPE_RETRY << 4;
+    first_byte |= xqc_packet_long_header_type_bits(ver, XQC_PTYPE_RETRY) << 4;
     *dst_buf++ = first_byte;
 
     ver = htonl(ver);
@@ -1410,6 +1411,9 @@ xqc_packet_parse_long_header(xqc_connection_t *c,
             return -XQC_EILLPKT;
         }
         type = XQC_PTYPE_VERSION_NEGOTIATION;
+
+    } else {
+        type = xqc_packet_long_header_type(version, type);
     }
     pos += XQC_PACKET_VERSION_LENGTH;
 

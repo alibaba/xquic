@@ -1163,7 +1163,8 @@ xqc_engine_packet_process(xqc_engine_t *engine,
     if (XQC_UNLIKELY(conn == NULL)) {
 
         if (XQC_PACKET_IS_LONG_HEADER(packet_in_buf)) {
-            xqc_pkt_type_t pkt_type = XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in_buf);
+            xqc_pkt_type_t pkt_type = xqc_packet_get_long_header_type(
+                packet_in_buf, packet_in_size);
 
             if (engine->eng_type == XQC_ENGINE_SERVER) {
 

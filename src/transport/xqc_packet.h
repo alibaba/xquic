@@ -78,6 +78,39 @@ struct xqc_packet_s {
 #define xqc_parse_uint32(p) ((uint32_t)(p)[0] << 24 | (uint32_t)(p)[1] << 16 \
                              | (uint32_t)(p)[2] << 8 | (uint32_t)(p)[3])
 
+/* wire value of QUIC version 2, RFC 9369 */
+#define XQC_PACKET_VERSION_V2                   0x6b3343cf
+
+/*
+ * RFC 9369 Section 3.2: QUIC v2 encodes the long header packet types as
+ * Initial 0b01, 0-RTT 0b10, Handshake 0b11 and Retry 0b00; the other
+ * versions as QUIC v1, whose codes are the values of xqc_pkt_type_t.
+ */
+static inline xqc_uint_t
+xqc_packet_long_header_type_bits(uint32_t version, xqc_pkt_type_t type)
+{
+    return version == XQC_PACKET_VERSION_V2 ? (type + 1) & 0x03 : type;
+}
+
+static inline xqc_pkt_type_t
+xqc_packet_long_header_type(uint32_t version, xqc_uint_t bits)
+{
+    return version == XQC_PACKET_VERSION_V2 ? (bits + 3) & 0x03 : bits;
+}
+
+/* the type of the long header packet of len bytes at buf */
+static inline xqc_pkt_type_t
+xqc_packet_get_long_header_type(const unsigned char *buf, size_t len)
+{
+    xqc_uint_t bits = XQC_PACKET_LONG_HEADER_GET_TYPE(buf);
+
+    if (len < XQC_PACKET_LONG_HEADER_PREFIX_LENGTH) {
+        return bits;
+    }
+
+    return xqc_packet_long_header_type(xqc_parse_uint32(buf + 1), bits);
+}
+
 /* check if the packet has packet number */
 static inline uint8_t
 xqc_has_packet_number(xqc_packet_t *pkt)

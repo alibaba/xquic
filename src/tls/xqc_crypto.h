@@ -164,6 +164,9 @@ typedef struct xqc_crypto_s {
     /* cipher_id used to determine AEAD integrity limit per RFC 9001 §6.6 */
     uint32_t                    cipher_id;
 
+    /* derive keys with the labels of QUIC v2, RFC 9369 Section 3.3.2 */
+    xqc_bool_t                  quic_v2;
+
 } xqc_crypto_t;
 
 

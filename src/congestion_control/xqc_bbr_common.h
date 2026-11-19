@@ -7,6 +7,11 @@
 
 #include <xquic/xquic_typedef.h>
 
+#define TRUE 1
+#define FALSE 0
+/* the microseconds of a second */
+#define MSEC2SEC 1000000
+
 typedef struct xqc_bbr_info_interface_s {
     uint8_t     (*mode)(void *cong);
     uint64_t    (*min_rtt)(void *cong);

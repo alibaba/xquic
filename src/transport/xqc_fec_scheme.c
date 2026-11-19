@@ -112,7 +112,9 @@ xqc_fec_cc_decoder(xqc_connection_t *conn, xqc_fec_rpr_syb_t *rpr_symbol, uint8_
     symbol_idx = rpr_symbol->symbol_idx;
     payload_p = conn->fec_ctl->fec_gen_repair_symbols_buff[0].payload;
 
-    if (payload_p == NULL || (rpr_symbol->payload_size <= 0 && rpr_symbol->payload_size > XQC_MAX_SYMBOL_SIZE)) {
+    if (payload_p == NULL || rpr_symbol->payload_size == 0
+        || rpr_symbol->payload_size > XQC_MAX_SYMBOL_SIZE)
+    {
         xqc_log(conn->log, XQC_LOG_ERROR, "|quic_fec|invalid symbol payload");
         goto cc_decoder_end;
     }

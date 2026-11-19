@@ -11,6 +11,8 @@
 #include "src/transport/xqc_engine.h"
 
 void xqc_test_fec_scheme();
+void xqc_test_fec_cc_decoder_symbol_size(void);
+void xqc_test_fec_cc_decoder_max_symbol_size(void);
 
 const xqc_cid_t *test_cid_connect_fec(xqc_engine_t *engine);
 static xqc_connection_t *test_fec_connect(xqc_engine_t *engine);

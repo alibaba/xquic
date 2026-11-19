@@ -11,8 +11,20 @@
 #include "src/transport/xqc_packet_out.h"
 
 
-#define XQC_FEC_MAX_SCHEME_VAL  32
+/* scheme values that fit in the 32-bit scheme sets of xqc_set_final_scheme() */
+#define XQC_FEC_SCHEME_SET_BITS 32
 #define MAX_FEC_CODE_RATE      (20)
+
+/* the bit of a scheme in a scheme set, or 0 for a value that has none */
+static uint32_t
+xqc_fec_scheme_bit(xqc_fec_schemes_e scheme)
+{
+    if ((uint32_t)scheme >= XQC_FEC_SCHEME_SET_BITS) {
+        return 0;
+    }
+
+    return (uint32_t)1 << scheme;
+}
 
 xqc_int_t
 xqc_set_valid_encoder_scheme_cb(xqc_fec_code_callback_t *callback, xqc_int_t scheme)
@@ -116,27 +128,23 @@ xqc_int_t
 xqc_set_final_scheme(xqc_connection_t *conn, xqc_fec_schemes_e *local_fec_schemes_buff, xqc_int_t *local_fec_schemes_buff_len,
     xqc_fec_schemes_e *remote_fec_schemes_buff, xqc_int_t remote_fec_schemes_buff_len)
 {
-    uint32_t   p, schemes_flag;
+    uint32_t schemes_flag;
     xqc_int_t  i, ret;
-    
+
     if (*local_fec_schemes_buff_len == 0 || remote_fec_schemes_buff_len == 0) {
         return 0;
     }
 
-    p = schemes_flag = 0;
+    schemes_flag = 0;
     ret = 0;
 
     for (i = 0; i < remote_fec_schemes_buff_len; i++) {
-        if (remote_fec_schemes_buff[i] > XQC_FEC_MAX_SCHEME_VAL) {
-            continue;
-        }
-        p = 1 << remote_fec_schemes_buff[i];
-        schemes_flag |= p;
+        schemes_flag |= xqc_fec_scheme_bit(remote_fec_schemes_buff[i]);
     }
 
-    /* 初始化schemes_flag */
+    /* the first local scheme that the peer supports too */
     for (i = 0; i < *local_fec_schemes_buff_len; i++) {
-        if (schemes_flag & (1 << local_fec_schemes_buff[i])) {
+        if (schemes_flag & xqc_fec_scheme_bit(local_fec_schemes_buff[i])) {
             ret = local_fec_schemes_buff[i];
             break;
         }

@@ -7,6 +7,9 @@ case $TESTCASE in
     versionnegotiation|handshake|longrtt|transfer|zerortt|multiconnect|chacha20|resumption|http3|retry|keyupdate|mphandshake|mptransfer|mppathabandon|mppathstatus)
         :
         ;;
+    v2)
+        :
+        ;;
     *)
         exit 127
         ;;
@@ -55,6 +58,11 @@ if [ "$ROLE" == "client" ]; then
     elif [ "$TESTCASE" == "chacha20" ]; then
         ./demo_client $ARGS -U "$REQUESTS" -S "TLS_CHACHA20_POLY1305_SHA256"
 
+    # v2: version 1 first, version 2 offered (RFC 9368 Section 2.3)
+    elif [ "$TESTCASE" == "v2" ]; then
+        echo "./demo_client $ARGS -U $REQUESTS -2"
+        ./demo_client $ARGS -U "$REQUESTS" -2
+
     elif [ "$TESTCASE" == "http3" ]; then
         echo "./demo_client $ARGS -U $REQUESTS -A h3"
         ./demo_client $ARGS -U "$REQUESTS" -A "h3"
@@ -90,6 +98,11 @@ elif [ "$ROLE" == "server" ]; then
     cp /certs/cert.pem server.crt
 
     ARGS="-l d -L "$LOG_DIR/server.log" -p 443 -D "/www" -k $SSLKEYLOGFILE -i -M"
+
+    # v2: switch to version 2 with compatible version negotiation
+    if [ "$TESTCASE" = "v2" ]; then
+        ARGS="$ARGS -2"
+    fi
 
     if [ "$TESTCASE" = "retry" ]; then
         ARGS="$ARGS -r"

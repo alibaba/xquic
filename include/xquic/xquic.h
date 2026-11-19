@@ -59,8 +59,11 @@ typedef enum xqc_proto_version_s {
     /** Special version for version negotiation. */
     XQC_IDRAFT_VER_NEGOTIATION  = 3,
 
+    /** QUIC version 2, RFC 9369 */
+    XQC_VERSION_V2              = 4,
+
     /** max value of proto value. */
-    XQC_VERSION_MAX             = 4
+    XQC_VERSION_MAX             = 5
 } xqc_proto_version_t;
 
 #define XQC_SUPPORT_VERSION_MAX         64
@@ -247,6 +250,12 @@ typedef int (*xqc_conn_notify_pt)(xqc_connection_t *conn, const xqc_cid_t *cid,
  *
  * NOTICE: as client initiate multiple connections to multiple QUIC servers or server clusters,
  * it shall save the tokens separately, e.g. save the token with the domain as the key
+ *
+ * NOTICE: tokens and session tickets are specific to the QUIC version of the
+ * connection that provided them (RFC 9369 Section 5). A client that connects
+ * with QUIC version 1 and version 2 shall save them per version too, and never
+ * use the ones of a version 1 connection for a version 2 connection, or the
+ * reverse; a server does not accept them across versions.
  */
 typedef void (*xqc_save_token_pt)(const unsigned char *token, uint32_t token_len,
     void *conn_user_data);

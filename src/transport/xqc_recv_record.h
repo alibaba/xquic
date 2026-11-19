@@ -31,6 +31,13 @@ typedef struct xqc_recv_record_s {
 
 #define XQC_MAX_ACK_RANGE_CNT 64
 
+/* the ECN counts of RFC 9000 Section 19.3.2, per packet number space */
+typedef struct xqc_ecn_counts_s {
+    uint64_t                ect0;
+    uint64_t                ect1;
+    uint64_t                ce;
+} xqc_ecn_counts_t;
+
 typedef struct xqc_ack_info_s {
     xqc_pkt_num_space_t     pns;
     uint64_t                path_id;
@@ -38,6 +45,10 @@ typedef struct xqc_ack_info_s {
     xqc_pktno_range_t       ranges[XQC_MAX_ACK_RANGE_CNT];
     xqc_usec_t              ack_delay;
     xqc_packet_number_t     largest_acked;
+
+    /* the ECN Counts of an ACK, ACK_MP or ACK_EXTENDED frame */
+    xqc_bool_t              ecn_present;
+    xqc_ecn_counts_t        ecn;
 } xqc_ack_info_t;
 
 typedef struct xqc_ack_sent_entry_s {

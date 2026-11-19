@@ -67,7 +67,9 @@ ssize_t xqc_gen_ping_frame(xqc_packet_out_t *packet_out);
 xqc_int_t xqc_parse_ping_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn);
 
 ssize_t xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now, int ack_delay_exponent,
-    xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack);
+    xqc_recv_record_t *recv_record, const xqc_ecn_counts_t *ecn,
+    xqc_usec_t largest_pkt_recv_time, int *has_gap,
+    xqc_packet_number_t *largest_ack);
 
 xqc_int_t xqc_parse_ack_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn, xqc_ack_info_t *ack_info);
 
@@ -148,7 +150,9 @@ ssize_t xqc_gen_path_response_frame(xqc_packet_out_t *packet_out, unsigned char 
 xqc_int_t xqc_parse_path_response_frame(xqc_packet_in_t *packet_in, unsigned char *data);
 
 ssize_t xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id, xqc_packet_out_t *packet_out, xqc_usec_t now, 
-    int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, xqc_packet_number_t *largest_ack);
+    int ack_delay_exponent, xqc_recv_record_t *recv_record,
+    const xqc_ecn_counts_t *ecn, xqc_usec_t largest_pkt_recv_time,
+    int *has_gap, xqc_packet_number_t *largest_ack);
 
 xqc_int_t xqc_parse_ack_mp_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     uint64_t *path_id, xqc_ack_info_t *ack_info);
@@ -199,7 +203,8 @@ void xqc_get_lack_src_syb(unsigned char* pm, unsigned char* recv_mask, xqc_int_t
     uint8_t *syb_idx, uint8_t *syb_num);
 
 ssize_t xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec_t now,
-    int ack_delay_exponent, xqc_recv_record_t *recv_record, xqc_usec_t largest_pkt_recv_time, int *has_gap, 
+    int ack_delay_exponent, xqc_recv_record_t *recv_record,
+    const xqc_ecn_counts_t *ecn, xqc_usec_t largest_pkt_recv_time, int *has_gap,
     xqc_packet_number_t *largest_ack, xqc_recv_timestamps_info_t *recv_ts_info);
 
 xqc_int_t xqc_parse_ack_ext_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,

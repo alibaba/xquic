@@ -61,6 +61,7 @@
 #include "xqc_vn_test.h"
 #include "xqc_frame_type_bit_test.h"
 #include "xqc_flow_ctl_test.h"
+#include "xqc_preferred_addr_test.h"
 
 static int xqc_init_suite(void) { return 0; }
 static int xqc_clean_suite(void) { return 0; }
@@ -365,8 +366,62 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_rebinding_ignores_unauthenticated_packet", xqc_test_rebinding_ignores_unauthenticated_packet)
         || !CU_add_test(pSuite, "xqc_test_rebinding_path_challenge_requires_confirmed", xqc_test_rebinding_path_challenge_requires_confirmed)
         || !CU_add_test(pSuite, "xqc_test_rebinding_timeout_retry_limit", xqc_test_rebinding_timeout_retry_limit)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_ip_resets_cubic",
+                        xqc_test_rebinding_new_ip_resets_cubic)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_ip_resets_bbr",
+                        xqc_test_rebinding_new_ip_resets_bbr)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_port_keeps_cc",
+                        xqc_test_rebinding_new_port_keeps_cc)
         || !CU_add_test(pSuite, "xqc_test_rebinding_response_mismatch_preserves_state", xqc_test_rebinding_response_mismatch_preserves_state)
         || !CU_add_test(pSuite, "xqc_test_rebinding_sender_error_clears_candidate", xqc_test_rebinding_sender_error_clears_candidate)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_store",
+                        xqc_test_preferred_addr_store)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_ipv6",
+                        xqc_test_preferred_addr_ipv6)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_none_usable",
+                        xqc_test_preferred_addr_none_usable)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_cid_in_use",
+                        xqc_test_preferred_addr_cid_in_use)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_migrate",
+                        xqc_test_preferred_addr_migrate)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_migrate_new_ip",
+                        xqc_test_preferred_addr_migrate_new_ip)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_wrong_response",
+                        xqc_test_preferred_addr_wrong_response)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_timeout",
+                        xqc_test_preferred_addr_timeout)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_wait_for_cid",
+                        xqc_test_preferred_addr_wait_for_cid)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_disabled",
+                        xqc_test_preferred_addr_disabled)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_challenge_path",
+                        xqc_test_preferred_addr_challenge_path)
+        || !CU_add_test(pSuite,
+                        "xqc_test_preferred_addr_response_and_challenge",
+                        xqc_test_preferred_addr_response_and_challenge)
+        || !CU_add_test(pSuite, "xqc_test_preferred_addr_transport_params",
+                        xqc_test_preferred_addr_transport_params)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_offer",
+                        xqc_test_server_preferred_addr_offer)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_not_offered",
+                        xqc_test_server_preferred_addr_not_offered)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_migrate",
+                        xqc_test_server_preferred_addr_migrate)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_order",
+                        xqc_test_server_preferred_addr_order)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_no_cid",
+                        xqc_test_server_preferred_addr_no_cid)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_give_up",
+                        xqc_test_server_preferred_addr_give_up)
+        || !CU_add_test(pSuite,
+                        "xqc_test_server_preferred_addr_new_client_addr",
+                        xqc_test_server_preferred_addr_new_client_addr)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_spoofed",
+                        xqc_test_server_preferred_addr_spoofed)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_padding",
+                        xqc_test_server_preferred_addr_padding)
+        || !CU_add_test(pSuite, "xqc_test_server_preferred_addr_multipath",
+                        xqc_test_server_preferred_addr_multipath)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
         || !CU_add_test(pSuite, "xqc_test_datagram_transport_param_65536",
                         xqc_test_datagram_transport_param_65536)

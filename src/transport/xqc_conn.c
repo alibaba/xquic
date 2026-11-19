@@ -1922,7 +1922,8 @@ xqc_conn_should_close(xqc_connection_t *conn, xqc_path_ctx_t *path)
 
     xqc_int_t ret;
     if (path->path_state < XQC_PATH_STATE_CLOSING) {
-        ret = xqc_path_immediate_close(path);
+        /* the socket of the path fails */
+        ret = xqc_path_abandon(path, XQC_PATH_ABANDON_UNSTABLE_OR_POOR);
         if (ret != XQC_OK) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_path_immediate_close error|ret:%d|", ret);
         }

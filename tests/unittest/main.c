@@ -365,6 +365,12 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_rebinding_ignores_unauthenticated_packet", xqc_test_rebinding_ignores_unauthenticated_packet)
         || !CU_add_test(pSuite, "xqc_test_rebinding_path_challenge_requires_confirmed", xqc_test_rebinding_path_challenge_requires_confirmed)
         || !CU_add_test(pSuite, "xqc_test_rebinding_timeout_retry_limit", xqc_test_rebinding_timeout_retry_limit)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_ip_resets_cubic",
+                        xqc_test_rebinding_new_ip_resets_cubic)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_ip_resets_bbr",
+                        xqc_test_rebinding_new_ip_resets_bbr)
+        || !CU_add_test(pSuite, "xqc_test_rebinding_new_port_keeps_cc",
+                        xqc_test_rebinding_new_port_keeps_cc)
         || !CU_add_test(pSuite, "xqc_test_rebinding_response_mismatch_preserves_state", xqc_test_rebinding_response_mismatch_preserves_state)
         || !CU_add_test(pSuite, "xqc_test_rebinding_sender_error_clears_candidate", xqc_test_rebinding_sender_error_clears_candidate)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)

@@ -96,6 +96,97 @@ xqc_rollback_new_conn_id_hash_entries(xqc_connection_t *conn,
     }
 }
 
+static void
+xqc_log_new_path_not_set_up(xqc_connection_t *conn,
+    xqc_packet_in_t *packet_in, xqc_path_create_result_t result)
+{
+    xqc_log(conn->log, XQC_LOG_INFO, "|new path not set up|path:%ui|"
+            "reason:%s|create_path_count:%ud|", packet_in->pi_path_id,
+            xqc_path_create_result_str(result), conn->create_path_count);
+}
+
+/*
+ * Server: a PATH_CHALLENGE came on a path ID without a path. Set the path up
+ * and answer. A path that cannot be set up yet is left for the client's next
+ * PATH_CHALLENGE (see xqc_conn_server_open_path()), except that until the
+ * packet is processed, connection IDs of the client that come later in it
+ * may still allow it (draft-ietf-quic-multipath-10 Section 3.1: "the
+ * MP_NEW_CONNECTION_ID might be sent in the same packet and in this case the
+ * PATH_CHALLENGE SHOULD be processed"): the challenge is then kept in the
+ * packet and tried again once the packet is processed.
+ */
+static void
+xqc_process_new_path_challenge(xqc_connection_t *conn,
+    xqc_packet_in_t *packet_in, unsigned char *challenge_data,
+    xqc_bool_t packet_processed)
+{
+    xqc_path_create_result_t result = XQC_PATH_CREATE_OK;
+    xqc_path_ctx_t *path;
+    xqc_int_t ret;
+
+    /* set up by another PATH_CHALLENGE of the packet */
+    path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
+    if (path == NULL) {
+        path = xqc_conn_server_open_path(conn, packet_in, &result);
+    }
+
+    if (path == NULL) {
+        if (!packet_processed && result == XQC_PATH_CREATE_NO_PEER_CID) {
+            xqc_memcpy(packet_in->pi_new_path_challenge.data, challenge_data,
+                       XQC_PATH_CHALLENGE_DATA_LEN);
+            packet_in->pi_new_path_challenge.set = XQC_TRUE;
+            return;
+        }
+
+        xqc_log_new_path_not_set_up(conn, packet_in, result);
+        return;
+    }
+
+    ret = xqc_write_path_response_frame_to_packet(conn, path, challenge_data);
+    if (ret != XQC_OK) {
+        /* the path is set up: the client's next PATH_CHALLENGE is answered */
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_write_path_response_frame_to_packet error|%d|", ret);
+    }
+}
+
+/*
+ * Server: an ack-eliciting packet came, with no PATH_CHALLENGE, on a path ID
+ * without a path. RFC 10069 Section 3.1: "The server might receive packets
+ * for a yet unused path ID that do not contain a PATH_CHALLENGE frame. Such
+ * packets are valid if they can be properly decrypted given a valid
+ * connection ID" (a client "MUST validate the peer's address ... unless it
+ * has previously validated the 4-tuple used for that path"). The path is set
+ * up as for a PATH_CHALLENGE, so that the packet is acknowledged; the server
+ * still validates the client's address with its own PATH_CHALLENGE before it
+ * sends data on the path. A packet that needs no acknowledgment does not set
+ * up a path.
+ */
+static xqc_path_ctx_t *
+xqc_process_new_path_packet(xqc_connection_t *conn,
+    xqc_packet_in_t *packet_in)
+{
+    xqc_path_create_result_t result;
+    xqc_path_ctx_t *path;
+
+    if (conn->conn_type != XQC_CONN_TYPE_SERVER
+        || !conn->enable_multipath
+        || packet_in->pi_pkt.pkt_type != XQC_PTYPE_SHORT_HEADER
+        || (packet_in->pi_flag & XQC_PIF_FEC_RECOVERED)
+        || (packet_in->pi_frame_types & XQC_FRAME_BIT_PATH_CHALLENGE)
+        || !XQC_IS_ACK_ELICITING(packet_in->pi_frame_types))
+    {
+        return NULL;
+    }
+
+    path = xqc_conn_server_open_path(conn, packet_in, &result);
+    if (path == NULL) {
+        xqc_log_new_path_not_set_up(conn, packet_in, result);
+    }
+
+    return path;
+}
+
 const char *
 xqc_frame_type_2_str(xqc_engine_t *engine, xqc_frame_type_bit_t type_bit)
 {
@@ -502,7 +593,20 @@ xqc_process_frames(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
     }
 
-    xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
+    xqc_path_ctx_t *path =
+        xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
+
+    if (packet_in->pi_new_path_challenge.set) {
+        packet_in->pi_new_path_challenge.set = XQC_FALSE;
+        xqc_process_new_path_challenge(conn, packet_in,
+                                       packet_in->pi_new_path_challenge.data,
+                                       XQC_TRUE);
+        path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
+
+    } else if (path == NULL) {
+        path = xqc_process_new_path_packet(conn, packet_in);
+    }
+
     if (path != NULL 
         && (packet_in->pi_frame_types & XQC_FRAME_BIT_DATAGRAM)) 
     {
@@ -2069,14 +2173,9 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
     
     if (path == NULL) {
         if (conn->conn_type == XQC_CONN_TYPE_SERVER) {
-            /* try to create new path */
-            path = xqc_conn_create_path_inner(conn, &packet_in->pi_pkt.pkt_dcid, NULL, XQC_APP_PATH_STATUS_AVAILABLE, packet_in->pi_path_id);
-            if (path == NULL) {
-                xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_conn_create_path_inner err|%ui|", packet_in->pi_path_id);
-                return -XQC_EMP_CREATE_PATH;
-            }
-            conn->validating_path_id = path->path_id;
-            conn->conn_flag |= XQC_CONN_FLAG_RECV_NEW_PATH;
+            xqc_process_new_path_challenge(conn, packet_in,
+                                           path_challenge_data, XQC_FALSE);
+            return XQC_OK;
 
         } else {
             xqc_log(conn->log, XQC_LOG_ERROR, 

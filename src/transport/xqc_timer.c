@@ -16,6 +16,7 @@ static const char * const timer_type_2_str[XQC_TIMER_N] = {
     [XQC_TIMER_LOSS_DETECTION]  = "LOSS_DETECTION",
     [XQC_TIMER_PACING]          = "PACING",
     [XQC_TIMER_NAT_REBINDING]   = "NAT_REBINDING",
+    [XQC_TIMER_PATH_CHALLENGE]  = "PATH_CHALLENGE",
     [XQC_TIMER_PATH_IDLE]       = "PATH_IDLE",
     [XQC_TIMER_PATH_DRAINING]   = "PATH_DRAINING",
 
@@ -126,6 +127,15 @@ xqc_timer_nat_rebinding_timeout(xqc_timer_type_t type, xqc_usec_t now, void *use
     xqc_send_ctl_t *send_ctl = (xqc_send_ctl_t *)user_data;
 
     xqc_path_rebinding_on_timeout(send_ctl->ctl_conn, send_ctl->ctl_path, now);
+}
+
+void
+xqc_timer_path_challenge_timeout(xqc_timer_type_t type, xqc_usec_t now,
+    void *user_data)
+{
+    xqc_send_ctl_t *send_ctl = (xqc_send_ctl_t *)user_data;
+
+    xqc_path_resend_challenge(send_ctl->ctl_path);
 }
 
 void
@@ -384,6 +394,10 @@ xqc_timer_init(xqc_timer_manager_t *manager, xqc_log_t *log, void *user_data)
 
         } else if (type == XQC_TIMER_NAT_REBINDING) {
             timer->timeout_cb = xqc_timer_nat_rebinding_timeout;
+            timer->user_data = user_data;
+
+        } else if (type == XQC_TIMER_PATH_CHALLENGE) {
+            timer->timeout_cb = xqc_timer_path_challenge_timeout;
             timer->user_data = user_data;
 
         } else if (type == XQC_TIMER_PATH_IDLE) {

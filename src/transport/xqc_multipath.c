@@ -1432,6 +1432,146 @@ xqc_path_get_validation_timeout(xqc_path_ctx_t *path)
     return 3 * xqc_max(current_pto, new_path_pto);
 }
 
+/*
+ * RFC 9000 Section 8.2.2: a PATH_CHALLENGE is answered by a single
+ * PATH_RESPONSE, and the peer is expected to send more PATH_CHALLENGE frames
+ * as necessary. A PATH_CHALLENGE acknowledged while its path is still
+ * validating was answered, but the PATH_RESPONSE was lost, and no PTO is left
+ * to send it again. Challenge the path again a PTO later, backing off like a
+ * probe, until it is validated or the deadline abandons it (Section 8.2.4).
+ */
+void
+xqc_path_on_challenge_acked(xqc_path_ctx_t *path, xqc_usec_t now)
+{
+    xqc_timer_manager_t *timer_manager;
+    xqc_usec_t interval;
+
+    timer_manager = &path->path_send_ctl->path_timer_manager;
+    if (path->path_state != XQC_PATH_STATE_VALIDATING
+        || xqc_timer_is_set(timer_manager, XQC_TIMER_PATH_CHALLENGE))
+    {
+        return;
+    }
+
+    /*
+     * a copy acknowledged through its original carries no time
+     * (xqc_send_ctl_indirectly_ack_or_drop_po()): arm the timer from now
+     */
+    if (now == 0) {
+        now = xqc_monotonic_timestamp();
+    }
+
+    interval = xqc_send_ctl_calc_pto(path->path_send_ctl)
+               << xqc_min(path->path_challenge_resends,
+                          XQC_PATH_CHALLENGE_MAX_BACKOFF);
+    xqc_timer_set(timer_manager, XQC_TIMER_PATH_CHALLENGE, now, interval);
+    path->path_challenge_acked_time = now;
+
+    xqc_log(path->parent_conn->log, XQC_LOG_DEBUG,
+            "|path challenge acked without response|path:%ui|resends:%ud|"
+            "interval:%ui|", path->path_id, path->path_challenge_resends,
+            interval);
+}
+
+/*
+ * An ACK yields its RTT sample once all the packets it acknowledges are
+ * processed, after xqc_path_on_challenge_acked() armed the timer with the PTO
+ * from before the sample: for a new path, the PTO of the initial RTT. When
+ * the ACK that armed the timer gives a sample, count the interval from the
+ * PTO with that sample instead.
+ */
+void
+xqc_path_on_challenge_rtt_sample(xqc_path_ctx_t *path, xqc_usec_t ack_time)
+{
+    xqc_timer_manager_t *timer_manager;
+    xqc_usec_t interval;
+
+    timer_manager = &path->path_send_ctl->path_timer_manager;
+    if (path->path_state != XQC_PATH_STATE_VALIDATING
+        || !xqc_timer_is_set(timer_manager, XQC_TIMER_PATH_CHALLENGE)
+        || path->path_challenge_acked_time != ack_time)
+    {
+        return;
+    }
+
+    interval = xqc_send_ctl_calc_pto(path->path_send_ctl)
+               << xqc_min(path->path_challenge_resends,
+                          XQC_PATH_CHALLENGE_MAX_BACKOFF);
+    xqc_timer_set(timer_manager, XQC_TIMER_PATH_CHALLENGE, ack_time,
+                  interval);
+
+    xqc_log(path->parent_conn->log, XQC_LOG_DEBUG,
+            "|path challenge interval from rtt sample|path:%ui|resends:%ud|"
+            "interval:%ui|", path->path_id, path->path_challenge_resends,
+            interval);
+}
+
+void
+xqc_path_resend_challenge(xqc_path_ctx_t *path)
+{
+    xqc_connection_t *conn = path->parent_conn;
+    unsigned char prev[XQC_PATH_CHALLENGE_DATA_LEN];
+    xqc_int_t ret;
+
+    if (path->path_state != XQC_PATH_STATE_VALIDATING
+        || conn->conn_state >= XQC_CONN_STATE_CLOSING)
+    {
+        return;
+    }
+
+    /* the payload last sent stays until a PATH_CHALLENGE carries a new one */
+    xqc_memcpy(prev, path->path_challenge_data, XQC_PATH_CHALLENGE_DATA_LEN);
+
+    /* RFC 9000 Section 13.3: a different payload each time */
+    ret = xqc_generate_path_challenge_data(conn, path);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_generate_path_challenge_data error|%d|", ret);
+        return;
+    }
+
+    ret = xqc_write_path_challenge_frame_to_packet(conn, path, XQC_FALSE);
+    if (ret != XQC_OK) {
+        xqc_memcpy(path->path_challenge_data, prev,
+                   XQC_PATH_CHALLENGE_DATA_LEN);
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|xqc_write_path_challenge_frame_to_packet error|%d|", ret);
+        return;
+    }
+
+    /* RFC 9000 Section 8.2.3: a PATH_RESPONSE to it still validates */
+    xqc_memcpy(path->path_challenge_prev[path->path_challenge_resends
+                                         % XQC_PATH_CHALLENGE_PREV_N],
+               prev, XQC_PATH_CHALLENGE_DATA_LEN);
+    path->path_challenge_resends++;
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|resend path challenge|path:%ui|"
+            "resends:%ud|", path->path_id, path->path_challenge_resends);
+}
+
+/* PATH_RESPONSE data echoing the current or a kept earlier PATH_CHALLENGE */
+xqc_bool_t
+xqc_path_challenge_data_match(xqc_path_ctx_t *path, const unsigned char *data)
+{
+    uint32_t i, n;
+
+    if (memcmp(path->path_challenge_data, data,
+               XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+    {
+        return XQC_TRUE;
+    }
+
+    n = xqc_min(path->path_challenge_resends, XQC_PATH_CHALLENGE_PREV_N);
+    for (i = 0; i < n; i++) {
+        if (memcmp(path->path_challenge_prev[i], data,
+                   XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+        {
+            return XQC_TRUE;
+        }
+    }
+
+    return XQC_FALSE;
+}
+
 void
 xqc_path_validate(xqc_path_ctx_t *path)
 {
@@ -1440,6 +1580,8 @@ xqc_path_validate(xqc_path_ctx_t *path)
     if (path->path_state == XQC_PATH_STATE_VALIDATING) {
         xqc_set_path_state(path, XQC_PATH_STATE_ACTIVE);
         path->parent_conn->validated_path_count++;
+        xqc_timer_unset(&path->path_send_ctl->path_timer_manager,
+                        XQC_TIMER_PATH_CHALLENGE);
         xqc_timer_set(&path->path_send_ctl->path_timer_manager,
                       XQC_TIMER_PATH_IDLE, xqc_monotonic_timestamp(),
                       xqc_path_get_idle_timeout(path) * 1000);

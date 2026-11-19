@@ -45,7 +45,7 @@
 #define XQC_RENO_MAX_INIT_WIN (100 * XQC_kMaxDatagramSize)
 
 size_t
-xqc_reno_size()
+xqc_reno_size(void)
 {
     return sizeof(xqc_new_reno_t);
 }

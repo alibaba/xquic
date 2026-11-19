@@ -56,7 +56,7 @@ typedef struct xqc_ins_enc_ctx_s {
  * @return xqc_ins_encode_ctx_t* 
  */
 xqc_ins_enc_ctx_t *
-xqc_ins_encoder_ctx_create();
+xqc_ins_encoder_ctx_create(void);
 
 /**
  * @brief destroy context for parsing encoder instruction bytes
@@ -109,7 +109,7 @@ typedef struct xqc_ins_dec_ctx_s {
  * @brief create context for parsing decoder instruction bytes
  * @return xqc_ins_dec_ctx_t* decoder context
  */
-xqc_ins_dec_ctx_t *xqc_ins_decoder_ctx_create();
+xqc_ins_dec_ctx_t *xqc_ins_decoder_ctx_create(void);
 void xqc_ins_decoder_ctx_free(xqc_ins_dec_ctx_t *ctx);
 
 /**

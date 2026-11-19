@@ -1046,7 +1046,7 @@ xqc_insert_rpr_symbol_by_seq(xqc_connection_t *conn, xqc_list_head_t *symbol_lis
 
 
 xqc_fec_src_syb_t *
-xqc_create_src_symbol()
+xqc_create_src_symbol(void)
 {
     xqc_fec_src_syb_t *src_symbol = (xqc_fec_src_syb_t *)xqc_calloc(1, sizeof(xqc_fec_src_syb_t));
     if (src_symbol == NULL) {
@@ -1063,7 +1063,7 @@ xqc_create_src_symbol()
 }
 
 xqc_fec_rpr_syb_t *
-xqc_create_rpr_symbol()
+xqc_create_rpr_symbol(void)
 {
     xqc_fec_rpr_syb_t *rpr_symbol = (xqc_fec_rpr_syb_t *)xqc_calloc(1, sizeof(xqc_fec_rpr_syb_t));
     if (rpr_symbol == NULL) {

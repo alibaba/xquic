@@ -27,7 +27,7 @@
 
 
 static size_t
-xqc_dgram_reinj_ctl_size()
+xqc_dgram_reinj_ctl_size(void)
 {
     return sizeof(xqc_dgram_reinj_ctl_t);
 }

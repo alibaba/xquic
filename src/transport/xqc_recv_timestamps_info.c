@@ -21,7 +21,7 @@ xqc_popcountll(uint64_t num)
 }
 
 xqc_recv_timestamps_info_t *
-xqc_recv_timestamps_info_create()
+xqc_recv_timestamps_info_create(void)
 {
     xqc_recv_timestamps_info_t *ts_info =
                     xqc_calloc(1, sizeof(xqc_recv_timestamps_info_t));

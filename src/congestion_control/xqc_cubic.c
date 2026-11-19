@@ -118,7 +118,7 @@ xqc_cubic_in_congestion_recovery(void *cong_ctl, xqc_usec_t sent_time)
 }
 
 size_t
-xqc_cubic_size()
+xqc_cubic_size(void)
 {
     return sizeof(xqc_cubic_t);
 }

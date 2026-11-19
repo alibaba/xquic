@@ -82,4 +82,22 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * A path that silently stops delivering while packets keep being sent on
+ * it never gets a PTO (RFC 9002 6.2.1): xqc_send_ctl_get_effective_pto_count
+ * counts the PTO expiries those sends hid, from the last progress on the
+ * path to its last send, and the path class drops to LOW until an ACK
+ * acknowledges a packet sent on it.
+ */
+void xqc_test_effective_pto_count_silent_path(void);
+/* ... leaving PMTUD probes out (RFC 9000 Section 14.4) */
+void xqc_test_effective_pto_count_pmtud_only(void);
+void xqc_test_effective_pto_count_pmtud_interleaved(void);
+void xqc_test_effective_pto_count_bounds(void);
+/* ... with the PTO timer's own period: control_pto_value,
+ * initial_pto_duration before the first RTT sample, max_ack_delay */
+void xqc_test_effective_pto_count_control_pto_value(void);
+void xqc_test_effective_pto_count_initial_pto_duration(void);
+void xqc_test_effective_pto_count_timer_policy(void);
+
 #endif

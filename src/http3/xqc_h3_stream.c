@@ -1043,6 +1043,16 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                     if (read == -XQC_H3_INVALID_HEADER) {
                         return read;
                     }
+
+                    /*
+                     * RFC 9204 Section 6: a field section that the decoder
+                     * cannot interpret is a QPACK_DECOMPRESSION_FAILED
+                     * error, also after its stream was blocked.
+                     */
+                    if (read == -XQC_QPACK_DECODER_ERROR) {
+                        XQC_H3_CONN_ERR(h3s->h3c, QPACK_DECOMPRESSION_FAILED,
+                                        read);
+                    }
                     return -XQC_QPACK_SAVE_HEADERS_ERROR;
                 }
                 processed += read;
@@ -1675,6 +1685,7 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
     ssize_t processed = 0;
     xqc_h3_conn_t *h3c = h3s->h3c;
     xqc_int_t errcode = XQC_OK;
+    uint64_t err = H3_FRAME_ERROR;
 
     /* nothing to process */
     if (data_len == 0 && !fin_flag) {
@@ -1700,7 +1711,19 @@ xqc_h3_stream_process_in(xqc_h3_stream_t *h3s, unsigned char *data, size_t data_
                 return processed;
             }
 
-            XQC_H3_CONN_ERR(h3c, H3_FRAME_ERROR, -XQC_H3_EPROC_CONTROL);
+            /*
+             * RFC 9204 Section 6: an instruction that the decoder or the
+             * encoder cannot interpret is a connection error of the type
+             * of the stream that carried it.
+             */
+            if (h3s->type == XQC_H3_STREAM_TYPE_QPACK_ENCODER) {
+                err = QPACK_ENCODER_STREAM_ERROR;
+
+            } else if (h3s->type == XQC_H3_STREAM_TYPE_QPACK_DECODER) {
+                err = QPACK_DECODER_STREAM_ERROR;
+            }
+
+            XQC_H3_CONN_ERR(h3c, err, -XQC_H3_EPROC_CONTROL);
             return -XQC_H3_EPROC_CONTROL;
         }
 

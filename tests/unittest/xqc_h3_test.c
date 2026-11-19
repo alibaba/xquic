@@ -1592,8 +1592,334 @@ xqc_test_h3_qpack_duplicate_uses_excessive_load()
 }
 
 
+/*
+ * RFC 9204 Section 6 defines the error codes of QPACK failures. These
+ * tests feed the bytes of the peer's QPACK encoder and decoder streams, and
+ * of a request stream, to xqc_h3_stream_process_in(). The connection also
+ * has our own QPACK encoder and decoder streams, for the instructions that
+ * the peer's ones make us send.
+ */
+enum {
+    XQC_H3_QPACK_ERR_OWN_ENC,
+    XQC_H3_QPACK_ERR_OWN_DEC,
+    XQC_H3_QPACK_ERR_PEER_ENC,
+    XQC_H3_QPACK_ERR_PEER_DEC,
+    XQC_H3_QPACK_ERR_REQUEST,
+    XQC_H3_QPACK_ERR_STREAMS,
+};
+
+typedef struct {
+    xqc_connection_t   *conn;
+    xqc_h3_conn_t      *h3c;
+    xqc_stream_t       *stream[XQC_H3_QPACK_ERR_STREAMS];
+    xqc_h3_stream_t    *h3s[XQC_H3_QPACK_ERR_STREAMS];
+} xqc_h3_qpack_err_ctx_t;
+
+static xqc_int_t xqc_h3_qpack_err_setup(xqc_h3_qpack_err_ctx_t *ctx);
+static void xqc_h3_qpack_err_teardown(xqc_h3_qpack_err_ctx_t *ctx);
+static void xqc_h3_qpack_err_check(xqc_h3_qpack_err_ctx_t *ctx,
+    xqc_int_t ret, uint64_t err);
+
+
+static xqc_int_t
+xqc_h3_qpack_err_setup(xqc_h3_qpack_err_ctx_t *ctx)
+{
+    static const xqc_h3_stream_type_t type[XQC_H3_QPACK_ERR_STREAMS] = {
+        XQC_H3_STREAM_TYPE_QPACK_ENCODER, XQC_H3_STREAM_TYPE_QPACK_DECODER,
+        XQC_H3_STREAM_TYPE_QPACK_ENCODER, XQC_H3_STREAM_TYPE_QPACK_DECODER,
+        XQC_H3_STREAM_TYPE_REQUEST,
+    };
+    xqc_stream_type_t stream_type;
+
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->conn = test_engine_connect();
+    if (ctx->conn == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    if (ctx->conn->alpn) {
+        xqc_free(ctx->conn->alpn);
+    }
+    ctx->conn->alpn_len = strlen(XQC_ALPN_H3);
+    ctx->conn->alpn = xqc_calloc(1, ctx->conn->alpn_len + 1);
+    if (ctx->conn->alpn == NULL) {
+        return -XQC_EMALLOC;
+    }
+    xqc_memcpy(ctx->conn->alpn, XQC_ALPN_H3, ctx->conn->alpn_len);
+    ctx->conn->conn_state = XQC_CONN_STATE_ESTABED;
+    ctx->conn->conn_flow_ctl.fc_max_streams_uni_can_send = 16;
+    ctx->conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 16;
+
+    ctx->h3c = xqc_h3_conn_create(ctx->conn, NULL);
+    if (ctx->h3c == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    for (int i = 0; i < XQC_H3_QPACK_ERR_STREAMS; i++) {
+        stream_type = type[i] == XQC_H3_STREAM_TYPE_REQUEST
+                      ? XQC_CLI_BID : XQC_CLI_UNI;
+        ctx->stream[i] = xqc_create_stream_with_conn(ctx->conn,
+                             XQC_UNDEFINE_STREAM_ID, stream_type, NULL, NULL);
+        if (ctx->stream[i] == NULL) {
+            return -XQC_EMALLOC;
+        }
+
+        ctx->h3s[i] = xqc_h3_stream_create(ctx->h3c, ctx->stream[i],
+                                           type[i], NULL);
+        if (ctx->h3s[i] == NULL) {
+            return -XQC_EMALLOC;
+        }
+    }
+
+    ctx->h3c->qenc_stream = ctx->h3s[XQC_H3_QPACK_ERR_OWN_ENC];
+    ctx->h3c->qdec_stream = ctx->h3s[XQC_H3_QPACK_ERR_OWN_DEC];
+    ctx->h3s[XQC_H3_QPACK_ERR_PEER_ENC]->flags
+        |= XQC_HTTP3_STREAM_FLAG_TYPE_IDENTIFIED;
+    ctx->h3s[XQC_H3_QPACK_ERR_PEER_DEC]->flags
+        |= XQC_HTTP3_STREAM_FLAG_TYPE_IDENTIFIED;
+
+    return XQC_OK;
+}
+
+
+static void
+xqc_h3_qpack_err_teardown(xqc_h3_qpack_err_ctx_t *ctx)
+{
+    for (int i = XQC_H3_QPACK_ERR_STREAMS - 1; i >= 0; i--) {
+        if (ctx->stream[i] == NULL) {
+            continue;
+        }
+
+        ctx->stream[i]->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+        if (ctx->h3s[i] != NULL) {
+            xqc_h3_stream_destroy(ctx->h3s[i]);
+        }
+        xqc_destroy_stream(ctx->stream[i]);
+    }
+
+    if (ctx->h3c != NULL) {
+        xqc_h3_conn_destroy(ctx->h3c);
+    }
+
+    if (ctx->conn != NULL) {
+        xqc_engine_destroy(ctx->conn->engine);
+    }
+}
+
+
+/* the bytes fed were accepted (err 0), or closed the connection with err */
+static void
+xqc_h3_qpack_err_check(xqc_h3_qpack_err_ctx_t *ctx, xqc_int_t ret,
+    uint64_t err)
+{
+    if (err == 0) {
+        CU_ASSERT(ret == XQC_OK);
+        CU_ASSERT(ctx->conn->conn_err == 0);
+        CU_ASSERT((ctx->conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
+        return;
+    }
+
+    CU_ASSERT(ret < 0);
+    CU_ASSERT(XQC_CONN_ERR_CODE(ctx->conn->conn_err) == err);
+    CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(ctx->conn->conn_err));
+    CU_ASSERT((ctx->conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
+}
+
+
+/*
+ * An encoder instruction that our decoder cannot apply closes the
+ * connection with QPACK_ENCODER_STREAM_ERROR (RFC 9204 Section 6): a
+ * capacity above our maximum (Section 4.3.1), an invalid static index
+ * (Section 3.1), a missing entry (Section 2.2.3), an entry larger than
+ * the capacity (Section 3.2.2), or an integer too large (Section 7.4).
+ */
 void
-xqc_test_h3_frame_parse_error_uses_frame_error()
+xqc_test_h3_qpack_encoder_stream_error()
+{
+    /* Set Dynamic Table Capacity, with more than 62 bits of capacity */
+    static const unsigned char too_large[] = {
+        0x3f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+    };
+    /* a second encoder stream: its type, then a capacity of 0 */
+    unsigned char second[] = { 0x02, 0x20 };
+    unsigned char name[40];
+    xqc_h3_qpack_err_ctx_t ctx;
+    xqc_h3_stream_t *h3s;
+    xqc_var_buf_t *ins;
+    uint64_t max_cap;
+    xqc_int_t ret;
+
+    memset(name, 'a', sizeof(name));
+    for (int i = 0; i < 6; i++) {
+        CU_ASSERT_FATAL(xqc_h3_qpack_err_setup(&ctx) == XQC_OK);
+        h3s = ctx.h3s[XQC_H3_QPACK_ERR_PEER_ENC];
+        max_cap = ctx.h3c->local_h3_conn_settings.qpack_dec_max_table_capacity;
+        ins = xqc_var_buf_create(64);
+        CU_ASSERT_FATAL(ins != NULL);
+
+        switch (i) {
+        case 0:
+            /* accepted: a capacity within our maximum, and an insertion */
+            CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 64) == XQC_OK);
+            CU_ASSERT(xqc_ins_write_insert_literal_name(ins, name, 1,
+                          (unsigned char *) "b", 1) == XQC_OK);
+            break;
+
+        case 1:
+            CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, max_cap + 1)
+                      == XQC_OK);
+            break;
+
+        case 2:
+            CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 64) == XQC_OK);
+            CU_ASSERT(xqc_ins_write_insert_name_ref(ins, XQC_STABLE_FLAG, 99,
+                          (unsigned char *) "b", 1) == XQC_OK);
+            break;
+
+        case 3:
+            CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 64) == XQC_OK);
+            CU_ASSERT(xqc_ins_write_dup(ins, 0) == XQC_OK);
+            break;
+
+        case 4:
+            /* an entry of 40 + 0 + 32 bytes */
+            CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 64) == XQC_OK);
+            CU_ASSERT(xqc_ins_write_insert_literal_name(ins, name,
+                          sizeof(name), NULL, 0) == XQC_OK);
+            break;
+
+        default:
+            CU_ASSERT(xqc_var_buf_save_data(ins, too_large,
+                                            sizeof(too_large)) == XQC_OK);
+            break;
+        }
+
+        ret = xqc_h3_stream_process_in(h3s, ins->data, ins->data_len,
+                                       XQC_FALSE);
+        xqc_h3_qpack_err_check(&ctx, ret,
+                               i == 0 ? 0 : QPACK_ENCODER_STREAM_ERROR);
+        CU_ASSERT(xqc_qpack_get_dec_insert_count(ctx.h3c->qpack)
+                  == (i == 0 ? 1 : 0));
+
+        xqc_var_buf_free(ins);
+        xqc_h3_qpack_err_teardown(&ctx);
+    }
+
+    CU_ASSERT(QPACK_ENCODER_STREAM_ERROR == 0x201);
+
+    /* a second encoder stream keeps H3_STREAM_CREATION_ERROR (Section 4.2) */
+    CU_ASSERT_FATAL(xqc_h3_qpack_err_setup(&ctx) == XQC_OK);
+    h3s = ctx.h3s[XQC_H3_QPACK_ERR_PEER_ENC];
+    h3s->type = XQC_H3_STREAM_TYPE_UNKNOWN;
+    h3s->flags &= ~XQC_HTTP3_STREAM_FLAG_TYPE_IDENTIFIED;
+    ctx.h3c->flags |= XQC_H3_CONN_FLAG_QPACK_ENCODER_OPENED;
+    ret = xqc_h3_stream_process_in(h3s, second, sizeof(second), XQC_FALSE);
+    xqc_h3_qpack_err_check(&ctx, ret, H3_STREAM_CREATION_ERROR);
+    xqc_h3_qpack_err_teardown(&ctx);
+}
+
+
+/*
+ * A decoder instruction that our encoder cannot apply closes the
+ * connection with QPACK_DECODER_STREAM_ERROR (RFC 9204 Section 6): a
+ * Section Acknowledgment for a stream with no unacknowledged section
+ * (Section 4.4.1), an Insert Count Increment of zero or above our
+ * insertions (Section 4.4.3), or an integer too large (Section 7.4).
+ */
+void
+xqc_test_h3_qpack_decoder_stream_error()
+{
+    /* Section Acknowledgment, with more than 62 bits of stream ID */
+    static const unsigned char too_large[] = {
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
+    };
+    xqc_http_header_t field = {
+        .name = {.iov_base = "x-qpack", .iov_len = 7},
+        .value = {.iov_base = "1", .iov_len = 1},
+    };
+    xqc_http_headers_t hdrs = {.headers = &field, .count = 1};
+    xqc_h3_qpack_err_ctx_t ctx;
+    xqc_h3_stream_t *h3s;
+    xqc_var_buf_t *ins, *efs;
+    xqc_qpack_t *qpk;
+    xqc_int_t ret;
+
+    for (int i = 0; i < 6; i++) {
+        CU_ASSERT_FATAL(xqc_h3_qpack_err_setup(&ctx) == XQC_OK);
+        h3s = ctx.h3s[XQC_H3_QPACK_ERR_PEER_DEC];
+        qpk = ctx.h3c->qpack;
+        ins = xqc_var_buf_create(64);
+        CU_ASSERT_FATAL(ins != NULL);
+
+        switch (i) {
+        case 0:
+            /* accepted: a Stream Cancellation needs no section */
+            CU_ASSERT(xqc_ins_write_stream_cancel(ins, 0) == XQC_OK);
+            break;
+
+        case 1:
+            CU_ASSERT(xqc_ins_write_section_ack(ins, 0) == XQC_OK);
+            break;
+
+        case 2:
+            CU_ASSERT(xqc_ins_write_icnt_increment(ins, 0) == XQC_OK);
+            break;
+
+        case 3:
+            CU_ASSERT(xqc_ins_write_icnt_increment(ins, 1) == XQC_OK);
+            break;
+
+        case 4:
+            CU_ASSERT(xqc_var_buf_save_data(ins, too_large,
+                                            sizeof(too_large)) == XQC_OK);
+            break;
+
+        default:
+            /*
+             * a field section of stream 0 that refers to an entry: its
+             * first acknowledgment is accepted, then the stream has none
+             */
+            CU_ASSERT(xqc_qpack_set_enc_max_dtable_cap(qpk, 4096) == XQC_OK);
+            CU_ASSERT(xqc_qpack_set_max_blocked_stream(qpk, 16) == XQC_OK);
+            CU_ASSERT(xqc_qpack_set_dtable_cap(qpk, 4096) == XQC_OK);
+            efs = xqc_var_buf_create(64);
+            CU_ASSERT_FATAL(efs != NULL);
+            CU_ASSERT(xqc_qpack_enc_headers(qpk, 0, &hdrs, efs) == XQC_OK);
+            /* Required Insert Count 1, encoded as 2 (Section 4.5.1.1) */
+            CU_ASSERT(efs->data_len > 0 && efs->data[0] == 2);
+            xqc_var_buf_free(efs);
+
+            CU_ASSERT(xqc_ins_write_section_ack(ins, 0) == XQC_OK);
+            ret = xqc_h3_stream_process_in(h3s, ins->data, ins->data_len,
+                                           XQC_FALSE);
+            xqc_h3_qpack_err_check(&ctx, ret, 0);
+            xqc_var_buf_clear(ins);
+            CU_ASSERT(xqc_ins_write_section_ack(ins, 0) == XQC_OK);
+            break;
+        }
+
+        ret = xqc_h3_stream_process_in(h3s, ins->data, ins->data_len,
+                                       XQC_FALSE);
+        xqc_h3_qpack_err_check(&ctx, ret,
+                               i == 0 ? 0 : QPACK_DECODER_STREAM_ERROR);
+
+        xqc_var_buf_free(ins);
+        xqc_h3_qpack_err_teardown(&ctx);
+    }
+
+    CU_ASSERT(QPACK_DECODER_STREAM_ERROR == 0x202);
+}
+
+
+/*
+ * A HEADERS frame whose field section refers to static table index 99,
+ * beyond the last index of RFC 9204 Appendix A (98). The decoder fails
+ * with -XQC_QPACK_DECODER_ERROR, which RFC 9204 Section 3.1 makes a
+ * QPACK_DECOMPRESSION_FAILED connection error. It is not a malformed
+ * message: process_in must not widen H3_MESSAGE_ERROR to it.
+ */
+void
+xqc_test_h3_qpack_decompression_failed()
 {
     xqc_connection_t *conn = NULL;
     xqc_h3_conn_t *h3c = NULL;
@@ -1601,14 +1927,6 @@ xqc_test_h3_frame_parse_error_uses_frame_error()
     CU_ASSERT_FATAL(h3s != NULL);
 
     /*
-     * Feed a HEADERS frame whose QPACK payload references static
-     * table index 99 (out of range, valid is 0..98). The QPACK
-     * decoder fails with -XQC_QPACK_SAVE_HEADERS_ERROR (not
-     * -XQC_H3_INVALID_HEADER), so process_in must keep the wire
-     * code as H3_FRAME_ERROR. This is the line 1524 "else" branch
-     * the PR does NOT change - regression guard against the fix
-     * accidentally widening H3_MESSAGE_ERROR to non-header errors.
-     *
      *   01           HEADERS frame type
      *   04           payload length 4
      *   00           Required Insert Count 0       (QPACK prefix, 8-bit)
@@ -1626,11 +1944,126 @@ xqc_test_h3_frame_parse_error_uses_frame_error()
             XQC_TRUE);
 
     CU_ASSERT(ret < 0);
-    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_FRAME_ERROR);
-    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) != H3_MESSAGE_ERROR);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err)
+              == QPACK_DECOMPRESSION_FAILED);
+    CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == 0x200);
+    CU_ASSERT(XQC_CONN_ERR_IS_APPLICATION(conn->conn_err));
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_msgerr_teardown(h3s, h3c, conn);
+}
+
+
+/*
+ * A field section that waited for an insertion (RFC 9204 Section 2.1.2)
+ * is decoded once the insertion arrives. If it cannot be interpreted then,
+ * the connection is closed with QPACK_DECOMPRESSION_FAILED as well.
+ */
+void
+xqc_test_h3_qpack_blocked_decode_error()
+{
+    /*
+     *   01 03|04     HEADERS frame type, payload length
+     *   02           Required Insert Count 1 (Section 4.5.1.1)
+     *   00           S=0, Delta Base 0: Base 1
+     *   80           Indexed Field Line, dynamic, relative index 0, or
+     *   ff 24        static index 99, which does not exist
+     */
+    static const unsigned char valid[] = { 0x01, 0x03, 0x02, 0x00, 0x80 };
+    static const unsigned char invalid[] = {
+        0x01, 0x04, 0x02, 0x00, 0xff, 0x24
+    };
+    unsigned char buf[sizeof(invalid)];
+    xqc_h3_qpack_err_ctx_t ctx;
+    xqc_h3_stream_t *h3s;
+    xqc_http_headers_t *headers;
+    xqc_var_buf_t *ins;
+    size_t len;
+    xqc_int_t ret;
+
+    for (int i = 0; i < 2; i++) {
+        CU_ASSERT_FATAL(xqc_h3_qpack_err_setup(&ctx) == XQC_OK);
+        h3s = ctx.h3s[XQC_H3_QPACK_ERR_REQUEST];
+        h3s->h3r = xqc_h3_request_create_inner(ctx.h3c, h3s, NULL);
+        CU_ASSERT_FATAL(h3s->h3r != NULL);
+
+        len = i == 0 ? sizeof(valid) : sizeof(invalid);
+        xqc_memcpy(buf, i == 0 ? valid : invalid, len);
+        ret = xqc_h3_stream_process_in(h3s, buf, len, XQC_FALSE);
+        xqc_h3_qpack_err_check(&ctx, ret, 0);
+        CU_ASSERT(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED);
+        CU_ASSERT(ctx.h3c->block_stream_count == 1);
+
+        /* the peer's encoder stream inserts x-qpack: 1 */
+        ins = xqc_var_buf_create(64);
+        CU_ASSERT_FATAL(ins != NULL);
+        CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 64) == XQC_OK);
+        CU_ASSERT(xqc_ins_write_insert_literal_name(ins,
+                      (unsigned char *) "x-qpack", 7,
+                      (unsigned char *) "1", 1) == XQC_OK);
+        ret = xqc_h3_stream_process_in(ctx.h3s[XQC_H3_QPACK_ERR_PEER_ENC],
+                                       ins->data, ins->data_len, XQC_FALSE);
+        xqc_h3_qpack_err_check(&ctx, ret, 0);
+        CU_ASSERT(xqc_qpack_get_dec_insert_count(ctx.h3c->qpack) == 1);
+        xqc_var_buf_free(ins);
+
+        /* as xqc_h3_stream_process_data() does after the insertion */
+        ret = xqc_h3_conn_process_blocked_stream(ctx.h3c);
+        if (i == 0) {
+            xqc_h3_qpack_err_check(&ctx, ret, 0);
+            CU_ASSERT(!(h3s->flags
+                        & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED));
+            CU_ASSERT(h3s->h3r->completed_header_count == 1);
+            headers = &h3s->h3r->h3_header[0];
+            CU_ASSERT(headers->count == 1
+                      && headers->headers[0].name.iov_len == 7
+                      && memcmp(headers->headers[0].name.iov_base,
+                                "x-qpack", 7) == 0);
+
+        } else {
+            xqc_h3_qpack_err_check(&ctx, ret, QPACK_DECOMPRESSION_FAILED);
+        }
+
+        xqc_h3_qpack_err_teardown(&ctx);
+    }
+}
+
+
+/*
+ * A field section that blocks one stream more than our
+ * SETTINGS_QPACK_BLOCKED_STREAMS closes the connection with
+ * QPACK_DECOMPRESSION_FAILED (RFC 9204 Section 2.1.2).
+ */
+void
+xqc_test_h3_qpack_blocked_stream_limit_error()
+{
+    /* HEADERS: Required Insert Count 1, dynamic relative index 0 */
+    static const unsigned char frame[] = { 0x01, 0x03, 0x02, 0x00, 0x80 };
+    unsigned char buf[sizeof(frame)];
+    xqc_h3_qpack_err_ctx_t ctx;
+    xqc_h3_stream_t *h3s;
+    uint64_t limit;
+    xqc_int_t ret;
+
+    for (int i = 0; i < 2; i++) {
+        /* one blocked stream is allowed, then none */
+        limit = 1 - i;
+        CU_ASSERT_FATAL(xqc_h3_qpack_err_setup(&ctx) == XQC_OK);
+        ctx.h3c->local_h3_conn_settings.qpack_blocked_streams = limit;
+        h3s = ctx.h3s[XQC_H3_QPACK_ERR_REQUEST];
+        h3s->h3r = xqc_h3_request_create_inner(ctx.h3c, h3s, NULL);
+        CU_ASSERT_FATAL(h3s->h3r != NULL);
+
+        xqc_memcpy(buf, frame, sizeof(buf));
+        ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf), XQC_FALSE);
+        xqc_h3_qpack_err_check(&ctx, ret,
+                               limit == 1 ? 0 : QPACK_DECOMPRESSION_FAILED);
+        CU_ASSERT(ctx.h3c->block_stream_count == limit);
+
+        xqc_h3_qpack_err_teardown(&ctx);
+    }
+
+    CU_ASSERT(QPACK_DECOMPRESSION_FAILED == 0x200);
 }
 
 

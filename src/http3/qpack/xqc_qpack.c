@@ -38,6 +38,12 @@ typedef struct xqc_qpack_s {
     /* max encoder's dynamic table capacity configured by local */
     uint64_t                enc_max_cap;
 
+    /*
+     * max dynamic table capacity of peer's decoder, which is its
+     * SETTINGS_QPACK_MAX_TABLE_CAPACITY, and 0 until it is received
+     */
+    uint64_t                peer_dec_max_cap;
+
     /* per-second Duplicate work received from the peer encoder stream */
     uint64_t                dec_duplicate_work_second;
     uint64_t                dec_duplicate_work_bytes;
@@ -106,6 +112,7 @@ xqc_qpack_create(uint64_t enc_max_cap, uint64_t dec_max_cap, xqc_log_t *log, con
     qpk->user_data = user_data;
     qpk->enc_max_cap = enc_max_cap;
     qpk->dec_max_cap = dec_max_cap;
+    qpk->peer_dec_max_cap = 0;
     qpk->dec_duplicate_work_second = 0;
     qpk->dec_duplicate_work_bytes = 0;
     qpk->dec_duplicate_work_warned = XQC_FALSE;
@@ -237,13 +244,35 @@ fail:
 xqc_int_t
 xqc_qpack_set_enc_max_dtable_cap(xqc_qpack_t *qpk, size_t max_cap)
 {
-    return xqc_encoder_set_max_dtable_cap(qpk->enc, max_cap);
+    xqc_int_t ret = xqc_encoder_set_max_dtable_cap(qpk->enc, max_cap);
+    if (ret == XQC_OK) {
+        qpk->peer_dec_max_cap = max_cap;
+    }
+
+    return ret;
 }
 
 
 xqc_int_t
 xqc_qpack_set_dtable_cap(xqc_qpack_t *qpk, size_t cap)
 {
+    /*
+     * RFC 9204 Section 3.2.3: the capacity MUST NOT exceed the maximum of
+     * peer's decoder, which is 0 until its SETTINGS is received. With a
+     * maximum of 0, no encoder instruction can be sent, and the capacity
+     * stays 0
+     */
+    if (qpk->peer_dec_max_cap == 0) {
+        if (cap == 0) {
+            return XQC_OK;
+        }
+
+        xqc_log(qpk->log, XQC_LOG_WARN, "|peer's max dtable cap is 0|cap:%uz|",
+                cap);
+        return -XQC_QPACK_STATE_ERROR;
+    }
+    cap = xqc_min(cap, qpk->peer_dec_max_cap);
+
     /* set encoder's dtable capacity, which is the minor of max_cap and cap */
     uint64_t min_cap = xqc_min(cap, qpk->enc_max_cap);
     xqc_int_t ret = xqc_encoder_set_dtable_cap(qpk->enc, min_cap);

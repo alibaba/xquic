@@ -639,6 +639,47 @@ xqc_set_path_state(xqc_path_ctx_t *path, xqc_path_state_t dst_state)
     path->path_state = dst_state;
 }
 
+/*
+ * RFC 10069 Section 3.4: once PATH_ABANDON is sent or received for a path
+ * ID, the path ID is abandoned for good. The connection ID sets of the path
+ * ID record it, whether a path exists for it or not.
+ */
+static xqc_bool_t
+xqc_conn_path_id_abandoned(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_cid_set_inner_t *scid_set = xqc_get_path_cid_set(&conn->scid_set,
+                                                         path_id);
+    xqc_cid_set_inner_t *dcid_set = xqc_get_path_cid_set(&conn->dcid_set,
+                                                         path_id);
+
+    return (scid_set != NULL && scid_set->set_state == XQC_CID_SET_ABANDONED)
+        || (dcid_set != NULL && dcid_set->set_state == XQC_CID_SET_ABANDONED);
+}
+
+void
+xqc_conn_abandon_path_id(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_int_t ret;
+
+    /*
+     * One PATH_ABANDON per path ID. RFC 10069 Section 4: the peer accepts no
+     * frame for a path ID above its limit, so none names such a path ID.
+     */
+    if (path_id <= conn->remote_max_path_id
+        && !xqc_conn_path_id_abandoned(conn, path_id))
+    {
+        ret = xqc_write_path_abandon_frame_to_packet(conn, path_id);
+        if (ret != XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|xqc_write_path_abandon_frame_to_packet error|ret:%d|",
+                    ret);
+        }
+    }
+
+    xqc_cid_set_update_state(&conn->scid_set, path_id, XQC_CID_SET_ABANDONED);
+    xqc_cid_set_update_state(&conn->dcid_set, path_id, XQC_CID_SET_ABANDONED);
+}
+
 xqc_int_t
 xqc_path_immediate_close(xqc_path_ctx_t *path)
 {
@@ -647,12 +688,8 @@ xqc_path_immediate_close(xqc_path_ctx_t *path)
     }
 
     xqc_connection_t *conn = path->parent_conn;
-    xqc_int_t ret = XQC_OK;
-    
-    ret = xqc_write_path_abandon_frame_to_packet(conn, path);
-    if (ret != XQC_OK) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_write_path_abandon_frame_to_packet error|ret:%d|", ret);
-    }
+
+    xqc_conn_abandon_path_id(conn, path->path_id);
 
     xqc_set_path_state(path, XQC_PATH_STATE_CLOSING);
 
@@ -674,9 +711,6 @@ xqc_path_immediate_close(xqc_path_ctx_t *path)
     if (!xqc_timer_is_set(&path->path_send_ctl->path_timer_manager, XQC_TIMER_PATH_DRAINING)) {
         xqc_timer_set(&path->path_send_ctl->path_timer_manager, XQC_TIMER_PATH_DRAINING, now, 3 * pto);
     }
-
-    xqc_cid_set_update_state(&conn->scid_set, path->path_id, XQC_CID_SET_ABANDONED);
-    xqc_cid_set_update_state(&conn->dcid_set, path->path_id, XQC_CID_SET_ABANDONED);
 
     return XQC_OK;
 }

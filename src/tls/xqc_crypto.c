@@ -500,7 +500,7 @@ xqc_crypto_derive_keys(xqc_crypto_t *crypto, const uint8_t *secret, size_t secre
     xqc_int_t ret;
 
     ret = xqc_crypto_derive_packet_protection_key(crypto, key, keycap, &keylen, secret, secretlen);
-    if (ret != XQC_OK || keylen <= 0) {
+    if (ret != XQC_OK || keylen == 0) {
         xqc_log(crypto->log, XQC_LOG_ERROR,
                 "|xqc_crypto_derive_packet_protection_key failed|ret:%d|", ret);
         return ret;
@@ -508,14 +508,14 @@ xqc_crypto_derive_keys(xqc_crypto_t *crypto, const uint8_t *secret, size_t secre
 
 
     ret = xqc_crypto_derive_packet_protection_iv(crypto, iv, ivcap, &ivlen, secret, secretlen);
-    if (ret != XQC_OK || ivlen <= 0) {
+    if (ret != XQC_OK || ivlen == 0) {
         xqc_log(crypto->log, XQC_LOG_ERROR,
                 "|xqc_crypto_derive_packet_protection_iv failed|ret:%d|", ret);
         return ret;
     }
 
     ret = xqc_crypto_derive_header_protection_key(crypto, hp, hpcap, &hplen, secret, secretlen);
-    if (ret != XQC_OK || hplen <= 0) {
+    if (ret != XQC_OK || hplen == 0) {
         xqc_log(crypto->log, XQC_LOG_ERROR,
                 "|xqc_crypto_derive_header_protection_key failed|ret:%d|", ret);
         return ret;
@@ -725,7 +725,7 @@ xqc_crypto_derive_updated_keys(xqc_crypto_t *crypto, xqc_key_type_t type)
     ret = xqc_crypto_derive_packet_protection_key(crypto, key, keycap, &keylen,
                                                   updated_ckm->secret.base,
                                                   updated_ckm->secret.len);
-    if (ret != XQC_OK || keylen <= 0) {
+    if (ret != XQC_OK || keylen == 0) {
         xqc_log(crypto->log, XQC_LOG_ERROR,
                 "|xqc_crypto_derive_packet_protection_key failed|ret:%d|", ret);
         return -XQC_TLS_UPDATE_KEY_ERROR;
@@ -734,7 +734,7 @@ xqc_crypto_derive_updated_keys(xqc_crypto_t *crypto, xqc_key_type_t type)
     ret = xqc_crypto_derive_packet_protection_iv(crypto, iv, ivcap, &ivlen,
                                                  updated_ckm->secret.base,
                                                  updated_ckm->secret.len);
-    if (ret != XQC_OK || ivlen <= 0) {
+    if (ret != XQC_OK || ivlen == 0) {
         xqc_log(crypto->log, XQC_LOG_ERROR,
                 "|xqc_crypto_derive_packet_protection_iv failed|ret:%d|", ret);
         return -XQC_TLS_UPDATE_KEY_ERROR;

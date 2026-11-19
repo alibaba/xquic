@@ -18,6 +18,7 @@
 
 #include "xqc_common_test.h"
 #include "xqc_h3_test.h"
+#include "xqc_alloc_wrap.h"
 
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
@@ -2108,6 +2109,62 @@ xqc_test_h3_stream_send_buf_error_log(void)
 #endif
 
     xqc_engine_destroy(engine);
+}
+
+
+/* every field of the Priority value the writer produces */
+void
+xqc_test_h3_priority_write(void)
+{
+    xqc_h3_priority_t prio;
+    uint8_t buf[32];
+    ssize_t len;
+
+    xqc_h3_priority_init(&prio);
+    prio.urgency = 1;
+    prio.incremental = 1;
+    prio.schedule = 2;
+    prio.reinject = 1;
+    prio.fec = 1234;
+    prio.fastpath = 1;
+
+    /* the writer asks for room for every optional field: 31 bytes */
+    len = xqc_write_http_priority(&prio, buf, 31);
+    CU_ASSERT_EQUAL_FATAL(len, 31);
+    CU_ASSERT(memcmp(buf, "u=1, i, s=2, r=1, f=00001234, p", 31) == 0);
+
+    xqc_h3_priority_init(&prio);
+    len = xqc_write_http_priority(&prio, buf, sizeof(buf));
+    CU_ASSERT_EQUAL_FATAL(len, 25);
+    CU_ASSERT(memcmp(buf, "u=3, s=0, r=0, f=00000000", 25) == 0);
+}
+
+
+/* a buffer too small for the value: an error, nothing written or kept */
+void
+xqc_test_h3_priority_write_too_small(void)
+{
+    xqc_h3_priority_t prio;
+    uint8_t buf[30];
+    size_t i;
+
+    memset(buf, 'x', sizeof(buf));
+    xqc_h3_priority_init(&prio);
+
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+#endif
+    CU_ASSERT(xqc_write_http_priority(&prio, buf, sizeof(buf))
+              == -XQC_H3_BUFFER_EXCEED);
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT_EQUAL(xqc_test_alloc_live, 0);
+#endif
+
+    for (i = 0; i < sizeof(buf); i++) {
+        CU_ASSERT_EQUAL(buf[i], 'x');
+    }
 }
 
 

@@ -891,9 +891,14 @@ xqc_stream_id_t xqc_h3_stream_id(xqc_h3_request_t *h3_request);
 XQC_EXPORT_PUBLIC_API
 void xqc_h3_priority_init(xqc_h3_priority_t *prio);
 
+/**
+ * @brief write prio as a Priority field value
+ * @return the number of bytes written, or -XQC_H3_BUFFER_EXCEED when dstcap
+ * is too small
+ */
 XQC_EXPORT_PUBLIC_API
-size_t xqc_write_http_priority(xqc_h3_priority_t *prio,
-    uint8_t *dst, size_t dstcap);
+ssize_t xqc_write_http_priority(xqc_h3_priority_t *prio, uint8_t *dst,
+                                size_t dstcap);
 
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_parse_http_priority(xqc_h3_priority_t *dst,

@@ -1,6 +1,5 @@
-# Copyright (c) 2022, Alibaba Group Holding Limited
-
 #!/bin/bash
+# Copyright (c) 2022, Alibaba Group Holding Limited
 
 #macOS
 #export EVENT_NOKQUEUE=1

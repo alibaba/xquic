@@ -97,7 +97,7 @@ make -j
 ### 运行测试用例
 
 ```bash
-sh ../scripts/xquic_test.sh
+bash ../scripts/xquic_test.sh
 ```
 
 ## 文档

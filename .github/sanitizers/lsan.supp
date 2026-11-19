@@ -1,0 +1,28 @@
+# LeakSanitizer reports that main still has, suppressed by the Sanitizers
+# workflow (.github/workflows/sanitizers.yml). Each entry names a function of
+# the allocation stack. LeakSanitizer matches an entry against the function,
+# file and module names of every frame of that stack, so an entry must not
+# name a library or a function that the event loop runs through. Delete an
+# entry with the change that fixes its leak: the workflow then fails if the
+# leak comes back.
+
+# The events and event bases that the demo client leaves at exit, by the
+# libevent functions that allocate them: an entry naming libevent itself
+# would also hide every leak allocated in an event callback.
+leak:event_new
+leak:event_base_new
+
+# tests/test_server.c: the HTTP/3 connection allocates its own user_conn_t,
+# and nothing frees the one that xqc_server_accept() attached to the
+# transport connection.
+leak:xqc_server_accept
+
+# demo/: request and task state that the demo applications do not free.
+leak:xqc_demo_svr_hq_req_create_notify
+leak:xqc_demo_svr_h3_request_create_notify
+leak:xqc_demo_cli_init_scmr
+
+# xqc_h3_ext_bytestream_notify_read() never frees the merged buffer of a
+# received bytestream message.
+leak:xqc_h3_ext_bytestream_save_data_to_buf
+leak:xqc_h3_ext_bytestream_data_buf_merge

@@ -9,6 +9,9 @@
 #include <stdio.h>
 #include <string.h>
 #include "src/common/xqc_time.h"
+#include "src/transport/xqc_conn.h"
+#include "src/transport/xqc_multipath.h"
+#include "xqc_common_test.h"
 
 /*
  * Mirror the private constants of xqc_cubic.c so the assertions
@@ -226,4 +229,113 @@ xqc_test_cubic_reordered_ack_in_recovery()
         &cubic, &po, cubic.congestion_recovery_start_time + 1);
 
     CU_ASSERT_EQUAL(cubic.cwnd, cwnd);
+}
+
+
+/*
+ * RFC 9002 Section 7.8, RFC 9438 Sections 4.2 and 5.8: CUBIC grows its
+ * window only while the sender uses it, and the time the sender does not
+ * is left out of t. A connection's path drives the CUBIC instance, as
+ * xqc_send_ctl_is_cwnd_limited() decides from its send state.
+ */
+static void
+xqc_test_cubic_set_cwnd_limited(xqc_send_ctl_t *send_ctl, xqc_bool_t limited)
+{
+    send_ctl->ctl_is_cwnd_limited = limited;
+    send_ctl->ctl_max_bytes_in_flight = limited ? 0x7fffffff : 0;
+}
+
+static void
+xqc_test_cubic_ack(xqc_cubic_t *cubic, xqc_usec_t sent_time, xqc_usec_t now)
+{
+    xqc_packet_out_t po;
+
+    memset(&po, 0, sizeof(po));
+    po.po_sent_time = sent_time;
+    po.po_used_size = 1000;
+    xqc_cubic_cb.xqc_cong_ctl_on_ack(cubic, &po, now);
+}
+
+static void
+xqc_test_cubic_slow_start_case(xqc_bool_t cwnd_limited, uint64_t growth)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_cubic_t *cubic = send_ctl->ctl_cong;
+    CU_ASSERT_FATAL(send_ctl->ctl_cong_callback == &xqc_cubic_cb);
+
+    uint64_t cwnd = cubic->cwnd;
+    xqc_test_cubic_set_cwnd_limited(send_ctl, cwnd_limited);
+    xqc_test_cubic_ack(cubic, 1, 1001);
+    CU_ASSERT_EQUAL(cubic->cwnd, cwnd + growth);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* slow start with the window in use: + acked bytes */
+void
+xqc_test_cubic_slow_start_cwnd_limited()
+{
+    xqc_test_cubic_slow_start_case(XQC_TRUE, 1000);
+}
+
+/* slow start with nothing ever in flight: no growth */
+void
+xqc_test_cubic_slow_start_app_limited()
+{
+    xqc_test_cubic_slow_start_case(XQC_FALSE, 0);
+}
+
+/*
+ * Congestion avoidance: an epoch starts with an ACK at E. One sender does
+ * not use its window from an ACK at E + 1 ms until one at E + 100.009 s,
+ * the other acknowledges at E + 1 ms with its window in use. Without those
+ * 100.008 s both are 1 ms into the epoch and end with the same window.
+ */
+static uint64_t
+xqc_test_cubic_epoch_case(xqc_bool_t idle)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_cubic_t *cubic = send_ctl->ctl_cong;
+    xqc_usec_t rs, e;
+    uint64_t cwnd, ret;
+
+    xqc_cubic_cb.xqc_cong_ctl_on_lost(cubic, 1);
+    rs = cubic->congestion_recovery_start_time;
+    CU_ASSERT_FATAL(rs != 0);
+    e = rs + 1000;
+
+    xqc_test_cubic_set_cwnd_limited(send_ctl, XQC_TRUE);
+    xqc_test_cubic_ack(cubic, rs + 1, e);
+    CU_ASSERT_FATAL(cubic->epoch_start == e);
+
+    if (idle) {
+        xqc_test_cubic_set_cwnd_limited(send_ctl, XQC_FALSE);
+        cwnd = cubic->cwnd;
+        xqc_test_cubic_ack(cubic, rs + 1, e + 1000);
+        xqc_test_cubic_ack(cubic, rs + 1, e + 100000000);
+        CU_ASSERT_EQUAL(cubic->cwnd, cwnd);
+        xqc_test_cubic_set_cwnd_limited(send_ctl, XQC_TRUE);
+        xqc_test_cubic_ack(cubic, rs + 1, e + 100009000);
+        CU_ASSERT_EQUAL(cubic->epoch_start, e + 100008000);
+
+    } else {
+        xqc_test_cubic_ack(cubic, rs + 1, e + 1000);
+    }
+
+    ret = cubic->cwnd;
+    xqc_engine_destroy(conn->engine);
+    return ret;
+}
+
+void
+xqc_test_cubic_epoch_skips_app_limited_time()
+{
+    CU_ASSERT_EQUAL(xqc_test_cubic_epoch_case(XQC_TRUE),
+                    xqc_test_cubic_epoch_case(XQC_FALSE));
 }

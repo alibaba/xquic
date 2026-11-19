@@ -149,6 +149,8 @@ xqc_cubic_init(void *cong_ctl, xqc_send_ctl_t *ctl_ctx, xqc_cc_params_t cc_param
     cubic->last_max_cwnd = cubic->init_cwnd;
     cubic->ssthresh = XQC_CUBIC_MAX_SSTHRESH;
     cubic->congestion_recovery_start_time = 0;
+    cubic->ctl_ctx = ctl_ctx;
+    cubic->app_limited_since = 0;
 }
 
 
@@ -201,6 +203,26 @@ xqc_cubic_on_ack(void *cong_ctl, xqc_packet_out_t *po, xqc_usec_t now)
     /* Do not increase congestion window in recovery period. */
     if (xqc_cubic_in_congestion_recovery(cong_ctl, po->po_sent_time)) {
         return;
+    }
+
+    /*
+     * RFC 9002 Section 7.8, RFC 9438 Section 5.8: the window does not grow
+     * while the sender does not use it, and RFC 9438 Section 4.2: t leaves
+     * that period out, so the epoch starts that much later.
+     */
+    if (cubic->ctl_ctx && !xqc_send_ctl_is_cwnd_limited(cubic->ctl_ctx)) {
+        if (cubic->app_limited_since == 0) {
+            cubic->app_limited_since = now;
+        }
+        return;
+    }
+
+    if (cubic->app_limited_since != 0) {
+        if (cubic->epoch_start != 0 && now > cubic->app_limited_since) {
+            cubic->epoch_start += now - cubic->app_limited_since;
+            cubic->epoch_start = xqc_min(cubic->epoch_start, now);
+        }
+        cubic->app_limited_since = 0;
     }
 
     if (cubic->cwnd < cubic->ssthresh) {

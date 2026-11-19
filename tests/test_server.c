@@ -2123,6 +2123,34 @@ xqc_server_request_read_notify(xqc_h3_request_t *h3_request, xqc_request_notify_
 }
 
 
+/*
+ * case 814: the second loopback address, to which path 0 of the client
+ * moves, takes no datagram above XQC_TEST_CASE_NEW_PATH_MTU bytes, 100 more
+ * than the default packet size
+ */
+#define XQC_TEST_CASE_NEW_PATH_MTU (XQC_PACKET_OUT_SIZE + 100)
+
+static int
+xqc_server_new_path_dropped(const struct sockaddr *peer_addr, size_t size)
+{
+    static int dropped = 0;
+
+    if (g_test_case != 814 || peer_addr == NULL
+        || peer_addr->sa_family != AF_INET
+        || ((const struct sockaddr_in *) peer_addr)->sin_addr.s_addr
+           != htonl(INADDR_LOOPBACK + 1)
+        || size <= XQC_TEST_CASE_NEW_PATH_MTU)
+    {
+        return 0;
+    }
+
+    if (dropped++ == 0) {
+        printf("[case-814]|new path drops a datagram|size:%zu|\n", size);
+    }
+    return 1;
+}
+
+
 ssize_t 
 xqc_server_write_socket(const unsigned char *buf, size_t size,
     const struct sockaddr *peer_addr,
@@ -2141,6 +2169,10 @@ xqc_server_write_socket(const unsigned char *buf, size_t size,
     if (size > XQC_PACKET_TMP_BUF_LEN) {
         printf("xqc_server_write_socket err: size=%zu is too long\n", size);
         return XQC_SOCKET_ERROR;
+    }
+
+    if (xqc_server_new_path_dropped(peer_addr, size)) {
+        return size;
     }
     send_buf_size = size;
     memcpy(send_buf, buf, send_buf_size);

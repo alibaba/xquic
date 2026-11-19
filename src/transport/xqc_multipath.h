@@ -104,6 +104,8 @@ typedef struct {
     xqc_rebinding_state_t state;
     xqc_bool_t            initial_challenge_padded;
     unsigned char         challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
+    /* when the PATH_CHALLENGE validating addr was sent, 0 before */
+    xqc_usec_t            challenge_sent_time;
 } xqc_path_rebinding_t;
 
 /* path context */
@@ -201,6 +203,9 @@ typedef struct {
     uint32_t            app_path_status_changed_count;    
 } xqc_path_info_t;
 
+/* same IP address, whatever the port */
+xqc_bool_t xqc_is_same_ip(const struct sockaddr *sa1,
+    const struct sockaddr *sa2);
 xqc_bool_t xqc_is_same_addr(const struct sockaddr *sa1, const struct sockaddr *sa2);
 xqc_bool_t xqc_is_same_addr_as_any_path(xqc_connection_t *conn, const struct sockaddr *peer_addr);
 

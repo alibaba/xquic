@@ -462,6 +462,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_recv_record", xqc_test_recv_record)
         || !CU_add_test(pSuite, "xqc_test_recv_timestamps_range_flag",
                         xqc_test_recv_timestamps_range_flag)
+        || !CU_add_test(pSuite, "xqc_test_ack_timer_within_max_ack_delay",
+                        xqc_test_ack_timer_within_max_ack_delay)
+        || !CU_add_test(pSuite, "xqc_test_ack_timer_small_max_ack_delay",
+                        xqc_test_ack_timer_small_max_ack_delay)
         || !CU_add_test(pSuite, "xqc_test_reno", xqc_test_reno)
         || !CU_add_test(pSuite, "xqc_test_reno_loss_ssthresh",
                         xqc_test_reno_loss_ssthresh)

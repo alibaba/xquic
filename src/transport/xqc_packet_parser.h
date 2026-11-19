@@ -79,7 +79,9 @@ xqc_int_t xqc_packet_encrypt_buf(xqc_connection_t *conn, xqc_packet_out_t *packe
 xqc_int_t xqc_packet_check_aead_confidentiality_limit(
     xqc_connection_t *conn);
 
-void xqc_gen_reset_token(xqc_cid_t *cid, unsigned char *token, int token_len, char *key, size_t keylen);
+/* -XQC_ESYS, with the token left unwritten, when no token can be made */
+xqc_int_t xqc_gen_reset_token(xqc_cid_t *cid, unsigned char *token,
+    int token_len, char *key, size_t keylen);
 
 xqc_int_t xqc_packet_parse_stateless_reset(const unsigned char *buf,
     size_t buf_size, const uint8_t **sr_token);

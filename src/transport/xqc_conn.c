@@ -1199,10 +1199,14 @@ xqc_conn_server_create(xqc_engine_t *engine, const struct sockaddr *local_addr,
     }
 
     /* generate sr token for server's initial cid */
-    xqc_gen_reset_token(&new_scid, new_scid.sr_token,
-                        XQC_STATELESS_RESET_TOKENLEN,
-                        engine->config->reset_token_key,
-                        engine->config->reset_token_keylen);
+    if (xqc_gen_reset_token(&new_scid, new_scid.sr_token,
+                            XQC_STATELESS_RESET_TOKENLEN,
+                            engine->config->reset_token_key,
+                            engine->config->reset_token_keylen) != XQC_OK)
+    {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|fail to generate sr_token|");
+        return NULL;
+    }
 
     conn = xqc_conn_create(engine, dcid, &new_scid, settings, user_data, XQC_CONN_TYPE_SERVER);
     if (conn == NULL) {
@@ -6001,6 +6005,8 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
 xqc_int_t
 xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params_t *params)
 {
+    xqc_int_t ret;
+
     /* copy transport parameters from conn local settings */
     xqc_trans_settings_t *settings = &conn->local_settings;
 
@@ -6065,16 +6071,27 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
                      conn->original_dcid.cid_buf, conn->original_dcid.cid_len);
         params->original_dest_connection_id_present = 1;
 
-        xqc_gen_reset_token(&conn->original_dcid, 
-                            params->stateless_reset_token,
-                            XQC_STATELESS_RESET_TOKENLEN, 
-                            conn->engine->config->reset_token_key, 
-                            conn->engine->config->reset_token_keylen);
-        params->stateless_reset_token_present = 1;
+        ret = xqc_gen_reset_token(&conn->original_dcid,
+                                  params->stateless_reset_token,
+                                  XQC_STATELESS_RESET_TOKENLEN,
+                                  conn->engine->config->reset_token_key,
+                                  conn->engine->config->reset_token_keylen);
+        if (ret == XQC_OK) {
+            params->stateless_reset_token_present = 1;
 
-        xqc_log(conn->log, XQC_LOG_INFO, "|generate sr_token[%s] for cid[%s]",
-                xqc_sr_token_str(conn->engine, params->stateless_reset_token),
-                xqc_scid_str(conn->engine, &conn->original_dcid));
+            xqc_log(conn->log, XQC_LOG_INFO,
+                    "|generate sr_token[%s] for cid[%s]",
+                    xqc_sr_token_str(conn->engine,
+                                     params->stateless_reset_token),
+                    xqc_scid_str(conn->engine, &conn->original_dcid));
+
+        } else {
+            /* optional (RFC 9000 Section 18.2): omitted without a token */
+            params->stateless_reset_token_present = 0;
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|fail to generate sr_token for cid[%s]|ret:%d|",
+                    xqc_scid_str(conn->engine, &conn->original_dcid), ret);
+        }
 
     } else {
         params->original_dest_connection_id_present = 0;

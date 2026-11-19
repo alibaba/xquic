@@ -602,6 +602,10 @@ xqc_int_t xqc_conn_enc_packet(xqc_connection_t *conn,
     xqc_path_ctx_t *path, xqc_packet_out_t *packet_out,
     char *enc_pkt, size_t enc_pkt_cap, size_t *enc_pkt_len, xqc_usec_t current_time);
 
+/* the size of a packet once it is padded, as it is sent */
+size_t xqc_conn_padded_size(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out);
+
 void xqc_conn_transmit_pto_probe_packets(xqc_connection_t *conn);
 void xqc_conn_transmit_pto_probe_packets_batch(xqc_connection_t *conn);
 void xqc_conn_retransmit_lost_packets(xqc_connection_t *conn);

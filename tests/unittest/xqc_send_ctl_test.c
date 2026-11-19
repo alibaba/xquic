@@ -17,6 +17,10 @@
 #include "src/transport/xqc_transport_params.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame.h"
+#include "src/transport/xqc_packet.h"
+#include "src/transport/xqc_pacing.h"
+#include "src/transport/xqc_timer.h"
+#include "src/tls/xqc_tls_defs.h"
 #include "src/congestion_control/xqc_cubic.h"
 
 
@@ -1051,4 +1055,157 @@ void
 xqc_test_send_ctl_lost_packet_cc_reaction(void)
 {
     xqc_test_send_ctl_lost_packet_cc(XQC_FALSE);
+}
+
+
+/*
+ * RFC 9002 Section 7: "An endpoint MUST NOT send a packet if it would cause
+ * bytes_in_flight (see Appendix B.2) to be larger than the congestion
+ * window". xqc_gen_padding_frame() pads the Initial packets of a client,
+ * PATH_CHALLENGE and PATH_RESPONSE packets and PMTUD probes when they are
+ * encrypted, after the congestion window and the pacer let them go: both
+ * check the size the packet will have then, and so does the scheduler.
+ */
+#define XQC_TEST_PADDED_LEN \
+    (XQC_PACKET_INITIAL_MIN_LENGTH - XQC_TLS_AEAD_OVERHEAD_MAX_LEN)
+
+static xqc_packet_out_t *
+xqc_test_padding_packet(xqc_connection_t *conn, xqc_pkt_type_t type,
+    xqc_frame_type_bit_t frames, unsigned int used)
+{
+    xqc_packet_out_t *po = xqc_packet_out_create(conn->pkt_out_size);
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+    xqc_init_list_head(&po->po_list);
+    po->po_pkt.pkt_type = type;
+    po->po_pkt.pkt_pns = xqc_packet_type_to_pns(type);
+    po->po_frame_types = frames;
+    po->po_used_size = used;
+    po->po_path_id = conn->conn_initial_path->path_id;
+    return po;
+}
+
+/* leave @room bytes of the congestion window of the initial path */
+static xqc_send_ctl_t *
+xqc_test_padding_cwnd_room(xqc_connection_t *conn, uint32_t room)
+{
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    uint64_t cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+        send_ctl->ctl_cong);
+
+    CU_ASSERT_FATAL(cwnd > room);
+    send_ctl->ctl_bytes_in_flight = cwnd - room;
+    return send_ctl;
+}
+
+void
+xqc_test_send_ctl_cwnd_fits_padded_packet(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_send_ctl_t *send_ctl;
+    xqc_packet_out_t *initial, *challenge, *stream;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    initial = xqc_test_padding_packet(conn, XQC_PTYPE_INIT,
+                                      XQC_FRAME_BIT_CRYPTO, 300);
+    challenge = xqc_test_padding_packet(conn, XQC_PTYPE_SHORT_HEADER,
+                                        XQC_FRAME_BIT_PATH_CHALLENGE, 40);
+    stream = xqc_test_padding_packet(conn, XQC_PTYPE_SHORT_HEADER,
+                                     XQC_FRAME_BIT_STREAM, 300);
+
+    /* the window holds the packets as they will be sent */
+    send_ctl = xqc_test_padding_cwnd_room(conn, XQC_TEST_PADDED_LEN);
+    CU_ASSERT_EQUAL(xqc_conn_padded_size(conn, initial), XQC_TEST_PADDED_LEN);
+    CU_ASSERT(xqc_send_ctl_can_send(send_ctl, initial, 0));
+    CU_ASSERT(xqc_send_packet_check_cc(send_ctl, initial, 0, 1));
+    CU_ASSERT_EQUAL(xqc_conn_padded_size(conn, challenge),
+                    XQC_TEST_PADDED_LEN);
+    CU_ASSERT(xqc_send_ctl_can_send(send_ctl, challenge, 0));
+
+    /* a packet that is not padded keeps its size */
+    send_ctl = xqc_test_padding_cwnd_room(conn, 300);
+    CU_ASSERT_EQUAL(xqc_conn_padded_size(conn, stream), 300);
+    CU_ASSERT(xqc_send_ctl_can_send(send_ctl, stream, 0));
+
+    /* with PMTUD, path validation packets are padded to the packet size */
+    conn->enable_pmtud = 1;
+    challenge->po_buf_size = 1400;
+    send_ctl = xqc_test_padding_cwnd_room(conn, 1400 + XQC_ACK_SPACE);
+    CU_ASSERT_EQUAL(xqc_conn_padded_size(conn, challenge),
+                    1400 + XQC_ACK_SPACE);
+    CU_ASSERT(xqc_send_ctl_can_send(send_ctl, challenge, 0));
+    conn->enable_pmtud = 0;
+
+    /* the pacer lets a padded packet go when its budget holds it */
+    xqc_test_padding_cwnd_room(conn, XQC_TEST_PADDED_LEN);
+    send_ctl->ctl_pacing.pacing_on = 1;
+    send_ctl->ctl_pacing.bytes_budget = XQC_TEST_PADDED_LEN;
+    CU_ASSERT(xqc_send_packet_pacer_allows(send_ctl, initial, 0, 1));
+
+    xqc_packet_out_destroy(initial);
+    xqc_packet_out_destroy(challenge);
+    xqc_packet_out_destroy(stream);
+    xqc_engine_destroy(conn->engine);
+}
+
+void
+xqc_test_send_ctl_cwnd_blocks_padded_packet(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_send_ctl_t *send_ctl;
+    xqc_path_ctx_t *path;
+    xqc_packet_out_t *initial, *challenge, *stream;
+
+    CU_ASSERT_FATAL(conn != NULL);
+    path = conn->conn_initial_path;
+    initial = xqc_test_padding_packet(conn, XQC_PTYPE_INIT,
+                                      XQC_FRAME_BIT_CRYPTO, 300);
+    challenge = xqc_test_padding_packet(conn, XQC_PTYPE_SHORT_HEADER,
+                                        XQC_FRAME_BIT_PATH_CHALLENGE, 40);
+    stream = xqc_test_padding_packet(conn, XQC_PTYPE_SHORT_HEADER,
+                                     XQC_FRAME_BIT_STREAM, 300);
+
+    /* room for the packets before padding, not after */
+    send_ctl = xqc_test_padding_cwnd_room(conn, 1000);
+    CU_ASSERT_FALSE(xqc_send_ctl_can_send(send_ctl, initial, 0));
+    CU_ASSERT_FALSE(xqc_send_packet_check_cc(send_ctl, initial, 0, 1));
+    CU_ASSERT_FALSE(xqc_send_ctl_can_send(send_ctl, challenge, 0));
+    CU_ASSERT(xqc_send_ctl_can_send(send_ctl, stream, 0));
+
+    /* a PATH_CHALLENGE sent without padding is checked as it is */
+    challenge->po_flag |= XQC_POF_NO_PATH_PADDING;
+    CU_ASSERT_EQUAL(xqc_conn_padded_size(conn, challenge), 40);
+    CU_ASSERT(xqc_send_ctl_can_send(send_ctl, challenge, 0));
+    challenge->po_flag &= ~XQC_POF_NO_PATH_PADDING;
+
+    /* with PMTUD, a path validation packet padded to 1416 bytes */
+    conn->enable_pmtud = 1;
+    challenge->po_buf_size = 1400;
+    send_ctl = xqc_test_padding_cwnd_room(conn, 1300);
+    CU_ASSERT_FALSE(xqc_send_ctl_can_send(send_ctl, challenge, 0));
+    challenge->po_flag |= XQC_POF_PATH_MIN_PADDING;
+    CU_ASSERT(xqc_send_ctl_can_send(send_ctl, challenge, 0));
+    conn->enable_pmtud = 0;
+
+    /* the pacer's budget holds the packet before padding, not after */
+    xqc_test_padding_cwnd_room(conn, XQC_TEST_PADDED_LEN);
+    send_ctl->ctl_pacing.pacing_on = 1;
+    send_ctl->ctl_pacing.bytes_budget = 1000;
+    CU_ASSERT_FALSE(xqc_send_packet_pacer_allows(send_ctl, initial, 0, 1));
+    xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_PACING);
+    CU_ASSERT(xqc_send_packet_pacer_allows(send_ctl, stream, 0, 1));
+    send_ctl->ctl_pacing.pacing_on = 0;
+
+    /* the scheduler counts the padded size on the path */
+    CU_ASSERT_EQUAL(path->path_schedule_bytes, 0);
+    xqc_path_send_buffer_append(path, initial,
+        &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL]);
+    CU_ASSERT_EQUAL(path->path_schedule_bytes, XQC_TEST_PADDED_LEN);
+    xqc_path_send_buffer_remove(path, initial);
+    CU_ASSERT_EQUAL(path->path_schedule_bytes, 0);
+
+    xqc_packet_out_destroy(initial);
+    xqc_packet_out_destroy(challenge);
+    xqc_packet_out_destroy(stream);
+    xqc_engine_destroy(conn->engine);
 }

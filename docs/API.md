@@ -527,7 +527,7 @@ Get local address information.
 ```
 xqc_int_t xqc_conn_send_ping(xqc_engine_t *engine, const xqc_cid_t *cid, void *ping_user_data);
 ```
-Send PING to keep alive.
+Send PING to keep alive. Returns -XQC_CLOSING if the connection is closing.
 
 #### xqc_conn_is_ready_to_send_early_data
 ```
@@ -542,6 +542,7 @@ xqc_int_t xqc_conn_continue_send(xqc_engine_t *engine, const xqc_cid_t *cid);
 ```
 Continue sending.
 If write socket is temporarily unavailable, data will be buffered in xquic. When write event is ready again, call xqc_conn_continue_send to continue to send data.
+A draining or closed connection has nothing more to send.
 
 #### xqc_conn_get_stats
 ```

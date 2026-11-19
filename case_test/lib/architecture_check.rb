@@ -5,7 +5,7 @@ require "fileutils"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--background-fd-selftest|--wait-for-log-selftest|--binary-log-selftest|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--runner-locals-selftest|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--background-fd-selftest|--wait-for-log-selftest|--binary-log-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 
 def run!(env, *cmd)
@@ -60,9 +60,172 @@ def ownership(root)
   puts "repeated_total=#{values.fetch("repeated_total")}"
 end
 
+# Bash scoping is dynamic. case_test_run runs each case function, directly or
+# through case_test_run_self_reporting_case, so a case function, or a helper
+# that it calls, that assigns a local variable of these two functions without
+# declaring it local changes the runner's variable: a case that set
+# `selected`, the case filter, made the runner skip every later case of its
+# group and still exit 0.
+RUNNER_FUNCTIONS = %w[case_test_run case_test_run_self_reporting_case].freeze
+SHELL_NAME = /[A-Za-z_][A-Za-z0-9_]*/
+STATEMENT_START = /(?:\A|[;&|(){}!`]|\b(?:then|do|else|elif|if|while|until))\s*/
+
+# The script with its quoted text replaced by underscores and its comments
+# and here-documents removed, line for line, so that only shell code is
+# matched.
+def shell_code_lines(text)
+  lines = []
+  quote = nil
+  heredoc = nil
+
+  text.each_line do |line|
+    if heredoc
+      heredoc = nil if line.strip == heredoc
+      lines << ""
+      next
+    end
+
+    code = +""
+    escaped = false
+    expansion = nil
+    line.chomp.each_char.with_index do |char, index|
+      if escaped
+        code << (quote ? "_" : char)
+        escaped = false
+      elsif expansion
+        # a ${...} expansion in double quotes may assign: ${name:=value}
+        code << char
+        expansion += 1 if char == "{"
+        expansion -= 1 if char == "}"
+        expansion = nil if expansion.zero?
+      elsif char == "\\" && quote != "'"
+        code << (quote ? "_" : char)
+        escaped = true
+      elsif quote == "\"" && char == "$" && line[index + 1] == "{"
+        code << char
+        expansion = 0
+      elsif quote
+        code << (char == quote ? char : "_")
+        quote = nil if char == quote
+      elsif char == "'" || char == "\""
+        quote = char
+        code << char
+      elsif char == "#" && (code.empty? || code[-1].match?(/[\s;&|(]/))
+        break
+      else
+        code << char
+      end
+    end
+    heredoc = Regexp.last_match(1) if code =~ /<<-?\s*['"]?(#{SHELL_NAME})/
+    lines << code
+  end
+  lines
+end
+
+# The names that one line of shell code assigns, with whether a local,
+# declare or typeset statement declares them local.
+def shell_assigned_names(code)
+  names = []
+  declare = /#{STATEMENT_START}(local|declare|typeset|export|readonly|unset)((?:\s+-[A-Za-z]+)*)\s+([^;&|)]*)/
+  code.scan(declare) do |command, flags, words|
+    # declare -f, -F and -p name functions or print variables
+    next if flags.match?(/[fFp]/)
+
+    local = %w[local declare typeset].include?(command) && !flags.include?("g")
+    words.split.each do |word|
+      names << [Regexp.last_match(1), local] if word =~ /\A(#{SHELL_NAME})(?:\[|\+?=|\z)/
+    end
+  end
+  code.scan(/#{STATEMENT_START}(#{SHELL_NAME})(?:\[[^\]]*\])?\+?=/) do |(name)|
+    names << [name, false] unless %w[local declare typeset export readonly].include?(name)
+  end
+  code.scan(/\bfor\s+(#{SHELL_NAME})\b/) { |(name)| names << [name, false] }
+  code.scan(/\b(?:printf\s+-v|getopts\s+\S+)\s+(#{SHELL_NAME})\b/) { |(name)| names << [name, false] }
+  code.scan(/#{STATEMENT_START}(?:read|mapfile|readarray)((?:\s+[^\s;&|<>)]+)*)/) do |(words)|
+    skip = false
+    words.split.each do |word|
+      if skip
+        skip = false
+      elsif word.match?(/\A-[^a]*[dinNptuCc]\z/)
+        skip = true
+      elsif word.match?(/\A#{SHELL_NAME}\z/)
+        names << [word, false]
+      end
+    end
+  end
+  code.scan(/\(\((.*?)\)\)|\blet\s+([^;&|]*)/) do |arith, let|
+    expression = arith || let
+    expression.scan(/(#{SHELL_NAME})\s*(?:[-+*\/%&|^]|<<|>>)?=(?!=)|(?:\+\+|--)\s*(#{SHELL_NAME})|(#{SHELL_NAME})\s*(?:\+\+|--)/) do |assigned, pre, post|
+      names << [assigned || pre || post, false]
+    end
+  end
+  code.scan(/\$\{(#{SHELL_NAME}):?=/) { |(name)| names << [name, false] }
+  names
+end
+
+def runner_locals(root)
+  source = File.read(File.join(root, "case_test/lib/common.sh"))
+  RUNNER_FUNCTIONS.flat_map do |function|
+    body = source[/^#{Regexp.escape(function)}\(\)\n\{.*?^\}/m]
+    raise "missing runner function #{function}" unless body
+
+    shell_code_lines(body).flat_map do |code|
+      shell_assigned_names(code).select { |_name, local| local }.map(&:first)
+    end
+  end.uniq
+end
+
+# The line, function and name of each assignment of a script's functions to
+# one of the runner's local variables that the function did not declare
+# local before.
+def runner_local_assignments(path, runner_names, skip = [])
+  violations = []
+  function = nil
+  depth = 0
+  locals = []
+  continued = false
+
+  shell_code_lines(File.read(path)).each_with_index do |code, index|
+    if depth.zero? && code =~ /\A\s*(?:function\s+)?(#{SHELL_NAME})\s*\(\s*\)/
+      function = Regexp.last_match(1)
+      locals = []
+    end
+    statement = continued ? code.sub(/\A\s*\S*/, "") : code
+    continued = code.end_with?("\\")
+    in_body = depth.positive? || code.include?("{")
+    if function && in_body && !skip.include?(function)
+      shell_assigned_names(statement).each do |name, local|
+        if local
+          locals << name
+        elsif runner_names.include?(name) && !locals.include?(name)
+          violations << [index + 1, function, name]
+        end
+      end
+    end
+    depth += code.count("{") - code.count("}")
+    function = nil if function && depth.zero? && code.include?("}")
+  end
+  violations
+end
+
+def runner_local_messages(path, display_path, runner_names, skip = [])
+  runner_local_assignments(path, runner_names, skip).map do |line, function, name|
+    "#{display_path}:#{line}:#{function}() assigns #{name}, a local variable " \
+      "of the case runner, without declaring it local"
+  end
+end
+
 def runner_syntax(root)
   manifest = YAML.load_file(File.join(root, "case_test/manifest.yml"))
   owners = Hash.new { |hash, key| hash[key] = [] }
+  runner_names = runner_locals(root)
+  helper_violations = runner_local_messages(
+    File.join(root, "case_test/lib/common.sh"), "case_test/lib/common.sh",
+    runner_names, RUNNER_FUNCTIONS
+  )
+  unless helper_violations.empty?
+    raise "case helpers change the runner's variables:\n#{helper_violations.join("\n")}"
+  end
   forbidden_helper_defs = [
     /^\s*(?:function\s+)?(?:clear_log|grep_err_log|case_print_result)\s*\(\s*\)/,
     /^\s*(?:BUILD_DIR|CASE_TEST_WORK_DIR|CASE_TEST_PORT_ARG|CLIENT_BIN|SERVER_BIN)=/,
@@ -107,6 +270,9 @@ def runner_syntax(root)
       end
     end
 
+    violations.concat(runner_local_messages(runner, group.fetch("runner"),
+                                            runner_names))
+
     unless violations.empty?
       raise "runner violates native runner structure:\n#{violations.join("\n")}"
     end
@@ -127,6 +293,79 @@ def runner_syntax(root)
 
   puts "runner_syntax=pass"
   puts "registered_cases=#{owners.length}"
+end
+
+def runner_locals_selftest(root)
+  work_dir = File.join(root, "build/case_test_arch_check_runner_locals")
+  FileUtils.rm_rf(work_dir)
+  FileUtils.mkdir_p(work_dir)
+
+  runner_names = runner_locals(root)
+  %w[selected status name id].each do |name|
+    raise "runner local #{name} was not found: #{runner_names.inspect}" unless runner_names.include?(name)
+  end
+
+  script_path = File.join(work_dir, "runner_locals.sh")
+  File.write(script_path, <<~'SH')
+    sets_filter()
+    {
+        selected=`grep -a "version selected" slog`
+    }
+
+    declares_first()
+    {
+        local status=0
+        local id="$1" name="$2"
+        run_client || status=1
+        name="${name}-retry"
+        [[ "${status}" -eq 0 ]]
+    }
+
+    declares_late()
+    {
+        status=1
+        local status
+    }
+
+    quotes_and_comments()
+    {
+        # status=1 in a comment
+        grep -q 'status=403' stdlog
+        echo "selected=none" \
+            mode=not-a-statement
+    }
+
+    loops_and_reads()
+    {
+        for name in a b; do :; done
+        while read -r id rest; do :; done < ids
+        printf -v mode '%s' x
+        ((index++))
+        : "${run_func:=missing}"
+        export matched=1
+    }
+
+    continued()
+    {
+        run_client -x 1 \
+            > stdlog 2>&1 || status=1
+    }
+  SH
+
+  expected = [
+    "sets_filter:selected", "declares_late:status", "loops_and_reads:name",
+    "loops_and_reads:id", "loops_and_reads:mode", "loops_and_reads:index",
+    "loops_and_reads:run_func", "loops_and_reads:matched", "continued:status"
+  ]
+  actual = runner_local_assignments(script_path, runner_names).map do |_line, function, name|
+    "#{function}:#{name}"
+  end
+  unless actual.sort == expected.sort
+    raise "runner local assignments: expected #{expected.sort.inspect}, got #{actual.sort.inspect}"
+  end
+
+  puts "runner_locals_selftest=pass"
+  puts "runner_locals=#{runner_names.join(",")}"
 end
 
 def write_selftest_runner(path, root, group_id, trace_path = nil, result: "pass")
@@ -1009,6 +1248,10 @@ end
 
 if modes.include?("--all") || modes.include?("--runner-syntax")
   runner_syntax(root)
+end
+
+if modes.include?("--all") || modes.include?("--runner-locals-selftest")
+  runner_locals_selftest(root)
 end
 
 if modes.include?("--all") || modes.include?("--parallel-selftest")

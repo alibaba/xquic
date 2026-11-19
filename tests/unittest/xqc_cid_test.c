@@ -1571,3 +1571,98 @@ xqc_test_cid_set_lookup_error()
     xqc_engine_destroy(conn->engine);
 }
 
+
+
+/* a NEW_CONNECTION_ID frame (path ID 0) from the server */
+static xqc_int_t
+xqc_test_cid_recv_new_cid0(xqc_connection_t *conn, uint64_t seq_num,
+    uint64_t retire_prior_to)
+{
+    unsigned char  frame[64];
+    unsigned char *p = frame;
+
+    p = xqc_put_varint(p, 0x18);
+    p = xqc_put_varint(p, seq_num);
+    p = xqc_put_varint(p, retire_prior_to);
+    p = xqc_test_cid_put_new_cid(p, XQC_INITIAL_PATH_ID, seq_num);
+
+    return xqc_test_cid_recv_frame(conn, frame, p);
+}
+
+
+/*
+ * RFC 9000 Section 7.2: once the server's Initial gives its connection ID,
+ * the client sends with it and forgets the one it chose for its first
+ * Initial, which the server never issued (Section 5.1.1). Only the server's
+ * handshake connection ID stays, counted toward active_connection_id_limit
+ * (Section 18.2): at a limit of 2, one more connection ID fits.
+ */
+void
+xqc_test_cid_confirm_drops_client_first_dcid()
+{
+    xqc_cid_t            first_dcid;
+    xqc_packet_t         pkt;
+    xqc_connection_t    *conn;
+    xqc_cid_set_inner_t *inner_set;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->local_settings.active_connection_id_limit = 2;
+    xqc_cid_copy(&first_dcid, &conn->original_dcid);
+
+    memset(&pkt, 0, sizeof(pkt));
+    pkt.pkt_scid.cid_len = XQC_DEFAULT_CID_LEN;
+    memset(pkt.pkt_scid.cid_buf, 0x5c, XQC_DEFAULT_CID_LEN);
+    CU_ASSERT(xqc_conn_confirm_cid(conn, &pkt) == XQC_OK);
+
+    inner_set = xqc_get_path_cid_set(&conn->dcid_set, XQC_INITIAL_PATH_ID);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+    CU_ASSERT(inner_set->used_cnt == 1);
+    CU_ASSERT(inner_set->original_cid_cnt == 0);
+    CU_ASSERT(xqc_cid_in_cid_set(&conn->dcid_set, &first_dcid,
+                                 XQC_INITIAL_PATH_ID) == NULL);
+    CU_ASSERT(xqc_cid_is_equal(&conn->dcid_set.current_dcid, &pkt.pkt_scid)
+              == XQC_OK);
+
+    CU_ASSERT(xqc_test_cid_recv_new_cid0(conn, 1, 0) == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A server may keep as its own the connection ID that the client chose for
+ * its first Initial (RFC 9000 Section 7.2): it is then the server's handshake
+ * connection ID, which active_connection_id_limit counts (Section 18.2). At
+ * a limit of 2, the second connection ID from NEW_CONNECTION_ID frames is one
+ * too many, a CONNECTION_ID_LIMIT_ERROR (Section 5.1.1); the client used to
+ * leave that connection ID out of the count, and accepted it.
+ */
+void
+xqc_test_cid_confirm_server_keeps_client_first_dcid()
+{
+    xqc_packet_t         pkt;
+    xqc_connection_t    *conn;
+    xqc_cid_set_inner_t *inner_set;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->local_settings.active_connection_id_limit = 2;
+
+    memset(&pkt, 0, sizeof(pkt));
+    xqc_cid_copy(&pkt.pkt_scid, &conn->original_dcid);
+    CU_ASSERT(xqc_conn_confirm_cid(conn, &pkt) == XQC_OK);
+
+    inner_set = xqc_get_path_cid_set(&conn->dcid_set, XQC_INITIAL_PATH_ID);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(inner_set);
+    CU_ASSERT(inner_set->used_cnt == 1);
+    CU_ASSERT(inner_set->original_cid_cnt == 0);
+
+    CU_ASSERT(xqc_test_cid_recv_new_cid0(conn, 1, 0) == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(xqc_test_cid_recv_new_cid0(conn, 2, 0) == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_CONNECTION_ID_LIMIT_ERROR);
+
+    xqc_engine_destroy(conn->engine);
+}

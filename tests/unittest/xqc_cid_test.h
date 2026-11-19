@@ -76,5 +76,11 @@ void xqc_test_mp_retire_cid_without_cid_set();
 /* a failed connection ID set lookup is an error, not a retirement */
 void xqc_test_cid_set_lookup_error();
 
+/* the client forgets its first DCID once the server's is confirmed */
+void xqc_test_cid_confirm_drops_client_first_dcid();
+
+/* a server that keeps the client's first DCID has it counted as its own */
+void xqc_test_cid_confirm_server_keeps_client_first_dcid();
+
 #endif
 

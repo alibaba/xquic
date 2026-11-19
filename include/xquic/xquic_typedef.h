@@ -33,7 +33,10 @@
 
 #if defined(XQC_SYS_WIN32) || defined(XQC_SYS_WIN64)
 #undef XQC_SYS_UNIX
-#define XQC_SYS_WINDOWS
+/* CMakeLists.txt defines it on the command line, as 1 */
+#  if !defined(XQC_SYS_WINDOWS)
+#  define XQC_SYS_WINDOWS
+#  endif
 #endif
 
 #if defined(__MINGW64__) || defined(__MINGW32__)

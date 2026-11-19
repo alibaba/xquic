@@ -412,15 +412,9 @@ xqc_log_time(char *buf, size_t buf_len)
     tm.tm_mon++;
     tm.tm_year += 1900;
 
-#ifdef __APPLE__
-    snprintf(buf, buf_len, "%4d/%02d/%02d %02d:%02d:%02d %06d",
-             tm.tm_year, tm.tm_mon,
-             tm.tm_mday, tm.tm_hour,
-             tm.tm_min, tm.tm_sec, tv.tv_usec);
-#else
-    snprintf(buf, buf_len, "%4d/%02d/%02d %02d:%02d:%02d %06ld",
-             tm.tm_year, tm.tm_mon,
-             tm.tm_mday, tm.tm_hour,
-             tm.tm_min, tm.tm_sec, tv.tv_usec);
-#endif
+    /* tv_usec is an int on Apple systems and a long long on 32-bit systems
+     * with a 64-bit time_t; its value, below one million, fits a long */
+    snprintf(buf, buf_len, "%4d/%02d/%02d %02d:%02d:%02d %06ld", tm.tm_year,
+             tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+             (long)tv.tv_usec);
 }

@@ -428,6 +428,21 @@ set (
 
 
 
+# Clang's -Wshorten-64-to-32 reports the implicit conversions that lose
+# integer precision. On 64-bit targets other than Windows, where long and
+# size_t have 64 bits, the sources listed here have none, and -Werror keeps
+# them so; other sources join the list once theirs are fixed. 32-bit targets
+# and Windows still narrow uint64_t to size_t, or size_t to long and DWORD.
+set(XQC_SHORTEN_64_TO_32_SOURCES
+    ${COMMON_SOURCES}
+)
+
+if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND CMAKE_SIZEOF_VOID_P EQUAL 8
+   AND NOT WIN32)
+    set_source_files_properties(${XQC_SHORTEN_64_TO_32_SOURCES} PROPERTIES
+        COMPILE_FLAGS "-Wshorten-64-to-32")
+endif()
+
 # target
 add_library(
     xquic-static

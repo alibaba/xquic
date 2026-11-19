@@ -132,6 +132,33 @@ xqc_init_cid_set(xqc_cid_set_t *cid_set)
 {
     xqc_memzero(cid_set, sizeof(xqc_cid_set_t));
     xqc_init_list_head(&cid_set->cid_set_list);
+    xqc_init_list_head(&cid_set->abandoned_set_list);
+}
+
+static xqc_cid_set_inner_t *
+xqc_cid_set_at(xqc_cid_set_t *cid_set, xqc_list_head_t *node)
+{
+    if (node == &cid_set->cid_set_list) {
+        node = cid_set->abandoned_set_list.next;
+    }
+
+    if (node == &cid_set->abandoned_set_list) {
+        return NULL;
+    }
+
+    return xqc_list_entry(node, xqc_cid_set_inner_t, next);
+}
+
+xqc_cid_set_inner_t *
+xqc_cid_set_first(xqc_cid_set_t *cid_set)
+{
+    return xqc_cid_set_at(cid_set, cid_set->cid_set_list.next);
+}
+
+xqc_cid_set_inner_t *
+xqc_cid_set_next(xqc_cid_set_t *cid_set, xqc_cid_set_inner_t *inner_set)
+{
+    return xqc_cid_set_at(cid_set, inner_set->next.next);
 }
 
 void 
@@ -170,17 +197,24 @@ xqc_destroy_cid_set(xqc_cid_set_t *cid_set)
         xqc_free(cid_set_inner);
     }
 
+    xqc_list_for_each_safe(pos, next, &cid_set->abandoned_set_list) {
+        cid_set_inner = xqc_list_entry(pos, xqc_cid_set_inner_t, next);
+        xqc_list_del(pos);
+        xqc_cid_set_inner_destroy(cid_set_inner);
+        xqc_free(cid_set_inner);
+    }
+
     xqc_init_cid_set(cid_set);
 }
 
 xqc_cid_set_inner_t* 
 xqc_get_path_cid_set(xqc_cid_set_t *cid_set, uint64_t path_id)
 {
-    xqc_cid_set_inner_t *cid_set_inner = NULL;
-    xqc_list_head_t *pos, *next;
+    xqc_cid_set_inner_t *cid_set_inner;
 
-    xqc_list_for_each_safe(pos, next, &cid_set->cid_set_list) {
-        cid_set_inner = xqc_list_entry(pos, xqc_cid_set_inner_t, next);
+    for (cid_set_inner = xqc_cid_set_first(cid_set); cid_set_inner != NULL;
+         cid_set_inner = xqc_cid_set_next(cid_set, cid_set_inner))
+    {
         if (cid_set_inner->path_id == path_id) {
             return cid_set_inner;
         }
@@ -362,11 +396,11 @@ xqc_cid_set_search_cid(xqc_cid_set_t *cid_set,
     xqc_cid_inner_t *inner_cid;
     xqc_list_head_t *pos, *next;
     xqc_cid_set_inner_t *inner_set;
-    xqc_list_head_t *pos_set, *next_set;
 
-    xqc_list_for_each_safe(pos_set, next_set, &cid_set->cid_set_list) {
-        inner_set = xqc_list_entry(pos_set, xqc_cid_set_inner_t, next);
-
+    /* the live paths' sets come first: the lookups made per packet are for them */
+    for (inner_set = xqc_cid_set_first(cid_set); inner_set != NULL;
+         inner_set = xqc_cid_set_next(cid_set, inner_set))
+    {
         xqc_list_for_each_safe(pos, next, &inner_set->cid_list) {
             inner_cid = xqc_list_entry(pos, xqc_cid_inner_t, list);
 
@@ -551,6 +585,16 @@ xqc_cid_set_update_state(xqc_cid_set_t *cid_set,
     if (inner_set && inner_set->set_state != state) {
         cid_set->set_cnt[inner_set->set_state]--;
         cid_set->set_cnt[state]++;
+
+        if (state == XQC_CID_SET_ABANDONED) {
+            xqc_list_del_init(&inner_set->next);
+            xqc_list_add_tail(&inner_set->next, &cid_set->abandoned_set_list);
+
+        } else if (inner_set->set_state == XQC_CID_SET_ABANDONED) {
+            xqc_list_del_init(&inner_set->next);
+            xqc_list_add_tail(&inner_set->next, &cid_set->cid_set_list);
+        }
+
         inner_set->set_state = state;
     }
 }

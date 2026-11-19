@@ -11,6 +11,12 @@ void xqc_test_multipath_frames_require_negotiation(void);
 
 void xqc_test_multipath_version_requires_negotiation(void);
 
+void xqc_test_multipath_frames_only_in_1rtt(void);
+
+void xqc_test_multipath_frame_outside_1rtt_ignored(void);
+
+void xqc_test_frame_dispatch_fuzz(void);
+
 void xqc_test_negotiated_multipath_frozen_frame(void);
 
 void xqc_test_parse_padding_frame();

@@ -11,6 +11,10 @@
 #include <xquic/xqc_http3.h>
 #include <xquic/xquic_typedef.h>
 
+#ifndef XQC_SYS_WINDOWS
+#include <netinet/in.h>
+#endif
+
 #include "common.h"
 #include "../demo/xqc_hq.h"
 #include "../tests/platform.h"

@@ -2064,6 +2064,22 @@ xqc_check_acked_or_dropped_pkt(xqc_connection_t *conn,
 }
 
 
+/*
+ * RFC 9002 Section 7: only packets sent on a PTO expiration may exceed the
+ * congestion window. The high priority queue keeps the exemption for its
+ * control frames, but the STREAM data that high priority streams put there
+ * is limited like any data, on each path (RFC 10069 Sections 5.3 and 5.5).
+ */
+static xqc_bool_t
+xqc_conn_packet_limited_by_cc(const xqc_packet_out_t *packet_out,
+    xqc_bool_t packets_are_limited_by_cc, xqc_send_type_t send_type)
+{
+    return packets_are_limited_by_cc
+           || (send_type == XQC_SEND_TYPE_NORMAL_HIGH_PRI
+               && (packet_out->po_frame_types & XQC_FRAME_BIT_STREAM));
+}
+
+
 void
 xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head, 
     xqc_bool_t  packets_are_limited_by_cc, xqc_send_type_t send_type)
@@ -2071,7 +2087,8 @@ xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head,
     ssize_t ret;
     uint32_t send_repair_num, src_syb_num;
     uint64_t stream_id;
-    xqc_bool_t cc_blocked, reset_rpr_timer;
+    xqc_bool_t cc_blocked, reset_rpr_timer, limited_by_cc;
+    xqc_bool_t data_blocked = XQC_FALSE;
     xqc_usec_t now, cq_fin_timeout;
     xqc_path_ctx_t *path;
     xqc_list_head_t *pos, *next;
@@ -2094,10 +2111,17 @@ xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head,
 
         /* 2. schedule packet multipath */
         } else {
+            limited_by_cc = xqc_conn_packet_limited_by_cc(packet_out,
+                                packets_are_limited_by_cc, send_type);
+            if (limited_by_cc && data_blocked) {
+                /* the data behind blocked data waits, in order */
+                continue;
+            }
+
             path = conn->scheduler_callback->
                    xqc_scheduler_get_path(conn->scheduler, 
                                           conn, packet_out, 
-                                          packets_are_limited_by_cc, 
+                                          limited_by_cc,
                                           0, &cc_blocked);
             if (path == NULL) {
                 if (cc_blocked) {
@@ -2108,6 +2132,13 @@ xqc_conn_schedule_packets(xqc_connection_t *conn,  xqc_list_head_t *head,
                 }
                 if (xqc_timer_is_set(&conn->conn_timer_manager, XQC_TIMER_QUEUE_FIN)) {
                     reset_rpr_timer = 1;
+                }
+
+                /* the control frames behind high priority data that the
+                   congestion window blocks are not held up by it */
+                if (cc_blocked && !packets_are_limited_by_cc) {
+                    data_blocked = XQC_TRUE;
+                    continue;
                 }
                 break;
             }

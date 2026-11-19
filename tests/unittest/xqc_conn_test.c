@@ -698,6 +698,148 @@ xqc_test_conn_early_data_reject_flow_ctl()
 }
 
 
+#define XQC_TEST_HIGH_PRI_PKT_SIZE  1000
+#define XQC_TEST_HIGH_PRI_SMALL     100
+#define XQC_TEST_HIGH_PRI_LEFT      500
+#define XQC_TEST_HIGH_PRI_MAX_PKTS  64
+
+/* a packet in the high priority queue, where a high priority stream puts
+ * its STREAM frames and the control frame writers their frames */
+static xqc_packet_out_t *
+xqc_test_high_pri_packet(xqc_connection_t *conn,
+    xqc_frame_type_bit_t frame_types, uint32_t size)
+{
+    xqc_packet_out_t *po = xqc_packet_out_get_and_insert_send(
+                               conn->conn_send_queue, XQC_PTYPE_SHORT_HEADER);
+
+    if (po == NULL) {
+        return NULL;
+    }
+    po->po_frame_types = frame_types;
+    po->po_used_size = size;
+    xqc_send_queue_move_to_high_pri(&po->po_list, conn->conn_send_queue);
+    return po;
+}
+
+/* the position of the packet in the high priority buffer of the path, or
+ * -1 when it is not scheduled there */
+static int
+xqc_test_high_pri_position(xqc_path_ctx_t *path, xqc_packet_out_t *po)
+{
+    xqc_list_head_t *pos;
+    int i = 0;
+
+    xqc_list_for_each(pos,
+                      &path->path_schedule_buf[XQC_SEND_TYPE_NORMAL_HIGH_PRI])
+    {
+        if (xqc_list_entry(pos, xqc_packet_out_t, po_list) == po) {
+            return i;
+        }
+        i++;
+    }
+    return -1;
+}
+
+/* the room that the congestion window leaves on the path, once what the
+ * connection queued before the test packets is scheduled */
+static uint64_t
+xqc_test_high_pri_room(xqc_connection_t *conn, xqc_path_ctx_t *path)
+{
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    uint64_t cwnd;
+
+    xqc_conn_schedule_packets_to_paths(conn);
+    cwnd = send_ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(
+               send_ctl->ctl_cong);
+    return cwnd - send_ctl->ctl_bytes_in_flight - path->path_schedule_bytes;
+}
+
+/*
+ * RFC 9002 Section 7, RFC 10069 Section 5.3: the congestion window limits
+ * the STREAM data of high priority streams. The data that it blocks waits
+ * in order, smaller data behind included, and the control frames queued
+ * behind it are not held up.
+ */
+void
+xqc_test_high_pri_stream_data_limited_by_cwnd()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_out_t *data[XQC_TEST_HIGH_PRI_MAX_PKTS], *small, *ctl;
+    xqc_path_ctx_t *path;
+    uint64_t room;
+    int fit, n, i;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    path = conn->conn_initial_path;
+
+    /* leave room for fit packets and 500 bytes */
+    room = xqc_test_high_pri_room(conn, path);
+    CU_ASSERT_FATAL(room >= XQC_TEST_HIGH_PRI_LEFT);
+    fit = (int) ((room - XQC_TEST_HIGH_PRI_LEFT) / XQC_TEST_HIGH_PRI_PKT_SIZE);
+    path->path_send_ctl->ctl_bytes_in_flight += room - XQC_TEST_HIGH_PRI_LEFT
+        - (uint64_t) fit * XQC_TEST_HIGH_PRI_PKT_SIZE;
+    n = fit + 2;
+    CU_ASSERT_FATAL(n <= XQC_TEST_HIGH_PRI_MAX_PKTS);
+
+    for (i = 0; i < n; i++) {
+        data[i] = xqc_test_high_pri_packet(conn, XQC_FRAME_BIT_STREAM,
+                                           XQC_TEST_HIGH_PRI_PKT_SIZE);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(data[i]);
+    }
+    small = xqc_test_high_pri_packet(conn, XQC_FRAME_BIT_STREAM,
+                                     XQC_TEST_HIGH_PRI_SMALL);
+    ctl = xqc_test_high_pri_packet(conn, XQC_FRAME_BIT_MAX_DATA,
+                                   XQC_TEST_HIGH_PRI_PKT_SIZE);
+    CU_ASSERT_FATAL(small != NULL && ctl != NULL);
+
+    xqc_conn_schedule_packets_to_paths(conn);
+
+    for (i = 0; i < fit; i++) {
+        CU_ASSERT(xqc_test_high_pri_position(path, data[i]) >= 0);
+    }
+    CU_ASSERT(xqc_test_high_pri_position(path, ctl) >= 0);
+    for (i = fit; i < n; i++) {
+        CU_ASSERT_EQUAL(xqc_test_high_pri_position(path, data[i]), -1);
+    }
+    CU_ASSERT_EQUAL(xqc_test_high_pri_position(path, small), -1);
+    CU_ASSERT_PTR_EQUAL(xqc_list_entry(
+        conn->conn_send_queue->sndq_send_packets_high_pri.next,
+        xqc_packet_out_t, po_list), data[fit]);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* data that the congestion window allows is scheduled in order, as before */
+void
+xqc_test_high_pri_stream_data_within_cwnd()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_packet_out_t *data, *ctl;
+    xqc_path_ctx_t *path;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    path = conn->conn_initial_path;
+    CU_ASSERT_FATAL(xqc_test_high_pri_room(conn, path)
+                    >= XQC_TEST_HIGH_PRI_PKT_SIZE);
+
+    ctl = xqc_test_high_pri_packet(conn, XQC_FRAME_BIT_MAX_DATA,
+                                   XQC_TEST_HIGH_PRI_PKT_SIZE);
+    data = xqc_test_high_pri_packet(conn, XQC_FRAME_BIT_STREAM,
+                                    XQC_TEST_HIGH_PRI_PKT_SIZE);
+    CU_ASSERT_FATAL(ctl != NULL && data != NULL);
+
+    xqc_conn_schedule_packets_to_paths(conn);
+
+    CU_ASSERT(xqc_test_high_pri_position(path, ctl) >= 0);
+    CU_ASSERT_EQUAL(xqc_test_high_pri_position(path, data),
+                    xqc_test_high_pri_position(path, ctl) + 1);
+    CU_ASSERT(xqc_list_empty(
+        &conn->conn_send_queue->sndq_send_packets_high_pri));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
 /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction tests */
 
 

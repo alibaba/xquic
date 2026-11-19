@@ -3437,7 +3437,8 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
     /* currently, only using one byte to write timestamp range count, which means the max count is 1 << 6 - 1 = 63 */
     dst_buf += 1;
 
-    uint32_t cur_range_gap, cur_range_delta_count = 0;
+    uint64_t cur_range_gap;
+    uint32_t cur_range_delta_count = 0;
     uint64_t cur_timestamp_delta;
     uint32_t total_report_num = 0;
     uint8_t is_first_pkt_in_cur_range = 1, is_first_range = 1;
@@ -3465,18 +3466,25 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
                  * for first pkt in first range: 
                  *     gap = largest_ack - cur_pkt_num
                  *     time_delta = cur_pkt_recv_time - conn_create_time
+                 *
+                 * draft-smith-quic-receive-ts-01 Section 5.1: timestamp
+                 * deltas are microseconds shifted by the exponent.
                  */
                 cur_range_gap = po_largest_ack - cur_pkt_num;
-                cur_timestamp_delta = ((cur_pkt_recv_time - conn->conn_create_time) / 1000) >> timestamp_exponent;
+                cur_timestamp_delta = (cur_pkt_recv_time - conn->conn_create_time) >> timestamp_exponent;
                 is_first_range = 0;
             } else {
                 /* 
                  * for first pkt other ranges:
-                 *      gap = last_pkt_num - cur_pkt_num
+                 *      gap = last_pkt_num - 2 - cur_pkt_num, counted from the
+                 *          packet number two lower than the smallest of the
+                 *          previous range (draft-smith-quic-receive-ts-01
+                 *          Section 5.1); a new range starts below a missing
+                 *          packet number, so cur_pkt_num <= last_pkt_num - 2
                  *      time_delta = last_pkt_recv_time - cur_pkt_recv_time
                 */
-                cur_range_gap = last_pkt_num - cur_pkt_num;
-                cur_timestamp_delta = ((last_pkt_recv_time - cur_pkt_recv_time) / 1000) >> timestamp_exponent;
+                cur_range_gap = last_pkt_num - 2 - cur_pkt_num;
+                cur_timestamp_delta = (last_pkt_recv_time - cur_pkt_recv_time) >> timestamp_exponent;
             }
             /*
              * 1. write cur_range:gap
@@ -3515,7 +3523,7 @@ xqc_write_packet_receive_timestamps_into_buf(xqc_connection_t *conn, unsigned ch
                 timestamp_range_count += 1;
                 continue;
             }
-            cur_timestamp_delta = ((last_pkt_recv_time - cur_pkt_recv_time) / 1000) >> timestamp_exponent;
+            cur_timestamp_delta = (last_pkt_recv_time - cur_pkt_recv_time) >> timestamp_exponent;
             cur_timestamp_delta_bits = xqc_vint_get_2bit(cur_timestamp_delta);
             need_for_cur_pkt = xqc_vint_len(cur_timestamp_delta_bits);
             if (dst_buf + need_for_cur_pkt > end) {
@@ -3550,6 +3558,14 @@ xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *co
     uint64_t timestamp_delta_exponent = conn->local_settings.receive_timestamps_exponent;
     xqc_packet_number_t pkt_num_base = largest_acked;
     uint8_t is_first_range = 1, is_first_pkt_in_range = 1;
+    /*
+     * Receive timestamps are best effort (draft-smith-quic-receive-ts-01
+     * Section 7.1). When a range reaches below packet number 0, as the
+     * ranges of xquic versions that counted the Gap from the smallest packet
+     * number of the previous range can, the rest of the frame is read but
+     * the frame reports no timestamp.
+     */
+    uint8_t below_zero = 0;
     int vlen;
 
     vlen = xqc_vint_read(p, end, &timestamp_range_count);
@@ -3587,8 +3603,15 @@ xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *co
                 return -XQC_EVINTREAD;
             }
             p += vlen;
+            if (below_zero) {
+                continue;
+            }
             if (is_first_pkt_in_range) {
                 if (is_first_range) {
+                    if (cur_range_gap > largest_acked) {
+                        below_zero = 1;
+                        continue;
+                    }
                     ack_ts_info->pkt_nums[ack_ts_info->report_num] = largest_acked - cur_range_gap;
                     /*
                     * The base of first timestamp delta is conn_create_time in sender side, 
@@ -3596,16 +3619,29 @@ xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *co
                     * it's meaningless to acess the base.
                     */
                     ack_ts_info->recv_ts[ack_ts_info->report_num] = 
-                            (cur_time_delta << timestamp_delta_exponent) + conn->conn_create_time / 1000;
+                            (cur_time_delta << timestamp_delta_exponent) + conn->conn_create_time;
                     is_first_range = 0;
                 } else {
-                    ack_ts_info->pkt_nums[ack_ts_info->report_num] = 
-                            ack_ts_info->pkt_nums[ack_ts_info->report_num - 1] - cur_range_gap;
+                    /*
+                     * draft-smith-quic-receive-ts-01 Section 5.1: the Gap
+                     * counts from the packet number two lower than the
+                     * smallest one of the previous range.
+                     */
+                    if (ack_ts_info->pkt_nums[ack_ts_info->report_num - 1] < cur_range_gap + 2) {
+                        below_zero = 1;
+                        continue;
+                    }
+                    ack_ts_info->pkt_nums[ack_ts_info->report_num] =
+                            ack_ts_info->pkt_nums[ack_ts_info->report_num - 1] - 2 - cur_range_gap;
                     ack_ts_info->recv_ts[ack_ts_info->report_num] = 
                             ack_ts_info->recv_ts[ack_ts_info->report_num - 1] - (cur_time_delta << timestamp_delta_exponent);
                 }
                 is_first_pkt_in_range = 0;
             } else {
+                if (ack_ts_info->pkt_nums[ack_ts_info->report_num - 1] == 0) {
+                    below_zero = 1;
+                    continue;
+                }
                 ack_ts_info->pkt_nums[ack_ts_info->report_num] = 
                     ack_ts_info->pkt_nums[ack_ts_info->report_num - 1] - 1;
                 ack_ts_info->recv_ts[ack_ts_info->report_num] = 
@@ -3619,6 +3655,10 @@ xqc_parse_timestamps_in_ack_ext(xqc_packet_in_t *packet_in, xqc_connection_t *co
         is_first_range = 0;
     }
     packet_in->pos = p;
+    if (below_zero) {
+        xqc_log(conn->log, XQC_LOG_INFO, "|receive timestamps below packet number 0 ignored|");
+        ack_ts_info->report_num = 0;
+    }
     xqc_log(conn->log, XQC_LOG_DEBUG, "|report_num:%d|", ack_ts_info->report_num);
     return XQC_OK;
 }

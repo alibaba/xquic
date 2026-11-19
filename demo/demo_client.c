@@ -1440,8 +1440,8 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn, int fd)
     DEBUG;
     ssize_t recv_size = 0;
     ssize_t recv_sum = 0;
-    struct sockaddr addr;
-    socklen_t addr_len = 0;
+    struct sockaddr_in6 addr;
+    socklen_t addr_len;
     unsigned char packet_buf[XQC_PACKET_TMP_BUF_LEN];
     int i;
     xqc_demo_cli_user_path_t *user_path = NULL;
@@ -1466,6 +1466,12 @@ xqc_demo_cli_socket_read_handler(xqc_demo_cli_user_conn_t *user_conn, int fd)
 
 
     do {
+        /*
+         * the size of the whole address buffer on each call: recvfrom()
+         * stores the sender's address only up to it, and an IPv6 one
+         * needs a sockaddr_in6
+         */
+        addr_len = sizeof(addr);
         recv_size = recvfrom(fd, packet_buf, sizeof(packet_buf), 0,
                             (struct sockaddr *)&addr, &addr_len);
         if (recv_size < 0 && get_sys_errno() == EAGAIN) {

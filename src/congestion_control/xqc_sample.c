@@ -144,11 +144,11 @@ xqc_update_sample(xqc_sample_t *sampler, xqc_packet_out_t *packet,
 xqc_bool_t
 xqc_sample_check_app_limited(xqc_sample_t *sampler, xqc_send_ctl_t *send_ctl, xqc_send_queue_t *send_queue)
 {
-    uint32_t cwnd_bytes = send_ctl->ctl_cong_callback->
+    uint64_t cwnd_bytes = send_ctl->ctl_cong_callback->
                           xqc_cong_ctl_get_cwnd(send_ctl->ctl_cong);
     uint32_t actual_mss = xqc_conn_get_mss(send_ctl->ctl_conn);
-    xqc_bool_t not_cwnd_limited = send_ctl->ctl_bytes_in_flight + actual_mss <= 
-                                  cwnd_bytes;
+    xqc_bool_t not_cwnd_limited = (uint64_t) send_ctl->ctl_bytes_in_flight
+                                  + actual_mss <= cwnd_bytes;
     /* @FIXME: We should find a better way to adapt it to multipath. 
      * The current implemetation is problematic. As even if we have pkts 
      * in snd/lost/pto list, they may not be scheduled on the path. Therefore,

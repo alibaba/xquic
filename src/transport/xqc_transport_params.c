@@ -1141,10 +1141,18 @@ xqc_decode_one_transport_param(xqc_transport_params_t *params,
 
     /* read param len */
     nread = xqc_vint_read(p, end, &param_len);
-    if (nread < 0 || p + nread + param_len > end ) {
+    if (nread < 0) {
         return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
     }
     p += nread;
+
+    /*
+     * Compare the length with the bytes left instead of computing
+     * p + param_len: a length of up to 2^62 - 1 wraps a 32-bit pointer.
+     */
+    if (param_len > (uint64_t) (end - p)) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
 
     /*
      * read param value, note: some parameters are allowed to be zero-length,

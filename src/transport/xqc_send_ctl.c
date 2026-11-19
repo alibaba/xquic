@@ -1025,6 +1025,10 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_send_ctl_set_loss_detection_timer|acked|pto_count:%ud|", send_ctl->ctl_pto_count);
     xqc_send_ctl_set_loss_detection_timer(send_ctl);
 
+    if (has_ack_eliciting) {
+        xqc_conn_extend_linger_close(conn, ack_recv_time);
+    }
+
     /* Clear app-limited field if the bubble is gone. */
     /* @NOTE: we need to clear it for Cubic/Reno as well. */
     if (send_ctl->ctl_app_limited 

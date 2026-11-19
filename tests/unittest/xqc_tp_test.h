@@ -7,6 +7,7 @@
 
 void xqc_test_transport_params();
 void xqc_test_retry_scid_decode_role(void);
+void xqc_test_tp_close_dgram_redundancy(void);
 void xqc_test_max_ack_delay_default_when_absent(void);
 void xqc_test_max_ack_delay_valid_boundary(void);
 void xqc_test_max_ack_delay_invalid_boundary(void);

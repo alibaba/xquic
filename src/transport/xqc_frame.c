@@ -2165,6 +2165,105 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
 }
 
 
+/* a path ID received in a multipath frame */
+typedef struct {
+    uint64_t                value;
+} xqc_path_id_t;
+
+/* what a received multipath frame does about its path ID */
+typedef enum {
+    XQC_PATH_ID_RECV_OK,            /* process the frame */
+    XQC_PATH_ID_RECV_IGNORE,        /* the path ID is abandoned: ignore it */
+    XQC_PATH_ID_RECV_INVALID,       /* above the limit: connection error */
+} xqc_path_id_recv_t;
+
+/* whether a kind of frame still applies to an abandoned path ID */
+typedef enum {
+    /* about the use of the path: status, connection IDs for it, abandon */
+    XQC_ABANDONED_PATH_IGNORE,
+    /* about state kept after abandonment: acknowledgments, retirements */
+    XQC_ABANDONED_PATH_PROCESS,
+} xqc_abandoned_path_policy_t;
+
+static inline xqc_path_id_t xqc_path_id(uint64_t value);
+static inline xqc_path_id_recv_t xqc_conn_check_recv_path_id(
+    xqc_connection_t *conn, xqc_path_id_t path_id,
+    xqc_abandoned_path_policy_t policy);
+static xqc_path_id_recv_t xqc_conn_path_id_over_limit(xqc_connection_t *conn,
+    xqc_path_id_t path_id);
+static xqc_bool_t xqc_path_id_is_abandoned(xqc_connection_t *conn,
+    xqc_path_id_t path_id);
+
+
+static inline xqc_path_id_t
+xqc_path_id(uint64_t value)
+{
+    xqc_path_id_t path_id = { value };
+
+    return path_id;
+}
+
+
+/*
+ * draft-ietf-quic-multipath-10 Section 7: a path ID above the announced
+ * maximum is a connection error of type MP_PROTOCOL_VIOLATION, and a frame
+ * with a path identifier "that it cannot process anymore (e.g., because the
+ * path might have been abandoned)" is silently ignored.
+ *
+ * A path ID is abandoned once a PATH_ABANDON was sent or received for it,
+ * which marks its connection ID sets (Section 3.3). What is kept of the path
+ * for 3 PTOs still takes acknowledgments (Section 3.3.2) and retirements
+ * (Section 7.6); status, new connection IDs and another PATH_ABANDON concern
+ * a path in use only.
+ *
+ * Each MP_ACK frame goes through this check: it is inline, and its logging
+ * is in the functions below.
+ */
+static inline xqc_path_id_recv_t
+xqc_conn_check_recv_path_id(xqc_connection_t *conn, xqc_path_id_t path_id,
+    xqc_abandoned_path_policy_t policy)
+{
+    if (path_id.value > conn->local_max_path_id) {
+        return xqc_conn_path_id_over_limit(conn, path_id);
+    }
+
+    if (policy == XQC_ABANDONED_PATH_IGNORE
+        && xqc_path_id_is_abandoned(conn, path_id))
+    {
+        return XQC_PATH_ID_RECV_IGNORE;
+    }
+
+    return XQC_PATH_ID_RECV_OK;
+}
+
+
+static xqc_path_id_recv_t
+xqc_conn_path_id_over_limit(xqc_connection_t *conn, xqc_path_id_t path_id)
+{
+    xqc_log(conn->log, XQC_LOG_ERROR,
+            "|path_id exceeds limit|path_id:%ui|limit:%ui|",
+            path_id.value, conn->local_max_path_id);
+    XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
+    return XQC_PATH_ID_RECV_INVALID;
+}
+
+
+static xqc_bool_t
+xqc_path_id_is_abandoned(xqc_connection_t *conn, xqc_path_id_t path_id)
+{
+    xqc_cid_set_inner_t *inner_set;
+
+    inner_set = xqc_get_path_cid_set(&conn->dcid_set, path_id.value);
+    if (inner_set == NULL || inner_set->set_state != XQC_CID_SET_ABANDONED) {
+        return XQC_FALSE;
+    }
+
+    xqc_log(conn->log, XQC_LOG_INFO,
+            "|ignore frame for abandoned path|path_id:%ui|", path_id.value);
+    return XQC_TRUE;
+}
+
+
 xqc_int_t
 xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
 {
@@ -2182,11 +2281,11 @@ xqc_process_ack_mp_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in)
         return XQC_OK;
     }
 
-    if (path_id > conn->local_max_path_id) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|path_id exceeds limit|path_id:%ui|limit:%ui|",
-                path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
-        return -XQC_EILLEGAL_FRAME;
+    xqc_path_id_recv_t verdict = xqc_conn_check_recv_path_id(
+        conn, xqc_path_id(path_id), XQC_ABANDONED_PATH_PROCESS);
+    if (verdict != XQC_PATH_ID_RECV_OK) {
+        return verdict == XQC_PATH_ID_RECV_IGNORE ? XQC_OK
+                                                  : -XQC_EILLEGAL_FRAME;
     }
 
     xqc_path_ctx_t *path_to_be_acked = xqc_conn_find_path_by_path_id(conn, path_id);
@@ -2235,11 +2334,11 @@ xqc_process_path_abandon_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_i
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path abandon|path_id:%ui|", path_id);
-    if (path_id > conn->local_max_path_id) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|path_id exceeds limit|path_id:%ui|limit:%ui|",
-                path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
-        return -XQC_EILLEGAL_FRAME;
+    xqc_path_id_recv_t verdict = xqc_conn_check_recv_path_id(
+        conn, xqc_path_id(path_id), XQC_ABANDONED_PATH_IGNORE);
+    if (verdict != XQC_PATH_ID_RECV_OK) {
+        return verdict == XQC_PATH_ID_RECV_IGNORE ? XQC_OK
+                                                  : -XQC_EILLEGAL_FRAME;
     }
 
     //MPQUIC: path associated cid resources should be released and path id should be consumed anyway
@@ -2308,11 +2407,11 @@ xqc_process_path_status_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|path status:%ui|path_id:%ui|", path_status, path_id);
 
-    if (path_id > conn->local_max_path_id) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|path_id exceeds limit|path_id:%ui|limit:%ui|",
-                path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
-        return -XQC_EILLEGAL_FRAME;
+    xqc_path_id_recv_t verdict = xqc_conn_check_recv_path_id(
+        conn, xqc_path_id(path_id), XQC_ABANDONED_PATH_IGNORE);
+    if (verdict != XQC_PATH_ID_RECV_OK) {
+        return verdict == XQC_PATH_ID_RECV_IGNORE ? XQC_OK
+                                                  : -XQC_EILLEGAL_FRAME;
     }
 
     xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, path_id);
@@ -2361,12 +2460,11 @@ xqc_process_mp_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
         return ret;
     }
 
-    if (path_id > conn->local_max_path_id) {
-        xqc_log(conn->log, XQC_LOG_ERROR, 
-                "|path_id exceeds limit|path_id:%ui|limit:%ui|",
-                path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
-        return -XQC_EILLEGAL_FRAME;
+    xqc_path_id_recv_t verdict = xqc_conn_check_recv_path_id(
+        conn, xqc_path_id(path_id), XQC_ABANDONED_PATH_IGNORE);
+    if (verdict != XQC_PATH_ID_RECV_OK) {
+        return verdict == XQC_PATH_ID_RECV_IGNORE ? XQC_OK
+                                                  : -XQC_EILLEGAL_FRAME;
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|new_conn_id|%s|sr_token:%s",
@@ -2535,12 +2633,11 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         return XQC_OK;
     }
 
-    if (path_id > conn->local_max_path_id) {
-        xqc_log(conn->log, XQC_LOG_ERROR,
-                "|path_id exceeds limit|path_id:%ui|limit:%ui|",
-                path_id, conn->local_max_path_id);
-        XQC_CONN_ERR(conn, TRA_MP_PROTOCOL_VIOLATION);
-        return -XQC_EILLEGAL_FRAME;
+    xqc_path_id_recv_t verdict = xqc_conn_check_recv_path_id(
+        conn, xqc_path_id(path_id), XQC_ABANDONED_PATH_PROCESS);
+    if (verdict != XQC_PATH_ID_RECV_OK) {
+        return verdict == XQC_PATH_ID_RECV_IGNORE ? XQC_OK
+                                                  : -XQC_EILLEGAL_FRAME;
     }
 
     largest_seq = xqc_cid_set_get_largest_seq_or_rpt(&conn->scid_set, path_id);

@@ -108,6 +108,10 @@ main(int argc, char *argv[])
                         xqc_test_reset_stream_frame_closing_destroys_stream)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_duplicate",
                         xqc_test_reset_stream_frame_duplicate)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_peer_stream",
+                        xqc_test_reset_stream_frame_peer_stream)
+        || !CU_add_test(pSuite, "xqc_test_reset_stream_frame_refused_stream",
+                        xqc_test_reset_stream_frame_refused_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_optional_frame_accepted",
                         xqc_test_h3_optional_frame_accepted)
         || !CU_add_test(pSuite, "xqc_test_h3_optional_frame_errors",

@@ -36,6 +36,13 @@ xqc_h3_stream_create(xqc_h3_conn_t *h3c, xqc_stream_t *stream, xqc_h3_stream_typ
     xqc_init_list_head(&h3s->blocked_buf);
     h3s->blocked_buf_size = 0;
     h3s->ctx = xqc_qpack_create_req_ctx(stream->stream_id);
+    if (h3s->ctx == NULL) {
+        xqc_log(h3c->log, XQC_LOG_ERROR,
+                "|create qpack request context error|");
+        xqc_free(h3s);
+        return NULL;
+    }
+
     h3s->log = h3c->log;
     h3s->recv_rate_limit = stream->recv_rate_bytes_per_sec;
 

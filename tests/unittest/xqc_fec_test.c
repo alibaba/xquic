@@ -10,6 +10,8 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/fec_schemes/xqc_reed_solomon.h"
+#include "src/transport/xqc_frame.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "xqc_common_test.h"
 
 xqc_fec_schemes_e fec_schemes[XQC_FEC_MAX_SCHEME_NUM] = {0, XQC_XOR_CODE, XQC_REED_SOLOMON_CODE, XQC_PACKET_MASK_CODE};
@@ -296,6 +298,72 @@ xqc_test_reed_solomon_symbol_index_bound(void)
     ret = xqc_rs_code_one_symbol(gm, input, outputs, 1, sizeof(input),
                                  XQC_FEC_MAX_SYMBOL_NUM_PBLOCK);
     CU_ASSERT_EQUAL(ret, -XQC_EFEC_SCHEME_ERROR);
+}
+
+/*
+ * Copy a REPAIR frame with a one-byte Repair Key, for the repair symbol
+ * symbol_idx of block 0, into a heap buffer that ends with the frame: its
+ * Repair Symbol Size is symbol_size and symbol_len bytes follow.
+ */
+static size_t
+xqc_test_repair_frame(unsigned char **buf, uint64_t symbol_idx,
+    uint64_t symbol_size, size_t symbol_len)
+{
+    unsigned char frame[64];
+    unsigned char *p = frame;
+    size_t len;
+
+    p = xqc_put_varint(p, 0xfec6);          /* REPAIR */
+    p = xqc_put_varint(p, 0);               /* flow ID */
+    p = xqc_put_varint(p, 0);               /* block ID */
+    p = xqc_put_varint(p, symbol_idx);      /* repair payload ID */
+    p = xqc_put_varint(p, 1);               /* Repair Key Size */
+    *p++ = 0x01;                            /* Repair Key */
+    p = xqc_put_varint(p, symbol_size);     /* Repair Symbol Size */
+    memset(p, 0x5a, symbol_len);            /* Repair Symbol */
+    p += symbol_len;
+
+    len = p - frame;
+    *buf = xqc_malloc(len);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(*buf);
+    memcpy(*buf, frame, len);
+    return len;
+}
+
+void
+xqc_test_fec_repair_frame_past_packet(void)
+{
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+    unsigned char *buf;
+    size_t len;
+
+    conn = test_engine_connect_fec();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn->fec_ctl);
+
+    /* a Repair Symbol that fits in the packet is taken */
+    len = xqc_test_repair_frame(&buf, 0, 4, 4);
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = buf;
+    packet_in.last = buf + len;
+    CU_ASSERT_EQUAL(xqc_process_repair_frame(conn, &packet_in), XQC_OK);
+    CU_ASSERT(packet_in.pos == buf + len);
+    CU_ASSERT_EQUAL(conn->fec_ctl->fec_rpr_syb_num, 1);
+    xqc_free(buf);
+
+    /* a Repair Symbol Size past the end of the packet is a frame error */
+    len = xqc_test_repair_frame(&buf, 1, 64, 4);
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = buf;
+    packet_in.last = buf + len;
+    CU_ASSERT_EQUAL(xqc_process_repair_frame(conn, &packet_in),
+                    -XQC_EILLEGAL_FRAME);
+    CU_ASSERT(packet_in.pos == buf);
+    CU_ASSERT_EQUAL(conn->fec_ctl->fec_rpr_syb_num, 1);
+    xqc_free(buf);
+
+    xqc_engine_destroy(conn->engine);
 }
 
 void

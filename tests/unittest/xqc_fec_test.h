@@ -7,4 +7,6 @@
 
 void xqc_test_fec();
 
+void xqc_test_fec_repair_frame_past_packet(void);
+
 #endif 

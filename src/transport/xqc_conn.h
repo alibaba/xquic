@@ -692,6 +692,12 @@ xqc_bool_t xqc_conn_has_hsk_keys(xqc_connection_t *c);
 void *xqc_conn_get_user_data(xqc_connection_t *c);
 
 /* transport parameters functions */
+/* RFC 9368 Section 3: the local Version Information, and the peer's check */
+void xqc_conn_get_local_version_info(xqc_connection_t *conn,
+    xqc_transport_params_t *params);
+xqc_int_t xqc_conn_check_version_info(xqc_connection_t *conn,
+    const xqc_transport_params_t *params);
+
 xqc_int_t xqc_conn_get_local_transport_params(xqc_connection_t *conn,
     xqc_transport_params_t *params);
 xqc_int_t xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,

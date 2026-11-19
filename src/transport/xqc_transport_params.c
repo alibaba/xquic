@@ -28,6 +28,14 @@
 #define XQC_MAX_RECEIVE_TIMESTAMPS_EXPONENT     20
 #define XQC_MAX_RECEIVE_TIMESTAMPS_PER_ACK      63
 
+static inline uint32_t
+xqc_get_uint32(const uint8_t *p)
+{
+    uint32_t n;
+    memcpy(&n, p, 4);
+    return ntohl(n);
+}
+
 static inline uint16_t
 xqc_get_uint16(const uint8_t *p)
 {
@@ -46,6 +54,12 @@ xqc_transport_params_calc_length(const xqc_transport_params_t *params,
           + xqc_put_varint_len(0)
         : 0;
     size_t preferred_addrlen = 0, preferred_fec_paramslen = 0;
+
+    if (params->version_info_present) {
+        size_t vi_len = 4 * (1 + (size_t)params->available_versions_count);
+        len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_VERSION_INFORMATION)
+               + xqc_put_varint_len(vi_len) + vi_len;
+    }
 
     if (params->original_dest_connection_id_present) {
         len += xqc_put_varint_len(XQC_TRANSPORT_PARAM_ORIGINAL_DEST_CONNECTION_ID) +
@@ -302,6 +316,15 @@ xqc_encode_transport_params(const xqc_transport_params_t *params,
 
     /* start writing */
     /* write transport parameter buffer len */
+    if (params->version_info_present) {
+        p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_VERSION_INFORMATION);
+        p = xqc_put_varint(p, 4 * (1 + params->available_versions_count));
+        p = xqc_put_uint32be(p, params->chosen_version);
+        for (uint32_t i = 0; i < params->available_versions_count; i++) {
+            p = xqc_put_uint32be(p, params->available_versions[i]);
+        }
+    }
+
     if (params->reset_stream_at) {
         p = xqc_put_varint(p, XQC_TRANSPORT_PARAM_RESET_STREAM_AT);
         p = xqc_put_varint(p, 0);
@@ -964,6 +987,54 @@ xqc_decode_reset_stream_at(xqc_transport_params_t *params,
     return XQC_OK;
 }
 
+/*
+ * RFC 9368 Section 4: a Version Information too short or not a multiple of
+ * four bytes long, a zero version, or, sent by a client, a Chosen Version
+ * that is not among its Available Versions, is a parsing failure.
+ */
+static xqc_int_t
+xqc_decode_version_information(xqc_transport_params_t *params,
+    xqc_transport_params_type_t exttype, const uint8_t *p,
+    const uint8_t *end, uint64_t param_type, uint64_t param_len)
+{
+    xqc_bool_t chosen_available = XQC_FALSE;
+    uint32_t version;
+
+    if (params->version_info_present || param_len < 4 || param_len % 4 != 0) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
+    params->chosen_version = xqc_get_uint32(p);
+    p += 4;
+    if (params->chosen_version == 0) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
+    params->available_versions_count = 0;
+    for (; p < end; p += 4) {
+        version = xqc_get_uint32(p);
+        if (version == 0) {
+            return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+        }
+
+        if (version == params->chosen_version) {
+            chosen_available = XQC_TRUE;
+        }
+
+        if (params->available_versions_count < XQC_SUPPORT_VERSION_MAX) {
+            params->available_versions[params->available_versions_count++] =
+                version;
+        }
+    }
+
+    if (exttype == XQC_TP_TYPE_CLIENT_HELLO && !chosen_available) {
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
+
+    params->version_info_present = 1;
+    return XQC_OK;
+}
+
 typedef enum {
     XQC_TP_DECODER_ORIGINAL_DEST_CONNECTION_ID = 0x0000,
     XQC_TP_DECODER_MAX_IDLE_TIMEOUT                    ,
@@ -982,6 +1053,7 @@ typedef enum {
     XQC_TP_DECODER_ACTIVE_CONNECTION_ID_LIMIT          ,
     XQC_TP_DECODER_INITIAL_SOURCE_CONNECTION_ID        ,
     XQC_TP_DECODER_RETRY_SOURCE_CONNECTION_ID          ,
+    XQC_TP_DECODER_VERSION_INFORMATION                 ,
 
     XQC_TP_DECODER_ENABLE_MULTIPATH                    ,
     XQC_TP_DECODER_MAX_DATAGRAM_FRAME_SIZE             ,
@@ -1027,6 +1099,7 @@ xqc_trans_param_decode_func xqc_trans_param_decode_func_list[] = {
     xqc_decode_active_cid_limit,
     xqc_decode_initial_scid,
     xqc_decode_retry_scid,
+    xqc_decode_version_information,
     xqc_decode_enable_multipath,
     xqc_decode_max_datagram_frame_size,
     xqc_decode_reset_stream_at,
@@ -1069,6 +1142,9 @@ xqc_trans_param_get_index(uint64_t param_type)
     case XQC_TRANSPORT_PARAM_INITIAL_SOURCE_CONNECTION_ID:
     case XQC_TRANSPORT_PARAM_RETRY_SOURCE_CONNECTION_ID:
         return (xqc_tp_decoder_index_t)param_type;
+
+    case XQC_TRANSPORT_PARAM_VERSION_INFORMATION:
+        return XQC_TP_DECODER_VERSION_INFORMATION;
     
     case XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10:
         return XQC_TP_DECODER_ENABLE_MULTIPATH;
@@ -1184,6 +1260,8 @@ xqc_decode_transport_params(xqc_transport_params_t *params,
 
     /* Set default values */
     params->preferred_address_present = 0;
+    params->version_info_present = 0;
+    params->available_versions_count = 0;
     params->original_dest_connection_id_present = 0;
     params->max_idle_timeout = 0;
 

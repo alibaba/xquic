@@ -65,6 +65,9 @@ typedef enum {
     XQC_TRANSPORT_PARAM_ACTIVE_CONNECTION_ID_LIMIT          = 0x000e,
     XQC_TRANSPORT_PARAM_INITIAL_SOURCE_CONNECTION_ID        = 0x000f,
     XQC_TRANSPORT_PARAM_RETRY_SOURCE_CONNECTION_ID          = 0x0010,
+
+    /* RFC 9368 Section 9.1 */
+    XQC_TRANSPORT_PARAM_VERSION_INFORMATION                 = 0x0011,
     
     /* whether enable datagram reduncy */
     XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY              = 0x0013,
@@ -115,6 +118,12 @@ typedef struct {
 typedef struct {
     xqc_preferred_addr_t    preferred_address;
     uint8_t                 preferred_address_present;
+
+    /* RFC 9368 Section 3: Version Information */
+    uint8_t                 version_info_present;
+    uint32_t                chosen_version;
+    uint32_t                available_versions_count;
+    uint32_t                available_versions[XQC_SUPPORT_VERSION_MAX];
 
     xqc_cid_t               original_dest_connection_id;
     uint8_t                 original_dest_connection_id_present;

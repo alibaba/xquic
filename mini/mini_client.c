@@ -737,9 +737,11 @@ int main(int argc, char *argv[])
 
 exit:
     xqc_engine_destroy(ctx->engine);
-    xqc_mini_cli_on_connection_finish(user_conn);
+    if (user_conn) {
+        xqc_mini_cli_on_connection_finish(user_conn);
+        xqc_mini_cli_free_user_conn(user_conn);
+    }
     xqc_mini_cli_free_ctx(ctx);
-    xqc_mini_cli_free_user_conn(user_conn);
 
     return 0;
 }

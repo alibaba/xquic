@@ -12,6 +12,7 @@ void xqc_test_server_buffers_received_zero_rtt(void);
 void xqc_test_client_initial_writes_token(void);
 void xqc_test_server_initial_omits_token(void);
 void xqc_test_packet_out_remained_size(void);
+void xqc_test_packet_out_copy_buffer_fields(void);
 void xqc_test_packet_encrypt_hp_sample_boundary();
 void xqc_test_empty_pkt();
 void xqc_test_stateless_reset_parse_boundary(void);

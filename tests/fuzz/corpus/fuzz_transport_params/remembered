@@ -1,0 +1,6 @@
+€initial_max_streams_bidi=100
+initial_max_streams_uni=3
+initial_max_stream_data_bidi_local=16777216
+initial_max_data=33554432
+max_datagram_frame_size=1200
+reset_stream_at=1

@@ -3373,9 +3373,18 @@ xqc_demo_cli_task_schedule_callback(int fd, short what, void *arg)
     int idle_waiting_task_id = -1;
 
     for (size_t i = 0; i < ctx->task_ctx.task_cnt; i++) {
+        xqc_demo_cli_task_schedule_info_t *info;
 
-        /* check if all tasks are finished */
-        if (ctx->task_ctx.schedule.schedule_info[i].status <= TASK_STATUS_RUNNING) {
+        info = &ctx->task_ctx.schedule.schedule_info[i];
+
+        /*
+         * check if all tasks are finished. A task whose requests are all
+         * finished has closed its connection, and the engine has sent the
+         * CONNECTION_CLOSE: the client exits without waiting for the end of
+         * the closing state, which RFC 9000 Section 10.2 lets an endpoint
+         * that closes its socket end early.
+         */
+        if (info->status <= TASK_STATUS_RUNNING && !info->fin_flag) {
             all_task_fin_flag = 0;
         }
 

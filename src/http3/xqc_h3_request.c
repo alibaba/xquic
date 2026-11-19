@@ -126,17 +126,24 @@ xqc_h3_request_close(xqc_h3_request_t *h3_request)
 {
     xqc_connection_t *conn = h3_request->h3_stream->h3c->conn;
     xqc_h3_stream_t  *h3s  = h3_request->h3_stream;
+    /*
+     * xqc_h3_stream_close() destroys the h3 stream, and the request with it,
+     * when its transport stream has already closed; capture the stream id
+     * first so the logs below do not read the freed stream.
+     */
+    uint64_t stream_id = h3s->stream_id;
 
     xqc_int_t ret = xqc_h3_stream_close(h3_request->h3_stream);
     if (ret) {
-        xqc_log(conn->log, XQC_LOG_ERROR, "|fail|ret:%d|stream_id:%ui|conn:%p|conn_state:%s|"
-                "flag:%s|", ret, h3s->stream_id, conn, xqc_conn_state_2_str(conn->conn_state),
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|fail|ret:%d|stream_id:%ui|conn:%p|conn_state:%s|flag:%s|",
+                ret, stream_id, conn, xqc_conn_state_2_str(conn->conn_state),
                 xqc_conn_flag_2_str(conn, conn->conn_flag));
         return ret;
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|success|stream_id:%ui|conn:%p|conn_state:%s|flag:%s|",
-            h3s->stream_id, conn, xqc_conn_state_2_str(conn->conn_state),
+            stream_id, conn, xqc_conn_state_2_str(conn->conn_state),
             xqc_conn_flag_2_str(conn, conn->conn_flag));
 
     return XQC_OK;

@@ -101,6 +101,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS 1021
 #define XQC_TEST_CASE_H3_CUSTOM_SETTINGS_ACCEPT 1026
 #define XQC_TEST_CASE_H3_CUSTOM_SETTINGS_REJECT 1027
+#define XQC_TEST_CASE_H3_RESERVED_FRAME_BEFORE_FIN 1036
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_BELOW_LIMIT 902
 #define XQC_TEST_CASE_AEAD_CONFIDENTIALITY_AT_LIMIT 903
 #define XQC_TEST_CASE_KEY_UPDATE_STALE_DEADLINE 905
@@ -154,6 +155,8 @@ static void xqc_client_send_test_uni_stream(xqc_h3_conn_t *h3_conn,
     xqc_h3_stream_type_t stream_type);
 static xqc_int_t xqc_client_send_test_request_frame(
     xqc_h3_request_t *h3_request, uint64_t frame_type);
+static xqc_int_t xqc_client_send_test_request_frame_fin(
+    xqc_h3_request_t *h3_request);
 static void xqc_client_send_test_max_push_ids(xqc_h3_conn_t *h3_conn,
     uint64_t first, uint64_t second);
 static void xqc_client_send_test_goaway_ids(xqc_h3_conn_t *h3_conn,
@@ -3173,6 +3176,44 @@ xqc_client_send_test_request_frame(xqc_h3_request_t *h3_request,
 }
 
 
+/*
+ * RFC 9114 Sections 7.2.8 and 9: end the request with a reserved frame type
+ * that carries a payload, as clients that grease request streams do, with
+ * the FIN in the same write.
+ */
+static xqc_int_t
+xqc_client_send_test_request_frame_fin(xqc_h3_request_t *h3_request)
+{
+    static const unsigned char frame[] = {
+        0x21, 0x06, 'g', 'r', 'e', 'a', 's', 'e'
+    };
+    xqc_h3_stream_t *h3_stream = h3_request->h3_stream;
+    xqc_var_buf_t *buf = xqc_var_buf_create(sizeof(frame));
+    if (buf == NULL) {
+        return -XQC_EMALLOC;
+    }
+
+    xqc_int_t ret = xqc_var_buf_save_data(buf, frame, sizeof(frame));
+    if (ret == XQC_OK) {
+        buf->fin_flag = 1;
+        ret = xqc_list_buf_to_tail(&h3_stream->send_buf, buf);
+    }
+
+    if (ret != XQC_OK) {
+        xqc_var_buf_free(buf);
+        return ret;
+    }
+
+    ret = xqc_h3_stream_send_buffer(h3_stream);
+    if (ret == -XQC_EAGAIN) {
+        ret = XQC_OK;
+    }
+
+    printf("[h3-request-frame-test]|type:0x21|len:6|fin:1|ret:%d|\n", ret);
+    return ret;
+}
+
+
 static void
 xqc_client_send_test_max_push_ids(xqc_h3_conn_t *h3_conn,
     uint64_t first, uint64_t second)
@@ -4192,7 +4233,9 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
     /* send header */
     if (user_stream->header_sent == 0) {
-        if (g_test_case == 30 || g_test_case == 37 || g_test_case == 38) {
+        if (g_test_case == 30 || g_test_case == 37 || g_test_case == 38
+            || g_test_case == XQC_TEST_CASE_H3_RESERVED_FRAME_BEFORE_FIN)
+        {
             ret = xqc_h3_request_send_headers(h3_request, &headers, 0);
 
         } else  {
@@ -4236,6 +4279,12 @@ xqc_client_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
                 return ret;
             }
             
+        } else if (g_test_case == XQC_TEST_CASE_H3_RESERVED_FRAME_BEFORE_FIN) {
+            header_only = 1;
+            ret = xqc_client_send_test_request_frame_fin(h3_request);
+            if (ret != XQC_OK) {
+                return ret;
+            }
         }
     }
 

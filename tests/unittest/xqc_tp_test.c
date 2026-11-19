@@ -847,3 +847,78 @@ xqc_test_tp_value_matches_len_decodes(void)
     CU_ASSERT_EQUAL(params.initial_max_data, 31);
     CU_ASSERT_EQUAL(params.disable_active_migration, 1);
 }
+
+/*
+ * A client application hands back the remembered parameters as the bytes
+ * that save_tp_cb gave it, without a terminating NUL. Every parameter that
+ * xqc_write_transport_params() writes reads back from exactly those bytes.
+ */
+void
+xqc_test_remembered_tp_round_trip(void)
+{
+    xqc_transport_params_t params, decoded;
+    char written[512];
+    char *stored;
+    ssize_t n;
+
+    xqc_init_transport_params(&params);
+    params.initial_max_streams_bidi = 100;
+    params.initial_max_streams_uni = 3;
+    params.initial_max_stream_data_bidi_local = 1 << 20;
+    params.initial_max_stream_data_bidi_remote = 1 << 21;
+    params.initial_max_stream_data_uni = 1 << 22;
+    params.initial_max_data = 1 << 23;
+    params.max_ack_delay = 40;
+    params.active_connection_id_limit = 7;
+    params.max_datagram_frame_size = 1200;
+    params.reset_stream_at = XQC_TRUE;
+
+    n = xqc_write_transport_params(written, sizeof(written), &params);
+    CU_ASSERT_FATAL(n > 0 && n < sizeof(written));
+
+    /* exactly the bytes, as an application stores them */
+    stored = malloc(n);
+    CU_ASSERT_FATAL(stored != NULL);
+    memcpy(stored, written, n);
+
+    xqc_init_transport_params(&decoded);
+    CU_ASSERT(xqc_read_transport_params(stored, n, &decoded) == XQC_OK);
+    CU_ASSERT_EQUAL(decoded.initial_max_streams_bidi, 100);
+    CU_ASSERT_EQUAL(decoded.initial_max_streams_uni, 3);
+    CU_ASSERT_EQUAL(decoded.initial_max_stream_data_bidi_local, 1 << 20);
+    CU_ASSERT_EQUAL(decoded.initial_max_stream_data_bidi_remote, 1 << 21);
+    CU_ASSERT_EQUAL(decoded.initial_max_stream_data_uni, 1 << 22);
+    CU_ASSERT_EQUAL(decoded.initial_max_data, 1 << 23);
+    CU_ASSERT_EQUAL(decoded.max_ack_delay, 40);
+    CU_ASSERT_EQUAL(decoded.active_connection_id_limit, 7);
+    CU_ASSERT_EQUAL(decoded.max_datagram_frame_size, 1200);
+    CU_ASSERT(decoded.reset_stream_at == XQC_TRUE);
+
+    free(stored);
+}
+
+/*
+ * The remembered parameters end where their length ends: a value or a
+ * name that the length cuts is not completed with the bytes after it.
+ */
+void
+xqc_test_remembered_tp_cut_by_length(void)
+{
+    char stored[] = "initial_max_data=57\n"
+                    "initial_max_streams_bidi=9\n";
+    xqc_transport_params_t params;
+    size_t len;
+
+    /* the length ends inside the value of initial_max_data */
+    xqc_init_transport_params(&params);
+    len = xqc_lengthof("initial_max_data=5");
+    CU_ASSERT(xqc_read_transport_params(stored, len, &params) == XQC_OK);
+    CU_ASSERT_EQUAL(params.initial_max_data, 5);
+
+    /* the length ends inside the name of initial_max_streams_bidi */
+    xqc_init_transport_params(&params);
+    len = xqc_lengthof("initial_max_data=57\ninitial_max_streams_b");
+    CU_ASSERT(xqc_read_transport_params(stored, len, &params) == XQC_OK);
+    CU_ASSERT_EQUAL(params.initial_max_data, 57);
+    CU_ASSERT_EQUAL(params.initial_max_streams_bidi, 0);
+}

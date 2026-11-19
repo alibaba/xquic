@@ -299,6 +299,7 @@ xqc_cid_set_insert_cid(xqc_cid_set_t *cid_set,
 
     xqc_init_list_head(&inner_cid->list);
     xqc_list_add_tail(&inner_cid->list, &inner_set->cid_list); 
+    inner_set->cid_inserted = 1;
 
     if (state == XQC_CID_UNUSED) {
         inner_set->unused_cnt++;

@@ -2522,7 +2522,7 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
 {
     xqc_int_t ret = XQC_ERROR;
     uint64_t seq_num = 0, largest_scid_seq_num = 0, path_id;
-    int64_t largest_seq;
+    xqc_cid_set_inner_t *inner_set;
 
     ret = xqc_parse_mp_retire_conn_id_frame(packet_in, &seq_num, &path_id);
     if (ret != XQC_OK) {
@@ -2543,20 +2543,22 @@ xqc_process_mp_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *pac
         return -XQC_EILLEGAL_FRAME;
     }
 
-    largest_seq = xqc_cid_set_get_largest_seq_or_rpt(&conn->scid_set, path_id);
-    if (largest_seq < 0) {
+    inner_set = xqc_get_path_cid_set(&conn->scid_set, path_id);
+    if (inner_set == NULL || !inner_set->cid_inserted) {
         /*
-         * Connection IDs are issued only for path IDs with a connection ID
-         * set, so none was sent for this one and any sequence number is
-         * greater than any previously sent: RFC 9000 Section 19.16, applied
-         * per path by draft-ietf-quic-multipath-10 Section 7.6.
+         * None of our connection IDs was ever issued for this path ID, so
+         * any sequence number, 0 included, is greater than any previously
+         * sent: RFC 9000 Section 19.16, applied per path by
+         * draft-ietf-quic-multipath-10 Section 7.6. An empty set does not
+         * tell: an abandoned path ID gets no replacements, and its set ends
+         * up empty once its connection IDs are retired and removed.
          */
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|no scid issued for path|seq:%ui|path:%ui|", seq_num, path_id);
         XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
         return -XQC_EPROTO;
     }
-    largest_scid_seq_num = largest_seq;
+    largest_scid_seq_num = inner_set->largest_scid_seq_num;
 
     if (seq_num > largest_scid_seq_num) {
         /* 

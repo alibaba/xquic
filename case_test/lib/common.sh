@@ -155,7 +155,15 @@ case_test_case_watchdog_start()
     fi
 
     (
-        sleep "${timeout_s}"
+        # The sleep runs in the background so that the TERM of
+        # case_test_case_watchdog_stop() can end it too: left running, it
+        # would keep the inherited descriptors open until the timeout.
+        sleep_pid=""
+        trap 'if [[ -n "${sleep_pid}" ]]; then kill "${sleep_pid}" 2> /dev/null || true; fi; exit 0' TERM
+        sleep "${timeout_s}" &
+        sleep_pid="$!"
+        wait "${sleep_pid}"
+        sleep_pid=""
         if kill -0 "${owner_pid}" 2> /dev/null; then
             echo "[case-test] case-timeout group=${CASE_TEST_GROUP:-} case=${name} id=${id} elapsed=${timeout_s}s"
             if [[ -n "${CASE_TEST_EVENT_FILE:-}" ]]; then

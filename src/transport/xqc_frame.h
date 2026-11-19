@@ -208,6 +208,10 @@ xqc_int_t xqc_process_ping_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
 
 xqc_int_t xqc_process_new_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
+/* forget a peer connection ID in the engine's DCID and reset token hashes */
+void xqc_rollback_new_conn_id_hash_entries(xqc_connection_t *conn,
+    const xqc_cid_t *new_conn_cid, xqc_bool_t sr_token_inserted);
+
 xqc_int_t xqc_process_retire_conn_id_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);
 
 xqc_int_t xqc_process_conn_close_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_in);

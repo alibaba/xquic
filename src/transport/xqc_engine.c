@@ -1263,8 +1263,14 @@ process:
     rebinding_authenticated_pkts_before =
         conn->rcv_pkt_stats.conn_authenticated_pkts;
 
+    /* a client answers a PATH_CHALLENGE on the path it came by */
+    if (conn->preferred_addr.state == XQC_PREFERRED_ADDR_VALIDATING) {
+        xqc_conn_preferred_addr_on_datagram(conn, peer_addr);
+    }
+
     /* process packets */
     ret = xqc_conn_process_packet(conn, packet_in_buf, packet_in_size, recv_time);
+    conn->preferred_addr.recv_from_addr = XQC_FALSE;
 
     conn->rcv_pkt_stats.conn_udp_pkts++;
 

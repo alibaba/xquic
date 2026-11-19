@@ -10,6 +10,7 @@
 #include "xquic/xquic.h"
 #include "src/common/xqc_log.h"
 #include "src/transport/xqc_engine.h"
+#include "src/transport/xqc_frame.h"
 
 void xqc_test_common();
 void xqc_test_memory_pool_large_alignment(void);
@@ -30,6 +31,15 @@ const xqc_cid_t *test_cid_connect(xqc_engine_t *engine);
 xqc_connection_t *test_engine_connect();
 xqc_engine_t *test_create_engine();
 xqc_engine_t *test_create_engine_server();
+xqc_connection_t *test_engine_connect_cc(const xqc_cong_ctrl_callback_t *cc);
+void test_enable_multipath(xqc_connection_t *conn);
+xqc_path_ctx_t *test_add_path(xqc_connection_t *conn, uint64_t path_id);
+xqc_packet_out_t *test_send_packet(xqc_connection_t *conn,
+    xqc_path_ctx_t *path, xqc_packet_number_t pn,
+    xqc_frame_type_bit_t frame_types, xqc_usec_t sent_time);
+xqc_int_t test_ack_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_number_t low, xqc_packet_number_t high, xqc_usec_t recv_time,
+    xqc_bool_t ack_on_same_path);
 
 
 extern const xqc_log_callbacks_t xqc_null_log_cb;

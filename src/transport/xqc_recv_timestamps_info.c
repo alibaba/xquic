@@ -57,10 +57,13 @@ xqc_recv_timestamps_info_add_pkt(xqc_recv_timestamps_info_t *ts_info,
     ts_info->recv_timestamps[ts_info->end_idx] = recv_time;
     ts_info->end_idx = RECV_TIMESTAMPS_INFO_NEXT_IDX(ts_info->end_idx);
     if (ts_info->end_idx == ts_info->start_idx) {
+        /* the ring is full: the oldest timestamp gives its slot up */
         ts_info->start_idx = RECV_TIMESTAMPS_INFO_NEXT_IDX(ts_info->start_idx);
+
+    } else {
+        ts_info->cur_len += 1;
     }
     ts_info->expected_next_pkt_num = pkt_num + 1;
-    ts_info->cur_len += 1;
 }
 
 void
@@ -85,7 +88,7 @@ int
 xqc_recv_timestamps_info_fetch(xqc_recv_timestamps_info_t *ts_info, uint32_t idx,
     xqc_packet_number_t *pkt_num, xqc_usec_t *recv_time)
 {
-    if (idx > ts_info->cur_len) {
+    if (idx >= ts_info->cur_len) {
         return 0;
     }
     int inner_idx = ((idx + ts_info->start_idx) & (XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH - 1));

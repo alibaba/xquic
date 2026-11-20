@@ -676,10 +676,39 @@ case_tls_reset_0rtt_enabled()
     case_tls_reset_0rtt_transition 912 1 1 1
 }
 
+## RFC 9001 Section 8.4: a ClientHello with a non-empty legacy_session_id
+## is a PROTOCOL_VIOLATION. The probe sends a raw Initial built from the
+## public initial salt, so no compliant client stack is involved.
+case_tls_handshake_legacy_session_id_rejected()
+{
+    case_test_stop_server
+    clear_log
+    rm -f test_session xqc_token tp_localhost
+    case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
+
+    echo -e "legacy_session_id rejected ...\c"
+    python3 "${ROOT_DIR}/case_test/tls/legacy_session_id_probe.py" \
+        --port "${CASE_TEST_PORT:-8443}" > sid_probe.log 2>&1
+    probe=`grep -a "\[legacy-session-id-test\]|case:900|close_error:0xa|" sid_probe.log`
+    svrlog=`grep -a "non-empty legacy_session_id in ClientHello" slog`
+    if [ -n "$probe" ] && [ -n "$svrlog" ]; then
+        echo ">>>>>>>> pass:1"
+        case_print_result "legacy_session_id_rejected" "pass"
+    else
+        echo ">>>>>>>> pass:0"
+        case_print_result "legacy_session_id_rejected" "fail"
+        cat sid_probe.log
+    fi
+
+    case_test_stop_server
+}
+
 case_test_case "reset_0RTT_downgrade" --id 909 --run case_tls_reset_0rtt_downgrade
 case_test_case "reset_0RTT_upgrade" --id 910 --run case_tls_reset_0rtt_upgrade
 case_test_case "reset_0RTT_disabled" --id 911 --run case_tls_reset_0rtt_disabled
 case_test_case "reset_0RTT_enabled" --id 912 --run case_tls_reset_0rtt_enabled
+
+case_test_case "legacy_session_id_rejected" --id 900 --mode self-reporting --run case_tls_handshake_legacy_session_id_rejected
 
 case_test_case "cert_verify" --id native --mode self-reporting --run case_tls_handshake_cert_verify
 case_test_case "1RTT" --id native --mode self-reporting --run case_tls_handshake__1RTT

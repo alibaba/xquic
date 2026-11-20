@@ -40,6 +40,7 @@ typedef struct xqc_tls_test_buff_s {
         xqc_connection_t conn;
     };
     int                  cert_cb_called;
+    int                  msg_cb_called;
 } xqc_tls_test_buff_t;
 
 static inline xqc_tls_test_buff_t*
@@ -61,6 +62,7 @@ xqc_create_tls_test_buffer()
     ttbuf->error_code = 0;
     ttbuf->transport_error_code = 0;
     ttbuf->cert_cb_called = 0;
+    ttbuf->msg_cb_called = 0;
 
     return ttbuf;
 }
@@ -235,6 +237,13 @@ xqc_tt_handshake_completed_cb(void *user_data)
 {
     xqc_tls_test_buff_t *ttbuf = (xqc_tls_test_buff_t *)user_data;
     ttbuf->handshake_completed = XQC_TRUE;
+}
+
+static void
+xqc_tt_msg_cb(int msg_type, const void *msg, size_t msg_len, void *user_data)
+{
+    xqc_tls_test_buff_t *ttbuf = (xqc_tls_test_buff_t *)user_data;
+    ttbuf->msg_cb_called++;
 }
 
 xqc_tls_callbacks_t tls_test_cbs = {
@@ -1806,4 +1815,130 @@ xqc_test_tls(void)
     
     xqc_test_destroy_tls_ctx();
     xqc_free(test_log);
+}
+
+
+/*
+ * Build a minimal ClientHello handshake message: 4-byte header,
+ * legacy_version, random, then the legacy_session_id length and value.
+ * The message callback runs before TLS parsing, so no extensions are
+ * needed to exercise the RFC 9001 Section 8.4 check.
+ */
+static size_t
+xqc_test_build_client_hello(uint8_t *buf, uint8_t sid_len)
+{
+    size_t body_len = 2 + 32 + 1 + sid_len;
+    size_t pos = 0;
+
+    buf[pos++] = SSL3_MT_CLIENT_HELLO;
+    buf[pos++] = (uint8_t)(body_len >> 16);
+    buf[pos++] = (uint8_t)(body_len >> 8);
+    buf[pos++] = (uint8_t)body_len;
+
+    /* legacy_version */
+    buf[pos++] = 0x03;
+    buf[pos++] = 0x03;
+
+    /* random */
+    memset(buf + pos, 0x5A, 32);
+    pos += 32;
+
+    /* legacy_session_id */
+    buf[pos++] = sid_len;
+    memset(buf + pos, 0xA5, sid_len);
+    pos += sid_len;
+
+    return pos;
+}
+
+/*
+ * RFC 9001 Section 8.4: a server SHOULD treat a ClientHello with a
+ * non-empty legacy_session_id as a connection error of type
+ * PROTOCOL_VIOLATION. Covers the accepted empty field, the rejected
+ * non-empty field, a message truncated before the length byte, and the
+ * server-only role guard.
+ */
+void
+xqc_test_tls_client_hello_legacy_session_id(void)
+{
+    uint8_t                ch[4 + 2 + 32 + 1 + 32];
+    size_t                 ch_len;
+    xqc_log_t             *log = NULL;
+    xqc_tls_ctx_t         *local_ctx_cli = NULL;
+    xqc_tls_ctx_t         *local_ctx_svr = NULL;
+    xqc_tls_t             *tls_cli = NULL;
+    xqc_tls_t             *tls_svr = NULL;
+    xqc_tls_test_buff_t   *ttbuf_cli = NULL;
+    xqc_tls_test_buff_t   *ttbuf_svr = NULL;
+    xqc_log_callbacks_t    log_cb = xqc_null_log_cb;
+    xqc_tls_callbacks_t    msg_test_cbs = tls_test_cbs;
+    xqc_tls_config_t       tls_config = {0};
+    def_engine_ssl_config_cli;
+    def_engine_ssl_config_svr;
+
+    msg_test_cbs.msg_cb = xqc_tt_msg_cb;
+
+    tls_config.hostname = "test.xquic.com";
+    tls_config.alpn = TEST_ALPN_1;
+    tls_config.trans_params = "10086";
+    tls_config.trans_params_len = 5;
+
+    log = xqc_log_init(0, 0, 0, 0, 0, NULL, &log_cb, NULL);
+    CU_ASSERT_FATAL(log != NULL);
+
+    local_ctx_cli = xqc_tls_ctx_create(XQC_TLS_TYPE_CLIENT,
+        &engine_ssl_config_cli, &msg_test_cbs, log);
+    local_ctx_svr = xqc_tls_ctx_create(XQC_TLS_TYPE_SERVER,
+        &engine_ssl_config_svr, &msg_test_cbs, log);
+    CU_ASSERT_FATAL(local_ctx_cli != NULL);
+    CU_ASSERT_FATAL(local_ctx_svr != NULL);
+
+    ttbuf_cli = xqc_create_tls_test_buffer();
+    ttbuf_svr = xqc_create_tls_test_buffer();
+    CU_ASSERT_FATAL(ttbuf_cli != NULL);
+    CU_ASSERT_FATAL(ttbuf_svr != NULL);
+
+    tls_cli = xqc_tls_create(local_ctx_cli, &tls_config, log, ttbuf_cli);
+    tls_svr = xqc_tls_create(local_ctx_svr, &tls_config, log, ttbuf_svr);
+    CU_ASSERT_FATAL(tls_cli != NULL);
+    CU_ASSERT_FATAL(tls_svr != NULL);
+
+    /* happy path: an empty legacy_session_id is accepted and forwarded */
+    ch_len = xqc_test_build_client_hello(ch, 0);
+    xqc_ssl_msg_cb(0, 0, SSL3_RT_HANDSHAKE, ch, ch_len,
+                   xqc_tls_get_ssl(tls_svr), NULL);
+    CU_ASSERT_EQUAL(ttbuf_svr->transport_error_code, 0);
+    CU_ASSERT_EQUAL(ttbuf_svr->error_code, 0);
+    CU_ASSERT_EQUAL(ttbuf_svr->msg_cb_called, 1);
+
+    /* abnormal path: a non-empty legacy_session_id is a protocol violation */
+    ttbuf_svr->msg_cb_called = 0;
+    ch_len = xqc_test_build_client_hello(ch, 32);
+    xqc_ssl_msg_cb(0, 0, SSL3_RT_HANDSHAKE, ch, ch_len,
+                   xqc_tls_get_ssl(tls_svr), NULL);
+    CU_ASSERT_EQUAL(ttbuf_svr->transport_error_code, TRA_PROTOCOL_VIOLATION);
+    CU_ASSERT_EQUAL(ttbuf_svr->msg_cb_called, 0);
+
+    /* boundary: a message truncated before the length byte is left to TLS */
+    ttbuf_svr->transport_error_code = 0;
+    ttbuf_svr->msg_cb_called = 0;
+    xqc_ssl_msg_cb(0, 0, SSL3_RT_HANDSHAKE, ch, 38,
+                   xqc_tls_get_ssl(tls_svr), NULL);
+    CU_ASSERT_EQUAL(ttbuf_svr->transport_error_code, 0);
+    CU_ASSERT_EQUAL(ttbuf_svr->msg_cb_called, 1);
+
+    /* role guard: the check applies to servers only */
+    ch_len = xqc_test_build_client_hello(ch, 32);
+    xqc_ssl_msg_cb(0, 0, SSL3_RT_HANDSHAKE, ch, ch_len,
+                   xqc_tls_get_ssl(tls_cli), NULL);
+    CU_ASSERT_EQUAL(ttbuf_cli->transport_error_code, 0);
+    CU_ASSERT_EQUAL(ttbuf_cli->msg_cb_called, 1);
+
+    xqc_tls_destroy(tls_cli);
+    xqc_tls_destroy(tls_svr);
+    xqc_destroy_tls_test_buffer(ttbuf_cli);
+    xqc_destroy_tls_test_buffer(ttbuf_svr);
+    xqc_tls_ctx_destroy(local_ctx_cli);
+    xqc_tls_ctx_destroy(local_ctx_svr);
+    xqc_free(log);
 }

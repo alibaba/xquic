@@ -16,6 +16,12 @@
 #define XQC_EARLY_DATA_TP_RESET_STREAM_AT  0
 #define XQC_EARLY_DATA_TP_LEN              1
 
+/*
+ * Offset of the legacy_session_id length byte in a ClientHello handshake
+ * message: 4-byte handshake header + 2-byte legacy_version + 32-byte random.
+ */
+#define XQC_TLS_CH_SID_LEN_OFFSET          38
+
 
 typedef enum xqc_tls_flag_e {
     /* initial state */
@@ -979,6 +985,28 @@ xqc_ssl_msg_cb(int write_p, int version, int content_type,
 
         if (*p == SSL3_MT_CLIENT_HELLO && !write_p) {
             /* Incoming ClientHello. */
+
+            /*
+             * RFC 9001 Section 8.4: a server SHOULD treat a ClientHello
+             * with a non-empty legacy_session_id as a connection error of
+             * type PROTOCOL_VIOLATION. QUIC prohibits TLS middlebox
+             * compatibility mode, and the TLS backends do not all reject
+             * the field. A message too short to hold the length byte is
+             * left to the TLS stack to reject.
+             */
+            if (tls->type == XQC_TLS_TYPE_SERVER
+                && tls->cbs->transport_error_cb
+                && len > XQC_TLS_CH_SID_LEN_OFFSET
+                && p[XQC_TLS_CH_SID_LEN_OFFSET] > 0)
+            {
+                xqc_log(tls->log, XQC_LOG_ERROR,
+                        "|non-empty legacy_session_id in ClientHello|sid_len:%d|",
+                        p[XQC_TLS_CH_SID_LEN_OFFSET]);
+                tls->cbs->transport_error_cb(TRA_PROTOCOL_VIOLATION,
+                                             tls->user_data);
+                return;
+            }
+
             if (tls->cbs->msg_cb) {
                 tls->cbs->msg_cb(XQC_TLS_1_3_CLIENT_HELLO,
                                  buf, len, tls->user_data);

@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""
-Endpoint probe for RFC 9001 Section 8.4 (case 900).
-
-Sends a QUIC v1 Initial packet whose ClientHello carries a non-empty
-legacy_session_id (TLS middlebox compatibility mode, prohibited in QUIC)
-and expects the server to answer CONNECTION_CLOSE with PROTOCOL_VIOLATION
-(0x0a). Initial keys are derived from the public RFC 9001 Section 5.2 salt
-and the client-chosen DCID, so no production hook is needed.
-
-Prints "[legacy-session-id-test]|case:900|close_error:0x<code>|" on success
-and exits 0; any other outcome exits 1 with a diagnostic line.
-"""
+"""Endpoint probe for RFC 9001 Section 8.4 (case 900)."""
+# Sends a QUIC v1 Initial packet whose ClientHello carries a non-empty
+# legacy_session_id (TLS middlebox compatibility mode, prohibited in QUIC)
+# and expects the server to answer CONNECTION_CLOSE with PROTOCOL_VIOLATION
+# (0x0a). Initial keys are derived from the public RFC 9001 Section 5.2
+# salt and the client-chosen DCID, so no production hook is needed.
+#
+# Prints "[legacy-session-id-test]|case:900|close_error:0x<code>|" on
+# success and exits 0; any other outcome exits 1 with a diagnostic line.
 
 import argparse
 import socket

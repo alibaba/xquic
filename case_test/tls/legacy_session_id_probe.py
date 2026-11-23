@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Endpoint probe for RFC 9001 Section 8.4 (case 900).
+"""
+Endpoint probe for RFC 9001 Section 8.4 (case 900).
 
 Sends a QUIC v1 Initial packet whose ClientHello carries a non-empty
 legacy_session_id (TLS middlebox compatibility mode, prohibited in QUIC)
@@ -44,7 +45,9 @@ def initial_keys(dcid, role):
 
 
 def hp_mask(hp_key, sample):
-    enc = Cipher(algorithms.AES(hp_key), modes.ECB()).encryptor()
+    # RFC 9001 Section 5.4.3 defines the header-protection mask as
+    # AES-ECB over the 16-byte sample; ECB is required here, not a flaw.
+    enc = Cipher(algorithms.AES(hp_key), modes.ECB()).encryptor()  # nosec
     return enc.update(sample) + enc.finalize()
 
 
@@ -165,7 +168,6 @@ def unprotect_initial(datagram, key, iv, hp):
         pn_bytes = bytes(datagram[pn_offset + i] ^ mask[1 + i]
                          for i in range(pn_len))
         header += pn_bytes
-        pn = int.from_bytes(pn_bytes, "big")
         nonce = bytes(a ^ b for a, b in
                       zip(iv, b"\x00" * (12 - pn_len) + pn_bytes))
         ciphertext = datagram[pn_offset + pn_len:pn_offset + length]

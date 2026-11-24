@@ -1722,7 +1722,10 @@ xqc_engine_t *xqc_engine_create(xqc_engine_type_t engine_type,
 /**
  * @brief destroy engine. this is called after all connections are destroyed \n
  * NOTICE: MUST NOT be called in any xquic callback functions, for this function will destroy engine
- * immediately, result in segmentation fault.
+ * immediately, result in segmentation fault. For the same reason it MUST NOT be called from a signal
+ * handler: a signal can interrupt xquic at any point, and xquic is not async-signal-safe. Let the
+ * handler only wake the event loop in an async-signal-safe way (a self-pipe, or libevent's signal
+ * events), and destroy the engine once the loop has returned.
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_engine_destroy(xqc_engine_t *engine);

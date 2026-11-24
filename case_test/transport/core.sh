@@ -1134,6 +1134,30 @@ fi
 rm -rf tp_localhost test_session xqc_token
 }
 
+case_transport_core_server_sigterm_in_engine_call()
+{
+
+rm -rf tp_localhost test_session xqc_token
+case_test_stop_server
+case_test_start_server ${SERVER_BIN} -l d -e -x 1719 > svr_stdlog
+clear_log
+echo -e "SIGTERM in an engine call ...\c"
+${CLIENT_BIN} -s 64 -l d -t 1 -E -x 1719 > stdlog
+case_test_wait_for_server_exit
+server_status=$?
+result=$(grep ">>>>>>>> pass:1" stdlog)
+if [ "$server_status" -eq 0 ] && [ -n "$result" ]; then
+    echo ">>>>>>>> pass:1"
+    case_print_result "server_sigterm_in_engine_call" "pass"
+else
+    echo ">>>>>>>> pass:0"
+    case_print_result "server_sigterm_in_engine_call" "fail"
+    echo "server exit status: $server_status"
+    echo "$result"
+fi
+rm -rf tp_localhost test_session xqc_token
+}
+
 case_test_case "log_switch_off" --id native --mode self-reporting --run case_transport_core_log_switch_off
 case_test_case "server_refuse" --id native --mode self-reporting --run case_transport_core_server_refuse
 case_test_case "create_connection_fail" --id native --mode self-reporting --run case_transport_core_create_connection_fail
@@ -1178,6 +1202,7 @@ case_test_case "request_closing_notify" --id native --mode self-reporting --run 
 case_test_case "transport_MP_ping" --id native --mode self-reporting --run case_transport_core_transport_MP_ping
 case_test_case "0RTT_param_reduction" --id native --mode self-reporting --run case_transport_core__0RTT_param_reduction
 case_test_case "0RTT_rejected_param_reduction" --id native --mode self-reporting --run case_transport_core__0RTT_rejected_param_reduction
+case_test_case "server_sigterm_in_engine_call" --id 1719 --mode self-reporting --run case_transport_core_server_sigterm_in_engine_call
 
 if case_test_is_discovery; then
     case_test_run

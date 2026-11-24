@@ -823,6 +823,10 @@ main(int argc, char *argv[])
                         xqc_test_h3_empty_data_fin)
         || !CU_add_test(pSuite, "xqc_test_stable", xqc_test_stable)
         || !CU_add_test(pSuite, "xqc_test_dtable", xqc_test_dtable)
+        || !CU_add_test(pSuite, "xqc_test_dtable_capacity_raise_lookup",
+                        xqc_test_dtable_capacity_raise_lookup)
+        || !CU_add_test(pSuite, "xqc_test_dtable_capacity_raise_evicted",
+                        xqc_test_dtable_capacity_raise_evicted)
         || !CU_add_test(pSuite, "xqc_test_dtable_evicted_entries",
                         xqc_test_dtable_evicted_entries)
         || !CU_add_test(pSuite, "test_2d_hash_table", test_2d_hash_table)

@@ -60,6 +60,13 @@ xqc_2d_hash_table_t *xqc_2d_hash_table_create(size_t bkt_cnt, xqc_2d_hash_table_
 
 
 /**
+ * @brief remove every node, and keep the table for new ones
+ * @param ht hash table
+ */
+void xqc_2d_hash_table_clear(xqc_2d_hash_table_t *ht);
+
+
+/**
  * @brief free 2d hash table
  * @param ht 2d hash table handler
  */

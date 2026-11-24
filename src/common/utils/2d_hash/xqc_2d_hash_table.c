@@ -84,6 +84,23 @@ xqc_2d_hash_table_create(size_t bkt_cnt, xqc_2d_hash_table_data_cmp dcmp,
 
 
 void
+xqc_2d_hash_table_clear(xqc_2d_hash_table_t *ht)
+{
+    xqc_list_head_t *pos, *next;
+    xqc_2d_hash_node_t *node = NULL;
+
+    for (size_t i = 0; i < ht->bkt_cnt; i++) {
+        xqc_list_head_t *list = &ht->list[i];
+        xqc_list_for_each_safe(pos, next, list) {
+            node = xqc_list_entry(pos, xqc_2d_hash_node_t, head);
+            xqc_list_del(pos);
+            xqc_free(node);
+        }
+    }
+}
+
+
+void
 xqc_2d_hash_table_free(xqc_2d_hash_table_t *ht)
 {
     xqc_list_head_t *pos, *next;

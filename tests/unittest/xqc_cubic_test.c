@@ -41,6 +41,7 @@ xqc_test_cubic()
     xqc_cubic_t cubic;
     xqc_msec_t delay = 100;
     xqc_cc_params_t params = {.init_cwnd = 10};
+    memset(&cubic, 0, sizeof(cubic));
     xqc_cubic_cb.xqc_cong_ctl_init(&cubic, NULL, params);
 
     print_cubic(&cubic);
@@ -179,6 +180,7 @@ xqc_test_cubic_persistent_congestion_reset()
     xqc_usec_t        recovery_start;
     uint64_t          cwnd;
 
+    memset(&cubic, 0, sizeof(cubic));
     memset(&params, 0, sizeof(params));
     memset(&po, 0, sizeof(po));
     xqc_cubic_cb.xqc_cong_ctl_init(&cubic, NULL, params);
@@ -211,6 +213,7 @@ xqc_test_cubic_reordered_ack_in_recovery()
     xqc_usec_t        lost_sent_time;
     uint64_t          cwnd;
 
+    memset(&cubic, 0, sizeof(cubic));
     memset(&params, 0, sizeof(params));
     memset(&po, 0, sizeof(po));
     xqc_cubic_cb.xqc_cong_ctl_init(&cubic, NULL, params);

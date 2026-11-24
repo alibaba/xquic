@@ -111,6 +111,7 @@ xqc_test_server_buffers_received_zero_rtt(void)
     CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     conn->conn_type = XQC_CONN_TYPE_SERVER;
 
+    memset(&packet_in, 0, sizeof(packet_in));
     xqc_packet_in_init(&packet_in,
                        (unsigned char *)XQC_TEST_ZERO_RTT_PACKET,
                        sizeof(XQC_TEST_ZERO_RTT_PACKET) - 1, NULL, 0, 0);
@@ -406,9 +407,11 @@ xqc_test_packet_encrypt_hp_sample_boundary()
 
     struct sockaddr_in6 peer_addr;
     socklen_t peer_addrlen = sizeof(peer_addr);
+    memset(&peer_addr, 0, sizeof(peer_addr));
 
     struct sockaddr_in6 local_addr;
     socklen_t local_addrlen = sizeof(local_addr);
+    memset(&local_addr, 0, sizeof(local_addr));
 
     xqc_engine_packet_process(svr_tctx.engine, cli_tctx.buf, cli_tctx.buf_len,
                               (struct sockaddr *)&local_addr, local_addrlen,
@@ -480,9 +483,11 @@ xqc_test_empty_pkt()
 
     struct sockaddr_in6 peer_addr;
     socklen_t peer_addrlen = sizeof(peer_addr);
+    memset(&peer_addr, 0, sizeof(peer_addr));
 
     struct sockaddr_in6 local_addr;
     socklen_t local_addrlen = sizeof(local_addr);
+    memset(&local_addr, 0, sizeof(local_addr));
 
     /* server will process the initial packet and get the secret of initial pns */
     xqc_engine_packet_process(svr_tctx.engine, cli_tctx.buf, cli_tctx.buf_len,

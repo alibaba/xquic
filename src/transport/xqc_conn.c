@@ -1896,6 +1896,15 @@ xqc_conn_send_ping(xqc_engine_t *engine, const xqc_cid_t *cid, void *ping_user_d
         return -XQC_ECONN_NFOUND;
     }
 
+    /*
+     * A closing connection sends no PING. It may be closed and in its
+     * destruction, whose callbacks may call this function: queuing it
+     * again would leave the engine with the freed connection.
+     */
+    if (conn->conn_state >= XQC_CONN_STATE_CLOSING) {
+        return -XQC_CLOSING;
+    }
+
     ret = xqc_conn_send_ping_internal(conn, ping_user_data, XQC_TRUE);
     if (ret) {
         return ret;
@@ -3506,6 +3515,16 @@ xqc_conn_continue_send_by_conn(xqc_connection_t *conn)
     }
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|conn:%p|", conn);
+
+    /*
+     * A draining or closed connection sends nothing more, as for
+     * xqc_conn_close(). A closed one may be in its destruction, whose
+     * callbacks may call this function: queuing it again would leave the
+     * engine with the freed connection.
+     */
+    if (conn->conn_state >= XQC_CONN_STATE_DRAINING) {
+        return;
+    }
 
     xqc_engine_remove_wakeup_queue(conn->engine, conn);
     xqc_engine_add_active_queue(conn->engine, conn);

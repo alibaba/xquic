@@ -1738,9 +1738,9 @@ xqc_test_wt_standard_draft2_version_header_injection(void)
          .value = {(void *)"req-42", 6}},
     };
     xqc_http_headers_t replaced = {.headers = business, .count = 2};
-    xqc_http_header_t *alloc = NULL;
-    CU_ASSERT(xqc_wt_ensure_version_header(&replaced, &alloc) == XQC_OK);
-    CU_ASSERT_PTR_NOT_NULL(alloc);
+    xqc_http_header_t merged[3];
+    CU_ASSERT(xqc_wt_version_header_present(&replaced) == XQC_FALSE);
+    xqc_wt_append_version_header(&replaced, merged);
     CU_ASSERT(replaced.count == 3);
     CU_ASSERT(strcmp((const char *)replaced.headers[0].name.iov_base,
                      ":status") == 0);
@@ -1752,7 +1752,6 @@ xqc_test_wt_standard_draft2_version_header_injection(void)
     CU_ASSERT(replaced.headers[2].value.iov_len == 7
               && memcmp(replaced.headers[2].value.iov_base,
                        "draft02", 7) == 0);
-    xqc_free(alloc);
 
     /* An application that echoes the header itself stays untouched. */
     xqc_http_header_t echoed[2] = {
@@ -1761,14 +1760,10 @@ xqc_test_wt_standard_draft2_version_header_injection(void)
          .value = {(void *)"draft02", 7}},
     };
     xqc_http_headers_t app_headers = {.headers = echoed, .count = 2};
-    alloc = (xqc_http_header_t *)0x1;
-    CU_ASSERT(xqc_wt_ensure_version_header(&app_headers, &alloc) == XQC_OK);
-    CU_ASSERT_PTR_NULL(alloc);
+    CU_ASSERT(xqc_wt_version_header_present(&app_headers) == XQC_TRUE);
     CU_ASSERT(app_headers.count == 2 && app_headers.headers == echoed);
     echoed[1].value.iov_base = (void *)"draft07";
-    CU_ASSERT(xqc_wt_ensure_version_header(&app_headers, &alloc)
-              == -XQC_EPARAM);
-    CU_ASSERT_PTR_NULL(alloc);
+    CU_ASSERT(xqc_wt_version_header_present(&app_headers) == -XQC_EPARAM);
 }
 
 static void

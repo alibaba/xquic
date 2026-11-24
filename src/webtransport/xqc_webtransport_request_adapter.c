@@ -808,56 +808,53 @@ xqc_wt_response(xqc_h3_request_t *request, const char *status)
     return ret < 0 ? (xqc_int_t)ret : XQC_OK;
 }
 
+/* draft-ietf-webtrans-http3-02 Section 6. */
+static const char xqc_wt_version_name[] = "sec-webtransport-http3-draft";
+static const xqc_http_header_t xqc_wt_version_field = {
+    .name = {(void *)xqc_wt_version_name, sizeof(xqc_wt_version_name) - 1},
+    .value = {(void *)"draft02", sizeof("draft02") - 1},
+};
+
 xqc_int_t
-xqc_wt_ensure_version_header(xqc_http_headers_t *response,
-    xqc_http_header_t **alloc)
+xqc_wt_version_header_present(const xqc_http_headers_t *response)
 {
     /* The acceptance callback can replace the response table. Preserve
      * the version header required by draft-02 Section 6. */
-    *alloc = NULL;
-    static const xqc_http_header_t version_field = {
-        .name = {(void *)"sec-webtransport-http3-draft",
-                 sizeof("sec-webtransport-http3-draft") - 1},
-        .value = {(void *)"draft02", sizeof("draft02") - 1},
-        .flags = 0,
-    };
+    const xqc_http_header_t *version = &xqc_wt_version_field;
     xqc_bool_t found = XQC_FALSE;
     for (size_t i = 0; i < response->count; i++) {
         const xqc_http_header_t *field = &response->headers[i];
-        unsigned char name[sizeof("sec-webtransport-http3-draft") - 1];
+        unsigned char name[sizeof(xqc_wt_version_name) - 1];
         if (field->name.iov_len != sizeof(name)) {
             continue;
         }
         /* Match the lowercase names produced by the H3 sender (RFC 9110
          * Sections 5.1, 5.3), without modifying application storage. */
         xqc_str_tolower(name, field->name.iov_base, sizeof(name));
-        if (memcmp(name, version_field.name.iov_base, sizeof(name)) == 0) {
-            if (found || field->value.iov_len != version_field.value.iov_len
-                || memcmp(field->value.iov_base, version_field.value.iov_base,
-                          version_field.value.iov_len) != 0)
+        if (memcmp(name, version->name.iov_base, sizeof(name)) == 0) {
+            if (found || field->value.iov_len != version->value.iov_len
+                || memcmp(field->value.iov_base, version->value.iov_base,
+                          version->value.iov_len) != 0)
             {
                 return -XQC_EPARAM;
             }
             found = XQC_TRUE;
         }
     }
-    if (found) {
-        return XQC_OK;
-    }
-    xqc_http_header_t *merged = xqc_malloc(
-        (response->count + 1) * sizeof(*merged));
-    if (merged == NULL) {
-        return -XQC_EMALLOC;
-    }
+    return found;
+}
+
+void
+xqc_wt_append_version_header(xqc_http_headers_t *response,
+    xqc_http_header_t *merged)
+{
     if (response->count) {
         memcpy(merged, response->headers,
                response->count * sizeof(*merged));
     }
-    merged[response->count] = version_field;
+    merged[response->count] = xqc_wt_version_field;
     response->headers = merged;
     response->count++;
-    *alloc = merged;
-    return XQC_OK;
 }
 
 static unsigned
@@ -995,10 +992,7 @@ xqc_wt_accept_session(xqc_wt_session_t *session)
     xqc_http_header_t response_fields[2] = {
         {.name = {(void *)":status", 7}, .value = {(void *)"200", 3},
          .flags = 0},
-        /* draft-ietf-webtrans-http3-02 Section 6. */
-        {.name = {(void *)"sec-webtransport-http3-draft",
-                  sizeof("sec-webtransport-http3-draft") - 1},
-         .value = {(void *)"draft02", sizeof("draft02") - 1}, .flags = 0},
+        xqc_wt_version_field,
     };
     xqc_http_headers_t response = {
         .headers = response_fields,
@@ -1030,11 +1024,18 @@ xqc_wt_accept_session(xqc_wt_session_t *session)
     size_t application_count = response.count;
     xqc_http_header_t *injected = NULL;
     if (standard_draft2) {
-        xqc_int_t merged = xqc_wt_ensure_version_header(&response,
-                                                        &injected);
-        if (merged != XQC_OK) {
+        xqc_int_t present = xqc_wt_version_header_present(&response);
+        if (present < 0) {
             xqc_wt_request_fail(session, H3_INTERNAL_ERROR);
             return XQC_OK;
+        }
+        if (!present) {
+            injected = xqc_malloc((response.count + 1) * sizeof(*injected));
+            if (injected == NULL) {
+                xqc_wt_request_fail(session, H3_INTERNAL_ERROR);
+                return XQC_OK;
+            }
+            xqc_wt_append_version_header(&response, injected);
         }
     }
     ssize_t ret = xqc_h3_request_send_headers(session->request, &response,

@@ -691,8 +691,11 @@ xqc_wt_stream_bind_reset(xqc_stream_t *raw, uint64_t error)
     xqc_h3_stream_t *h3_stream = raw->user_data;
     xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(raw->stream_conn->proto_data);
     xqc_wt_stream_base_t *stream = xqc_wt_h3_stream_get(h3_stream);
-    /* Draft-07 Section 4.3: a sole session can identify a discarded prefix. */
-    if (!conn || conn->negotiated_version != XQC_WEBTRANSPORT_DRAFT_VERSION_7
+    /* Draft-02 and draft-07 Section 4.3: a sole session can identify
+     * a discarded prefix. */
+    if (!conn
+        || (conn->negotiated_version != XQC_WEBTRANSPORT_DRAFT_VERSION_7
+            && conn->negotiated_version != XQC_WEBTRANSPORT_DRAFT_VERSION_2)
         || conn->ctx->settings.max_sessions_count != 1
         || (h3_stream && h3_stream->type != XQC_H3_STREAM_TYPE_UNKNOWN)
         || (stream && (stream->session || stream->session_id_complete))

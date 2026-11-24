@@ -6,5 +6,6 @@
 #define XQC_DTABLE_TEST_H
 
 void xqc_test_dtable();
+void xqc_test_dtable_evicted_entries(void);
 
 #endif

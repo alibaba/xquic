@@ -1052,6 +1052,32 @@ xqc_test_wt_draft07_reset_dispatch(void)
 }
 
 void
+xqc_test_wt_draft2_reset_dispatch(void)
+{
+    /* The draft-02 dialect shares draft-07's sole-session reset binding;
+     * draft-16 never takes this fallback. */
+    for (unsigned mode = 0; mode < 3; mode++) {
+        xqc_wt_h3_test_t test;
+        CU_ASSERT_FATAL(wt_h3_test_init(&test, XQC_FALSE) == XQC_OK);
+        test.wt_conn->negotiated_version = mode == 0
+            ? XQC_WEBTRANSPORT_DRAFT_VERSION_2
+            : mode == 1 ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
+                        : XQC_WEBTRANSPORT_DRAFT_VERSION_16;
+        test.wt_conn->ctx->settings.max_sessions_count = 1;
+        xqc_stream_t *raw = test.h3s->stream;
+        raw->stream_err = UINT64_C(0x52e4a40fa8db) + 43;
+        xqc_wt_h3_stream_callbacks.stream_closing_notify(raw, -XQC_ESTATE,
+                                                         raw->user_data);
+        CU_ASSERT(test.creates == (mode < 2 ? 1 : 0));
+        if (mode < 2) {
+            CU_ASSERT(test.resets == 1);
+            CU_ASSERT(test.closing_error_valid && test.closing_error == 42);
+        }
+        wt_h3_test_close(&test);
+    }
+}
+
+void
 xqc_test_wt_draft07_stream_rules(void)
 {
     for (unsigned invalid = 0; invalid < 2; invalid++) {

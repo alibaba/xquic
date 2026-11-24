@@ -29,4 +29,13 @@ void xqc_test_wt_application_protocol_inputs(void);
 void xqc_test_wt_handshake_request_result(void);
 void xqc_test_wt_server_response_status(void);
 void xqc_test_wt_pending_session_limit(void);
+void xqc_test_wt_highest_version_precedence(void);
+void xqc_test_wt_draft2_config_rejected(void);
+void xqc_test_wt_draft2_fallback_local_support(void);
+void xqc_test_wt_standard_draft2_close_capsule(void);
+void xqc_test_wt_standard_draft2_handshake_headers(void);
+void xqc_test_wt_standard_draft2_version_header_injection(void);
+void xqc_test_wt_response_hit_flags(void);
+void xqc_test_wt_response_hit_flags_errors(void);
+void xqc_test_wt_response_mixed_case_version(void);
 #endif

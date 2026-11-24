@@ -24,6 +24,10 @@ extern "C" {
 typedef enum {
     XQC_WEBTRANSPORT_DRAFT_VERSION_7 = 1,
     XQC_WEBTRANSPORT_DRAFT_VERSION_16 = 2,
+    /* Negotiation-only: chosen when the peer advertises
+     * SETTINGS_WEBTRANS_DRAFT00 (0x2b603742). Configuring it as the
+     * engine's supported maximum is rejected with -XQC_EPARAM. */
+    XQC_WEBTRANSPORT_DRAFT_VERSION_2 = 3,
 } xqc_webtransport_draft_version_t;
 
 #define XQC_WEBTRANSPORT_DEFAULT_PENDING_DGRAM_COUNT_MAX 64
@@ -33,7 +37,9 @@ typedef enum {
 typedef struct xqc_webtransport_conn_settings_s {
     /* Simultaneous sessions: 1..1024 (implementation cap), default 1. */
     uint64_t                         max_sessions_count;
-    /* Highest supported revision: 16 also advertises 07; 7 is 07-only. */
+    /* Highest supported revision: 16 advertises 16/07/02; 7 advertises 07/02.
+     * Draft-02 is negotiated per connection via DRAFT00 and cannot be set
+     * here: configuring _2 fails with -XQC_EPARAM. */
     xqc_webtransport_draft_version_t draft_version;
     /* At least max_sessions_count; at most 2^60 when pooling; default 128. */
     uint64_t                         max_bidi_streams;

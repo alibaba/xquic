@@ -195,6 +195,68 @@ test_2d_hash_table_robust()
 
 
 void
+test_2d_hash_table_non_pow2_bkt()
+{
+    xqc_int_t ret = XQC_OK;
+    xqc_2d_cmp_res_t cres = XQC_2D_CMP_RES_NONE;
+    xqc_2d_ht_node_t *data = NULL;
+
+    /* 10 buckets shall be rounded up to 16, all buckets initialized */
+    xqc_2d_hash_table_t *ht2d = xqc_2d_hash_table_create(10,
+        xqc_2d_ht_compare_data, xqc_2d_ht_compare_value, NULL);
+    CU_ASSERT(ht2d != NULL);
+    if (ht2d == NULL) {
+        return;
+    }
+
+    /* hashes 10-15 fall into buckets beyond the requested count */
+    xqc_2d_ht_node_t nodes[6];
+    for (uint64_t i = 0; i < 6; i++) {
+        nodes[i].idx = 10 + i;
+        nodes[i].name = "nodeX";
+        nodes[i].nlen = 5;
+        nodes[i].value = "valueX";
+        nodes[i].vlen = 6;
+
+        ret = xqc_2d_hash_table_add(ht2d, 10 + i, 20 + i, &nodes[i]);
+        CU_ASSERT(ret == XQC_OK);
+    }
+
+    /* every rounded-up bucket shall be retrievable */
+    for (uint64_t i = 0; i < 6; i++) {
+        cres = xqc_2d_hash_lookup(ht2d, 10 + i, "nodeX", 5,
+                                  20 + i, "valueX", 6, (void**)&data);
+        CU_ASSERT(cres == XQC_2D_CMP_RES_2D && data->idx == 10 + i);
+    }
+
+    /* remove nodes in rounded-up buckets */
+    for (uint64_t i = 0; i < 6; i++) {
+        ret = xqc_2d_hash_table_remove(ht2d, 10 + i, 20 + i, &nodes[i]);
+        CU_ASSERT(ret == XQC_OK);
+
+        cres = xqc_2d_hash_lookup(ht2d, 10 + i, "nodeX", 5,
+                                  20 + i, "valueX", 6, (void**)&data);
+        CU_ASSERT(cres == XQC_2D_CMP_RES_NONE);
+    }
+
+    xqc_2d_hash_table_free(ht2d);
+
+
+    /* free traverses all rounded-up buckets even if never inserted */
+    ht2d = xqc_2d_hash_table_create(3, xqc_2d_ht_compare_data,
+        xqc_2d_ht_compare_value, NULL);
+    CU_ASSERT(ht2d != NULL);
+    xqc_2d_hash_table_free(ht2d);
+
+
+    /* bucket count exceeding power-of-2 limit shall fail creation */
+    ht2d = xqc_2d_hash_table_create(SIZE_MAX, xqc_2d_ht_compare_data,
+        xqc_2d_ht_compare_value, NULL);
+    CU_ASSERT(ht2d == NULL);
+}
+
+
+void
 test_2d_hash_table()
 {
     test_2d_hash_table_basic();
@@ -202,4 +264,6 @@ test_2d_hash_table()
     test_2d_hash_table_immediate_free();
 
     test_2d_hash_table_robust();
+
+    test_2d_hash_table_non_pow2_bkt();
 }

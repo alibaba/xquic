@@ -67,7 +67,7 @@ xqc_2d_hash_table_create(size_t bkt_cnt, xqc_2d_hash_table_data_cmp dcmp,
         return NULL;
     }
 
-    for (size_t i = 0; i < bkt_cnt; i++) {
+    for (size_t i = 0; i < bcnt; i++) {
         xqc_list_head_t *head = &list[i];
         xqc_init_list_head(head);
     }

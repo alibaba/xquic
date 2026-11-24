@@ -1667,6 +1667,12 @@ typedef struct xqc_conn_stats_s {
     int                 total_rebind_count;
     int                 total_rebind_valid;
 
+    /**
+     * Up to XQC_MAX_PATHS_COUNT entries, one per path in the ACTIVE, CLOSING
+     * or CLOSED state: first the paths that are not CLOSED, in the order they
+     * were created, then the CLOSED ones, in the order they reached CLOSED.
+     * Once a path has closed, the entries are no longer in creation order.
+     */
     xqc_path_metrics_t  paths_info[XQC_MAX_PATHS_COUNT];
     char                conn_info[XQC_CONN_INFO_LEN];
 

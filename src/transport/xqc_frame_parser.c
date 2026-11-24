@@ -1129,7 +1129,8 @@ xqc_gen_ack_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_usec
         return -XQC_ENULLPTR;
     }
 
-    ack_delay = (now - largest_pkt_recv_time);
+    /* 0 if the clock went back since the packet was received */
+    ack_delay = now > largest_pkt_recv_time ? now - largest_pkt_recv_time : 0;
     largest_recv = first_range->pktno_range.high;
     first_ack_range = largest_recv - first_range->pktno_range.low;
     prev_low = first_range->pktno_range.low;
@@ -2521,7 +2522,8 @@ xqc_gen_ack_mp_frame(xqc_connection_t *conn, uint64_t path_id,
         return -XQC_ENULLPTR;
     }
 
-    ack_delay = (now - largest_pkt_recv_time);
+    /* 0 if the clock went back since the packet was received */
+    ack_delay = now > largest_pkt_recv_time ? now - largest_pkt_recv_time : 0;
     /*
      * Because the receiver doesn't use the ACK Delay for Initial and Handshake packets,
      * a sender SHOULD send a value of 0.
@@ -3295,7 +3297,8 @@ xqc_gen_ack_ext_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out, xqc_
         return -XQC_ENULLPTR;
     }
 
-    ack_delay = (now - largest_pkt_recv_time);
+    /* 0 if the clock went back since the packet was received */
+    ack_delay = now > largest_pkt_recv_time ? now - largest_pkt_recv_time : 0;
     largest_recv = first_range->pktno_range.high;
     first_ack_range = largest_recv - first_range->pktno_range.low;
     prev_low = first_range->pktno_range.low;

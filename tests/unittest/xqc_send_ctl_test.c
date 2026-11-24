@@ -18,6 +18,8 @@
 #include "src/transport/xqc_packet_out.h"
 #include "src/transport/xqc_frame.h"
 #include "src/congestion_control/xqc_cubic.h"
+#include "src/transport/xqc_frame_parser.h"
+#include "src/transport/xqc_recv_record.h"
 
 
 /*
@@ -692,6 +694,159 @@ xqc_test_send_ctl_granularity_defers_before_boundary(void)
     CU_ASSERT_EQUAL(send_ctl->ctl_loss_time[XQC_PNS_APP_DATA], 1001);
 
     xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A clock that goes backwards, as gettimeofday() does when the system time
+ * is stepped back: a packet acknowledged before the time it was sent gives
+ * no RTT sample (RFC 9002 Section 5.1 measures ack_time - send_time).
+ */
+static void
+xqc_test_send_ctl_ack_case(xqc_usec_t sent_time, xqc_usec_t ack_time,
+    xqc_usec_t expected_srtt, xqc_usec_t expected_latest)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    xqc_pn_ctl_t *pn_ctl = conn->conn_initial_path->path_pn_ctl;
+    xqc_ack_info_t ack_info;
+
+    send_ctl->ctl_srtt = 100000;
+    send_ctl->ctl_rttvar = 50000;
+    send_ctl->ctl_minrtt = 80000;
+    send_ctl->ctl_latest_rtt = 90000;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 5, sent_time);
+    CU_ASSERT_FATAL(po != NULL);
+    pn_ctl->ctl_largest_sent[XQC_PNS_APP_DATA] = 5;
+
+    memset(&ack_info, 0, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_APP_DATA;
+    ack_info.n_ranges = 1;
+    ack_info.ranges[0].low = 5;
+    ack_info.ranges[0].high = 5;
+    ack_info.largest_acked = 5;
+    CU_ASSERT_EQUAL(xqc_send_ctl_on_ack_received(send_ctl, pn_ctl,
+        conn->conn_send_queue, &ack_info, ack_time, XQC_TRUE), XQC_OK);
+
+    CU_ASSERT_EQUAL(send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA], 5);
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt, expected_srtt);
+    CU_ASSERT_EQUAL(send_ctl->ctl_latest_rtt, expected_latest);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* acknowledged 60 ms after it was sent: srtt = 7/8 * 100 + 1/8 * 60 ms */
+void
+xqc_test_send_ctl_rtt_sample(void)
+{
+    xqc_test_send_ctl_ack_case(1000000000, 1000060000, 95000, 60000);
+}
+
+/* acknowledged at a time 1 s before it was sent: the estimate is kept */
+void
+xqc_test_send_ctl_rtt_clock_backwards(void)
+{
+    xqc_test_send_ctl_ack_case(1000000000, 999000000, 100000, 90000);
+}
+
+/*
+ * RFC 9002 Section 7.6: persistent congestion needs the lost packets to
+ * span the persistent congestion duration; with the clock gone back before
+ * the time the lost packet was sent, no time has elapsed.
+ */
+void
+xqc_test_send_ctl_persistent_congestion_clock_backwards(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_send_ctl_t *send_ctl = conn->conn_initial_path->path_send_ctl;
+    conn->remote_settings.max_ack_delay = 25;
+
+    /* srtt 10 ms, rttvar 2 ms, pto_count 2, largest acknowledged 10 */
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 2000;
+    send_ctl->ctl_minrtt = 8000;
+    send_ctl->ctl_latest_rtt = 10000;
+    send_ctl->ctl_first_rtt_sample_time = 1;
+    send_ctl->ctl_pto_count = XQC_CONSECUTIVE_PTO_THRESH;
+    send_ctl->ctl_largest_acked[XQC_PNS_APP_DATA] = 10;
+
+    /* lost by the packet threshold, at a time before it was sent */
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1000000000);
+    CU_ASSERT_FATAL(po != NULL);
+    xqc_send_ctl_detect_lost(send_ctl, conn->conn_send_queue,
+                             XQC_PNS_APP_DATA, 999999999);
+
+    CU_ASSERT_EQUAL(conn->detected_loss_cnt, 1);
+    CU_ASSERT_EQUAL(send_ctl->ctl_srtt, 10000);
+    CU_ASSERT_EQUAL(send_ctl->ctl_minrtt, 8000);
+    CU_ASSERT(send_ctl->ctl_first_rtt_sample_time != 0);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * RFC 9000 Section 13.2.5: the ACK Delay is the time since the largest
+ * acknowledged packet was received; 0 when the clock went back since.
+ */
+static void
+xqc_test_ack_delay_case(xqc_usec_t now, xqc_usec_t recv_time,
+    xqc_usec_t expected_delay)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+
+    xqc_recv_record_t record;
+    xqc_packet_in_t packet_in;
+    xqc_ack_info_t ack_info;
+    xqc_packet_number_t largest = 0;
+    int has_gap = 0;
+
+    memset(&record, 0, sizeof(record));
+    xqc_init_list_head(&record.list_head);
+    xqc_recv_record_add(&record, 5);
+
+    xqc_packet_out_t *po = xqc_packet_out_get(conn->conn_send_queue);
+    CU_ASSERT_FATAL(po != NULL);
+    po->po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+
+    ssize_t len = xqc_gen_ack_frame(conn, po, now, 3, &record, recv_time,
+                                    &has_gap, &largest);
+    CU_ASSERT_FATAL(len > 0);
+
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.pos = po->po_buf;
+    packet_in.last = po->po_buf + len;
+    packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    memset(&ack_info, 0, sizeof(ack_info));
+    conn->remote_settings.ack_delay_exponent = 3;
+    CU_ASSERT_EQUAL(xqc_parse_ack_frame(&packet_in, conn, &ack_info), XQC_OK);
+    CU_ASSERT_EQUAL(ack_info.largest_acked, 5);
+    CU_ASSERT_EQUAL(ack_info.ack_delay, expected_delay);
+
+    xqc_recv_record_destroy(&record);
+    xqc_send_queue_insert_free(po, &conn->conn_send_queue->sndq_free_packets,
+                               conn->conn_send_queue);
+    xqc_engine_destroy(conn->engine);
+}
+
+/* acknowledged 8 ms after receipt */
+void
+xqc_test_ack_delay(void)
+{
+    xqc_test_ack_delay_case(1008000, 1000000, 8000);
+}
+
+/* acknowledged at a time 1 s before receipt */
+void
+xqc_test_ack_delay_clock_backwards(void)
+{
+    xqc_test_ack_delay_case(1000000, 2000000, 0);
 }
 
 

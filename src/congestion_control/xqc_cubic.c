@@ -192,10 +192,13 @@ xqc_cubic_on_ack(void *cong_ctl, xqc_packet_out_t *po, xqc_usec_t now)
     xqc_usec_t  sent_time = po->po_sent_time;
     uint32_t    acked_bytes = po->po_used_size;
 
-    xqc_usec_t  rtt = now - sent_time;
+    /* a clock that went back since the packet was sent gives no RTT */
+    if (now >= sent_time) {
+        xqc_usec_t rtt = now - sent_time;
 
-    if (cubic->min_rtt == 0 || rtt < cubic->min_rtt) {
-        cubic->min_rtt = rtt;
+        if (cubic->min_rtt == 0 || rtt < cubic->min_rtt) {
+            cubic->min_rtt = rtt;
+        }
     }
 
     /* Do not increase congestion window in recovery period. */
@@ -210,6 +213,15 @@ xqc_cubic_on_ack(void *cong_ctl, xqc_packet_out_t *po, xqc_usec_t now)
 
     } else {
         /* congestion avoidance */
+
+        /*
+         * a clock that went back before the start of the epoch updates
+         * neither the CUBIC nor the Reno-friendly window
+         */
+        if (cubic->epoch_start != 0 && now + cubic->min_rtt < cubic->epoch_start) {
+            return;
+        }
+
         cubic->tcp_cwnd_cnt += acked_bytes;
         if (cubic->tcp_cwnd_cnt >= cubic->tcp_cwnd) {
             cubic->tcp_cwnd += XQC_CUBIC_MSS;

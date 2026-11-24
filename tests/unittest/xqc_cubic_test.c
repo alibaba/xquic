@@ -227,3 +227,47 @@ xqc_test_cubic_reordered_ack_in_recovery()
 
     CU_ASSERT_EQUAL(cubic.cwnd, cwnd);
 }
+
+
+/*
+ * A clock that goes backwards (gettimeofday() stepped back): a packet
+ * acknowledged before the time it was sent gives no RTT, and an ACK whose
+ * time is before the start of the epoch leaves both windows as they are.
+ */
+void
+xqc_test_cubic_clock_backwards()
+{
+    xqc_cubic_t       cubic;
+    xqc_cc_params_t   params;
+    xqc_packet_out_t  po;
+    xqc_usec_t        rs;
+    uint64_t          cwnd, tcp_cwnd, tcp_cwnd_cnt;
+
+    /* zeroed like a path's congestion controller: init leaves min_rtt */
+    memset(&cubic, 0, sizeof(cubic));
+    memset(&params, 0, sizeof(params));
+    memset(&po, 0, sizeof(po));
+    xqc_cubic_cb.xqc_cong_ctl_init(&cubic, NULL, params);
+
+    po.po_sent_time = 2000;
+    po.po_used_size = 1000;
+    xqc_cubic_cb.xqc_cong_ctl_on_ack(&cubic, &po, 1000);
+    CU_ASSERT_EQUAL(cubic.min_rtt, 0);
+
+    /* congestion avoidance, epoch started by an ACK 1 ms after the loss */
+    xqc_cubic_cb.xqc_cong_ctl_on_lost(&cubic, 1);
+    rs = cubic.congestion_recovery_start_time;
+    CU_ASSERT_FATAL(rs != 0);
+    po.po_sent_time = rs + 1;
+    xqc_cubic_cb.xqc_cong_ctl_on_ack(&cubic, &po, rs + 1000);
+    CU_ASSERT_FATAL(cubic.epoch_start == rs + 1000);
+
+    /* an ACK at a time 1 s before the epoch started */
+    cwnd = cubic.cwnd;
+    tcp_cwnd = cubic.tcp_cwnd;
+    tcp_cwnd_cnt = cubic.tcp_cwnd_cnt;
+    xqc_cubic_cb.xqc_cong_ctl_on_ack(&cubic, &po, rs + 1000 - 1000000);
+    CU_ASSERT_EQUAL(cubic.cwnd, cwnd);
+    CU_ASSERT_EQUAL(cubic.tcp_cwnd, tcp_cwnd);
+    CU_ASSERT_EQUAL(cubic.tcp_cwnd_cnt, tcp_cwnd_cnt);
+}

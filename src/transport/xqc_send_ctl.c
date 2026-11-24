@@ -982,7 +982,13 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     }
 
     if (update_largest_ack && has_ack_eliciting && ack_on_same_path) {
-        if (!ignore_rtt) {
+        if (ack_recv_time < send_ctl->ctl_largest_acked_sent_time[pns]) {
+            /* the clock went backwards since the packet was sent: no sample */
+            xqc_log(conn->log, XQC_LOG_WARN,
+                    "|clock went backwards|ack_recv_time:%ui|sent_time:%ui|",
+                    ack_recv_time, send_ctl->ctl_largest_acked_sent_time[pns]);
+
+        } else if (!ignore_rtt) {
             /* 更新 ctl_latest_rtt */
             send_ctl->ctl_latest_rtt = ack_recv_time - send_ctl->ctl_largest_acked_sent_time[pns];
             /* 更新rtt */
@@ -1509,7 +1515,9 @@ xqc_send_ctl_in_persistent_congestion(xqc_send_ctl_t *send_ctl, xqc_packet_out_t
     if (send_ctl->ctl_pto_count >= XQC_CONSECUTIVE_PTO_THRESH) {
         xqc_usec_t duration = (send_ctl->ctl_srtt + xqc_max(send_ctl->ctl_rttvar << 2, XQC_kGranularity * 1000)
             + send_ctl->ctl_conn->remote_settings.max_ack_delay * 1000) * XQC_kPersistentCongestionThreshold;
-        if (now - largest_lost->po_sent_time > duration) {
+        if (now > largest_lost->po_sent_time
+            && now - largest_lost->po_sent_time > duration)
+        {
             return XQC_TRUE;
         }
     }

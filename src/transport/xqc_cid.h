@@ -56,6 +56,10 @@ typedef struct xqc_cid_set_inner_s {
 
 typedef struct xqc_cid_set_s {
     xqc_list_head_t   cid_set_list; /* a list of xqc_cid_set_inner_t */
+    /* The inner sets of abandoned path IDs, moved off cid_set_list: the
+     * per-packet lookups by CID search cid_set_list first, and a long-lived
+     * connection accumulates one abandoned set per path it has closed. */
+    xqc_list_head_t   abandoned_set_list;
     union {
     unsigned char     original_scid_str[XQC_MAX_CID_LEN * 2 + 1];
     unsigned char     current_dcid_str[XQC_MAX_CID_LEN * 2 + 1];
@@ -99,6 +103,11 @@ xqc_int_t xqc_get_unused_cid(xqc_cid_set_t *cid_set,
 void xqc_cid_set_inner_init(xqc_cid_set_inner_t *cid_set_inner);
 void xqc_cid_set_inner_destroy(xqc_cid_set_inner_t *cid_set_inner);
 xqc_cid_set_inner_t* xqc_get_path_cid_set(xqc_cid_set_t *cid_set, uint64_t path_id); 
+
+/* Walk every inner set, the abandoned ones included: cid_set_list, then
+ * abandoned_set_list. The loop body must not move or free the set it is on. */
+xqc_cid_set_inner_t *xqc_cid_set_first(xqc_cid_set_t *cid_set);
+xqc_cid_set_inner_t *xqc_cid_set_next(xqc_cid_set_t *cid_set, xqc_cid_set_inner_t *inner_set);
 int64_t xqc_cid_set_get_unused_cnt(xqc_cid_set_t *cid_set, uint64_t path_id);
 int64_t xqc_cid_set_get_used_cnt(xqc_cid_set_t *cid_set, uint64_t path_id);\
 int64_t xqc_cid_set_get_retired_cnt(xqc_cid_set_t *cid_set, uint64_t path_id);

@@ -16,6 +16,7 @@
 #include "src/common/xqc_str.h"
 #include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "xqc_common_test.h"
+#include "xqc_test_clock.h"
 #include "src/transport/xqc_conn.h"
 
 
@@ -453,6 +454,7 @@ xqc_test_empty_pkt()
     test_ctx         cli_tctx   = {0};
     xqc_packet_out_t *po        = NULL;
 
+    xqc_test_clock_start();
     svr_tctx.engine = test_create_engine_buf_server(&svr_tctx);
     cli_tctx.engine = test_create_engine_buf_client(&cli_tctx);
 
@@ -487,7 +489,8 @@ xqc_test_empty_pkt()
     /* server will process the initial packet and get the secret of initial pns */
     xqc_engine_packet_process(svr_tctx.engine, cli_tctx.buf, cli_tctx.buf_len,
                               (struct sockaddr *)&local_addr, local_addrlen,
-                              (struct sockaddr *)&peer_addr, peer_addrlen, xqc_now(), &svr_tctx);
+                              (struct sockaddr *)&peer_addr, peer_addrlen,
+                              xqc_test_clock_now(), &svr_tctx);
 
     CU_ASSERT(svr_tctx.c != NULL);
     if (svr_tctx.c == NULL) {
@@ -522,7 +525,8 @@ xqc_test_empty_pkt()
 
     /* server decrypt the Initial pkt */
     ret = xqc_conn_process_packet(svr_tctx.c, cli_tctx.c->enc_pkt,
-                                  cli_tctx.c->enc_pkt_len, xqc_now());
+                                  cli_tctx.c->enc_pkt_len,
+                                  xqc_test_clock_now());
     CU_ASSERT(svr_tctx.c->conn_err == TRA_PROTOCOL_VIOLATION);
 
 
@@ -544,6 +548,7 @@ finish:
         }
         xqc_engine_destroy(svr_tctx.engine);
     }
+    xqc_test_clock_stop();
 }
 
 
@@ -593,6 +598,7 @@ xqc_test_coalesced_setup(test_ctx *cli, test_ctx *svr)
     xqc_conn_ssl_config_t conn_ssl_config;
     const xqc_cid_t *cid;
 
+    xqc_test_clock_start();
     svr->engine = test_create_engine_buf_server(svr);
     cli->engine = test_create_engine_buf_client(cli);
     if (svr->engine == NULL || cli->engine == NULL) {
@@ -613,9 +619,8 @@ xqc_test_coalesced_setup(test_ctx *cli, test_ctx *svr)
     memset(&local_addr, 0, sizeof(local_addr));
     xqc_engine_packet_process(svr->engine, cli->buf, cli->buf_len,
                               (struct sockaddr *)&local_addr,
-                              sizeof(local_addr),
-                              (struct sockaddr *)&peer_addr,
-                              sizeof(peer_addr), xqc_now(), svr);
+                              sizeof(local_addr), (struct sockaddr *)&peer_addr,
+                              sizeof(peer_addr), xqc_test_clock_now(), svr);
 
     return svr->c == NULL ? XQC_ERROR : XQC_OK;
 }
@@ -637,6 +642,8 @@ xqc_test_coalesced_teardown(test_ctx *cli, test_ctx *svr)
         }
         xqc_engine_destroy(svr->engine);
     }
+
+    xqc_test_clock_stop();
 }
 
 
@@ -743,8 +750,8 @@ xqc_test_coalesced_matching_dcid_processed(void)
 
     memcpy(datagram, first, first_size);
     memcpy(datagram + first_size, second, second_size);
-    ret = xqc_conn_process_packet(svr.c, datagram,
-                                  first_size + second_size, xqc_now());
+    ret = xqc_conn_process_packet(svr.c, datagram, first_size + second_size,
+                                  xqc_test_clock_now());
 
     CU_ASSERT_EQUAL(ret, XQC_OK);
     CU_ASSERT_NOT_EQUAL(svr.c->conn_close_recv_time, 0);
@@ -805,8 +812,8 @@ xqc_test_coalesced_mismatching_dcid_ignored(void)
 
     memcpy(datagram, first, first_size);
     memcpy(datagram + first_size, second, second_size);
-    ret = xqc_conn_process_packet(svr.c, datagram,
-                                  first_size + second_size, xqc_now());
+    ret = xqc_conn_process_packet(svr.c, datagram, first_size + second_size,
+                                  xqc_test_clock_now());
 
     CU_ASSERT_EQUAL(ret, XQC_OK);
     CU_ASSERT_EQUAL(svr.c->conn_close_recv_time, 0);
@@ -841,7 +848,8 @@ xqc_test_coalesced_mismatching_dcid_ignored(void)
     memcpy(datagram + offset, third, third_size);
     offset += third_size;
 
-    ret = xqc_conn_process_packet(svr.c, datagram, offset, xqc_now());
+    ret = xqc_conn_process_packet(svr.c, datagram, offset,
+                                  xqc_test_clock_now());
     CU_ASSERT_EQUAL(ret, XQC_OK);
     CU_ASSERT_NOT_EQUAL(svr.c->conn_close_recv_time, 0);
     CU_ASSERT(svr.c->conn_state >= XQC_CONN_STATE_DRAINING);
@@ -889,7 +897,7 @@ xqc_test_coalesced_initial_datagram_minimum(void)
 
     /* RFC 9000 Sections 12.2 and 14.1 allow expansion by coalescing. */
     ret = xqc_conn_process_packet(svr.c, datagram, sizeof(datagram),
-                                  xqc_now());
+                                  xqc_test_clock_now());
 
     CU_ASSERT_EQUAL(ret, XQC_OK);
     CU_ASSERT_NOT_EQUAL(svr.c->conn_close_recv_time, 0);
@@ -938,7 +946,7 @@ xqc_test_coalesced_initial_datagram_too_small(void)
 
     /* RFC 9000 Section 14.1 rejects an undersized Initial datagram. */
     ret = xqc_conn_process_packet(svr.c, datagram, sizeof(datagram),
-                                  xqc_now());
+                                  xqc_test_clock_now());
 
     CU_ASSERT_EQUAL(ret, XQC_OK);
     CU_ASSERT_EQUAL(svr.c->conn_err, TRA_PROTOCOL_VIOLATION);

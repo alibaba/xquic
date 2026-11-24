@@ -4,6 +4,7 @@
 
 #include <CUnit/CUnit.h>
 #include "xqc_common_test.h"
+#include "xqc_test_clock.h"
 #include "src/transport/xqc_conn.h"
 #include "src/tls/xqc_tls_ctx.h"
 #include "src/tls/xqc_tls.h"
@@ -1476,6 +1477,7 @@ xqc_test_key_update_setup(xqc_test_key_update_ctx_t *t)
     def_engine_ssl_config_cli;
     def_engine_ssl_config_svr;
 
+    xqc_test_clock_start();
     memset(t, 0, sizeof(*t));
     t->log = xqc_log_init(0, 0, 0, 0, 0, NULL, &log_cb, NULL);
     t->ctx_cli = xqc_tls_ctx_create(XQC_TLS_TYPE_CLIENT,
@@ -1591,6 +1593,7 @@ xqc_test_key_update_teardown(xqc_test_key_update_ctx_t *t)
         xqc_free(t->log);
     }
     memset(t, 0, sizeof(*t));
+    xqc_test_clock_stop();
 }
 
 /*
@@ -1633,7 +1636,8 @@ xqc_test_key_update_deliver(xqc_test_key_update_ctx_t *t,
     }
 
     if (xqc_conn_process_packet(conn, pkt, hdr_len + enc_len,
-                                xqc_monotonic_timestamp()) != XQC_OK)
+                                xqc_test_clock_now())
+        != XQC_OK)
     {
         return XQC_FALSE;
     }
@@ -1687,7 +1691,7 @@ xqc_test_tls_key_update_discards_retired_keys(void)
     CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 2));
     CU_ASSERT(!xqc_timer_is_set(timers, XQC_TIMER_KEY_UPDATE));
 
-    before = xqc_monotonic_timestamp();
+    before = xqc_test_clock_now();
     CU_ASSERT(xqc_test_key_update_deliver(&t, 1, 6));
     CU_ASSERT_FATAL(xqc_timer_is_set(timers, XQC_TIMER_KEY_UPDATE));
     deadline = timers->timer[XQC_TIMER_KEY_UPDATE].expire_time;
@@ -1734,7 +1738,7 @@ xqc_test_tls_key_update_keeps_retired_keys(void)
     xqc_timer_expire(timers, deadline);
     CU_ASSERT(xqc_test_key_update_deliver(&t, 1, 3));
 
-    before = xqc_monotonic_timestamp();
+    before = xqc_test_clock_now();
     CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 6));
     CU_ASSERT_FATAL(xqc_timer_is_set(timers, XQC_TIMER_KEY_UPDATE));
     CU_ASSERT(timers->timer[XQC_TIMER_KEY_UPDATE].expire_time
@@ -1770,7 +1774,7 @@ xqc_test_tls_key_update_responder_keeps_retired_keys(void)
     xqc_timer_set(timers, XQC_TIMER_KEY_UPDATE, 0, 1);
 
     xqc_test_key_update_server_update(&t, 0);
-    before = xqc_monotonic_timestamp();
+    before = xqc_test_clock_now();
     CU_ASSERT(xqc_test_key_update_deliver(&t, 0, 6));
     CU_ASSERT_EQUAL(t.conn->key_update_ctx.key_update_cnt, 2);
     deadline = timers->timer[XQC_TIMER_KEY_UPDATE].expire_time;

@@ -7,6 +7,7 @@
 
 #include "xqc_send_ctl_test.h"
 #include "xqc_common_test.h"
+#include "xqc_test_clock.h"
 #include "xqc_alloc_wrap.h"
 
 #include "src/common/xqc_malloc.h"
@@ -199,6 +200,7 @@ xqc_test_path_validation_destroy_path(xqc_path_ctx_t *path)
 void
 xqc_test_path_validation_timeout_current_pto_dominates(void)
 {
+    xqc_test_clock_start();
     xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT_FATAL(conn != NULL);
 
@@ -217,9 +219,9 @@ xqc_test_path_validation_timeout_current_pto_dominates(void)
     xqc_usec_t new_path_pto = 100000 + 4 * 50000 + 25 * 1000;
     CU_ASSERT(current_pto > new_path_pto);
 
-    xqc_usec_t before = xqc_monotonic_timestamp();
+    xqc_usec_t before = xqc_test_clock_now();
     xqc_int_t ret = xqc_path_init(path, conn);
-    xqc_usec_t after = xqc_monotonic_timestamp();
+    xqc_usec_t after = xqc_test_clock_now();
     CU_ASSERT_EQUAL(ret, XQC_OK);
 
     xqc_timer_t *timer = &path->path_send_ctl->path_timer_manager
@@ -232,12 +234,14 @@ xqc_test_path_validation_timeout_current_pto_dominates(void)
 
     xqc_test_path_validation_destroy_path(path);
     xqc_engine_destroy(conn->engine);
+    xqc_test_clock_stop();
 }
 
 
 void
 xqc_test_path_validation_timeout_new_path_pto_dominates(void)
 {
+    xqc_test_clock_start();
     xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT_FATAL(conn != NULL);
 
@@ -257,9 +261,9 @@ xqc_test_path_validation_timeout_new_path_pto_dominates(void)
     xqc_usec_t new_path_pto = 400000 + 4 * 200000 + 25 * 1000;
     CU_ASSERT(new_path_pto > current_pto);
 
-    xqc_usec_t before = xqc_monotonic_timestamp();
+    xqc_usec_t before = xqc_test_clock_now();
     xqc_int_t ret = xqc_path_init(path, conn);
-    xqc_usec_t after = xqc_monotonic_timestamp();
+    xqc_usec_t after = xqc_test_clock_now();
     CU_ASSERT_EQUAL(ret, XQC_OK);
 
     xqc_timer_t *timer = &path->path_send_ctl->path_timer_manager
@@ -271,12 +275,14 @@ xqc_test_path_validation_timeout_new_path_pto_dominates(void)
 
     xqc_test_path_validation_destroy_path(path);
     xqc_engine_destroy(conn->engine);
+    xqc_test_clock_stop();
 }
 
 
 void
 xqc_test_path_validation_timer_not_extended_by_packet(void)
 {
+    xqc_test_clock_start();
     xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT_FATAL(conn != NULL);
     CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
@@ -296,15 +302,16 @@ xqc_test_path_validation_timer_not_extended_by_packet(void)
                                         200000000);
     CU_ASSERT_EQUAL(timer->expire_time, 123456789);
 
-    xqc_usec_t before = xqc_monotonic_timestamp();
+    xqc_usec_t before = xqc_test_clock_now();
     xqc_path_validate(path);
-    xqc_usec_t after = xqc_monotonic_timestamp();
+    xqc_usec_t after = xqc_test_clock_now();
     xqc_usec_t idle = xqc_path_get_idle_timeout(path) * 1000;
     CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_ACTIVE);
     CU_ASSERT(timer->expire_time >= before + idle);
     CU_ASSERT(timer->expire_time <= after + idle);
 
     xqc_engine_destroy(conn->engine);
+    xqc_test_clock_stop();
 }
 
 

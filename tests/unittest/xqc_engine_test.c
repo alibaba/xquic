@@ -17,6 +17,8 @@
 #include "src/transport/xqc_timer.h"
 #include "src/congestion_control/xqc_new_reno.h"
 #include "src/transport/xqc_packet_parser.h"
+#include "src/transport/xqc_stream.h"
+#include "src/common/xqc_priority_q.h"
 #include "xqc_common_test.h"
 
 xqc_int_t xqc_need_padding(xqc_connection_t *conn, xqc_packet_out_t *packet_out);
@@ -221,6 +223,139 @@ xqc_test_engine_lb_cid_encryption()
                                     sizeof(key) - 1, engine) == -XQC_EPARAM);
 
     xqc_engine_destroy(engine);
+}
+
+
+static int           xqc_test_stream_close_cnt;
+static xqc_stream_t *xqc_test_stream_opened_on_close;
+
+/* closes the connection when its stream closes, as demo_client does */
+static xqc_int_t
+xqc_test_close_conn_on_stream_close(xqc_stream_t *stream, void *user_data)
+{
+    xqc_connection_t *conn = stream->stream_conn;
+
+    xqc_test_stream_close_cnt++;
+    xqc_conn_close(conn->engine, &conn->scid_set.user_scid);
+    return XQC_OK;
+}
+
+/* also tries to open another stream on the connection first */
+static xqc_int_t
+xqc_test_reopen_on_stream_close(xqc_stream_t *stream, void *user_data)
+{
+    xqc_test_stream_opened_on_close = xqc_create_stream_with_conn(
+        stream->stream_conn, XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    return xqc_test_close_conn_on_stream_close(stream, user_data);
+}
+
+/*
+ * A client connection with an open stream whose close callback is cb. The
+ * new stream puts the connection in the engine's active queue. With close,
+ * the connection is closed as well and stays there: the state in which
+ * demo_client leaves it when it gives up on it. Otherwise the engine
+ * processes it, and it stays open, in the wakeup queue.
+ */
+static xqc_connection_t *
+xqc_test_conn_with_stream(xqc_stream_notify_pt cb, xqc_bool_t close)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_stream_t *stream;
+    xqc_int_t ret = XQC_OK;
+
+    if (conn == NULL) {
+        return NULL;
+    }
+
+    conn->app_proto_cbs.stream_cbs.stream_close_notify = cb;
+    stream = xqc_create_stream_with_conn(conn, XQC_UNDEFINE_STREAM_ID,
+                                         XQC_CLI_BID, NULL, NULL);
+    if (stream != NULL && close) {
+        ret = xqc_conn_close(conn->engine, &conn->scid_set.user_scid);
+
+    } else if (stream != NULL) {
+        xqc_engine_main_logic(conn->engine);
+    }
+
+    if (stream == NULL || ret != XQC_OK) {
+        xqc_engine_destroy(conn->engine);
+        return NULL;
+    }
+
+    xqc_test_stream_close_cnt = 0;
+    xqc_test_stream_opened_on_close = NULL;
+    return conn;
+}
+
+/*
+ * xqc_engine_destroy() takes each connection out of the engine's queues and
+ * destroys it. A stream close callback that closes the connection again
+ * must not queue it again, or the engine holds the freed connection.
+ */
+void
+xqc_test_conn_destroy_not_queued_again()
+{
+    xqc_connection_t *conn;
+    xqc_engine_t *engine;
+
+    conn = xqc_test_conn_with_stream(xqc_test_close_conn_on_stream_close,
+                                     XQC_TRUE);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    engine = conn->engine;
+    CU_ASSERT(conn->conn_state == XQC_CONN_STATE_CLOSING);
+    CU_ASSERT(conn->conn_flag & XQC_CONN_FLAG_TICKING);
+
+    /* as xqc_engine_destroy() does for a connection in the active queue */
+    xqc_engine_remove_active_queue(engine, conn);
+    xqc_conn_destroy(conn);
+
+    CU_ASSERT(xqc_test_stream_close_cnt == 1);
+    CU_ASSERT_FATAL(xqc_pq_empty(engine->conns_active_pq));
+    CU_ASSERT_FATAL(xqc_pq_empty(engine->conns_wait_wakeup_pq));
+
+    xqc_engine_destroy(engine);
+}
+
+/*
+ * An open connection destroyed with the engine: a stream close callback can
+ * neither open a stream on it nor queue it again by closing it.
+ */
+void
+xqc_test_conn_destroy_refuses_new_stream()
+{
+    xqc_connection_t *conn;
+    xqc_engine_t *engine;
+
+    conn = xqc_test_conn_with_stream(xqc_test_reopen_on_stream_close,
+                                     XQC_FALSE);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    engine = conn->engine;
+    CU_ASSERT(conn->conn_state < XQC_CONN_STATE_CLOSING);
+    CU_ASSERT_FATAL(conn->conn_flag & XQC_CONN_FLAG_WAIT_WAKEUP);
+
+    /* as xqc_engine_destroy() does for a connection in the wakeup queue */
+    xqc_engine_remove_wakeup_queue(engine, conn);
+    xqc_conn_destroy(conn);
+
+    CU_ASSERT(xqc_test_stream_close_cnt == 1);
+    CU_ASSERT_PTR_NULL(xqc_test_stream_opened_on_close);
+    CU_ASSERT_FATAL(xqc_pq_empty(engine->conns_active_pq));
+    CU_ASSERT_FATAL(xqc_pq_empty(engine->conns_wait_wakeup_pq));
+
+    xqc_engine_destroy(engine);
+}
+
+/* the closing connection, destroyed once by xqc_engine_destroy() */
+void
+xqc_test_engine_destroy_closing_conn()
+{
+    xqc_connection_t *conn;
+
+    conn = xqc_test_conn_with_stream(xqc_test_close_conn_on_stream_close,
+                                     XQC_TRUE);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_engine_destroy(conn->engine);
+    CU_ASSERT(xqc_test_stream_close_cnt == 1);
 }
 
 

@@ -130,14 +130,22 @@ case_transport_core_verify_token_success()
 
 clear_log
 echo -e "verify Token success ...\c"
+# the client sends the NEW_TOKEN token that verify_token_fail saved
+saved=`[ -s xqc_token ] && echo saved`
 result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
+# the server logs a refused token at INFO or WARN level only
+accepted=`grep -a "xqc_conn_check_token|pass|" slog`
+refused=`grep -a "check_token fail" slog`
 echo "$result"
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] \
+    && [ -n "$saved" ] && [ -n "$accepted" ] && [ -z "$refused" ]; then
     case_print_result "verify_token_success" "pass"
 else
     case_print_result "verify_token_success" "fail"
     echo "$errlog"
+    echo "$saved"
+    echo "$refused"
 fi
 
 }

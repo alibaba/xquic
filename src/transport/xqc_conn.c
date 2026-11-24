@@ -4741,13 +4741,18 @@ xqc_local_addr_str(xqc_engine_t *engine, const struct sockaddr *local_addr, sock
 
     struct sockaddr_in *sa_local = (struct sockaddr_in *)local_addr;
     if (sa_local->sin_family == AF_INET) {
-        if (inet_ntop(sa_local->sin_family, &sa_local->sin_addr, engine->local_addr_str, local_addrlen) == NULL) {
+        if (inet_ntop(sa_local->sin_family, &sa_local->sin_addr,
+                      engine->local_addr_str, sizeof(engine->local_addr_str))
+            == NULL)
+        {
             engine->local_addr_str[0] = '\0';
         }
 
     } else {
-        if (inet_ntop(sa_local->sin_family, &((struct sockaddr_in6*)sa_local)->sin6_addr,
-                      engine->local_addr_str, local_addrlen) == NULL)
+        if (inet_ntop(sa_local->sin_family,
+                      &((struct sockaddr_in6 *)sa_local)->sin6_addr,
+                      engine->local_addr_str, sizeof(engine->local_addr_str))
+            == NULL)
         {
             engine->local_addr_str[0] = '\0';
         }
@@ -4767,13 +4772,18 @@ xqc_peer_addr_str(xqc_engine_t *engine, const struct sockaddr *peer_addr, sockle
 
     struct sockaddr_in *sa_peer = (struct sockaddr_in *)peer_addr;
     if (sa_peer->sin_family == AF_INET) {
-        if (inet_ntop(sa_peer->sin_family, &sa_peer->sin_addr, engine->peer_addr_str, peer_addrlen) == NULL) {
+        if (inet_ntop(sa_peer->sin_family, &sa_peer->sin_addr,
+                      engine->peer_addr_str, sizeof(engine->peer_addr_str))
+            == NULL)
+        {
             engine->peer_addr_str[0] = '\0';
         }
 
     } else {
-        if (inet_ntop(sa_peer->sin_family, &((struct sockaddr_in6*)sa_peer)->sin6_addr,
-                      engine->peer_addr_str, peer_addrlen) == NULL)
+        if (inet_ntop(sa_peer->sin_family,
+                      &((struct sockaddr_in6 *)sa_peer)->sin6_addr,
+                      engine->peer_addr_str, sizeof(engine->peer_addr_str))
+            == NULL)
         {
             engine->peer_addr_str[0] = '\0';
         }

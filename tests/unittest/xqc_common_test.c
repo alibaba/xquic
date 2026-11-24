@@ -3,6 +3,7 @@
  */
 
 #include <CUnit/CUnit.h>
+#include <arpa/inet.h>
 
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
@@ -423,6 +424,86 @@ xqc_test_packet_lost_log(void)
         "lost_pn:4294967307|po_sent_time:4294967306|"
         "lost_send_time:4294967308|loss_delay:4294967309|frame:PING |"
         "repair:0|path_id:1|");
+
+    xqc_free(engine);
+}
+
+/* an IPv6 socket address, port 4433, of the address written as text */
+static void
+xqc_test_addr_str_sockaddr_in6(struct sockaddr_in6 *sa6, const char *text)
+{
+    memset(sa6, 0, sizeof(*sa6));
+    sa6->sin6_family = AF_INET6;
+    sa6->sin6_port = htons(4433);
+    CU_ASSERT_FATAL(inet_pton(AF_INET6, text, &sa6->sin6_addr) == 1);
+}
+
+/*
+ * The local and peer address strings of the logs show each address in full.
+ * The text of an IPv6 address takes up to 39 characters, more than the size
+ * of the struct sockaddr_in6 that comes with it.
+ */
+void
+xqc_test_addr_str_full_address(void)
+{
+    static const char    local6[] = "fd12:3456:789a:bcde:f012:3456:789a:bcde";
+    static const char    peer6[] = "2001:db8:aaaa:bbbb:cccc:dddd:eeee:ffff";
+    static const char    peer4[] = "192.168.100.200";
+    struct sockaddr_in6  local_sa6, peer_sa6;
+    struct sockaddr_in   peer_sa4;
+    xqc_engine_t        *engine;
+    char                *local, *peer;
+
+    engine = xqc_calloc(1, sizeof(xqc_engine_t));
+    CU_ASSERT_FATAL(engine != NULL);
+
+    /* both for one log line, each in its own buffer */
+    xqc_test_addr_str_sockaddr_in6(&local_sa6, local6);
+    xqc_test_addr_str_sockaddr_in6(&peer_sa6, peer6);
+    local = xqc_local_addr_str(engine, (struct sockaddr *)&local_sa6,
+                               sizeof(local_sa6));
+    peer = xqc_peer_addr_str(engine, (struct sockaddr *)&peer_sa6,
+                             sizeof(peer_sa6));
+    CU_ASSERT_STRING_EQUAL(local, local6);
+    CU_ASSERT_STRING_EQUAL(peer, peer6);
+
+    memset(&peer_sa4, 0, sizeof(peer_sa4));
+    peer_sa4.sin_family = AF_INET;
+    peer_sa4.sin_port = htons(4433);
+    CU_ASSERT_FATAL(inet_pton(AF_INET, peer4, &peer_sa4.sin_addr) == 1);
+    peer = xqc_peer_addr_str(engine, (struct sockaddr *)&peer_sa4,
+                             sizeof(peer_sa4));
+    CU_ASSERT_STRING_EQUAL(peer, peer4);
+
+    xqc_free(engine);
+}
+
+/*
+ * An address that is missing, or neither IPv4 nor IPv6, gives an empty
+ * string in place of the previous one.
+ */
+void
+xqc_test_addr_str_no_address(void)
+{
+    static const char    text[] = "2001:db8::1";
+    struct sockaddr_in6  sa6;
+    struct sockaddr     *sa = (struct sockaddr *)&sa6;
+    xqc_engine_t        *engine;
+
+    engine = xqc_calloc(1, sizeof(xqc_engine_t));
+    CU_ASSERT_FATAL(engine != NULL);
+    xqc_test_addr_str_sockaddr_in6(&sa6, text);
+
+    CU_ASSERT_STRING_EQUAL(xqc_local_addr_str(engine, sa, sizeof(sa6)), text);
+    CU_ASSERT_STRING_EQUAL(xqc_local_addr_str(engine, sa, 0), "");
+    CU_ASSERT_STRING_EQUAL(xqc_peer_addr_str(engine, sa, sizeof(sa6)), text);
+    CU_ASSERT_STRING_EQUAL(xqc_peer_addr_str(engine, NULL, sizeof(sa6)), "");
+
+    CU_ASSERT_STRING_EQUAL(xqc_local_addr_str(engine, sa, sizeof(sa6)), text);
+    CU_ASSERT_STRING_EQUAL(xqc_peer_addr_str(engine, sa, sizeof(sa6)), text);
+    sa6.sin6_family = AF_UNSPEC;
+    CU_ASSERT_STRING_EQUAL(xqc_local_addr_str(engine, sa, sizeof(sa6)), "");
+    CU_ASSERT_STRING_EQUAL(xqc_peer_addr_str(engine, sa, sizeof(sa6)), "");
 
     xqc_free(engine);
 }

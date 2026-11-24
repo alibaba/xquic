@@ -409,6 +409,7 @@ xqc_test_dtable_reuse_freed(void **chunks, size_t n)
     }
 }
 
+
 /*
  * A larger capacity moves the entries to a larger ring array: the encoder's
  * lookups find them there, with the memory of the old array reused.
@@ -445,6 +446,7 @@ xqc_test_dtable_capacity_raise_lookup(void)
     xqc_dtable_free(dt);
     xqc_engine_destroy(engine);
 }
+
 
 /*
  * Entries evicted before a larger capacity moves the others stay out of
@@ -486,6 +488,10 @@ xqc_test_dtable_capacity_raise_evicted(void)
     }
     xqc_dtable_free(dt);
     xqc_engine_destroy(engine);
+}
+
+
+/*
  * Distinct entries of 53 bytes are inserted one after the other into a
  * table of 300 bytes, so that each insertion evicts an older entry once
  * the table holds 5. Each new entry is found by its name and value at its

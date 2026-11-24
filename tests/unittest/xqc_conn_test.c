@@ -1714,3 +1714,144 @@ xqc_test_conn_open_path_perf_class(void)
     path->path_state = state;
     xqc_engine_destroy(conn->engine);
 }
+
+
+/* xqc_path_create() has no prototype in a header. */
+extern xqc_path_ctx_t *xqc_path_create(xqc_connection_t *conn,
+    xqc_cid_t *scid, xqc_cid_t *dcid, uint64_t path_id);
+
+static void
+xqc_test_conn_sched_cid(xqc_cid_t *cid, uint64_t path_id, unsigned char side)
+{
+    memset(cid, 0, sizeof(*cid));
+    cid->cid_len = XQC_DEFAULT_CID_LEN;
+    cid->path_id = path_id;
+    cid->cid_buf[0] = 0x5c;
+    cid->cid_buf[1] = side;
+    cid->cid_buf[2] = (unsigned char) path_id;
+}
+
+/* A path besides the initial one, on connection IDs made up for its path ID,
+ * with the given state, srtt and status. */
+static xqc_path_ctx_t *
+xqc_test_conn_sched_path(xqc_connection_t *conn, uint64_t path_id,
+    xqc_path_state_t state, xqc_usec_t srtt, xqc_app_path_status_t status)
+{
+    xqc_cid_t scid, dcid;
+    xqc_path_ctx_t *path;
+
+    xqc_test_conn_sched_cid(&scid, path_id, 's');
+    xqc_test_conn_sched_cid(&dcid, path_id, 'd');
+    if (xqc_cid_set_add_path(&conn->scid_set, path_id) != XQC_OK
+        || xqc_cid_set_add_path(&conn->dcid_set, path_id) != XQC_OK
+        || xqc_cid_set_insert_cid(&conn->scid_set, &scid, XQC_CID_UNUSED, 2,
+                                  path_id) != XQC_OK
+        || xqc_cid_set_insert_cid(&conn->dcid_set, &dcid, XQC_CID_UNUSED, 2,
+                                  path_id) != XQC_OK)
+    {
+        return NULL;
+    }
+
+    path = xqc_path_create(conn, NULL, NULL, path_id);
+    if (path == NULL) {
+        return NULL;
+    }
+
+    xqc_set_path_state(path, state);
+    path->app_path_status = status;
+    path->path_send_ctl->ctl_srtt = srtt;
+    return path;
+}
+
+/* The path that each scheduler classifying every path picks for a packet. */
+static void
+xqc_test_conn_sched_expect(xqc_connection_t *conn, xqc_path_ctx_t *expected)
+{
+    const xqc_scheduler_callback_t *schedulers[] = {
+        &xqc_minrtt_scheduler_cb,
+        &xqc_backup_scheduler_cb,
+        &xqc_backup_fec_scheduler_cb,
+    };
+    xqc_packet_out_t po;
+    xqc_bool_t cc_blocked;
+    size_t i;
+
+    memset(&po, 0, sizeof(po));
+    po.po_frame_types = XQC_FRAME_BIT_STREAM;
+    po.po_used_size = XQC_QUIC_MIN_MSS;
+
+    for (i = 0; i < sizeof(schedulers) / sizeof(schedulers[0]); i++) {
+        CU_ASSERT_PTR_EQUAL(schedulers[i]->xqc_scheduler_get_path(NULL, conn,
+                                &po, 1, 0, &cc_blocked),
+                            expected);
+    }
+}
+
+/*
+ * The minrtt, backup and backup_fec schedulers rank the paths by class, and
+ * a path's class compares its srtt with the lowest srtt of the connection's
+ * ACTIVE paths: an available path more than 3 times slower than that is MID,
+ * and a standby path within 3 times is HIGH, so the standby path is used.
+ * The default congestion window over these srtts is above bw_Bps_thr, so the
+ * srtt alone decides.
+ */
+void
+xqc_test_conn_sched_min_srtt_of_active_paths(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *slow = conn->conn_initial_path;
+    xqc_path_state_t state = slow->path_state;
+    xqc_set_path_state(slow, XQC_PATH_STATE_ACTIVE);
+    slow->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+    slow->path_send_ctl->ctl_srtt = 20000;
+
+    xqc_path_ctx_t *fast = xqc_test_conn_sched_path(conn, 1,
+        XQC_PATH_STATE_ACTIVE, 5000, XQC_APP_PATH_STATUS_STANDBY);
+    CU_ASSERT_FATAL(fast != NULL);
+    xqc_test_conn_sched_expect(conn, fast);
+
+    /* a path that its congestion window blocks still sets the lowest srtt */
+    xqc_send_ctl_t *ctl = fast->path_send_ctl;
+    ctl->ctl_bytes_in_flight =
+        ctl->ctl_cong_callback->xqc_cong_ctl_get_cwnd(ctl->ctl_cong);
+    xqc_path_ctx_t *standby = xqc_test_conn_sched_path(conn, 2,
+        XQC_PATH_STATE_ACTIVE, 12000, XQC_APP_PATH_STATUS_STANDBY);
+    CU_ASSERT_FATAL(standby != NULL);
+    xqc_test_conn_sched_expect(conn, standby);
+
+    ctl->ctl_bytes_in_flight = 0;
+    xqc_set_path_state(slow, state);
+    xqc_engine_destroy(conn->engine);
+}
+
+/* Paths that are not ACTIVE, however fast, do not set the lowest srtt. */
+void
+xqc_test_conn_sched_min_srtt_skips_inactive_paths(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_path_ctx_t *slow = conn->conn_initial_path;
+    xqc_path_state_t state = slow->path_state;
+    xqc_set_path_state(slow, XQC_PATH_STATE_ACTIVE);
+    slow->app_path_status = XQC_APP_PATH_STATUS_AVAILABLE;
+    slow->path_send_ctl->ctl_srtt = 20000;
+
+    xqc_path_ctx_t *fast = xqc_test_conn_sched_path(conn, 1,
+        XQC_PATH_STATE_ACTIVE, 5000, XQC_APP_PATH_STATUS_STANDBY);
+    CU_ASSERT_FATAL(fast != NULL);
+    CU_ASSERT_FATAL(xqc_test_conn_sched_path(conn, 2,
+        XQC_PATH_STATE_VALIDATING, 1000, XQC_APP_PATH_STATUS_AVAILABLE)
+        != NULL);
+    CU_ASSERT_FATAL(xqc_test_conn_sched_path(conn, 3,
+        XQC_PATH_STATE_CLOSING, 1000, XQC_APP_PATH_STATUS_AVAILABLE)
+        != NULL);
+    xqc_test_conn_sched_expect(conn, fast);
+
+    xqc_set_path_state(slow, state);
+    xqc_engine_destroy(conn->engine);
+}

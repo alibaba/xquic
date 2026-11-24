@@ -1757,11 +1757,25 @@ xqc_path_standby_probe(xqc_path_ctx_t *path)
 xqc_path_perf_class_t 
 xqc_path_get_perf_class(xqc_path_ctx_t *path)
 {
+    xqc_usec_t min_srtt;
+
+    /* the lowest srtt walks the path list: not for a closing or closed path,
+     * whose class is the lowest anyway */
+    if (path->path_state >= XQC_PATH_STATE_CLOSING) {
+        return XQC_PATH_CLASS_STANDBY_LOW;
+    }
+
+    min_srtt = xqc_conn_get_min_srtt(path->parent_conn, 0);
+    return xqc_path_get_perf_class_with_min_srtt(path, min_srtt);
+}
+
+xqc_path_perf_class_t
+xqc_path_get_perf_class_with_min_srtt(xqc_path_ctx_t *path,
+    xqc_usec_t min_srtt)
+{
     /* A closing or closed path stays in conn_paths_list until the connection
      * is destroyed, and the schedulers classify every entry for every packet.
-     * Its class is the lowest; skip the work below, which walks the whole
-     * path list again (xqc_conn_get_min_srtt) and made scheduling quadratic
-     * in the number of paths ever created. */
+     * Its class is the lowest; skip the work below. */
     if (path->path_state >= XQC_PATH_STATE_CLOSING) {
         return XQC_PATH_CLASS_STANDBY_LOW;
     }
@@ -1769,7 +1783,6 @@ xqc_path_get_perf_class(xqc_path_ctx_t *path)
     xqc_connection_t *conn = path->parent_conn;
     xqc_scheduler_params_t *param = &conn->conn_settings.scheduler_params;
     xqc_usec_t path_srtt = xqc_send_ctl_get_srtt(path->path_send_ctl);
-    xqc_usec_t min_srtt = xqc_conn_get_min_srtt(path->parent_conn, 0);
     uint64_t path_bw = xqc_send_ctl_get_est_bw(path->path_send_ctl);
     double loss_rate = xqc_path_recent_loss_rate(path);
 

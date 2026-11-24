@@ -206,6 +206,7 @@ xqc_test_retire_cid()
     CU_ASSERT(conn != NULL);
 
     xqc_cid_t test_dcid;
+    memset(&test_dcid, 0, sizeof(test_dcid));
 
     /* Retire Conn ID */
     ret = xqc_write_retire_conn_id_frame_to_packet(conn, 0);
@@ -364,6 +365,7 @@ xqc_test_cid_insert_one(xqc_connection_t *conn, xqc_cid_set_t *cid_set,
     xqc_cid_t cid;
     xqc_int_t ret;
 
+    memset(&cid, 0, sizeof(cid));
     ret = xqc_generate_cid(conn->engine, NULL, &cid, seq_num);
     if (ret != XQC_OK) {
         return ret;
@@ -583,6 +585,7 @@ xqc_test_cid_handshake_exclusion()
      * limit per RFC 9000 §18.2.
      */
     xqc_cid_t server_scid;
+    memset(&server_scid, 0, sizeof(server_scid));
     ret = xqc_generate_cid(conn->engine, NULL, &server_scid, 0);
     CU_ASSERT(ret == XQC_OK);
     ret = xqc_cid_set_insert_cid(&conn->dcid_set, &server_scid, XQC_CID_USED,
@@ -864,6 +867,7 @@ xqc_test_new_conn_id_insert_failure_hash_rollback()
      * The initial DCID from test_engine_connect() is locally generated and
      * marked original, so it does not count into active_connection_id_limit.
      */
+    memset(&peer_cid, 0, sizeof(peer_cid));
     ret = xqc_generate_cid(conn->engine, NULL, &peer_cid, 1);
     CU_ASSERT(ret == XQC_OK);
     ret = xqc_cid_set_insert_cid(&conn->dcid_set, &peer_cid, XQC_CID_USED,

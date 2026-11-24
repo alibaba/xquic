@@ -45,7 +45,8 @@ typedef struct xqc_tls_test_buff_s {
 static inline xqc_tls_test_buff_t*
 xqc_create_tls_test_buffer()
 {
-    xqc_tls_test_buff_t *ttbuf = xqc_malloc(sizeof(xqc_tls_test_buff_t));
+    /* zeroed: the TLS layer reads conn_flag through the union's conn */
+    xqc_tls_test_buff_t *ttbuf = xqc_calloc(1, sizeof(xqc_tls_test_buff_t));
     xqc_init_list_head(&ttbuf->initial_crypto_data_list);
     xqc_init_list_head(&ttbuf->hsk_crypto_data_list);
     xqc_init_list_head(&ttbuf->application_crypto_data_list);

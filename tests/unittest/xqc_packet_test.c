@@ -111,6 +111,7 @@ xqc_test_server_buffers_received_zero_rtt(void)
     CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     conn->conn_type = XQC_CONN_TYPE_SERVER;
 
+    memset(&packet_in, 0, sizeof(packet_in));
     xqc_packet_in_init(&packet_in,
                        (unsigned char *)XQC_TEST_ZERO_RTT_PACKET,
                        sizeof(XQC_TEST_ZERO_RTT_PACKET) - 1, NULL, 0, 0);

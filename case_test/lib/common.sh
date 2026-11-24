@@ -383,12 +383,54 @@ case_test_run()
     return "${status}"
 }
 
+# Starts a server in the background and returns once it is ready: the server
+# writes a line to the pipe whose descriptor it finds in
+# XQC_TEST_SERVER_READY_FD, when its socket is bound, and this function
+# waits for that line instead of a fixed time. Every second it checks that the
+# server is still there, so that one that cannot start ends the wait at once;
+# one that is there but silent ends it after CASE_TEST_SERVER_READY_TIMEOUT
+# seconds (60 by default) with a message, and the case goes on and fails by
+# itself. test_server and demo_server report; for a server that does not,
+# set CASE_TEST_SERVER_READY_TIMEOUT=0 to wait one second as before.
 case_test_start_server()
 {
+    local ready_pipe
+    local ready_line
+    local waited=0
+    local timeout="${CASE_TEST_SERVER_READY_TIMEOUT:-60}"
+
     case_test_stop_server
-    "$@" &
+
+    ready_pipe="${CASE_TEST_WORK_DIR:-.}/.server-ready.$$"
+    rm -f "${ready_pipe}"
+    if [[ "${timeout}" -eq 0 ]] || ! mkfifo "${ready_pipe}" 2> /dev/null; then
+        "$@" &
+        CASE_TEST_SERVER_PID="$!"
+        sleep 1
+        return 0
+    fi
+
+    # Opened for reading and writing, so that opening does not wait for the
+    # server; the open descriptor is all that is needed from here on.
+    exec 9<> "${ready_pipe}"
+    rm -f "${ready_pipe}"
+
+    XQC_TEST_SERVER_READY_FD=9 "$@" &
     CASE_TEST_SERVER_PID="$!"
-    sleep "${CASE_TEST_SERVER_WAIT:-1}"
+
+    while ! read -r -t 1 -u 9 ready_line; do
+        if ! kill -0 "${CASE_TEST_SERVER_PID}" 2> /dev/null; then
+            break
+        fi
+
+        waited=$((waited + 1))
+        if [[ "${waited}" -ge "${timeout}" ]]; then
+            echo "case_test: the server did not report that it is ready within ${timeout} s" >&2
+            break
+        fi
+    done
+
+    exec 9>&-
 }
 
 case_test_wait_for_log()

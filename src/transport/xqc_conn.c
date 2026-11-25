@@ -689,7 +689,15 @@ xqc_conn_set_ack_ext_local_settings(xqc_trans_settings_t *local_settings, const 
 {
     if (settings->extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) {
         local_settings->extended_ack_features = 2;
-        local_settings->max_receive_timestamps_per_ack = settings->max_receive_timestamps_per_ack;
+        /*
+         * Ask for no more receive timestamps than the 63 that an ACK_EXTENDED
+         * frame of xquic carries: xqc_parse_timestamps_in_ack_ext() keeps
+         * those of a frame in the XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH entries
+         * of xqc_ack_timestamp_info_t.
+         */
+        local_settings->max_receive_timestamps_per_ack =
+            xqc_min(settings->max_receive_timestamps_per_ack,
+                    XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH - 1);
         local_settings->receive_timestamps_exponent = settings->receive_timestamps_exponent;
     }
 }

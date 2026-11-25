@@ -29,6 +29,13 @@
 /* default value for max_path_id */
 #define XQC_DEFAULT_INIT_MAX_PATH_ID            8
 
+/*
+ * draft-ietf-quic-multipath-10 Sections 2 and 7.7: a path ID is 32 bits of
+ * the nonce (Section 4), so neither initial_max_path_id nor a Maximum Path
+ * Identifier may exceed 2^32-1
+ */
+#define XQC_PATH_ID_MAX_VALUE                   0xffffffffULL
+
 
 
 /**

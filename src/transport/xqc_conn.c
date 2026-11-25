@@ -40,6 +40,8 @@
 
 static void xqc_conn_tls_transport_error_cb(xqc_int_t transport_err,
     void *user_data);
+static uint64_t xqc_conn_settings_init_max_path_id(
+    const xqc_conn_settings_t *settings);
 
 xqc_conn_settings_t internal_default_conn_settings = {
     .pacing_on                  = 0,
@@ -171,6 +173,24 @@ xqc_conn_set_default_sched_params(xqc_conn_settings_t *src_settings, xqc_conn_se
 }
 
 
+/*
+ * The initial_max_path_id to advertise: 0 selects the default unless asked
+ * for, and a value above 2^32-1 is reduced to it (draft-ietf-quic-multipath-10
+ * Section 2).
+ */
+static uint64_t
+xqc_conn_settings_init_max_path_id(const xqc_conn_settings_t *settings)
+{
+    if (settings->init_max_path_id == 0
+        && !settings->init_max_path_id_explicit)
+    {
+        return XQC_DEFAULT_INIT_MAX_PATH_ID;
+    }
+
+    return xqc_min(settings->init_max_path_id, XQC_PATH_ID_MAX_VALUE);
+}
+
+
 void
 xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *settings)
 {
@@ -268,12 +288,10 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
         engine->default_conn_settings.multipath_version = XQC_MULTIPATH_10;
     }
 
-    if (settings->init_max_path_id == 0) {
-        engine->default_conn_settings.init_max_path_id = XQC_DEFAULT_INIT_MAX_PATH_ID;
-        
-    } else {
-        engine->default_conn_settings.init_max_path_id = settings->init_max_path_id;
-    }
+    engine->default_conn_settings.init_max_path_id_explicit =
+        settings->init_max_path_id_explicit;
+    engine->default_conn_settings.init_max_path_id =
+        xqc_conn_settings_init_max_path_id(settings);
 
     engine->default_conn_settings.close_dgram_redundancy = settings->close_dgram_redundancy;
 
@@ -864,9 +882,8 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         xc->conn_settings.multipath_version = XQC_MULTIPATH_10;
     }
 
-    if (xc->conn_settings.init_max_path_id == 0) {
-        xc->conn_settings.init_max_path_id = XQC_DEFAULT_INIT_MAX_PATH_ID;
-    }
+    xc->conn_settings.init_max_path_id =
+        xqc_conn_settings_init_max_path_id(&xc->conn_settings);
 
     if (xc->conn_settings.probing_pkt_out_size == 0) {
         xc->conn_settings.probing_pkt_out_size = engine->default_conn_settings.probing_pkt_out_size;

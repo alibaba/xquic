@@ -17,5 +17,11 @@ void xqc_test_tp_value_matches_len_decodes(void);
 void xqc_test_tp_cid_overflow();
 void xqc_test_active_cid_limit_minimum();
 void xqc_test_check_transport_params_cids();
+void xqc_test_init_max_path_id_valid_boundary(void);
+void xqc_test_init_max_path_id_invalid_boundary(void);
+void xqc_test_init_max_path_id_local_settings(void);
+void xqc_test_mp_max_path_id_invalid(void);
+void xqc_test_mp_max_path_id_valid(void);
+void xqc_test_init_max_path_id_zero(void);
 
 #endif

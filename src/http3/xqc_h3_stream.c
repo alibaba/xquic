@@ -1191,7 +1191,19 @@ xqc_h3_stream_process_request(xqc_h3_stream_t *h3s, unsigned char *data, size_t 
                                     -XQC_H3_REQUEST_FRAME_UNEXPECTED);
                     return -XQC_H3_REQUEST_FRAME_UNEXPECTED;
                 }
-                break;
+
+                /*
+                 * RFC 9114 Sections 4.6 and 7.2.5: a client treats a push ID
+                 * above the maximum that it sent in MAX_PUSH_ID as an
+                 * H3_ID_ERROR. XQUIC sends no MAX_PUSH_ID, so no push ID is
+                 * valid, as for push streams and CANCEL_PUSH.
+                 */
+                xqc_log(h3s->log, XQC_LOG_ERROR,
+                        "|PUSH_PROMISE without MAX_PUSH_ID|");
+                xqc_h3_frm_reset_pctx(pctx);
+                XQC_H3_CONN_ERR(h3s->h3c, H3_ID_ERROR,
+                                -XQC_H3_INVALID_PUSH_PROMISE_ID);
+                return -XQC_H3_INVALID_PUSH_PROMISE_ID;
 
             /* RFC 9114 §7.2.4/§7.2.3/§7.2.6/§7.2.7: control-only frames on request stream */
             case XQC_H3_FRM_SETTINGS:

@@ -15,8 +15,10 @@
 #include "xquic/xquic_typedef.h"
 #include "src/common/xqc_str.h"
 #include "src/common/xqc_list.h"
+#include "src/common/xqc_time.h"
 #include "src/congestion_control/xqc_new_reno.h"
 #include "xqc_common_test.h"
+#include "xqc_test_clock.h"
 #include "src/transport/xqc_engine.h"
 #include "src/transport/xqc_transport_params.h"
 #include "src/transport/xqc_cid.h"
@@ -1149,6 +1151,175 @@ xqc_test_conn_close_reason_too_long(void)
     CU_ASSERT_EQUAL(packet_out->po_buf[3], 0);
 
     xqc_packet_out_destroy(packet_out);
+}
+
+
+/* the datagrams written by the connections of the closing state tests */
+static int xqc_test_closing_datagrams;
+
+static ssize_t
+xqc_test_closing_write(uint64_t path_id, const unsigned char *buf,
+    size_t size, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    void *conn_user_data)
+{
+    xqc_test_closing_datagrams++;
+    return size;
+}
+
+static ssize_t
+xqc_test_closing_write_blocked(uint64_t path_id, const unsigned char *buf,
+    size_t size, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
+    void *conn_user_data)
+{
+    return XQC_SOCKET_EAGAIN;
+}
+
+/*
+ * A client connection on the virtual clock, whose datagrams are written by
+ * write. Returns its engine, or NULL with the clock stopped.
+ */
+static xqc_engine_t *
+xqc_test_closing_conn(xqc_socket_write_ex_pt write, xqc_cid_t *cid,
+    xqc_usec_t *pto)
+{
+    xqc_connection_t *conn;
+
+    xqc_test_clock_start();
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL(conn);
+    if (conn == NULL) {
+        xqc_test_clock_stop();
+        return NULL;
+    }
+
+    conn->transport_cbs.write_socket_ex = write;
+    xqc_cid_copy(cid, &conn->scid_set.user_scid);
+    *pto = xqc_conn_get_max_pto(conn);
+    CU_ASSERT(*pto > 0);
+    xqc_test_closing_datagrams = 0;
+    return conn->engine;
+}
+
+/*
+ * The connection sent its CONNECTION_CLOSE at the current time, and stays
+ * in its closing state for three PTOs, without sending anything else.
+ */
+static void
+xqc_test_closing_state_from_now(xqc_engine_t *engine, const xqc_cid_t *cid,
+    xqc_usec_t pto)
+{
+    xqc_connection_t *conn;
+    xqc_usec_t sent = xqc_test_clock_now();
+
+    CU_ASSERT(xqc_test_closing_datagrams == 1);
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_PTR_NOT_NULL(conn);
+    if (conn == NULL) {
+        return;
+    }
+    CU_ASSERT(conn->conn_state == XQC_CONN_STATE_CLOSING);
+    CU_ASSERT(conn->conn_close_send_time == sent);
+
+    xqc_test_clock_set(sent + 3 * pto - 1);
+    xqc_engine_main_logic(engine);
+    CU_ASSERT_PTR_NOT_NULL(xqc_engine_conns_hash_find(engine, cid, 's'));
+
+    xqc_test_clock_set(sent + 3 * pto);
+    xqc_engine_main_logic(engine);
+    CU_ASSERT_PTR_NULL(xqc_engine_conns_hash_find(engine, cid, 's'));
+    CU_ASSERT(xqc_test_closing_datagrams == 1);
+}
+
+/*
+ * RFC 9000 Section 10.2: an endpoint enters the closing state after sending
+ * CONNECTION_CLOSE, and that state lasts three times the PTO. The
+ * application closes the connection outside of the engine's run: the
+ * engine sends the CONNECTION_CLOSE when it runs next, here one PTO later,
+ * and the closing state lasts three PTOs from then.
+ */
+void
+xqc_test_conn_closing_state_from_close_sent(void)
+{
+    xqc_engine_t *engine;
+    xqc_cid_t cid;
+    xqc_usec_t pto;
+
+    engine = xqc_test_closing_conn(xqc_test_closing_write, &cid, &pto);
+    if (engine == NULL) {
+        return;
+    }
+
+    CU_ASSERT(xqc_conn_close(engine, &cid) == XQC_OK);
+    xqc_test_clock_advance(pto);
+    xqc_engine_main_logic(engine);
+    xqc_test_closing_state_from_now(engine, &cid, pto);
+
+    xqc_engine_destroy(engine);
+    xqc_test_clock_stop();
+}
+
+/*
+ * The engine runs only once three PTOs have passed since xqc_conn_close():
+ * that run still sends the CONNECTION_CLOSE, so that the peer does not keep
+ * the connection until its idle timeout, and the closing state starts then.
+ */
+void
+xqc_test_conn_close_sent_after_closing_period(void)
+{
+    xqc_engine_t *engine;
+    xqc_cid_t cid;
+    xqc_usec_t pto;
+
+    engine = xqc_test_closing_conn(xqc_test_closing_write, &cid, &pto);
+    if (engine == NULL) {
+        return;
+    }
+
+    CU_ASSERT(xqc_conn_close(engine, &cid) == XQC_OK);
+    xqc_test_clock_advance(3 * pto + 1);
+    xqc_engine_main_logic(engine);
+    xqc_test_closing_state_from_now(engine, &cid, pto);
+
+    xqc_engine_destroy(engine);
+    xqc_test_clock_stop();
+}
+
+/*
+ * The socket refuses the CONNECTION_CLOSE (EAGAIN): three PTOs later, the
+ * connection is still there to send it. The application continues sending
+ * once the socket can take it, and the closing state starts then.
+ */
+void
+xqc_test_conn_close_blocked_until_sent(void)
+{
+    xqc_connection_t *conn;
+    xqc_engine_t *engine;
+    xqc_cid_t cid;
+    xqc_usec_t pto;
+
+    engine = xqc_test_closing_conn(xqc_test_closing_write_blocked, &cid,
+                                   &pto);
+    if (engine == NULL) {
+        return;
+    }
+
+    CU_ASSERT(xqc_conn_close(engine, &cid) == XQC_OK);
+    xqc_engine_main_logic(engine);
+    xqc_test_clock_advance(3 * pto);
+    xqc_engine_main_logic(engine);
+
+    conn = xqc_engine_conns_hash_find(engine, &cid, 's');
+    CU_ASSERT_PTR_NOT_NULL(conn);
+    if (conn != NULL) {
+        CU_ASSERT(conn->conn_close_send_time == 0);
+        conn->transport_cbs.write_socket_ex = xqc_test_closing_write;
+        xqc_test_clock_advance(pto);
+        CU_ASSERT(xqc_conn_continue_send(engine, &cid) == XQC_OK);
+        xqc_test_closing_state_from_now(engine, &cid, pto);
+    }
+
+    xqc_engine_destroy(engine);
+    xqc_test_clock_stop();
 }
 
 

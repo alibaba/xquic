@@ -780,6 +780,16 @@ xqc_send_ctl_on_packet_sent(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc_
     if (packet_out->po_frame_types & XQC_FRAME_BIT_CONNECTION_CLOSE) {
         if (send_ctl->ctl_conn->conn_close_send_time == 0) {
             send_ctl->ctl_conn->conn_close_send_time = now;
+
+            /*
+             * RFC 9000 Section 10.2: the closing state starts once the
+             * CONNECTION_CLOSE is sent, and lasts three times the PTO.
+             */
+            if (send_ctl->ctl_conn->conn_state == XQC_CONN_STATE_CLOSING) {
+                xqc_timer_set(&send_ctl->ctl_conn->conn_timer_manager,
+                              XQC_TIMER_CONN_DRAINING, now,
+                              3 * xqc_conn_get_max_pto(send_ctl->ctl_conn));
+            }
         }
     }
 

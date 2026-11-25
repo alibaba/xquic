@@ -184,6 +184,22 @@ xqc_timer_conn_draining_timeout(xqc_timer_type_t type, xqc_usec_t now, void *use
 {
     xqc_connection_t *conn = (xqc_connection_t *)user_data;
 
+    /*
+     * RFC 9000 Section 10.2: the closing state starts once the
+     * CONNECTION_CLOSE is sent. A connection closed outside of the engine's
+     * run sends it in the next run, which can start after this timer: keep
+     * the connection, so that the CONNECTION_CLOSE goes out and starts the
+     * closing timer again (xqc_send_ctl_on_packet_sent()). Until it is
+     * sent, the idle timeout bounds the connection.
+     */
+    if (conn->conn_state == XQC_CONN_STATE_CLOSING
+        && conn->conn_close_send_time == 0)
+    {
+        xqc_log(conn->log, XQC_LOG_DEBUG,
+                "|CONNECTION_CLOSE not sent yet, closing state not started|");
+        return;
+    }
+
     conn->conn_flag |= XQC_CONN_FLAG_TIME_OUT;
 }
 

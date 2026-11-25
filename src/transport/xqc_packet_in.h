@@ -15,6 +15,8 @@
 typedef enum {
     XQC_PIF_REINJECTED_REPLICA  = 1 << 0,
     XQC_PIF_FEC_RECOVERED       = 1 << 1,
+    /* a STREAM frame was rejected at the reassembly cap: do not ack */
+    XQC_PIF_DROP_UNACKED        = 1 << 2,
 } xqc_packet_in_flag_t;
 
 struct xqc_packet_in_s {

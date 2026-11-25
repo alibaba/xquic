@@ -10,6 +10,7 @@
 #include "src/transport/xqc_frame.h"
 #include "src/transport/xqc_packet_in.h"
 #include "src/transport/xqc_stream.h"
+#include "src/common/utils/vint/xqc_variable_len_int.h"
 #include "xquic/xqc_errno.h"
 
 /*
@@ -274,5 +275,62 @@ xqc_test_reset_stream_frame_duplicate()
     CU_ASSERT(conn->conn_flow_ctl.fc_data_recved == fc_recved);
     CU_ASSERT(conn->conn_flow_ctl.fc_data_read == fc_read);
 
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 9000 Section 4.5: a RESET_STREAM cannot change the final size that a
+ * STREAM frame with FIN set, and its final size consumes flow control
+ * credit, so a final size above the stream's limit is a FLOW_CONTROL_ERROR.
+ */
+void
+xqc_test_reset_stream_frame_final_size_checks()
+{
+    xqc_connection_t        *conn;
+    xqc_packet_in_t          pi;
+    xqc_reset_closing_obs_t  obs;
+    xqc_stream_t            *stream;
+    uint64_t                 fc_recved;
+    unsigned char            frame[16];
+    unsigned char           *p;
+
+    /* STREAM frame: LEN and FIN, stream 0, 16 bytes: final size 16 */
+    unsigned char fin16[3 + 16] = { 0x0b, 0x00, 0x10 };
+
+    memset(&obs, 0, sizeof(obs));
+    stream = xqc_test_reset_stream_setup(&conn, &pi, &obs);
+    pi.pos = fin16;
+    pi.last = fin16 + sizeof(fin16);
+    CU_ASSERT(xqc_process_stream_frame(conn, &pi) == XQC_OK);
+    CU_ASSERT(stream->stream_data_in.stream_determined);
+    CU_ASSERT(stream->stream_data_in.stream_length == 16);
+
+    /* RESET_STREAM with final size 0x20 */
+    memset(&pi, 0, sizeof(pi));
+    pi.pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    pi.pos = XQC_TEST_RESET_STREAM_FRAME;
+    pi.last = pi.pos + sizeof(XQC_TEST_RESET_STREAM_FRAME);
+    CU_ASSERT(xqc_process_reset_stream_frame(conn, &pi) == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_FINAL_SIZE_ERROR);
+    CU_ASSERT(obs.call_cnt == 0);
+    xqc_engine_destroy(conn->engine);
+
+    /* RESET_STREAM one byte above the stream's flow control limit */
+    memset(&obs, 0, sizeof(obs));
+    stream = xqc_test_reset_stream_setup(&conn, &pi, &obs);
+    fc_recved = conn->conn_flow_ctl.fc_data_recved;
+    p = frame;
+    *p++ = 0x04;
+    *p++ = 0x00;
+    *p++ = XQC_TEST_RESET_ERR_CODE;
+    p = xqc_put_varint(p, stream->stream_flow_ctl.fc_max_stream_data_can_recv + 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(p);
+    pi.pos = frame;
+    pi.last = p;
+    CU_ASSERT(xqc_process_reset_stream_frame(conn, &pi) == -XQC_EPROTO);
+    CU_ASSERT(conn->conn_err == TRA_FLOW_CONTROL_ERROR);
+    CU_ASSERT(conn->conn_flow_ctl.fc_data_recved == fc_recved);
+    CU_ASSERT(obs.call_cnt == 0);
     xqc_engine_destroy(conn->engine);
 }

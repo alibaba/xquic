@@ -11,4 +11,6 @@ void xqc_test_reset_stream_frame_closing_destroys_stream();
 
 void xqc_test_reset_stream_frame_duplicate();
 
+void xqc_test_reset_stream_frame_final_size_checks();
+
 #endif /* _XQC_RESET_STREAM_FRAME_TEST_H_INCLUDED_ */

@@ -86,6 +86,18 @@ typedef enum {
 
 #define XQC_REBINDING_MAX_MTU_PROBE_RETRIES 3
 
+/* cap of the doubling of the interval between PATH_CHALLENGE resends */
+#define XQC_PATH_CHALLENGE_MAX_BACKOFF 8
+
+/*
+ * payloads kept of the PATH_CHALLENGE frames sent before the current one in a
+ * validation, which a PATH_RESPONSE still validates (RFC 9000 Section 8.2.3).
+ * Each PATH_CHALLENGE comes at least a PTO after the previous one, and the
+ * interval doubles, so a PATH_RESPONSE is only ignored when it comes more
+ * than 511 PTOs after its PATH_CHALLENGE.
+ */
+#define XQC_PATH_CHALLENGE_PREV_N 8
+
 typedef enum {
     XQC_REBINDING_IDLE = 0,
     XQC_REBINDING_ADDRESS_VALIDATING,
@@ -129,6 +141,13 @@ struct xqc_path_ctx_s {
     /* Path_state */
     xqc_path_state_t    path_state;
     unsigned char       path_challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
+    /* PATH_CHALLENGE frames sent again after an unanswered one was acked */
+    uint32_t            path_challenge_resends;
+    /* receive time of the ACK that armed XQC_TIMER_PATH_CHALLENGE */
+    xqc_usec_t          path_challenge_acked_time;
+    /* payloads of the last PATH_CHALLENGE frames before the current one */
+    unsigned char       path_challenge_prev[XQC_PATH_CHALLENGE_PREV_N]
+                                           [XQC_PATH_CHALLENGE_DATA_LEN];
 
     xqc_path_flag_t     path_flag;
 
@@ -274,6 +293,16 @@ void xqc_stream_path_metrics_on_recv(xqc_connection_t *conn, xqc_stream_t *strea
 xqc_msec_t xqc_path_get_idle_timeout(xqc_path_ctx_t *path);
 
 xqc_usec_t xqc_path_get_validation_timeout(xqc_path_ctx_t *path);
+
+void xqc_path_on_challenge_acked(xqc_path_ctx_t *path, xqc_usec_t now);
+
+void xqc_path_on_challenge_rtt_sample(xqc_path_ctx_t *path,
+    xqc_usec_t ack_time);
+
+void xqc_path_resend_challenge(xqc_path_ctx_t *path);
+
+xqc_bool_t xqc_path_challenge_data_match(xqc_path_ctx_t *path,
+    const unsigned char *data);
 
 void xqc_path_validate(xqc_path_ctx_t *path);
 

@@ -104,6 +104,16 @@ typedef struct {
     xqc_rebinding_state_t state;
     xqc_bool_t            initial_challenge_padded;
     unsigned char         challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
+    /*
+     * address validation: when it is abandoned, the PATH_CHALLENGE frames
+     * sent again since its first one, and the previous PATH_CHALLENGE, which
+     * a PATH_RESPONSE still answers
+     */
+    xqc_usec_t            deadline;
+    uint32_t              challenge_resends;
+    xqc_bool_t            has_prev_challenge;
+    xqc_bool_t            prev_challenge_padded;
+    unsigned char         prev_challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
 } xqc_path_rebinding_t;
 
 /* path context */

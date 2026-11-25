@@ -246,6 +246,11 @@ xqc_path_rebinding_clear(xqc_path_ctx_t *path)
     rebinding->state = XQC_REBINDING_IDLE;
     rebinding->initial_challenge_padded = XQC_FALSE;
     xqc_memzero(rebinding->challenge_data, sizeof(rebinding->challenge_data));
+    rebinding->deadline = 0;
+    rebinding->challenge_resends = 0;
+    rebinding->has_prev_challenge = XQC_FALSE;
+    rebinding->prev_challenge_padded = XQC_FALSE;
+    xqc_memzero(rebinding->prev_challenge_data, sizeof(rebinding->prev_challenge_data));
 }
 
 
@@ -268,6 +273,9 @@ xqc_path_rebinding_start(xqc_path_ctx_t *path, const struct sockaddr *peer_addr,
     rebinding->mtu_probe_retries = 0;
     rebinding->state = XQC_REBINDING_ADDRESS_VALIDATING;
     rebinding->initial_challenge_padded = XQC_FALSE;
+    rebinding->deadline = 0;
+    rebinding->challenge_resends = 0;
+    rebinding->has_prev_challenge = XQC_FALSE;
     return XQC_OK;
 }
 
@@ -303,6 +311,101 @@ xqc_path_rebinding_send_address_probe(xqc_connection_t *conn, xqc_path_ctx_t *pa
 }
 
 
+/*
+ * RFC 9000 Section 8.2.4: the validation of the new address is abandoned
+ * three PTOs after its first PATH_CHALLENGE, so that the loss of a single
+ * PATH_CHALLENGE or PATH_RESPONSE frame does not fail it. Section 9.4: until
+ * then, a PATH_CHALLENGE that stays unanswered for a PTO is followed by a new
+ * one, the interval doubling each time, as for a PTO (RFC 9002 Section
+ * 6.2.1).
+ */
+static void
+xqc_path_rebinding_set_resend_timer(xqc_path_ctx_t *path, xqc_usec_t now)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+    xqc_usec_t left, interval;
+    uint32_t i;
+
+    left = rebinding->deadline > now ? rebinding->deadline - now : 0;
+    interval = xqc_conn_get_max_pto(path->parent_conn);
+    for (i = 0; i < rebinding->challenge_resends && interval < left; i++) {
+        interval *= 2;
+    }
+
+    xqc_timer_set(&path->path_send_ctl->path_timer_manager, XQC_TIMER_NAT_REBINDING,
+                  now, xqc_min(interval, left));
+}
+
+
+/*
+ * Send a PATH_CHALLENGE to the new address. The previous one stays answered
+ * (RFC 9000 Section 8.2.3), and stays the current one when this one cannot
+ * be sent.
+ */
+static xqc_int_t
+xqc_path_rebinding_send_challenge(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_usec_t now)
+{
+    xqc_path_rebinding_t *rebinding = &path->rebinding;
+    unsigned char last_data[XQC_PATH_CHALLENGE_DATA_LEN];
+    xqc_bool_t last_padded = rebinding->initial_challenge_padded;
+    xqc_bool_t resend = rebinding->deadline != 0;
+    xqc_int_t ret;
+
+    xqc_memcpy(last_data, rebinding->challenge_data, sizeof(last_data));
+
+    ret = xqc_path_rebinding_send_address_probe(conn, path);
+    if (ret != XQC_OK) {
+        xqc_memcpy(rebinding->challenge_data, last_data, sizeof(last_data));
+        return ret;
+    }
+
+    if (resend) {
+        xqc_memcpy(rebinding->prev_challenge_data, last_data, sizeof(last_data));
+        rebinding->prev_challenge_padded = last_padded;
+        rebinding->has_prev_challenge = XQC_TRUE;
+        rebinding->challenge_resends++;
+
+    } else {
+        rebinding->deadline = now + 3 * xqc_conn_get_max_pto(conn);
+    }
+
+    xqc_path_rebinding_set_resend_timer(path, now);
+    return XQC_OK;
+}
+
+
+/*
+ * Whether data answers the last PATH_CHALLENGE of the candidate, or, while
+ * its address is validated, the PATH_CHALLENGE before; padded tells whether
+ * that PATH_CHALLENGE was expanded to the minimum datagram size.
+ */
+static xqc_bool_t
+xqc_path_rebinding_challenge_match(xqc_path_rebinding_t *rebinding,
+    const unsigned char *data, xqc_bool_t *padded)
+{
+    if (rebinding->state == XQC_REBINDING_IDLE) {
+        return XQC_FALSE;
+    }
+
+    if (memcmp(rebinding->challenge_data, data, XQC_PATH_CHALLENGE_DATA_LEN) == 0) {
+        *padded = rebinding->initial_challenge_padded;
+        return XQC_TRUE;
+    }
+
+    if (rebinding->state == XQC_REBINDING_ADDRESS_VALIDATING
+        && rebinding->has_prev_challenge
+        && memcmp(rebinding->prev_challenge_data, data,
+                  XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+    {
+        *padded = rebinding->prev_challenge_padded;
+        return XQC_TRUE;
+    }
+
+    return XQC_FALSE;
+}
+
+
 static xqc_int_t
 xqc_path_rebinding_send_mtu_probe(xqc_connection_t *conn, xqc_path_ctx_t *path)
 {
@@ -330,11 +433,11 @@ xqc_path_rebinding_find_by_challenge(xqc_connection_t *conn,
 {
     xqc_list_head_t *pos, *next;
     xqc_path_ctx_t *path;
+    xqc_bool_t padded;
 
     if (conn->conn_initial_path != NULL
-        && conn->conn_initial_path->rebinding.state != XQC_REBINDING_IDLE
-        && memcmp(conn->conn_initial_path->rebinding.challenge_data, challenge_data,
-                  XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+        && xqc_path_rebinding_challenge_match(&conn->conn_initial_path->rebinding,
+                                              challenge_data, &padded))
     {
         return conn->conn_initial_path;
     }
@@ -349,9 +452,8 @@ xqc_path_rebinding_find_by_challenge(xqc_connection_t *conn,
             continue;
         }
 
-        if (path->rebinding.state != XQC_REBINDING_IDLE
-            && memcmp(path->rebinding.challenge_data, challenge_data,
-                      XQC_PATH_CHALLENGE_DATA_LEN) == 0)
+        if (xqc_path_rebinding_challenge_match(&path->rebinding, challenge_data,
+                                               &padded))
         {
             return path;
         }
@@ -389,10 +491,9 @@ xqc_path_rebinding_on_authenticated_datagram(xqc_connection_t *conn,
         return XQC_OK;
     }
 
-    ret = xqc_path_rebinding_send_address_probe(conn, path);
+    ret = xqc_path_rebinding_send_challenge(conn, path, now);
     if (ret == XQC_OK) {
         rebinding->count++;
-        xqc_path_rebinding_set_timer(path, now);
         xqc_log(conn->log, XQC_LOG_INFO,
                 "|REBINDING|path:%ui|send PATH_CHALLENGE|addr:%s|",
                 path->path_id, xqc_path_addr_str(path));
@@ -446,12 +547,10 @@ xqc_path_rebinding_on_response(xqc_connection_t *conn, xqc_path_ctx_t *path,
     const unsigned char *challenge_data, xqc_usec_t now)
 {
     xqc_path_rebinding_t *rebinding = &path->rebinding;
+    xqc_bool_t padded;
     xqc_int_t ret;
 
-    if (rebinding->state == XQC_REBINDING_IDLE
-        || memcmp(rebinding->challenge_data, challenge_data,
-                  XQC_PATH_CHALLENGE_DATA_LEN) != 0)
-    {
+    if (!xqc_path_rebinding_challenge_match(rebinding, challenge_data, &padded)) {
         return XQC_ERROR;
     }
 
@@ -459,7 +558,7 @@ xqc_path_rebinding_on_response(xqc_connection_t *conn, xqc_path_ctx_t *path,
     if (rebinding->state == XQC_REBINDING_ADDRESS_VALIDATING) {
         xqc_path_rebinding_commit_addr(conn, path);
         rebinding->valid++;
-        if (rebinding->initial_challenge_padded) {
+        if (padded) {
             xqc_path_rebinding_clear(path);
             xqc_timer_unset(&path->path_send_ctl->path_timer_manager,
                             XQC_TIMER_NAT_REBINDING);
@@ -467,6 +566,7 @@ xqc_path_rebinding_on_response(xqc_connection_t *conn, xqc_path_ctx_t *path,
         }
 
         rebinding->state = XQC_REBINDING_MTU_VALIDATING;
+        rebinding->has_prev_challenge = XQC_FALSE;
         ret = xqc_path_rebinding_send_mtu_probe(conn, path);
         if (ret == XQC_OK || ret == -XQC_EAGAIN) {
             xqc_timer_unset(&path->path_send_ctl->path_timer_manager,
@@ -493,6 +593,29 @@ xqc_path_rebinding_on_timeout(xqc_connection_t *conn, xqc_path_ctx_t *path,
 {
     xqc_path_rebinding_t *rebinding = &path->rebinding;
     xqc_int_t ret;
+
+    if (rebinding->state == XQC_REBINDING_ADDRESS_VALIDATING
+        && now < rebinding->deadline)
+    {
+        ret = xqc_path_rebinding_send_challenge(conn, path, now);
+        if (ret == XQC_OK) {
+            xqc_log(conn->log, XQC_LOG_INFO,
+                    "|REBINDING|path:%ui|send PATH_CHALLENGE again|resends:%ud|",
+                    path->path_id, rebinding->challenge_resends);
+            return;
+        }
+
+        if (ret == -XQC_EAGAIN) {
+            /* no room for another PATH_CHALLENGE: wait for the deadline */
+            xqc_timer_set(&path->path_send_ctl->path_timer_manager,
+                          XQC_TIMER_NAT_REBINDING, now, rebinding->deadline - now);
+            return;
+        }
+
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|REBINDING|send PATH_CHALLENGE error|path:%ui|ret:%d|",
+                path->path_id, ret);
+    }
 
     if (rebinding->state == XQC_REBINDING_MTU_VALIDATING) {
         if (rebinding->mtu_probe_retries < XQC_REBINDING_MAX_MTU_PROBE_RETRIES) {

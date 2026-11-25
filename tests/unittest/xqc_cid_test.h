@@ -67,6 +67,12 @@ void xqc_test_mp_new_cid_rejected_without_cid_set();
  */
 void xqc_test_mp_abandon_above_curr_max_path_id();
 
+/* RFC 10069 Section 3.2.1: connection IDs for each unused path ID */
+void xqc_test_mp_new_cid_every_unused_path_id();
+
+/* connection IDs for no more unused path IDs than paths left to create */
+void xqc_test_mp_new_cid_openable_paths();
+
 /* rejected PATH_ABANDON frames leave no connection ID set behind */
 void xqc_test_mp_abandon_rejected_without_cid_set();
 

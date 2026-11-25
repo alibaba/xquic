@@ -13,6 +13,22 @@ void xqc_test_multipath_version_requires_negotiation(void);
 
 void xqc_test_negotiated_multipath_frozen_frame(void);
 
+void xqc_test_mp_server_delays_path_without_peer_cid(void);
+
+void xqc_test_mp_server_path_cid_after_challenge(void);
+
+void xqc_test_mp_server_path_frames_after_challenge(void);
+
+void xqc_test_mp_server_ignores_abandoned_path_id(void);
+
+void xqc_test_mp_server_path_limit_keeps_connection(void);
+
+void xqc_test_mp_server_paths_beyond_count_after_close(void);
+
+void xqc_test_mp_server_path_alloc_failure_delays(void);
+
+void xqc_test_mp_path_create_result(void);
+
 void xqc_test_parse_padding_frame();
 
 #ifdef XQC_PING_ATTACK_PROTECT

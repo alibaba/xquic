@@ -19,6 +19,9 @@
 /* draft-ietf-quic-reliable-stream-reset-09, Section 4. */
 #define XQC_FRAME_TYPE_RESET_STREAM_AT    0x24
 
+/* RFC 9000 Section 19.17: PATH_CHALLENGE and PATH_RESPONSE data */
+#define XQC_PATH_CHALLENGE_DATA_LEN       8
+
 typedef enum {
     XQC_FRAME_PADDING,
     XQC_FRAME_PING,

@@ -9,6 +9,8 @@
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_stream.h"
 #include "src/http3/qpack/xqc_qpack.h"
+#include "src/http3/qpack/xqc_ins.h"
+#include "src/http3/qpack/dtable/xqc_dtable.h"
 #include "src/common/xqc_time.h"
 #include <inttypes.h>
 #include <stdlib.h>
@@ -963,6 +965,194 @@ xqc_qpack_test()
 }
 
 
+/* the log lines of a QPACK handler or dynamic table, one per line */
+typedef struct xqc_qpack_test_log_s {
+    char    buf[8192];
+    size_t  len;
+} xqc_qpack_test_log_t;
+
+static void
+xqc_qpack_test_log_write(xqc_log_level_t lvl, const void *buf, size_t count,
+    void *user_data)
+{
+    xqc_qpack_test_log_t *capture = user_data;
+
+    if (capture->len + count + 2 <= sizeof(capture->buf)) {
+        memcpy(capture->buf + capture->len, buf, count);
+        capture->len += count;
+        capture->buf[capture->len++] = '\n';
+        capture->buf[capture->len] = '\0';
+    }
+}
+
+static void
+xqc_qpack_test_log_init(xqc_log_t *log, xqc_log_callbacks_t *callbacks,
+    xqc_qpack_test_log_t *capture)
+{
+    memset(log, 0, sizeof(*log));
+    memset(callbacks, 0, sizeof(*callbacks));
+    memset(capture, 0, sizeof(*capture));
+    callbacks->xqc_log_write_err = xqc_qpack_test_log_write;
+    log->log_level = XQC_LOG_DEBUG;
+    log->log_callbacks = callbacks;
+    log->user_data = capture;
+}
+
+/* feed one decoder instruction to a new QPACK handler logging to capture */
+static ssize_t
+xqc_qpack_test_decoder_ins(xqc_var_buf_t *ins, xqc_qpack_test_log_t *capture)
+{
+    ssize_t                 processed;
+    xqc_qpack_t            *qpk;
+    xqc_log_t               log;
+    xqc_log_callbacks_t     callbacks;
+    xqc_ins_buf_t           ins_buf = { NULL, NULL };
+
+    xqc_qpack_test_log_init(&log, &callbacks, capture);
+    qpk = xqc_qpack_create(4096, 4096, &log, &ins_cb, &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+    processed = xqc_qpack_process_decoder(qpk, ins->data, ins->data_len);
+    xqc_qpack_destroy(qpk);
+    ins->data_len = 0;
+    return processed;
+}
+
+/*
+ * Stream IDs and Insert Count Increments of decoder instructions (RFC 9204
+ * Section 4.4) are 62-bit values: their log lines print them in full, and
+ * the negative code of an instruction that fails, as a negative number.
+ * The ID and the increment do not fit in 32 bits.
+ */
+void
+xqc_test_qpack_decoder_ins_log(void)
+{
+    ssize_t                 processed;
+    xqc_var_buf_t          *ins = xqc_var_buf_create(64);
+    xqc_qpack_test_log_t    capture;
+
+    CU_ASSERT_FATAL(ins != NULL);
+
+    /* no section of the stream was sent: the acknowledgment fails */
+    CU_ASSERT(xqc_ins_write_section_ack(ins, 0x100000004ULL) == XQC_OK);
+    processed = xqc_qpack_test_decoder_ins(ins, &capture);
+    CU_ASSERT(processed == -XQC_QPACK_ENCODER_ERROR);
+#ifndef XQC_DISABLE_LOG
+    CU_ASSERT(strstr(capture.buf,
+        "|on section ack error|ret:-1|stream_id:4294967300|\n") != NULL);
+#endif
+#if !defined(XQC_DISABLE_LOG) && !defined(XQC_ONLY_ERROR_LOG)
+    CU_ASSERT(strstr(capture.buf,
+        "|on section ack|stream_id:4294967300|\n") != NULL);
+#endif
+
+    /* a stream with nothing to cancel */
+    CU_ASSERT(xqc_ins_write_stream_cancel(ins, 0x100000008ULL) == XQC_OK);
+    processed = xqc_qpack_test_decoder_ins(ins, &capture);
+    CU_ASSERT(processed > 0);
+#if !defined(XQC_DISABLE_LOG) && !defined(XQC_ONLY_ERROR_LOG)
+    CU_ASSERT(strstr(capture.buf,
+        "|on stream cancel|stream_id:4294967304|\n") != NULL);
+#endif
+
+    /* more insertions acknowledged than made: the increment fails */
+    CU_ASSERT(xqc_ins_write_icnt_increment(ins, 0x100000003ULL) == XQC_OK);
+    processed = xqc_qpack_test_decoder_ins(ins, &capture);
+    CU_ASSERT(processed == -XQC_QPACK_ENCODER_ERROR);
+#ifndef XQC_DISABLE_LOG
+    CU_ASSERT(strstr(capture.buf, "|on ici error|ret:-514|\n") != NULL);
+    CU_ASSERT(QPACK_DECODER_STREAM_ERROR == 514);
+#endif
+#if !defined(XQC_DISABLE_LOG) && !defined(XQC_ONLY_ERROR_LOG)
+    CU_ASSERT(strstr(capture.buf,
+        "|on insert count increment|increment:4294967299|\n") != NULL);
+#endif
+
+    xqc_var_buf_free(ins);
+}
+
+/*
+ * The QPACK_STATE_UPDATED event of an encoder carries its known received
+ * count, that of a decoder does not: each line names its side, and only
+ * the encoder's reads a count.
+ */
+void
+xqc_test_qpack_state_updated_log(void)
+{
+    uint64_t                idx;
+    xqc_dtable_t           *dt;
+    xqc_log_t               log;
+    xqc_log_callbacks_t     callbacks;
+    xqc_qpack_test_log_t    capture;
+
+    xqc_qpack_test_log_init(&log, &callbacks, &capture);
+    callbacks.xqc_log_write_stat = xqc_qpack_test_log_write;
+    dt = xqc_dtable_create(16, &log, 0);
+    CU_ASSERT_FATAL(dt != NULL);
+    CU_ASSERT_FATAL(xqc_dtable_set_capacity(dt, 4096) == XQC_OK);
+    CU_ASSERT_FATAL(xqc_dtable_add(dt, (unsigned char *) "name", 4,
+                                   (unsigned char *) "value", 5, &idx)
+                    == XQC_OK);
+
+    capture.len = 0;
+    capture.buf[0] = '\0';
+    xqc_log_QPACK_STATE_UPDATED_callback(&log, "xqc_test",
+                                         XQC_LOG_DECODER_EVENT, dt);
+    CU_ASSERT_STRING_EQUAL(capture.buf, "|xqc_test|decoder|dtable_cap:4096|"
+                           "dtable_size:41|insert_count:1|\n");
+
+    capture.len = 0;
+    capture.buf[0] = '\0';
+    xqc_log_QPACK_STATE_UPDATED_callback(&log, "xqc_test",
+                                         XQC_LOG_ENCODER_EVENT, dt,
+                                         (uint64_t) 1);
+    CU_ASSERT_STRING_EQUAL(capture.buf, "|xqc_test|encoder|dtable_cap:4096|"
+                           "dtable_size:41|know_received_count:1|"
+                           "insert_count:1|\n");
+
+    xqc_dtable_free(dt);
+}
+
+/*
+ * A Set Dynamic Table Capacity instruction (RFC 9204 Section 4.3.1) above
+ * the maximum is rejected, and the error line prints both values.
+ */
+void
+xqc_test_qpack_encoder_ins_log(void)
+{
+    ssize_t                 processed;
+    xqc_qpack_t            *qpk;
+    xqc_log_t               log;
+    xqc_log_callbacks_t     callbacks;
+    xqc_qpack_test_log_t    capture;
+    xqc_ins_buf_t           ins_buf = { NULL, NULL };
+    xqc_var_buf_t          *ins = xqc_var_buf_create(64);
+
+    CU_ASSERT_FATAL(ins != NULL);
+    xqc_qpack_test_log_init(&log, &callbacks, &capture);
+    qpk = xqc_qpack_create(4096, 4096, &log, &ins_cb, &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+
+    /* a capacity within the maximum is set */
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 4096) == XQC_OK);
+    processed = xqc_qpack_process_encoder(qpk, ins->data, ins->data_len);
+    CU_ASSERT(processed == ins->data_len);
+    CU_ASSERT(strstr(capture.buf, "set dtable capacity error") == NULL);
+
+    ins->data_len = 0;
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 0x100000000ULL + 5000)
+              == XQC_OK);
+    processed = xqc_qpack_process_encoder(qpk, ins->data, ins->data_len);
+    CU_ASSERT(processed == -XQC_QPACK_SET_DTABLE_CAP_ERROR);
+#ifndef XQC_DISABLE_LOG
+    CU_ASSERT(strstr(capture.buf, "|set dtable capacity error|"
+        "capacity value:4294972296, max capacity:4096|\n") != NULL);
+#endif
+
+    xqc_qpack_destroy(qpk);
+    xqc_var_buf_free(ins);
+}
+
+
 #ifdef XQC_TEST_ALLOC_WRAP
 
 /*
@@ -1176,6 +1366,64 @@ xqc_test_qpack_h3_conn_create_alloc_failures(void)
     CU_ASSERT(n > 1);
 }
 
+/*
+ * Each allocation that xqc_dtable_duplicate() makes fails in turn, on a
+ * new dynamic table holding one entry. When the insertion of the copy
+ * fails, the error line prints the code that the duplication returns. The
+ * sweep ends with a run in which nothing fails and the entry is copied.
+ */
+void
+xqc_test_qpack_dtable_duplicate_log(void)
+{
+    long                    n;
+    int                     logged = 0;
+    char                   *line;
+    uint64_t                idx, new_idx;
+    xqc_int_t               ret;
+    xqc_dtable_t           *dt;
+    xqc_log_t               log;
+    xqc_log_callbacks_t     callbacks;
+    xqc_qpack_test_log_t    capture;
+    const char             *prefix = "|duplicate error|ret:";
+
+    for (n = 1; n < 1000; n++) {
+        xqc_qpack_test_log_init(&log, &callbacks, &capture);
+        dt = xqc_dtable_create(16, &log, 1);
+        CU_ASSERT_FATAL(dt != NULL);
+        CU_ASSERT_FATAL(xqc_dtable_set_capacity(dt, 4096) == XQC_OK);
+        CU_ASSERT_FATAL(xqc_dtable_add(dt, (unsigned char *) "name", 4,
+                                       (unsigned char *) "value", 5, &idx)
+                        == XQC_OK);
+        capture.len = 0;
+        capture.buf[0] = '\0';
+
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        ret = xqc_dtable_duplicate(dt, idx, &new_idx);
+        xqc_test_alloc_count = -1;
+
+        line = strstr(capture.buf, prefix);
+        if (line != NULL) {
+            logged++;
+            CU_ASSERT(ret != XQC_OK);
+            CU_ASSERT(strtol(line + strlen(prefix), NULL, 10) == ret);
+        }
+        xqc_dtable_free(dt);
+
+        if (!xqc_test_alloc_failed) {
+            /* nothing failed: the entry was copied */
+            CU_ASSERT(ret == XQC_OK && new_idx == idx + 1);
+            CU_ASSERT(line == NULL);
+            break;
+        }
+    }
+    CU_ASSERT(n > 1);
+#ifndef XQC_DISABLE_LOG
+    CU_ASSERT(logged > 0);
+#endif
+}
+
 #else
 
 void
@@ -1186,6 +1434,12 @@ xqc_test_qpack_create_alloc_failures(void)
 
 void
 xqc_test_qpack_h3_conn_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_qpack_dtable_duplicate_log(void)
 {
     /* needs the linker's --wrap (see tests/CMakeLists.txt) */
 }

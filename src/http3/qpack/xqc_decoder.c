@@ -58,7 +58,8 @@ xqc_int_t
 xqc_decoder_index(xqc_decoder_t *dec, xqc_flag_t t, uint64_t idx, xqc_var_buf_t *name_buf,
     xqc_var_buf_t *value_buf)
 {
-    xqc_log(dec->log, XQC_LOG_DEBUG, "|decode indexed|t:%d|idx:%ui|", t, idx);
+    xqc_log(dec->log, XQC_LOG_DEBUG, "|decode indexed|t:%d|idx:%ui|",
+            (int) t, idx);
 
     if (name_buf->data_len != 0 || value_buf->data_len != 0) {
         xqc_log(dec->log, XQC_LOG_ERROR, "|nv not clear|name_len:%uz|value_len:%uz|",
@@ -79,7 +80,7 @@ xqc_decoder_index(xqc_decoder_t *dec, xqc_flag_t t, uint64_t idx, xqc_var_buf_t 
 xqc_int_t
 xqc_decoder_name_index(xqc_decoder_t *dec, xqc_flag_t t, uint64_t idx, xqc_var_buf_t *name_buf)
 {
-    xqc_log(dec->log, XQC_LOG_DEBUG, "|decode name indexed|t:%d|idx:%ui|", t, idx);
+    xqc_log(dec->log, XQC_LOG_DEBUG, "|decode name indexed|t:%d|idx:%ui|", (int) t, idx);
 
     if (name_buf->data_len != 0) {
         xqc_log(dec->log, XQC_LOG_ERROR, "|nv not clear|name_len:%uz|", name_buf->data_len);

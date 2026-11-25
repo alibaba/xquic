@@ -800,7 +800,7 @@ xqc_encoder_write_efs(xqc_encoder_t *enc, xqc_field_section_t *fs, xqc_var_buf_t
         xqc_log(enc->log, XQC_LOG_ERROR, "|write field section prefix error|ret:%d|", ret);
         return ret;
     }
-    xqc_log(enc->log, XQC_LOG_DEBUG, "|write field section prefix|ricnt:%d|base:%d|",
+    xqc_log(enc->log, XQC_LOG_DEBUG, "|write field section prefix|ricnt:%ui|base:%ui|",
             fs->rqrd_insert_cnt, fs->base);
     xqc_log_event(enc->log, QPACK_HEADERS_ENCODED, XQC_LOG_BLOCK_PREFIX,
                   fs->rqrd_insert_cnt, fs->base);
@@ -841,7 +841,7 @@ xqc_encoder_write_efs(xqc_encoder_t *enc, xqc_field_section_t *fs, xqc_var_buf_t
                 ret = xqc_rep_write_literal_with_pb_name_ref(buf, info->never, idx,
                                                              info->hdr->value.iov_len,
                                                              info->hdr->value.iov_base);
-                xqc_log(enc->log, XQC_LOG_DEBUG, "|write literal_with_pb_name_ref|index:%d|", idx);
+                xqc_log(enc->log, XQC_LOG_DEBUG, "|write literal_with_pb_name_ref|index:%ui|", idx);
                 xqc_log_event(enc->log, QPACK_HEADERS_ENCODED, XQC_LOG_HEADER_BLOCK,
                               XQC_REP_TYPE_POST_BASE_NAME_REFERENCE, info, idx);
 
@@ -849,7 +849,7 @@ xqc_encoder_write_efs(xqc_encoder_t *enc, xqc_field_section_t *fs, xqc_var_buf_t
                 ret = xqc_rep_write_literal_with_name_ref(buf, info->never, info->ref_table, idx,
                                                           info->hdr->value.iov_len,
                                                           info->hdr->value.iov_base);
-                xqc_log(enc->log, XQC_LOG_DEBUG, "|write literal_with_name_ref|index:%d|", idx);
+                xqc_log(enc->log, XQC_LOG_DEBUG, "|write literal_with_name_ref|index:%ui|", idx);
                 xqc_log_event(enc->log, QPACK_HEADERS_ENCODED, XQC_LOG_HEADER_BLOCK,
                               XQC_REP_TYPE_NAME_REFERENCE, info, idx);
             }
@@ -857,13 +857,13 @@ xqc_encoder_write_efs(xqc_encoder_t *enc, xqc_field_section_t *fs, xqc_var_buf_t
         } else {
             if (pb == XQC_TRUE) {
                 ret = xqc_rep_write_indexed_pb(buf, idx);
-                xqc_log(enc->log, XQC_LOG_DEBUG, "|write indexed_pb|index:%d|", idx);
+                xqc_log(enc->log, XQC_LOG_DEBUG, "|write indexed_pb|index:%ui|", idx);
                 xqc_log_event(enc->log, QPACK_HEADERS_ENCODED, XQC_LOG_HEADER_BLOCK,
                               XQC_REP_TYPE_POST_BASE_INDEXED, info, idx);
 
             } else {
                 ret = xqc_rep_write_indexed(buf, info->ref_table, idx);
-                xqc_log(enc->log, XQC_LOG_DEBUG, "|write indexed|index:%d|", idx);
+                xqc_log(enc->log, XQC_LOG_DEBUG, "|write indexed|index:%ui|", idx);
                 xqc_log_event(enc->log, QPACK_HEADERS_ENCODED, XQC_LOG_HEADER_BLOCK,
                               XQC_REP_TYPE_INDEXED, info, idx);
             }
@@ -958,7 +958,7 @@ fail:
 xqc_int_t
 xqc_encoder_section_ack(xqc_encoder_t *enc, uint64_t stream_id)
 {
-    xqc_log(enc->log, XQC_LOG_DEBUG, "|on section ack|stream_id:%d|", stream_id);
+    xqc_log(enc->log, XQC_LOG_DEBUG, "|on section ack|stream_id:%ui|", stream_id);
 
     xqc_list_head_t *pos, *next;
     xqc_encoder_unack_section_t *section;
@@ -1020,7 +1020,7 @@ xqc_encoder_section_ack(xqc_encoder_t *enc, uint64_t stream_id)
 xqc_int_t
 xqc_encoder_cancel_stream(xqc_encoder_t *enc, uint64_t stream_id)
 {
-    xqc_log(enc->log, XQC_LOG_DEBUG, "|on stream cancel|stream_id:%d|", stream_id);
+    xqc_log(enc->log, XQC_LOG_DEBUG, "|on stream cancel|stream_id:%ui|", stream_id);
 
     xqc_list_head_t *pos, *next;
     enc->min_unack_index = XQC_INVALID_INDEX;
@@ -1078,7 +1078,7 @@ xqc_encoder_cancel_stream(xqc_encoder_t *enc, uint64_t stream_id)
 xqc_int_t
 xqc_encoder_increase_known_rcvd_count(xqc_encoder_t *enc, uint64_t increment)
 {
-    xqc_log(enc->log, XQC_LOG_DEBUG, "|on insert count increment|increment:%d|", increment);
+    xqc_log(enc->log, XQC_LOG_DEBUG, "|on insert count increment|increment:%ui|", increment);
 
     if (increment == 0) {
         xqc_log(enc->log, XQC_LOG_ERROR, "|increment equal 0||");
@@ -1116,7 +1116,7 @@ xqc_encoder_set_dtable_cap(xqc_encoder_t *enc, size_t cap)
         xqc_encoder_update_insert_len_limit(enc);
 
     } else {
-        xqc_log(enc->log, XQC_LOG_ERROR, "|set dtable cap error|ret:%d|cap:%ui|", ret, cap);
+        xqc_log(enc->log, XQC_LOG_ERROR, "|set dtable cap error|ret:%d|cap:%uz|", ret, cap);
     }
 
     return ret;

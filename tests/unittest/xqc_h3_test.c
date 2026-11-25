@@ -2312,9 +2312,13 @@ xqc_test_h3_peer_settings_batch(void)
         h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
             xqc_h3_test_settings_notify;
 
+        /*
+         * The Set Dynamic Table Capacity instruction of a maximum of 32
+         * can't be written: this connection has no encoder stream.
+         */
         const unsigned char core_failure[] = {
             XQC_H3_FRM_SETTINGS, 0x04, 0x08, 1,
-            XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY, 0,
+            XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY, 32,
         };
         CU_ASSERT(xqc_h3_stream_process_control(h3s,
                   (unsigned char *)core_failure, sizeof(core_failure))
@@ -2322,6 +2326,42 @@ xqc_test_h3_peer_settings_batch(void)
         CU_ASSERT(XQC_CONN_ERR_CODE(conn->conn_err) == H3_INTERNAL_ERROR);
         CU_ASSERT(capture.calls == 0);
         CU_ASSERT((h3c->flags & XQC_H3_CONN_FLAG_SETTINGS_RECVED) == 0);
+        xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
+    }
+
+    /*
+     * RFC 9204 Section 3.2.3: with a maximum of 0, before or in SETTINGS,
+     * the encoder sends no instruction, so SETTINGS succeeds without an
+     * encoder stream, and the capacity can't be raised.
+     */
+    {
+        xqc_connection_t *conn = NULL;
+        xqc_h3_conn_t *h3c = NULL;
+        xqc_h3_stream_t *h3s = xqc_h3_ctrl_test_setup(&conn, &h3c);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3s);
+        xqc_h3_test_settings_capture_t capture = {
+            .result = XQC_H3_SETTINGS_ACCEPT,
+        };
+        h3c->user_data = &capture;
+        h3c->h3_conn_callbacks.h3_conn_peer_extern_settings_notify =
+            xqc_h3_test_settings_notify;
+
+        const unsigned char zero_capacity[] = {
+            XQC_H3_FRM_SETTINGS, 0x02,
+            XQC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY, 0,
+        };
+        CU_ASSERT(xqc_h3_conn_set_qpack_dtable_cap(h3c, 4096)
+                  == -XQC_QPACK_STATE_ERROR);
+        CU_ASSERT(xqc_h3_stream_process_control(h3s,
+                  (unsigned char *)zero_capacity, sizeof(zero_capacity))
+                  == sizeof(zero_capacity));
+        CU_ASSERT(conn->conn_err == 0);
+        CU_ASSERT(capture.calls == 1);
+        CU_ASSERT(h3c->peer_h3_conn_settings.qpack_dec_max_table_capacity
+                  == 0);
+        CU_ASSERT(xqc_h3_conn_set_qpack_dtable_cap(h3c, 4096)
+                  == -XQC_QPACK_STATE_ERROR);
+        CU_ASSERT(xqc_h3_conn_set_qpack_dtable_cap(h3c, 0) == XQC_OK);
         xqc_h3_ctrl_test_teardown(h3s, h3c, conn);
     }
 

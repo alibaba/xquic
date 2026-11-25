@@ -889,6 +889,150 @@ xqc_qpack_test_field_section_limit()
 }
 
 
+/*
+ * The decoder receives the Set Dynamic Table Capacity instruction that the
+ * encoder wrote. Returns the capacity it carries.
+ */
+static uint64_t
+xqc_qpack_test_peer_max_sdtc(xqc_qpack_t *dec, xqc_var_buf_t *enc_ins)
+{
+    xqc_ins_enc_ctx_t  *ctx = xqc_ins_encoder_ctx_create();
+    uint64_t            cap = UINT64_MAX;
+    ssize_t             read;
+
+    CU_ASSERT_FATAL(ctx != NULL);
+    read = xqc_ins_parse_encoder(enc_ins->data, enc_ins->data_len, ctx);
+    if (read == enc_ins->data_len && ctx->state == XQC_INS_ES_STATE_FINISH
+        && ctx->type == XQC_INS_TYPE_ENC_SET_DTABLE_CAP)
+    {
+        cap = ctx->capacity.value;
+    }
+    xqc_ins_encoder_ctx_free(ctx);
+
+    read = xqc_qpack_process_encoder(dec, enc_ins->data, enc_ins->data_len);
+    CU_ASSERT(read == enc_ins->data_len);
+    xqc_var_buf_clear(enc_ins);
+    return cap;
+}
+
+/*
+ * The decoder receives the encoder's instructions, then decodes the field
+ * section of hdr. Returns its Required Insert Count.
+ */
+static uint64_t
+xqc_qpack_test_peer_max_decode(xqc_qpack_t *dec, xqc_var_buf_t *enc_ins,
+    xqc_var_buf_t *efs, xqc_http_header_t *hdr)
+{
+    xqc_rep_ctx_t      *ctx = xqc_qpack_create_req_ctx(0);
+    xqc_http_headers_t  out;
+    xqc_bool_t          blocked = XQC_FALSE;
+    uint64_t            ricnt;
+    ssize_t             read;
+
+    CU_ASSERT_FATAL(ctx != NULL);
+    read = xqc_qpack_process_encoder(dec, enc_ins->data, enc_ins->data_len);
+    CU_ASSERT(read == enc_ins->data_len);
+    xqc_var_buf_clear(enc_ins);
+
+    memset(&out, 0, sizeof(out));
+    read = xqc_qpack_dec_headers(dec, ctx, efs->data, efs->data_len, &out,
+                                 XQC_H3_MAX_FIELD_SECTION_SIZE, XQC_TRUE,
+                                 &blocked);
+    CU_ASSERT(read == efs->data_len);
+    CU_ASSERT(blocked == XQC_FALSE);
+    CU_ASSERT(out.count == 1);
+    if (out.count == 1) {
+        CU_ASSERT(out.headers[0].value.iov_len == hdr->value.iov_len
+                  && memcmp(out.headers[0].value.iov_base,
+                            hdr->value.iov_base, hdr->value.iov_len) == 0);
+    }
+    ricnt = xqc_qpack_get_req_rqrd_insert_cnt(ctx);
+
+    xqc_h3_headers_free(&out);
+    xqc_qpack_destroy_req_ctx(ctx);
+    xqc_var_buf_clear(efs);
+    return ricnt;
+}
+
+/*
+ * RFC 9204 Section 3.2.3: the encoder MUST NOT set a dynamic table capacity
+ * above the decoder's SETTINGS_QPACK_MAX_TABLE_CAPACITY, which is 0 until
+ * the SETTINGS is received, and sends no encoder instruction while it is 0.
+ * The decoder treats a capacity above its maximum as a connection error
+ * (Section 4.3.1).
+ */
+static void
+xqc_qpack_test_peer_max_dtable_cap()
+{
+    xqc_http_header_t   hdr = {
+        .name   = {.iov_base = "x-peer-max", .iov_len = 10},
+        .value  = {.iov_base = "inserted", .iov_len = 8},
+    };
+    xqc_http_headers_t  hdrs = {&hdr, 1, 1};
+    xqc_engine_t       *engine = test_create_engine();
+    xqc_var_buf_t      *enc_ins = xqc_var_buf_create(256);
+    xqc_var_buf_t      *dec_ins = xqc_var_buf_create(256);
+    xqc_var_buf_t      *efs = xqc_var_buf_create(256);
+    xqc_ins_buf_t       ins_buf = {enc_ins, dec_ins};
+    xqc_qpack_t        *enc, *dec;
+    ssize_t             read;
+
+    CU_ASSERT_FATAL(engine != NULL && enc_ins != NULL && dec_ins != NULL
+                    && efs != NULL);
+
+    /* the encoder may use 4096 bytes, and the decoder announces 256 */
+    enc = xqc_qpack_create(4096, 4096, engine->log, &ins_cb, &ins_buf);
+    dec = xqc_qpack_create(4096, 256, engine->log, &ins_cb, &ins_buf);
+    CU_ASSERT_FATAL(enc != NULL && dec != NULL);
+    CU_ASSERT(xqc_qpack_set_max_blocked_stream(enc, 16) == XQC_OK);
+
+    /* before the decoder's SETTINGS, its maximum is 0 */
+    CU_ASSERT(xqc_qpack_set_dtable_cap(enc, 4096) == -XQC_QPACK_STATE_ERROR);
+    CU_ASSERT(xqc_qpack_set_dtable_cap(enc, 0) == XQC_OK);
+    CU_ASSERT(enc_ins->data_len == 0);
+    read = xqc_qpack_process_encoder(dec, enc_ins->data, enc_ins->data_len);
+    CU_ASSERT(read == enc_ins->data_len);
+    xqc_var_buf_clear(enc_ins);
+
+    /* the decoder's SETTINGS: a larger capacity is lowered to 256 */
+    CU_ASSERT(xqc_qpack_set_enc_max_dtable_cap(enc, 256) == XQC_OK);
+    CU_ASSERT(xqc_qpack_set_dtable_cap(enc, 4096) == XQC_OK);
+    CU_ASSERT(xqc_qpack_test_peer_max_sdtc(dec, enc_ins) == 256);
+    CU_ASSERT(xqc_qpack_enc_headers(enc, 0, &hdrs, efs) == XQC_OK);
+    CU_ASSERT(xqc_qpack_test_peer_max_decode(dec, enc_ins, efs, &hdr) == 1);
+
+    /* a smaller capacity is kept, and the maximum is set only once */
+    CU_ASSERT(xqc_qpack_set_dtable_cap(enc, 128) == XQC_OK);
+    CU_ASSERT(xqc_qpack_test_peer_max_sdtc(dec, enc_ins) == 128);
+    CU_ASSERT(xqc_qpack_set_enc_max_dtable_cap(enc, 4096) != XQC_OK);
+    CU_ASSERT(xqc_qpack_set_dtable_cap(enc, 4096) == XQC_OK);
+    CU_ASSERT(xqc_qpack_test_peer_max_sdtc(dec, enc_ins) == 256);
+    xqc_qpack_destroy(enc);
+    xqc_qpack_destroy(dec);
+
+    /* the decoder's SETTINGS with a maximum of 0 */
+    enc = xqc_qpack_create(4096, 4096, engine->log, &ins_cb, &ins_buf);
+    dec = xqc_qpack_create(4096, 0, engine->log, &ins_cb, &ins_buf);
+    CU_ASSERT_FATAL(enc != NULL && dec != NULL);
+    CU_ASSERT(xqc_qpack_set_max_blocked_stream(enc, 16) == XQC_OK);
+    CU_ASSERT(xqc_qpack_set_enc_max_dtable_cap(enc, 0) == XQC_OK);
+
+    /* the capacity that the SETTINGS sets, then one larger than 0 */
+    CU_ASSERT(xqc_qpack_set_dtable_cap(enc, 0) == XQC_OK);
+    CU_ASSERT(xqc_qpack_set_dtable_cap(enc, 4096) == -XQC_QPACK_STATE_ERROR);
+    CU_ASSERT(enc_ins->data_len == 0);
+    CU_ASSERT(xqc_qpack_enc_headers(enc, 0, &hdrs, efs) == XQC_OK);
+    CU_ASSERT(xqc_qpack_test_peer_max_decode(dec, enc_ins, efs, &hdr) == 0);
+
+    xqc_qpack_destroy(enc);
+    xqc_qpack_destroy(dec);
+    xqc_var_buf_free(enc_ins);
+    xqc_var_buf_free(dec_ins);
+    xqc_var_buf_free(efs);
+    xqc_engine_destroy(engine);
+}
+
+
 static void
 xqc_qpack_test_blocked_field_section_limit()
 {
@@ -959,6 +1103,7 @@ xqc_qpack_test()
     xqc_test_min_ref();
     xqc_qpack_test_duplicate_work_limit();
     xqc_qpack_test_field_section_limit();
+    xqc_qpack_test_peer_max_dtable_cap();
     xqc_qpack_test_blocked_field_section_limit();
 }
 

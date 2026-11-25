@@ -74,10 +74,14 @@ xqc_int_t xqc_qpack_set_enc_max_dtable_cap(xqc_qpack_t *qpk, size_t max_cap);
 /**
  * @brief set ENCODER's dynamic table capacity, the final capacity will be negotiated. capacity of
  * the decoder's dynamic table is set after receiving peer's Set Dynamic Table Capacity instruction
+ * cap is limited to enc_max_cap and to the max_cap of
+ * xqc_qpack_set_enc_max_dtable_cap(), from peer's SETTINGS. Until max_cap is
+ * set, or if it is 0, no instruction is sent (RFC 9204 Section 3.2.3)
  * @param qpk, qpack instance
  * @param cap, the input cap
  * @return XQC_OK for suc; negative for failure. when there are still referred entries in dynamic 
  * table, set capacity might return error
+ * -XQC_QPACK_STATE_ERROR for a non-zero cap while peer's max_cap is 0
  */
 xqc_int_t xqc_qpack_set_dtable_cap(xqc_qpack_t *qpk, size_t cap);
 

@@ -749,9 +749,18 @@ xqc_bool_t xqc_h3_conn_is_ready_to_send_early_data(xqc_h3_conn_t *h3c);
 
 /**
  * @brief set the dynamic table capacity of an existing h3 connection
+ *
+ * The capacity is limited to qpack_enc_max_table_capacity and to the peer's
+ * SETTINGS_QPACK_MAX_TABLE_CAPACITY (RFC 9204 Section 3.2.3). The peer's
+ * maximum is 0 until its SETTINGS frame is received, which then sets the
+ * capacity to the lower of both maximums. While the peer's maximum is 0, no
+ * instruction is sent, and a non-zero capacity fails.
+ *
  * @param h3c h3 connection handler
  * @param capacity capacity of dynamic table, 0 for disable dynamic table 
- * @return XQC_OK for success, others for failure
+ * @return XQC_OK for success, others for failure, such as
+ * -XQC_QPACK_STATE_ERROR for a non-zero capacity while the peer's maximum
+ * is 0
  */
 XQC_EXPORT_PUBLIC_API
 xqc_int_t xqc_h3_conn_set_qpack_dtable_cap(xqc_h3_conn_t *h3c, size_t capacity);

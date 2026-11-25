@@ -588,7 +588,8 @@ typedef void (*xqc_datagram_acked_notify_pt)(xqc_connection_t *conn,
 
 /**
  * @brief the callback to notify application the MSS of QUIC datagrams. Note, 
- * the MSS of QUIC datagrams will never shrink. If the MSS is zero, it 
+ * the MSS of QUIC datagrams shrinks when the path MTU goes down, as when the
+ * peer moves to a new IP address. If the MSS is zero, it
  * means this connection does not support sending QUIC datagrams.
  * 
  * @param conn the connection handle

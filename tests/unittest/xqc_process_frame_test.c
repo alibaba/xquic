@@ -408,6 +408,171 @@ xqc_test_conn_close_reason_truncated(void)
 
 
 static void
+xqc_test_frame_packet_in(xqc_packet_in_t *packet_in, unsigned char *frame,
+    unsigned char *end)
+{
+    memset(packet_in, 0, sizeof(*packet_in));
+    packet_in->pi_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    packet_in->pos = frame;
+    packet_in->last = end;
+}
+
+
+/*
+ * Write a PATH_ABANDON frame (draft-ietf-quic-multipath-10 Section 7.2) for
+ * path ID 1 with a Reason Phrase Length of reason_len, followed by
+ * phrase_len bytes of Reason Phrase, and return the end of the frame.
+ */
+static unsigned char *
+xqc_test_put_path_abandon(unsigned char *p, uint64_t reason_len,
+    size_t phrase_len)
+{
+    p = xqc_put_varint(p, XQC_TRANS_FRAME_TYPE_MP_ABANDON);
+    p = xqc_put_varint(p, 1);           /* Path ID */
+    p = xqc_put_varint(p, 0x0f);        /* Error Code */
+    p = xqc_put_varint(p, reason_len);  /* Reason Phrase Length */
+    memset(p, 'r', phrase_len);         /* Reason Phrase */
+
+    return p + phrase_len;
+}
+
+
+void
+xqc_test_path_abandon_reason_phrase(void)
+{
+    /* from one byte past the end of the frame to the largest varint */
+    static const uint64_t past_end[] = {3, UINT32_MAX, XQC_VINT_MAX};
+    unsigned char frame[32];
+    unsigned char *end;
+    xqc_packet_in_t packet_in;
+    uint64_t path_id, error_code;
+    size_t i;
+
+    end = xqc_test_put_path_abandon(frame, 2, 2);
+    xqc_test_frame_packet_in(&packet_in, frame, end);
+    CU_ASSERT_EQUAL(xqc_parse_path_abandon_frame(&packet_in, &path_id,
+                                                 &error_code), XQC_OK);
+    CU_ASSERT_EQUAL(path_id, 1);
+    CU_ASSERT_EQUAL(error_code, 0x0f);
+    CU_ASSERT(packet_in.pos == end);
+    CU_ASSERT(packet_in.pi_frame_types & XQC_FRAME_BIT_PATH_ABANDON);
+
+    for (i = 0; i < sizeof(past_end) / sizeof(past_end[0]); i++) {
+        end = xqc_test_put_path_abandon(frame, past_end[i], 2);
+        xqc_test_frame_packet_in(&packet_in, frame, end);
+        CU_ASSERT_EQUAL(xqc_parse_path_abandon_frame(&packet_in, &path_id,
+                                                     &error_code),
+                        -XQC_EILLEGAL_FRAME);
+        CU_ASSERT(packet_in.pos == frame);
+        CU_ASSERT_FALSE(packet_in.pi_frame_types
+                        & XQC_FRAME_BIT_PATH_ABANDON);
+    }
+}
+
+
+/*
+ * A PATH_ABANDON whose Reason Phrase runs past the packet is a connection
+ * error, and its path ID is not abandoned.
+ */
+void
+xqc_test_path_abandon_reason_past_packet(void)
+{
+    unsigned char frame[32];
+    unsigned char *end;
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->enable_multipath = XQC_CONN_MP_ENABLED;
+    conn->conn_settings.multipath_version = XQC_MULTIPATH_10;
+    conn->local_max_path_id = XQC_DEFAULT_INIT_MAX_PATH_ID;
+
+    frame[0] = 0x01;    /* PING */
+    end = xqc_test_put_path_abandon(frame + 1, 64, 2);
+    xqc_test_frame_packet_in(&packet_in, frame, end);
+
+    CU_ASSERT_EQUAL(xqc_process_frames(conn, &packet_in),
+                    -XQC_EILLEGAL_FRAME);
+    CU_ASSERT(packet_in.pos <= packet_in.last);
+    CU_ASSERT_PTR_NULL(xqc_get_path_cid_set(&conn->scid_set, 1));
+    CU_ASSERT_PTR_NULL(xqc_get_path_cid_set(&conn->dcid_set, 1));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * The Length fields of CRYPTO and NEW_TOKEN are checked against the bytes
+ * left in the packet, as the Reason Phrase Length of CONNECTION_CLOSE is.
+ */
+void
+xqc_test_frame_length_past_packet(void)
+{
+    unsigned char crypto[] = {0x06, 0x00, 0x02, 'c', 'h'};
+    unsigned char crypto_short[] = {0x06, 0x00, 0x03, 'c', 'h'};
+    /* Length 2^62-1 */
+    unsigned char crypto_max[] = {0x06, 0x00, 0xff, 0xff, 0xff, 0xff,
+                                  0xff, 0xff, 0xff, 0xff, 'c', 'h'};
+    unsigned char new_token[] = {0x07, 0x02, 't', 'k'};
+    unsigned char new_token_short[] = {0x07, 0x03, 't', 'k'};
+    /* zeroed like the token buffer of a connection: the qlog prints it */
+    unsigned char token[XQC_MAX_TOKEN_LEN] = {0};
+    unsigned token_len;
+    xqc_stream_frame_t frame;
+    xqc_connection_t *conn;
+    xqc_packet_in_t packet_in;
+
+    conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+
+    memset(&frame, 0, sizeof(frame));
+    xqc_test_frame_packet_in(&packet_in, crypto, crypto + sizeof(crypto));
+    CU_ASSERT_EQUAL(xqc_parse_crypto_frame(&packet_in, conn, &frame),
+                    XQC_OK);
+    CU_ASSERT_EQUAL(frame.data_length, 2);
+    CU_ASSERT(frame.data != NULL && memcmp(frame.data, "ch", 2) == 0);
+    CU_ASSERT(packet_in.pos == crypto + sizeof(crypto));
+    xqc_free(frame.data);
+
+    memset(&frame, 0, sizeof(frame));
+    xqc_test_frame_packet_in(&packet_in, crypto_short,
+                             crypto_short + sizeof(crypto_short));
+    CU_ASSERT_EQUAL(xqc_parse_crypto_frame(&packet_in, conn, &frame),
+                    -XQC_EILLEGAL_FRAME);
+    CU_ASSERT_PTR_NULL(frame.data);
+    CU_ASSERT(packet_in.pos == crypto_short);
+
+    memset(&frame, 0, sizeof(frame));
+    xqc_test_frame_packet_in(&packet_in, crypto_max,
+                             crypto_max + sizeof(crypto_max));
+    CU_ASSERT_EQUAL(xqc_parse_crypto_frame(&packet_in, conn, &frame),
+                    -XQC_EILLEGAL_FRAME);
+    CU_ASSERT_PTR_NULL(frame.data);
+    CU_ASSERT(packet_in.pos == crypto_max);
+
+    token_len = sizeof(token);
+    xqc_test_frame_packet_in(&packet_in, new_token,
+                             new_token + sizeof(new_token));
+    CU_ASSERT_EQUAL(xqc_parse_new_token_frame(&packet_in, token, &token_len,
+                                              conn), XQC_OK);
+    CU_ASSERT_EQUAL(token_len, 2);
+    CU_ASSERT(memcmp(token, "tk", 2) == 0);
+    CU_ASSERT(packet_in.pos == new_token + sizeof(new_token));
+
+    token_len = sizeof(token);
+    xqc_test_frame_packet_in(&packet_in, new_token_short,
+                             new_token_short + sizeof(new_token_short));
+    CU_ASSERT_EQUAL(xqc_parse_new_token_frame(&packet_in, token, &token_len,
+                                              conn), -XQC_EILLEGAL_FRAME);
+    CU_ASSERT_EQUAL(token_len, sizeof(token));
+    CU_ASSERT(packet_in.pos == new_token_short);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+static void
 xqc_test_conn_close_frame_accepted(unsigned char *frame, size_t frame_len,
     xqc_pkt_type_t pkt_type, xqc_conn_type_t conn_type,
     xqc_conn_err_type_t expected_type)

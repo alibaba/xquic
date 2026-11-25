@@ -1395,6 +1395,10 @@ typedef struct xqc_conn_settings_s {
      */
     uint64_t                    enable_multipath;
     xqc_multipath_version_t     multipath_version;
+    /**
+     * initial_max_path_id transport parameter, 0 for the default (8). A
+     * value above 2^32-1 is reduced to 2^32-1.
+     */
     uint64_t                    init_max_path_id;
     uint64_t                    least_available_cid_count;
 

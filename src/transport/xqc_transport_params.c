@@ -789,10 +789,21 @@ static xqc_int_t
 xqc_decode_enable_multipath(xqc_transport_params_t *params, xqc_transport_params_type_t exttype,
     const uint8_t *p, const uint8_t *end, uint64_t param_type, uint64_t param_len)
 {
+    ssize_t nread;
+
     if (param_type == XQC_TRANSPORT_PARAM_INIT_MAX_PATH_ID_V10) {
+        /*
+         * draft-ietf-quic-multipath-10 Section 2: the value MUST NOT exceed
+         * 2^32-1. RFC 9000 Section 7.4: an invalid value is a connection
+         * error of type TRANSPORT_PARAMETER_ERROR.
+         */
+        nread = xqc_vint_read(p, end, &params->init_max_path_id);
+        if (nread < 0 || params->init_max_path_id > XQC_PATH_ID_MAX_VALUE) {
+            return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+        }
+
         params->enable_multipath = 1;
         params->multipath_version = XQC_MULTIPATH_10;
-        XQC_DECODE_VINT_VALUE(&params->init_max_path_id, p, end);
         return XQC_OK;
     }
     return XQC_OK;

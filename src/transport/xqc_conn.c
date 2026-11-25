@@ -384,6 +384,7 @@ xqc_server_set_conn_settings(xqc_engine_t *engine, const xqc_conn_settings_t *se
     }
 
     engine->default_conn_settings.simulate_ecn = settings->simulate_ecn;
+    engine->default_conn_settings.enable_ecn = settings->enable_ecn;
 
     /* compute effective blocked buffer limits (use default if not configured) */
     if (settings->max_blocked_buf_per_stream > 0) {
@@ -689,6 +690,15 @@ xqc_conn_set_ack_ext_local_settings(xqc_trans_settings_t *local_settings, const 
 {
     if (settings->extended_ack_features & XQC_ACK_EXT_FEATURE_BIT_RECV_TS) {
         local_settings->extended_ack_features = 2;
+        /*
+         * draft-smith-quic-receive-ts-01 Section 6: the features accepted in
+         * the peer's ACK_EXTENDED frames; the ECN Counts validate the marks
+         * of an endpoint with ECN enabled (RFC 9000 Section 13.4.2).
+         */
+        if (settings->enable_ecn) {
+            local_settings->extended_ack_features |=
+                XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT;
+        }
         local_settings->max_receive_timestamps_per_ack = settings->max_receive_timestamps_per_ack;
         local_settings->receive_timestamps_exponent = settings->receive_timestamps_exponent;
     }
@@ -1968,11 +1978,59 @@ xqc_conn_try_to_update_mss(xqc_connection_t *conn)
 }
 
 
+/*
+ * RFC 9000 Section 13.4.2: write a burst on a path with write_mmsg_ecn, the
+ * datagrams to mark ECT(0) first, in one call per codepoint. Returns the
+ * number of datagrams written, or the error of the first call.
+ */
+static ssize_t
+xqc_conn_write_mmsg_ecn(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    struct iovec *iov, int cnt)
+{
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    uint32_t marks = xqc_send_ctl_ecn_burst_marks(send_ctl, cnt);
+    ssize_t sent = 0, ret;
+
+    if (marks > 0) {
+        ret = conn->transport_cbs.write_mmsg_ecn(path->path_id, iov, marks,
+            (struct sockaddr *)path->peer_addr, path->peer_addrlen,
+            XQC_ECN_ECT_0, xqc_conn_get_user_data(conn));
+        if (ret <= 0) {
+            return ret;
+        }
+
+        send_ctl->ctl_ecn_burst_marked = ret;
+        sent = ret;
+        if ((uint32_t)ret < marks) {
+            return sent;
+        }
+    }
+
+    if (marks < (uint32_t)cnt) {
+        ret = conn->transport_cbs.write_mmsg_ecn(path->path_id, iov + marks,
+            cnt - marks, (struct sockaddr *)path->peer_addr,
+            path->peer_addrlen, XQC_ECN_NOT_ECT,
+            xqc_conn_get_user_data(conn));
+        if (ret < 0) {
+            return sent > 0 ? sent : ret;
+        }
+
+        sent += ret;
+    }
+
+    return sent;
+}
+
+
 ssize_t
 xqc_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, struct iovec *iov, int cnt)
 {
     ssize_t sent_size = 0;
     int sent_cnt = 0;
+
+    /* only write_mmsg_ecn marks the datagrams of a burst */
+    path->path_send_ctl->ctl_ecn_last_write = XQC_ECN_NOT_ECT;
+    path->path_send_ctl->ctl_ecn_burst_marked = 0;
     
     if (conn->pkt_filter_cb) {
 
@@ -2001,11 +2059,20 @@ xqc_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, struct iovec *iov, 
             sent_cnt = -XQC_EPACKET_FILETER_CALLBACK;
         }
 
-    } else if (conn->transport_cbs.write_mmsg_ex) {
-        sent_cnt = conn->transport_cbs.write_mmsg_ex(path->path_id, iov, cnt,
-                                                (struct sockaddr *)path->peer_addr,
-                                                path->peer_addrlen,
-                                                xqc_conn_get_user_data(conn));
+    } else if (conn->transport_cbs.write_mmsg_ex
+               || (conn->conn_settings.enable_ecn
+                   && conn->transport_cbs.write_mmsg_ecn))
+    {
+        if (conn->conn_settings.enable_ecn
+            && conn->transport_cbs.write_mmsg_ecn)
+        {
+            sent_cnt = xqc_conn_write_mmsg_ecn(conn, path, iov, cnt);
+
+        } else {
+            sent_cnt = conn->transport_cbs.write_mmsg_ex(path->path_id, iov,
+                cnt, (struct sockaddr *)path->peer_addr, path->peer_addrlen,
+                xqc_conn_get_user_data(conn));
+        }
 
         if (sent_cnt < 0) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|error send mmsg|");
@@ -2186,6 +2253,10 @@ xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, ssize_t 
                 xqc_pacing_on_packet_sent(&send_ctl->ctl_pacing, packet_out->po_used_size);
             }
 
+            /* the codepoint of its datagram in the burst */
+            send_ctl->ctl_ecn_last_write =
+                (uint32_t)remove_count < send_ctl->ctl_ecn_burst_marked
+                ? XQC_ECN_ECT_0 : XQC_ECN_NOT_ECT;
             xqc_send_ctl_on_packet_sent(send_ctl, pn_ctl, packet_out, now);
             xqc_path_send_buffer_remove(path, packet_out);
             if (XQC_IS_ACK_ELICITING(packet_out->po_frame_types)) {
@@ -2574,11 +2645,40 @@ xqc_conn_enc_packet(xqc_connection_t *conn,
 }
 
 
+static inline xqc_bool_t
+xqc_conn_write_with_ecn(xqc_connection_t *conn)
+{
+    return conn->conn_settings.enable_ecn
+           && conn->transport_cbs.write_socket_ecn != NULL;
+}
+
+
+/* write a datagram on a path, with its ECN codepoint if ECN is enabled */
+static ssize_t
+xqc_conn_write_socket_ex(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    unsigned char *data, unsigned int len)
+{
+    if (xqc_conn_write_with_ecn(conn)) {
+        return conn->transport_cbs.write_socket_ecn(path->path_id, data, len,
+            (struct sockaddr *)path->peer_addr, path->peer_addrlen,
+            xqc_send_ctl_ecn_on_write(path->path_send_ctl),
+            xqc_conn_get_user_data(conn));
+    }
+
+    return conn->transport_cbs.write_socket_ex(path->path_id, data, len,
+        (struct sockaddr *)path->peer_addr, path->peer_addrlen,
+        xqc_conn_get_user_data(conn));
+}
+
+
 /* send data with callback, and process callback errors */
 ssize_t
 xqc_send(xqc_connection_t *conn, xqc_path_ctx_t *path, unsigned char *data, unsigned int len)
 {
     ssize_t sent = -XQC_ESOCKET;
+
+    /* only write_socket_ecn marks a datagram */
+    path->path_send_ctl->ctl_ecn_last_write = XQC_ECN_NOT_ECT;
 
     if (conn->pkt_filter_cb) {
         sent = conn->pkt_filter_cb(data, len, (struct sockaddr *)conn->peer_addr,
@@ -2611,11 +2711,8 @@ xqc_send(xqc_connection_t *conn, xqc_path_ctx_t *path, unsigned char *data, unsi
         return sent;
     }
     
-    if (conn->transport_cbs.write_socket_ex) {
-        sent = conn->transport_cbs.write_socket_ex(path->path_id, data, len,
-                                                   (struct sockaddr *)path->peer_addr,
-                                                   path->peer_addrlen,
-                                                   xqc_conn_get_user_data(conn));
+    if (conn->transport_cbs.write_socket_ex || xqc_conn_write_with_ecn(conn)) {
+        sent = xqc_conn_write_socket_ex(conn, path, data, len);
         if (sent != len) {
             xqc_log(conn->log, XQC_LOG_ERROR,
                     "|write_socket error|conn:%p|size:%ud|sent:%z|", conn, len, sent);
@@ -4585,6 +4682,7 @@ xqc_conn_buff_undecrypt_packet_in(xqc_packet_in_t *packet_in,
     new_packet->pos = (unsigned char *)new_packet->buf + (packet_in->pos - packet_in->buf);
     new_packet->last = (unsigned char *)new_packet->buf + (packet_in->last - packet_in->buf);
     new_packet->pkt_recv_time = packet_in->pkt_recv_time;
+    new_packet->pi_ecn = packet_in->pi_ecn;
 
     xqc_list_add_tail(&new_packet->pi_list, &conn->undecrypt_packet_in[encrypt_level]);
     conn->undecrypt_count[encrypt_level]++;
@@ -4611,7 +4709,10 @@ xqc_conn_process_undecrypt_packet_in(xqc_connection_t *conn, xqc_encrypt_level_t
         xqc_log_event(conn->log, TRA_DATAGRAMS_RECEIVED, packet_in->buf_size, packet_in->pi_path_id);
         xqc_log(conn->log, XQC_LOG_DEBUG, "|delay|undecrypt_count:%ud|encrypt_level:%d|",
                 conn->undecrypt_count[encrypt_level], encrypt_level);
-        ret = xqc_conn_process_packet(conn, packet_in->buf, packet_in->buf_size, packet_in->pkt_recv_time);       
+        ret = xqc_conn_process_packet_ecn(conn, packet_in->buf,
+                                          packet_in->buf_size,
+                                          packet_in->pkt_recv_time,
+                                          packet_in->pi_ecn);
         if (ret) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|xqc_packet_process error|ret:%d|", ret);
             return ret;
@@ -4872,6 +4973,26 @@ xqc_conn_record_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
 
     range_status = xqc_recv_record_add(&pn_ctl->ctl_recv_record[pns], pkt_num);
     if (range_status == XQC_PKTRANGE_OK) {
+        /*
+         * RFC 9000 Section 13.4.1: count the ECN codepoint of each packet
+         * that is not a duplicate. Section 13.2.1: acknowledge a packet
+         * marked CE immediately, as an out-of-order one.
+         */
+        switch (packet_in->pi_ecn) {
+        case XQC_ECN_ECT_0:
+            pn_ctl->ctl_ecn_recv[pns].ect0++;
+            break;
+        case XQC_ECN_ECT_1:
+            pn_ctl->ctl_ecn_recv[pns].ect1++;
+            break;
+        case XQC_ECN_CE:
+            pn_ctl->ctl_ecn_recv[pns].ce++;
+            out_of_order = 1;
+            break;
+        default:
+            break;
+        }
+
         if (XQC_IS_ACK_ELICITING(packet_in->pi_frame_types)) {
             ++send_ctl->ctl_ack_eliciting_pkt[pns];
 
@@ -5153,6 +5274,16 @@ xqc_conn_process_packet(xqc_connection_t *c,
     const unsigned char *packet_in_buf, size_t packet_in_size, 
     xqc_usec_t recv_time)
 {
+    return xqc_conn_process_packet_ecn(c, packet_in_buf, packet_in_size,
+                                       recv_time, c->engine->recv_ecn);
+}
+
+
+xqc_int_t
+xqc_conn_process_packet_ecn(xqc_connection_t *c,
+    const unsigned char *packet_in_buf, size_t packet_in_size,
+    xqc_usec_t recv_time, uint8_t ecn)
+{
     xqc_int_t ret = XQC_OK;
     const unsigned char *last_pos = NULL;
     const unsigned char *pos = packet_in_buf;                   /* start of QUIC pkt */
@@ -5172,6 +5303,7 @@ xqc_conn_process_packet(xqc_connection_t *c,
         memset(packet_in, 0, sizeof(*packet_in));
         xqc_packet_in_init(packet_in, pos, end - pos, decrypt_payload, XQC_MAX_PACKET_IN_LEN, recv_time);
         packet_in->datagram_size = packet_in_size;
+        packet_in->pi_ecn = ecn;
 
         packet_in->pi_path_id = XQC_UNKNOWN_PATH_ID;
 
@@ -6418,6 +6550,13 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
             && conn->remote_settings.max_receive_timestamps_per_ack > 0)
     {
         conn->conn_settings.extended_ack_features = 2;
+        /* draft-smith-quic-receive-ts-01 Section 6: if the peer accepts them */
+        if (conn->remote_settings.extended_ack_features
+            & XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT)
+        {
+            conn->conn_settings.extended_ack_features |=
+                XQC_ACK_EXT_FEATURE_BIT_ENC_COUNT;
+        }
         conn->conn_settings.max_receive_timestamps_per_ack =
             conn->remote_settings.max_receive_timestamps_per_ack;
         conn->conn_settings.receive_timestamps_exponent =

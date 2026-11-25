@@ -122,7 +122,8 @@ xqc_test_ack_with_timestamp_no_buf_space()
     xqc_pn_ctl_t *pn_ctl = xqc_get_pn_ctl(conn, path);
 
     ret = xqc_gen_ack_ext_frame(conn, packet_out, now, conn->local_settings.ack_delay_exponent,
-                            &pn_ctl->ctl_recv_record[XQC_PNS_APP_DATA], path->path_send_ctl->ctl_largest_recv_time[XQC_PNS_APP_DATA],
+                            &pn_ctl->ctl_recv_record[XQC_PNS_APP_DATA], NULL,
+        path->path_send_ctl->ctl_largest_recv_time[XQC_PNS_APP_DATA],
                             &has_gap, &largest_ack, path->recv_ts_info);
 
     CU_ASSERT(ret == -XQC_ENOBUF);

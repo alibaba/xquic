@@ -4,7 +4,7 @@
 /setup.sh
 
 case $TESTCASE in
-    versionnegotiation|handshake|longrtt|transfer|zerortt|multiconnect|chacha20|resumption|http3|retry|keyupdate|mphandshake|mptransfer|mppathabandon|mppathstatus)
+    versionnegotiation|handshake|longrtt|transfer|zerortt|multiconnect|chacha20|resumption|http3|retry|keyupdate|ecn|mphandshake|mptransfer|mppathabandon|mppathstatus)
         :
         ;;
     *)
@@ -67,6 +67,10 @@ if [ "$ROLE" == "client" ]; then
     elif [ "$TESTCASE" == "keyupdate" ]; then
         echo "./demo_client $ARGS -U $REQUESTS -u 30"
         ./demo_client $ARGS -U "$REQUESTS" -u 30
+
+    elif [ "$TESTCASE" == "ecn" ]; then
+        echo "./demo_client $ARGS -U $REQUESTS -3"
+        ./demo_client $ARGS -U "$REQUESTS" -3
     
     elif [ "$TESTCASE" == "mphandshake" ] || [ "$TESTCASE" == "mptransfer" ]; then
         echo "./demo_client $ARGS -U $REQUESTS -M -i eth0 -i eth0 -w 3000"
@@ -99,6 +103,10 @@ elif [ "$ROLE" == "server" ]; then
     if [ "$TESTCASE" = "retry" ]; then
         ARGS="$ARGS -r"
         echo "Retry test: adding -r flag"
+    fi
+
+    if [ "$TESTCASE" = "ecn" ]; then
+        ARGS="$ARGS -3"
     fi
 
     echo "./demo_server $ARGS"

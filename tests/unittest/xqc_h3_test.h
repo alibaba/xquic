@@ -67,6 +67,9 @@ void xqc_test_h3_data_before_headers_rejected();
 void xqc_test_h3_server_reserved_request_frame_accepted();
 void xqc_test_h3_server_push_promise_rejected();
 
+/* RFC 9114 §7.2.8, §9: a reserved frame before the request FIN */
+void xqc_test_h3_reserved_frame_before_fin();
+
 /* issue #746: RFC 9114 §4.2 forbidden connection-specific headers */
 void xqc_test_h3_message_error_enum();
 void xqc_test_h3_forbidden_headers_rejected();

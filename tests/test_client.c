@@ -98,6 +98,7 @@ printf_null(const char *format, ...)
 #define XQC_TEST_CASE_H3_GOAWAY_INCREASE 1018
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_VALID 1019
 #define XQC_TEST_CASE_H3_PSEUDO_HEADER_ORDER_INVALID 1020
+#define XQC_TEST_CASE_MP_MIGRATION_DISABLED 1326
 #define XQC_TEST_CASE_H3_DATA_BEFORE_HEADERS 1021
 #define XQC_TEST_CASE_H3_CUSTOM_SETTINGS_ACCEPT 1026
 #define XQC_TEST_CASE_H3_CUSTOM_SETTINGS_REJECT 1027
@@ -3041,6 +3042,16 @@ xqc_client_h3_conn_handshake_finished(xqc_h3_conn_t *h3_conn, void *user_data)
 
     if (g_enable_multipath) {
         printf("transport_parameter:enable_multipath=%d\n", stats.enable_multipath);
+    }
+
+    /* RFC 10069 Section 2.2: no new path after disable_active_migration */
+    if (g_test_case == XQC_TEST_CASE_MP_MIGRATION_DISABLED) {
+        uint64_t path_id = 0;
+        int ret = xqc_conn_create_path(p_ctx->engine, &user_conn->cid,
+                                       &path_id, 0);
+        printf("[mp-migration-disabled]|remote:%d|create_path:%d|\n",
+               (int) h3_conn->conn->remote_settings.disable_active_migration,
+               ret);
     }
 
     printf("====>DCID:%s\n", xqc_dcid_str_by_scid(p_ctx->engine, &user_conn->cid));

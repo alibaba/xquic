@@ -1393,6 +1393,131 @@ xqc_test_mp_new_cid_rejected_without_cid_set()
 
 
 /*
+ * Give path_id what xqc_conn_create_path() needs: an acknowledged unused
+ * connection ID of ours and an unused one from the peer.
+ */
+static void
+xqc_test_mp_provision_path(xqc_connection_t *conn, uint64_t path_id)
+{
+    xqc_cid_set_inner_t *scid_set;
+
+    CU_ASSERT_FATAL(xqc_write_mp_new_conn_id_frame_to_packet(conn, 0, path_id)
+                    == XQC_OK);
+    scid_set = xqc_get_path_cid_set(&conn->scid_set, path_id);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(scid_set);
+    xqc_cid_set_on_cid_acked(&conn->scid_set, path_id,
+                             scid_set->largest_scid_seq_num);
+    CU_ASSERT_FATAL(xqc_test_cid_recv_mp_new_cid(conn, path_id, 0, 0)
+                    == XQC_OK);
+}
+
+
+/*
+ * RFC 10069 Section 2.2: without the peer's disable_active_migration,
+ * xqc_conn_create_path() opens path ID 1 and challenges it.
+ */
+void
+xqc_test_mp_create_path_peer_allows()
+{
+    uint64_t            path_id = 0;
+    xqc_connection_t   *conn;
+    xqc_path_ctx_t     *path;
+
+    conn = xqc_test_mp_cid_conn(2, 2);
+    conn->remote_settings.disable_active_migration = 0;
+    xqc_test_mp_provision_path(conn, 1);
+
+    CU_ASSERT(xqc_conn_create_path(conn->engine, &conn->scid_set.user_scid,
+                                   &path_id, 0) == XQC_OK);
+    CU_ASSERT(path_id == 1);
+    path = xqc_conn_find_path_by_path_id(conn, 1);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    CU_ASSERT(path->path_state == XQC_PATH_STATE_VALIDATING);
+    CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                  XQC_FRAME_BIT_PATH_CHALLENGE) == 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * RFC 10069 Section 2.2: after the peer's disable_active_migration, no new
+ * path to its handshake address, where every path of xqc_conn_create_path()
+ * goes. The refusal comes before the search for a path ID: it sends nothing,
+ * keeps path ID 1 and its connection IDs unused, does not make the
+ * application wait for connection IDs, and keeps the connection.
+ */
+void
+xqc_test_mp_create_path_migration_disabled()
+{
+    uint64_t            path_id = XQC_MAX_UINT64_VALUE;
+    xqc_bool_t          provisioned;
+    xqc_connection_t   *conn;
+
+    for (provisioned = XQC_FALSE; provisioned <= XQC_TRUE; provisioned++) {
+        conn = xqc_test_mp_cid_conn(2, 2);
+        conn->remote_settings.disable_active_migration = 1;
+        if (provisioned) {
+            xqc_test_mp_provision_path(conn, 1);
+        }
+
+        CU_ASSERT(xqc_conn_create_path(conn->engine,
+                                       &conn->scid_set.user_scid,
+                                       &path_id, 0)
+                  == -XQC_EMP_PATH_NOT_ALLOWED);
+        CU_ASSERT(path_id == XQC_MAX_UINT64_VALUE);
+        CU_ASSERT(xqc_conn_find_path_by_path_id(conn, 1) == NULL);
+        CU_ASSERT(conn->create_path_count == 1);
+        CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 1)->set_state
+                  == XQC_CID_SET_UNUSED);
+        CU_ASSERT(xqc_cid_set_get_unused_cnt(&conn->dcid_set, 1)
+                  == (provisioned ? 1 : 0));
+        CU_ASSERT(xqc_test_cid_packets_with_frame(conn,
+                      XQC_FRAME_BIT_PATH_CHALLENGE) == 0);
+        CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_MP_WAIT_MP_READY) == 0);
+        CU_ASSERT(conn->conn_initial_path->path_state
+                  == XQC_PATH_STATE_ACTIVE);
+        CU_ASSERT(conn->conn_err == 0);
+
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+/*
+ * RFC 10069 Section 2.2: multipath is still negotiated with a peer that
+ * sent disable_active_migration, but the application is not invited to
+ * open a path (no ready_to_create_path_notify).
+ */
+void
+xqc_test_mp_ready_notify_migration_disabled()
+{
+    xqc_flag_t          disabled;
+    xqc_connection_t   *conn;
+
+    for (disabled = 0; disabled <= 1; disabled++) {
+        conn = test_engine_connect();
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        conn->local_settings.enable_multipath = 1;
+        conn->remote_settings.enable_multipath = 1;
+        conn->local_settings.multipath_version = XQC_MULTIPATH_10;
+        conn->remote_settings.multipath_version = XQC_MULTIPATH_10;
+        conn->local_settings.init_max_path_id = 2;
+        conn->remote_settings.init_max_path_id = 2;
+        conn->remote_settings.disable_active_migration = disabled;
+
+        CU_ASSERT(xqc_conn_try_to_enable_multipath(conn) == XQC_OK);
+        CU_ASSERT(conn->enable_multipath == XQC_CONN_MP_ENABLED);
+        CU_ASSERT(conn->curr_max_path_id == 2);
+        CU_ASSERT(((conn->conn_flag & XQC_CONN_FLAG_MP_WAIT_MP_READY) != 0)
+                  == !disabled);
+
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+
+/*
  * draft-ietf-quic-multipath-10 Section 3.3: an abandoned path ID MUST NOT be
  * reused, and Section 3.3.4 lets the peer abandon a path ID that no path
  * used. With our limit at 8 and the peer's at 0, the peer abandons path ID 1

@@ -4461,7 +4461,8 @@ xqc_conn_try_to_enable_multipath(xqc_connection_t *conn)
         conn->enable_multipath = 0;
     }
 
-    if (conn->enable_multipath) {
+    /* an endpoint that may open no path is never ready to create one */
+    if (conn->enable_multipath && xqc_conn_may_open_paths(conn)) {
         conn->conn_flag |= XQC_CONN_FLAG_MP_WAIT_MP_READY;
     }
 

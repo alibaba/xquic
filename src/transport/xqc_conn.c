@@ -2180,8 +2180,8 @@ xqc_on_packets_send_burst(xqc_connection_t *conn, xqc_path_ctx_t *path, ssize_t 
 
         if (xqc_has_packet_number(&packet_out->po_pkt)) {
             /* count packets with pkt_num in the send control */
-            if (XQC_CAN_IN_FLIGHT(packet_out->po_frame_types 
-                && xqc_pacing_is_on(&send_ctl->ctl_pacing)))
+            if (XQC_CAN_IN_FLIGHT(packet_out->po_frame_types)
+                && xqc_pacing_is_on(&send_ctl->ctl_pacing))
             {
                 xqc_pacing_on_packet_sent(&send_ctl->ctl_pacing, packet_out->po_used_size);
             }

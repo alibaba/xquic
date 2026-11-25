@@ -23,6 +23,7 @@ void xqc_test_conn_open_path_perf_class(void);
 /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */
 void xqc_test_conn_tls_error_cb_constructs_crypto_error();
 void xqc_test_conn_crypto_error_base_value();
+void xqc_test_burst_pacing_charges_in_flight_only(void);
 void xqc_test_transport_error_code_passthrough(void);
 void xqc_test_0rtt_error_wire_codes(void);
 void xqc_test_conn_close_transport_crypto_namespace(void);

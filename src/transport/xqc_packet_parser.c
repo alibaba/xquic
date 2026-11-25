@@ -972,7 +972,8 @@ xqc_conn_gen_retry_integrity_tag(xqc_connection_t *conn, const uint8_t *odcid_bu
     uint8_t pseudo_buf[RETRY_PSEUDO_PACKET_SIZE] = {0};
     size_t pseudo_len = sizeof(uint8_t) + odcid_len + retry_len;
     uint8_t *dst_buf = pseudo_buf;
-    if (retry_len + odcid_len > RETRY_PSEUDO_PACKET_SIZE) {
+    /* ODCID Length, ODCID and the Retry packet without its tag */
+    if (pseudo_len > RETRY_PSEUDO_PACKET_SIZE) {
         xqc_log(conn->log, XQC_LOG_ERROR,
                 "|xqc_tls_gen_retry_integrity_tag length invalid|retry_len:%d|odcid_len:%d|",
                 retry_len, odcid_len);

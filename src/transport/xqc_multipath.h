@@ -166,6 +166,12 @@ struct xqc_path_ctx_s {
     /* PTMUD */
     size_t              curr_pkt_out_size;
     size_t              path_max_pkt_out_size;
+    /*
+     * RFC 9000 Section 8.2.1: a PATH_CHALLENGE of the path went out in a
+     * datagram smaller than 1200 bytes, so its validation leaves the path
+     * MTU to validate
+     */
+    xqc_bool_t          path_challenge_unpadded;
 
     /* 
      * Record pkt receive timestamp info. Null if local 

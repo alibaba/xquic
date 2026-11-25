@@ -321,7 +321,7 @@ xqc_mini_cli_save_session_cb(const char * data, size_t data_len, void *user_data
     printf("[stats] start save_session_cb. \n");
 
     FILE * fp  = fopen(SESSION_TICKET_FILE, "wb");
-    if (fp < 0) {
+    if (fp == NULL) {
         printf("save session error %s\n", strerror(get_sys_errno()));
         return;
     }
@@ -344,7 +344,7 @@ xqc_mini_cli_save_tp_cb(const char * data, size_t data_len, void * user_data)
     printf("[stats] start save_tp_cb\n");
 
     FILE * fp = fopen(TRANSPORT_PARAMS_FILE, "wb");
-    if (fp < 0) {
+    if (fp == NULL) {
         printf("save transport callback error %s\n", strerror(get_sys_errno()));
         return;
     }

@@ -18,6 +18,7 @@
 
 #include "xqc_common_test.h"
 #include "xqc_h3_test.h"
+#include "xqc_alloc_wrap.h"
 
 
 ssize_t xqc_h3_stream_write_data_to_buffer(xqc_h3_stream_t *h3s, unsigned char *data, uint64_t data_size, uint8_t fin);
@@ -897,6 +898,108 @@ xqc_test_h3_push_stream_error_codes()
     xqc_test_h3_push_stream_rejected(XQC_CONN_TYPE_SERVER,
             H3_STREAM_CREATION_ERROR);
 }
+
+
+#ifdef XQC_TEST_ALLOC_WRAP
+
+static ssize_t
+xqc_test_h3_count_write(const unsigned char *buf, size_t size,
+    const struct sockaddr *peer_addr, socklen_t peer_addrlen, void *user_data)
+{
+    return size;
+}
+
+static void
+xqc_test_h3_count_set_timer(xqc_msec_t wake_after, void *user_data)
+{
+}
+
+/*
+ * cli_bidi_streams counts the client-initiated bidirectional streams of a
+ * connection. Each allocation that xqc_h3_request_create() makes on an h3
+ * client connection fails in turn (xqc_alloc_wrap.h): a creation that
+ * fails gives the application no stream and counts none, the one in which
+ * nothing fails counts one. A byte stream, which a connection without the
+ * h3 extension refuses, counts none either.
+ */
+void
+xqc_test_h3_request_create_stream_count(void)
+{
+    long                        n;
+    uint32_t                    count;
+    const xqc_cid_t            *cid;
+    xqc_engine_t               *engine;
+    xqc_connection_t           *conn;
+    xqc_h3_request_t           *h3r;
+    xqc_h3_callbacks_t          h3_cbs;
+    xqc_conn_settings_t         settings;
+    xqc_conn_ssl_config_t       conn_ssl;
+    xqc_engine_ssl_config_t     ssl;
+    xqc_engine_callback_t       cb = {
+        .log_callbacks = xqc_null_log_cb,
+        .set_event_timer = xqc_test_h3_count_set_timer,
+    };
+    xqc_transport_callbacks_t   tcbs = {
+        .write_socket = xqc_test_h3_count_write,
+    };
+
+    memset(&ssl, 0, sizeof(ssl));
+    ssl.ciphers = XQC_TLS_CIPHERS;
+    ssl.groups = XQC_TLS_GROUPS;
+    engine = xqc_engine_create(XQC_ENGINE_CLIENT, NULL, &ssl, &cb, &tcbs,
+                               NULL);
+    CU_ASSERT_FATAL(engine != NULL);
+
+    memset(&h3_cbs, 0, sizeof(h3_cbs));
+    CU_ASSERT_FATAL(xqc_h3_ctx_init(engine, &h3_cbs) == XQC_OK);
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl, 0, sizeof(conn_ssl));
+    cid = xqc_h3_connect(engine, &settings, NULL, 0, "", 0, &conn_ssl,
+                         NULL, 0, NULL);
+    CU_ASSERT_FATAL(cid != NULL);
+    conn = xqc_engine_conns_hash_find(engine, cid, 's');
+    CU_ASSERT_FATAL(conn != NULL);
+
+    for (n = 1; n < 1000; n++) {
+        count = conn->cli_bidi_streams;
+        xqc_test_alloc_failed = 0;
+        xqc_test_alloc_fail_at = n;
+        xqc_test_alloc_count = 0;
+        h3r = xqc_h3_request_create(engine, cid, NULL, NULL);
+        xqc_test_alloc_count = -1;
+
+        if (h3r == NULL) {
+            CU_ASSERT(xqc_test_alloc_failed);
+            CU_ASSERT(conn->cli_bidi_streams == count);
+            continue;
+        }
+
+        CU_ASSERT(conn->cli_bidi_streams == count + 1);
+        if (!xqc_test_alloc_failed) {
+            /* nothing failed: the request was created */
+            break;
+        }
+    }
+    CU_ASSERT(n > 1 && n < 1000);
+
+    count = conn->cli_bidi_streams;
+    CU_ASSERT(xqc_h3_ext_bytestream_create(engine, cid, NULL) == NULL);
+    CU_ASSERT(conn->cli_bidi_streams == count);
+
+    xqc_engine_destroy(engine);
+}
+
+#else
+
+void
+xqc_test_h3_request_create_stream_count(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+#endif
 
 
 /*

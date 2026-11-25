@@ -211,6 +211,8 @@ xqc_h3_ext_bytestream_create(xqc_engine_t *engine,
 
     if (!(h3_conn->flags & XQC_H3_CONN_FLAG_EXT_ENABLED)) {
         // it is safe to destroy the stream here, as it is not notified to upper layer.
+        /* no byte stream uses the stream xqc_stream_create() counted */
+        stream->stream_conn->cli_bidi_streams--;
         xqc_destroy_stream(stream);
         xqc_log(engine->log, XQC_LOG_ERROR, "|try to create bytestream while it is disabled on the connection|");
         return NULL;
@@ -219,6 +221,8 @@ xqc_h3_ext_bytestream_create(xqc_engine_t *engine,
     h3_stream = xqc_h3_stream_create(h3_conn, stream, XQC_H3_STREAM_TYPE_BYTESTEAM, user_data);
     if (!h3_stream) {
         // it is safe to destroy the stream here, as it is not notified to upper layer.
+        /* no byte stream uses the stream xqc_stream_create() counted */
+        stream->stream_conn->cli_bidi_streams--;
         xqc_destroy_stream(stream);
         xqc_log(engine->log, XQC_LOG_ERROR, "|xqc_h3_stream_create error|");
         return NULL;
@@ -227,6 +231,8 @@ xqc_h3_ext_bytestream_create(xqc_engine_t *engine,
     h3_ext_bs = xqc_h3_ext_bytestream_create_inner(h3_conn, h3_stream, user_data);
     if (!h3_ext_bs) {
         // it is safe to destroy the stream here, as it is not notified to upper layer.
+        /* no byte stream uses the stream xqc_stream_create() counted */
+        stream->stream_conn->cli_bidi_streams--;
         xqc_destroy_stream(stream);
         // the h3_stream will be destroyed in the close_notify triggered by xqc_destroy_stream
         xqc_log(engine->log, XQC_LOG_ERROR, "|xqc_h3_ext_bytestream_create_inner error|");
@@ -238,6 +244,8 @@ xqc_h3_ext_bytestream_create(xqc_engine_t *engine,
     // the initiator of the bytestream should send bidi_stream_type frame
     if (xqc_h3_stream_send_bidi_stream_type(h3_stream, XQC_H3_BIDI_STREAM_TYPE_BYTESTREAM, 0) != XQC_OK) {
         // it is safe to destroy the stream here, as it is not notified to upper layer.
+        /* no byte stream uses the stream xqc_stream_create() counted */
+        stream->stream_conn->cli_bidi_streams--;
         xqc_destroy_stream(stream);
         // the h3_stream will be destroyed in the close_notify triggered by xqc_destroy_stream
         // the h3_ext_bytestream will be destroyed when h3_stream is destroyed

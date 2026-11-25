@@ -1363,6 +1363,68 @@ xqc_test_mp_new_cid_above_curr_max_path_id()
 
 
 /*
+ * Our connection ID sets cover the unused path IDs that connection IDs can
+ * be issued for, the lowest XQC_UNUSED_PATH_CID_SETS of them, whatever the
+ * limits allow (up to 2^32-1, draft-ietf-quic-multipath-10 Section 2).
+ */
+static void
+xqc_test_mp_cid_sets_unused(xqc_connection_t *conn, uint64_t first)
+{
+    uint64_t last = first + XQC_UNUSED_PATH_CID_SETS - 1;
+
+    CU_ASSERT_EQUAL(conn->scid_set.set_cnt[XQC_CID_SET_UNUSED],
+                    XQC_UNUSED_PATH_CID_SETS);
+    CU_ASSERT_EQUAL(conn->cid_sets_max_path_id, last);
+    CU_ASSERT_PTR_NOT_NULL(xqc_get_path_cid_set(&conn->scid_set, first));
+    CU_ASSERT_PTR_NOT_NULL(xqc_get_path_cid_set(&conn->scid_set, last));
+    CU_ASSERT_PTR_NOT_NULL(xqc_get_path_cid_set(&conn->dcid_set, last));
+    CU_ASSERT_PTR_NULL(xqc_get_path_cid_set(&conn->scid_set, last + 1));
+    CU_ASSERT_PTR_NULL(xqc_get_path_cid_set(&conn->dcid_set, last + 1));
+}
+
+
+/*
+ * With both limits at 2^32-1, the connection ID sets of the lowest unused
+ * path IDs are added, and those of the next path IDs once these are used or
+ * abandoned.
+ */
+void
+xqc_test_mp_cid_sets_largest_path_id_limit()
+{
+    uint64_t            path_id;
+    xqc_connection_t   *conn;
+
+    conn = xqc_test_mp_cid_conn(UINT32_MAX, UINT32_MAX);
+    CU_ASSERT(conn->curr_max_path_id == UINT32_MAX);
+    xqc_test_mp_cid_sets_unused(conn, 1);
+
+    /* path ID 1 used, 2 and 3 abandoned */
+    for (path_id = 1; path_id <= 3; path_id++) {
+        xqc_cid_set_update_state(&conn->scid_set, path_id,
+                                 path_id == 1 ? XQC_CID_SET_USED
+                                              : XQC_CID_SET_ABANDONED);
+        xqc_cid_set_update_state(&conn->dcid_set, path_id,
+                                 path_id == 1 ? XQC_CID_SET_USED
+                                              : XQC_CID_SET_ABANDONED);
+    }
+    CU_ASSERT(xqc_conn_try_add_new_conn_id(conn, 0) == XQC_OK);
+    xqc_test_mp_cid_sets_unused(conn, 4);
+
+    xqc_engine_destroy(conn->engine);
+
+    /* the peer's MAX_PATH_ID raises the path IDs both limits allow to 2^32-1 */
+    conn = xqc_test_mp_cid_conn(UINT32_MAX, 2);
+    CU_ASSERT(xqc_get_path_cid_set(&conn->scid_set, 3) == NULL);
+    CU_ASSERT(xqc_test_cid_recv_max_path_id(conn, UINT32_MAX) == XQC_OK);
+    CU_ASSERT(conn->conn_err == 0);
+    CU_ASSERT(conn->curr_max_path_id == UINT32_MAX);
+    xqc_test_mp_cid_sets_unused(conn, 1);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
  * A connection ID for a path ID above our limit is still a connection error
  * (draft-ietf-quic-multipath-10 Section 7), and neither it nor a malformed
  * frame for a path ID within the limit leaves a connection ID set behind.

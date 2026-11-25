@@ -457,6 +457,12 @@ struct xqc_connection_s {
     uint64_t                        curr_max_path_id;
     uint64_t                        local_max_path_id;
     uint64_t                        remote_max_path_id;
+    /*
+     * the path IDs up to this one have their connection ID sets, added by
+     * xqc_conn_add_path_cid_sets(); those up to curr_max_path_id get theirs
+     * as unused ones are used or abandoned
+     */
+    uint64_t                        cid_sets_max_path_id;
 
     /* for qlog */
     uint32_t                        MTU_updated_count;    
@@ -797,7 +803,16 @@ void xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
     xqc_list_head_t *head, int congest, xqc_send_type_t send_type);
 
 xqc_int_t xqc_conn_try_to_enable_multipath(xqc_connection_t *conn);
-xqc_int_t xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint32_t start, uint32_t end);
+/*
+ * The unused path IDs that have connection ID sets at a time. Connection IDs
+ * are issued for no more unused path IDs, as a connection has no more paths
+ * than XQC_MAX_PATHS_COUNT, while the path IDs that both limits allow can
+ * reach 2^32 (draft-ietf-quic-multipath-10 Section 2).
+ */
+#define XQC_UNUSED_PATH_CID_SETS    XQC_MAX_PATHS_COUNT
+
+xqc_int_t xqc_conn_add_path_cid_sets(xqc_connection_t *conn, uint64_t start,
+    uint64_t end);
 xqc_msec_t xqc_conn_get_queue_fin_timeout(xqc_connection_t *conn);
 void xqc_conn_set_init_idle_timeout(xqc_connection_t *conn, xqc_msec_t init_idle_time_out);
 void xqc_conn_try_to_enable_pmtud(xqc_connection_t *conn);

@@ -89,4 +89,6 @@ void xqc_test_h3_pseudo_header_after_regular_rejected();
 /* RFC 9114 §4.1: final empty DATA ends the message */
 void xqc_test_h3_empty_data_fin();
 
+void xqc_test_h3_request_create_alloc_failures(void);
+
 #endif //XQUIC_XQC_H3_TEST_H

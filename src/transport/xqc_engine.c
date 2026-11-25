@@ -1145,6 +1145,7 @@ xqc_engine_packet_process(xqc_engine_t *engine,
     xqc_cid_t dcid, scid;   /* dcid: cid of peer; scid: cid of endpoint */
     xqc_log_level_t lvl;
     uint32_t rebinding_authenticated_pkts_before;
+    xqc_path_ctx_t *rebinding_path;
 
     xqc_cid_init_zero(&dcid);
     xqc_cid_init_zero(&scid);
@@ -1280,18 +1281,17 @@ process:
            != rebinding_authenticated_pkts_before
         && (conn->conn_flag & XQC_CONN_FLAG_SERVER_ACCEPT)
         && peer_addr != NULL && peer_addrlen != 0
-        && !xqc_is_same_addr_as_any_path(conn, peer_addr))
+        && xqc_path_rebinding_find_moved(conn, &scid, peer_addr,
+                                         &rebinding_path))
     {
-        xqc_path_ctx_t *path = xqc_conn_find_path_by_scid(conn, &scid);
-        if (path != NULL && path->path_state == XQC_PATH_STATE_ACTIVE) {
-            ret = xqc_path_rebinding_on_authenticated_datagram(conn, path, peer_addr,
-                                                               peer_addrlen, packet_in_size,
-                                                               recv_time);
-            if (ret != XQC_OK && ret != -XQC_EAGAIN) {
-                xqc_log(engine->log, XQC_LOG_ERROR,
-                        "|REBINDING|process authenticated datagram error|conn:%p|path:%ui|ret:%d|",
-                        conn, path->path_id, ret);
-            }
+        ret = xqc_path_rebinding_on_authenticated_datagram(conn,
+                  rebinding_path, peer_addr, peer_addrlen, packet_in_size,
+                  recv_time);
+        if (ret != XQC_OK && ret != -XQC_EAGAIN) {
+            xqc_log(engine->log, XQC_LOG_ERROR,
+                    "|REBINDING|process authenticated datagram error"
+                    "|conn:%p|path:%ui|ret:%d|",
+                    conn, rebinding_path->path_id, ret);
         }
     }
 

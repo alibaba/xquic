@@ -202,7 +202,6 @@ typedef struct {
 } xqc_path_info_t;
 
 xqc_bool_t xqc_is_same_addr(const struct sockaddr *sa1, const struct sockaddr *sa2);
-xqc_bool_t xqc_is_same_addr_as_any_path(xqc_connection_t *conn, const struct sockaddr *peer_addr);
 
 xqc_int_t xqc_generate_path_challenge_data(xqc_connection_t *conn, xqc_path_ctx_t *path);
 
@@ -235,6 +234,9 @@ xqc_int_t xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_i
 void xqc_path_rebinding_clear(xqc_path_ctx_t *path);
 xqc_path_ctx_t *xqc_path_rebinding_find_by_challenge(xqc_connection_t *conn,
     const unsigned char *challenge_data);
+xqc_bool_t xqc_path_rebinding_find_moved(xqc_connection_t *conn,
+    xqc_cid_t *scid, const struct sockaddr *peer_addr,
+    xqc_path_ctx_t **path_out);
 xqc_int_t xqc_path_rebinding_on_authenticated_datagram(xqc_connection_t *conn,
     xqc_path_ctx_t *path, const struct sockaddr *peer_addr, socklen_t peer_addrlen,
     size_t recv_bytes, xqc_usec_t now);

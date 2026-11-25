@@ -25,6 +25,9 @@ xqc_recv_timestamps_info_create()
 {
     xqc_recv_timestamps_info_t *ts_info =
                     xqc_calloc(1, sizeof(xqc_recv_timestamps_info_t));
+    if (ts_info == NULL) {
+        return NULL;
+    }
     ts_info->is_first_pkt = 1;
     return ts_info;
 }

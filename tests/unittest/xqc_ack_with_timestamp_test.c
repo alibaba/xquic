@@ -210,10 +210,77 @@ xqc_test_ack_with_timestamp_partial_writing()
 }
 
 
+/*
+ * More packets than the 64 slots of the timestamp ring arrive before an
+ * ACK_EXTENDED frame is sent, as happens when they elicit no ACK: the
+ * frame still carries the receive timestamps of the newest packets, in
+ * descending packet number order.
+ */
+static void
+xqc_test_ack_with_timestamp_ring_full(uint64_t npkts)
+{
+    const uint64_t max_ts = 30;
+    xqc_packet_out_t *packet_out = xqc_packet_out_create(XQC_QUIC_MAX_MSS);
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_recv_record_t record;
+    memset(&record, 0, sizeof(record));
+    xqc_init_list_head(&record.list_head);
+    xqc_recv_timestamps_info_t *ts_info = xqc_recv_timestamps_info_create();
+    for (uint64_t pn = 1; pn <= npkts; pn++) {
+        xqc_recv_timestamps_info_add_pkt(ts_info, pn, 1000 * pn);
+        xqc_recv_record_add(&record, pn);
+    }
+    CU_ASSERT(xqc_recv_timestamps_info_length(ts_info)
+              == XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH - 1);
+
+    conn->conn_settings.extended_ack_features = 2;
+    conn->conn_settings.max_receive_timestamps_per_ack = max_ts;
+    conn->conn_settings.receive_timestamps_exponent = 0;
+    conn->local_settings.extended_ack_features = 2;
+    conn->local_settings.max_receive_timestamps_per_ack = max_ts;
+    conn->local_settings.receive_timestamps_exponent = 0;
+    conn->conn_create_time = 0;
+
+    int has_gap;
+    xqc_packet_number_t largest_ack;
+    packet_out->po_used_size = 0;
+    ssize_t len = xqc_gen_ack_ext_frame(conn, packet_out, 1000 * npkts, 0, &record,
+                                        1000 * npkts, &has_gap, &largest_ack, ts_info);
+    CU_ASSERT(len > 0);
+    if (len > 0) {
+        xqc_packet_in_t packet_in;
+        memset(&packet_in, 0, sizeof(packet_in));
+        packet_in.buf = packet_out->po_buf;
+        packet_in.pos = packet_out->po_buf;
+        packet_in.last = packet_out->po_buf + len;
+        packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+        xqc_ack_info_t ack_info;
+        xqc_ack_timestamp_info_t ack_ts;
+        ack_ts.report_num = 0;
+        CU_ASSERT(xqc_parse_ack_ext_frame(&packet_in, conn, &ack_info, &ack_ts) == XQC_OK);
+        CU_ASSERT(ack_ts.report_num == max_ts);
+        for (uint64_t i = 0; i < ack_ts.report_num && i < max_ts; i++) {
+            CU_ASSERT(ack_ts.pkt_nums[i] == npkts - i);
+            CU_ASSERT(ack_ts.recv_ts[i] == npkts - i);
+        }
+    }
+
+    xqc_engine_destroy(conn->engine);
+    xqc_packet_out_destroy(packet_out);
+    xqc_recv_record_destroy(&record);
+    xqc_recv_timestamps_info_destroy(ts_info);
+}
+
+
 void
 xqc_test_ack_with_timestamp()
 {
     xqc_test_ack_with_timestamp_normal();
     xqc_test_ack_with_timestamp_no_buf_space();
     xqc_test_ack_with_timestamp_partial_writing();
+    /* the ring just full, wrapped once, and wrapped many times over */
+    xqc_test_ack_with_timestamp_ring_full(XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH);
+    xqc_test_ack_with_timestamp_ring_full(70);
+    xqc_test_ack_with_timestamp_ring_full(2000);
 }

@@ -247,8 +247,39 @@ xqc_int_t xqc_conn_client_init_path_addr(xqc_connection_t *conn);
 
 void xqc_set_path_state(xqc_path_ctx_t *path, xqc_path_state_t state);
 
-/* path state: "ACTIVE" -> "CLOSING" */
+/*
+ * Why a path is abandoned, as the Error Code of the PATH_ABANDON frame:
+ * NO_ERROR and the codes of RFC 10069 Section 4.2.1. draft-10 has the same
+ * field and defines no values of its own, so these are sent there too.
+ */
+typedef enum {
+    /* abandoned without an error, e.g. in reply to the peer's PATH_ABANDON */
+    XQC_PATH_ABANDON_NO_ERROR               = 0x0,
+    /* at the request of the application */
+    XQC_PATH_ABANDON_APPLICATION            = 0x3e,
+    /* not enough resources to maintain the path */
+    XQC_PATH_ABANDON_RESOURCE_LIMIT_REACHED = 0x3e75,
+    /* the path is unstable or its performance is poor */
+    XQC_PATH_ABANDON_UNSTABLE_OR_POOR       = 0x3e76,
+    /* no connection ID is available for the path */
+    XQC_PATH_ABANDON_NO_CID_AVAILABLE       = 0x3e77,
+} xqc_path_abandon_reason_t;
+
+/* path state: "ACTIVE" -> "CLOSING", sending PATH_ABANDON with NO_ERROR */
 xqc_int_t xqc_path_immediate_close(xqc_path_ctx_t *path);
+
+/* the same, with the reason as the Error Code of PATH_ABANDON */
+xqc_int_t xqc_path_abandon(xqc_path_ctx_t *path,
+    xqc_path_abandon_reason_t reason);
+
+/*
+ * Abandon a path ID (RFC 10069 Section 3.4): send PATH_ABANDON with the
+ * reason unless it was sent or received for the path ID already, and retire
+ * the connection IDs of both sides for it. The path, if any, is the caller's
+ * (xqc_path_abandon).
+ */
+void xqc_conn_abandon_path_id(xqc_connection_t *conn, uint64_t path_id,
+    xqc_path_abandon_reason_t reason);
 
 /* path state: "ACTIVE/CLOSING/DRAINING" -> "CLOSED" */
 xqc_int_t xqc_path_closed(xqc_path_ctx_t *path);

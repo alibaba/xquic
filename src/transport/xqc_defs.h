@@ -16,8 +16,6 @@
 #define XQC_CONN_INITIAL_IDLE_TIMEOUT   10000
 
 
-#define XQC_CONN_ADDR_VALIDATION_CID_ENTROPY 8
-
 /* connection PTO packet count */
 #define XQC_CONN_PTO_PKT_CNT_MAX        2
 

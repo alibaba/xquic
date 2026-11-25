@@ -4952,8 +4952,12 @@ xqc_conn_confirm_cid(xqc_connection_t *c, xqc_packet_t *pkt)
  *
  * server will validate client's addr by:
  * 1) successful processing of Handshake packet.
- * 2) client's Initial/Handshake packet uses server's CID with at least 8 bytes
- * 3) client's Initial token is what server provided in NEW_TOKEN/Retry frame
+ * 2) client's Initial token is what server provided in NEW_TOKEN/Retry frame
+ *
+ * server does not use the optional rule of RFC 9000 Section 8.1 that accepts
+ * an Initial packet using a server-chosen CID: the CID might come from
+ * cid_generate_cb without 64 bits of entropy, and the datagram still earns
+ * anti-amplification credit.
  */
 void
 xqc_conn_addr_validated(xqc_connection_t *c)
@@ -4971,18 +4975,6 @@ xqc_conn_server_validate_address(xqc_connection_t *c, xqc_packet_in_t *pi)
         if (XQC_CONN_FLAG_TOKEN_OK & c->conn_flag) {
             /* NEW_TOKEN or Retry token is valid */
             xqc_conn_addr_validated(c);
-
-        } else {
-            /**
-             * when server close its own CID, and server reached its anti-amplification limit,
-             * client MAY send an Initial packet with PING/PADDING on PTO with server's CID
-             */
-            if (c->scid_set.user_scid.cid_len >= XQC_CONN_ADDR_VALIDATION_CID_ENTROPY
-                && xqc_cid_in_cid_set(&c->scid_set, &c->original_dcid, XQC_INITIAL_PATH_ID) == NULL
-                && xqc_cid_in_cid_set(&c->scid_set, &pi->pi_pkt.pkt_dcid, XQC_INITIAL_PATH_ID) != NULL)
-            {
-                xqc_conn_addr_validated(c);
-            }
         }
         break;
 
@@ -4996,9 +4988,9 @@ xqc_conn_server_validate_address(xqc_connection_t *c, xqc_packet_in_t *pi)
     }
 
     /*
-     * loss detection timer might be unset when anti-amplification limit is reached, but receiving 
-     * a handshake or receiving a packet with cid which was choosed by server, will remove the 
-     * anti-amplification state, and loss detection timer shall be re-armed.
+     * loss detection timer might be unset when anti-amplification limit is
+     * reached, but address validation removes the anti-amplification state,
+     * and loss detection timer shall be re-armed.
      */
     if (c->conn_flag & XQC_CONN_FLAG_ADDR_VALIDATED) {
         xqc_send_ctl_rearm_ld_timer(c->conn_initial_path->path_send_ctl);

@@ -1464,6 +1464,8 @@ xqc_client_write_socket_ex(uint64_t path_id,
                 if (user_conn->black_hole_start_time == 0) {
                     user_conn->black_hole_start_time = nowtime;
                     printf("   blackhole start: %"PRIu64"\n", nowtime);
+                    /* a case waits for this line in a file */
+                    fflush(stdout);
                 }
 
                 if (nowtime - user_conn->black_hole_start_time <= 3000000) {
@@ -1488,6 +1490,8 @@ xqc_client_write_socket_ex(uint64_t path_id,
                 if (user_conn->black_hole_start_time == 0) {
                     user_conn->black_hole_start_time = nowtime;
                     printf("   blackhole start: %"PRIu64"\n", nowtime);
+                    /* a case waits for this line in a file */
+                    fflush(stdout);
                 }
 
                 printf("... block:%zu\n", size);

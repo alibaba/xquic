@@ -27,7 +27,8 @@
 #include "src/transport/xqc_reinjection.h"
 #include "src/transport/xqc_packet_out.h"
 
-#define XQC_DEFAULT_TOKEN_KEY       "xquic token key"
+/* length of the stateless reset key that an engine without one makes up */
+#define XQC_RESET_TOKEN_RANDOM_KEY_LEN  32
 extern const xqc_qpack_ins_cb_t xqc_h3_qpack_ins_cb;
 
 xqc_config_t default_client_config = {
@@ -139,8 +140,8 @@ xqc_set_config(xqc_config_t *dst, const xqc_config_t *src)
             dst->tk_len_list[i] = tk_len;
             memcpy(dst->token_key_list[i], src->token_key_list[i], tk_len);
         } else {
-            dst->tk_len_list[i] = sizeof(XQC_DEFAULT_TOKEN_KEY) - 1;
-            memcpy(dst->token_key_list[i], XQC_DEFAULT_TOKEN_KEY, dst->tk_len_list[i]);
+            /* no key: the engine keeps a random one */
+            dst->tk_len_list[i] = 0;
         }
     }
     if (src->cur_tk_index < XQC_TOKEN_MAX_KEY_VERSION) {
@@ -186,16 +187,39 @@ xqc_engine_get_default_config(xqc_config_t *config, xqc_engine_type_t engine_typ
 xqc_int_t
 xqc_engine_set_config(xqc_engine_t *engine, const xqc_config_t *engine_config)
 {
-    xqc_int_t ret = xqc_set_config(engine->config, engine_config);
+    xqc_config_t   *config = engine->config;
+    char            reset_token_key[XQC_RESET_TOKEN_MAX_KEY_LEN];
+    size_t          reset_token_keylen = config->reset_token_keylen;
+    xqc_int_t       ret;
+
+    xqc_memcpy(reset_token_key, config->reset_token_key, reset_token_keylen);
+
+    ret = xqc_set_config(config, engine_config);
+
+    /*
+     * a config without a stateless reset key keeps the key in use, random
+     * if no config had one (xqc_engine_init_random_keys()), so that the
+     * tokens already sent stay valid
+     */
+    if (config->reset_token_keylen == 0) {
+        xqc_memcpy(config->reset_token_key, reset_token_key,
+                   reset_token_keylen);
+        config->reset_token_keylen = reset_token_keylen;
+    }
+
     if (ret != XQC_OK) {
         return ret;
     }
+
     if (engine->eng_type == XQC_ENGINE_SERVER) {
-        engine->cur_ts_index = engine->config->cur_tk_index & XQC_TOKEN_VERSION_MASK;
-        for (int i = 0; i < XQC_TOKEN_MAX_KEY_VERSION; i++) { 
-            xqc_engine_initial_token_secret(engine->config->token_key_list[i], 
-                                            engine->config->tk_len_list[i],
-                                            engine->token_secret_list[i]);
+        engine->cur_ts_index = config->cur_tk_index & XQC_TOKEN_VERSION_MASK;
+        for (int i = 0; i < XQC_TOKEN_MAX_KEY_VERSION; i++) {
+            /* a version without a key keeps its secret, random at first */
+            if (config->tk_len_list[i] > 0) {
+                xqc_engine_initial_token_secret(config->token_key_list[i],
+                                                config->tk_len_list[i],
+                                                engine->token_secret_list[i]);
+            }
         }
     }
     return XQC_OK;
@@ -431,6 +455,42 @@ xqc_engine_check_config(xqc_engine_type_t engine_type, const xqc_config_t *engin
     return XQC_TRUE;
 }
 
+/*
+ * RFC 9000 Section 10.3.2: a stateless reset token MUST be difficult to
+ * guess; Section 8.1.4: only the server may know the key that protects its
+ * address validation tokens. A key that the config does not set is
+ * therefore random, private to this engine. Servers that must recognize
+ * each other's stateless resets or tokens, or those of a previous process,
+ * set the same keys in their configs.
+ */
+static xqc_int_t
+xqc_engine_init_random_keys(xqc_engine_t *engine)
+{
+    xqc_config_t *config = engine->config;
+
+    if (config->reset_token_keylen == 0) {
+        if (xqc_get_random(engine->rand_generator,
+                           (u_char *) config->reset_token_key,
+                           XQC_RESET_TOKEN_RANDOM_KEY_LEN) != XQC_OK)
+        {
+            return XQC_ERROR;
+        }
+        config->reset_token_keylen = XQC_RESET_TOKEN_RANDOM_KEY_LEN;
+    }
+
+    for (int i = 0; i < XQC_TOKEN_MAX_KEY_VERSION; i++) {
+        if (config->tk_len_list[i] == 0
+            && xqc_get_random(engine->rand_generator,
+                              engine->token_secret_list[i],
+                              XQC_TOKEN_SECRET_LEN) != XQC_OK)
+        {
+            return XQC_ERROR;
+        }
+    }
+
+    return XQC_OK;
+}
+
 /**
  * Create new xquic engine.
  * @param engine_type  XQC_ENGINE_SERVER or XQC_ENGINE_CLIENT
@@ -492,7 +552,11 @@ xqc_engine_create(xqc_engine_type_t engine_type,
         goto fail;
     }
     xqc_get_random(engine->rand_generator, sipkey, sizeof(sipkey));
-    
+
+    if (xqc_engine_init_random_keys(engine) != XQC_OK) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|random engine keys error|");
+        goto fail;
+    }
 
     engine->conns_hash = xqc_engine_conns_hash_create(engine->config, sipkey, sizeof(sipkey), engine->log);
     if (engine->conns_hash == NULL) {

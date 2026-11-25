@@ -107,7 +107,7 @@ static const float xqc_bbr_rtt_compensation_cwnd_factor = 1;
 static void xqc_bbr_enter_probe_bw(xqc_bbr_t *bbr, xqc_sample_t *sampler);
 
 size_t 
-xqc_bbr_size()
+xqc_bbr_size(void)
 {
     return sizeof(xqc_bbr_t);
 }

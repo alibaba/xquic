@@ -8,7 +8,7 @@
 
 
 static size_t
-xqc_interop_scheduler_size()
+xqc_interop_scheduler_size(void)
 {
     return 0;
 }

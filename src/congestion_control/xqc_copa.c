@@ -80,7 +80,7 @@ xqc_copa_set_pacing_rate(xqc_copa_t *copa)
 }
 
 static size_t
-xqc_copa_size()
+xqc_copa_size(void)
 {
     return sizeof(xqc_copa_t);
 }

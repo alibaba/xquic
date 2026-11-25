@@ -671,6 +671,9 @@ main(int argc, char *argv[])
         || !CU_add_test(
             pSuite, "xqc_test_stream_close_data_recvd_bidirectional",
             xqc_test_stream_close_data_recvd_bidirectional)
+        || !CU_add_test(
+            pSuite, "xqc_test_stream_close_data_sent_bidirectional",
+            xqc_test_stream_close_data_sent_bidirectional)
         || !CU_add_test(pSuite, "xqc_test_reset_stream_final_size_accepted",
                         xqc_test_reset_stream_final_size_accepted)
         || !CU_add_test(pSuite,

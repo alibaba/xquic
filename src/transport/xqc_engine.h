@@ -82,6 +82,9 @@ typedef struct xqc_engine_s {
     void                           *priv_ctx;
     unsigned char                   token_secret_list[XQC_TOKEN_MAX_KEY_VERSION][XQC_TOKEN_SECRET_LEN];
     uint8_t                         cur_ts_index;
+
+    /* the ECN codepoint of the datagram that the engine processes */
+    uint8_t                         recv_ecn;
     
 } xqc_engine_t;
 

@@ -838,6 +838,7 @@ xqc_conn_create(xqc_engine_t *engine, xqc_cid_t *dcid, xqc_cid_t *scid,
         xc->conn_settings.proto_version = XQC_VERSION_V1;
         xc->version = XQC_VERSION_V1;
     }
+    xc->original_version = xc->version;
 
     /* make sure a 0-value config will not result in immediate timeout */
     if (xc->conn_settings.init_idle_time_out == 0) {
@@ -3379,7 +3380,7 @@ xqc_conn_send_retry(xqc_connection_t *conn, unsigned char *token, unsigned token
                                                      conn->original_dcid.cid_buf,
                                                      conn->original_dcid.cid_len,
                                                      token, token_len,
-                                                     XQC_VERSION_V1);
+                                                     xqc_proto_version_value[conn->version]);
     if (size < 0) {
         xqc_log(engine->log, XQC_LOG_WARN, "|xqc_conn_send_retry|generate retry packet failed|"
                 "size:%d|", size);
@@ -3425,9 +3426,14 @@ xqc_conn_version_check(xqc_connection_t *c, uint32_t version)
             return -XQC_EPROTO;
         }
 
-        for (i = XQC_IDRAFT_INIT_VER + 1; i < XQC_IDRAFT_VER_NEGOTIATION; i++) {
-            if (xqc_proto_version_value[i] == version) {
+        for (i = XQC_IDRAFT_INIT_VER + 1; i < XQC_VERSION_MAX; i++) {
+            if (xqc_check_proto_version_valid(i)
+                && xqc_proto_version_value[i] == version)
+            {
+                xqc_log(c->log, XQC_LOG_DEBUG, "|version selected|v:%xL|",
+                        (uint64_t)version);
                 c->version = i;
+                c->original_version = i;
                 return XQC_OK;
             }
         }
@@ -3903,6 +3909,35 @@ xqc_conn_get_lastest_rtt(xqc_engine_t *engine, const xqc_cid_t *cid)
 }
 
 
+/*
+ * RFC 9369 Section 5: tokens are specific to the QUIC version of the
+ * connection that issued them. The tokens of a QUIC version 2 connection
+ * authenticate the version as additional data, so that a token of another
+ * version fails to decrypt; the tokens of the other versions are unchanged.
+ */
+static xqc_int_t
+xqc_conn_token_bind_version(xqc_connection_t *conn, EVP_CIPHER_CTX *ctx,
+    xqc_bool_t encrypt)
+{
+    static const unsigned char aad[] = {0x6b, 0x33, 0x43, 0xcf};
+    int outl = 0;
+
+    if (conn->version != XQC_VERSION_V2) {
+        return XQC_OK;
+    }
+
+    if ((encrypt ? EVP_EncryptUpdate(ctx, NULL, &outl, aad, sizeof(aad))
+                 : EVP_DecryptUpdate(ctx, NULL, &outl, aad, sizeof(aad)))
+        != XQC_SSL_SUCCESS)
+    {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|token version aad error|");
+        return XQC_ERROR;
+    }
+
+    return XQC_OK;
+}
+
+
 xqc_int_t
 xqc_conn_decrypt_token(xqc_connection_t *conn, unsigned char *dec_data, unsigned int *d_len,
                         const unsigned char *enc_data, unsigned e_len)
@@ -3936,6 +3971,10 @@ xqc_conn_decrypt_token(xqc_connection_t *conn, unsigned char *dec_data, unsigned
     }
     if (XQC_SSL_SUCCESS != EVP_DecryptInit_ex(ctx, cipher, NULL, key, iv)) {
         xqc_log(conn->log, XQC_LOG_ERROR, "|EVP_DecryptInit_ex failed|");
+        goto error;
+    }
+
+    if (xqc_conn_token_bind_version(conn, ctx, XQC_FALSE) != XQC_OK) {
         goto error;
     }
 
@@ -4108,6 +4147,10 @@ xqc_conn_generate_and_encrypt_token(xqc_connection_t *conn, unsigned char *token
     if (XQC_SSL_SUCCESS != EVP_EncryptInit_ex(ctx, cipher, NULL, key, iv)) {
         xqc_log(conn->log, XQC_LOG_ERROR,  "|generate iv error|"); 
         goto error; 
+    }
+
+    if (xqc_conn_token_bind_version(conn, ctx, XQC_TRUE) != XQC_OK) {
+        goto error;
     }
 
     if (XQC_SSL_SUCCESS != EVP_EncryptUpdate(ctx, crypto_p, &len, plain_p, plain_len)) {
@@ -5051,6 +5094,8 @@ xqc_conn_on_hsk_processed(xqc_connection_t *c, xqc_packet_in_t *pi, xqc_usec_t n
     if (c->conn_type == XQC_CONN_TYPE_SERVER) {
         /* server MUST discard Initial keys when it first successfully processes a Handshake packet */
         xqc_send_queue_drop_initial_packets(c);
+        /* RFC 9369 Section 4.1: those of the original version too */
+        xqc_tls_discard_original_initial(c->tls);
     }
 
     return XQC_OK;
@@ -5998,6 +6043,284 @@ xqc_conn_set_remote_transport_params(xqc_connection_t *conn,
     return XQC_OK;
 }
 
+/* the version of a wire value that this library implements, or none */
+static xqc_proto_version_t
+xqc_conn_version_of_value(uint32_t value)
+{
+    for (int v = XQC_IDRAFT_INIT_VER + 1; v < XQC_VERSION_MAX; v++) {
+        if (xqc_check_proto_version_valid(v)
+            && xqc_proto_version_value[v] == value)
+        {
+            return (xqc_proto_version_t)v;
+        }
+    }
+
+    return XQC_IDRAFT_INIT_VER;
+}
+
+
+/*
+ * RFC 9369 Section 4: "version 2 meets the definition in [QUIC-VN] of a
+ * compatible version with version 1, and version 1 is compatible with
+ * version 2."
+ */
+xqc_bool_t
+xqc_conn_versions_compatible(xqc_proto_version_t a, xqc_proto_version_t b)
+{
+    return a == b
+           || ((a == XQC_VERSION_V1 || a == XQC_VERSION_V2)
+               && (b == XQC_VERSION_V1 || b == XQC_VERSION_V2));
+}
+
+
+/*
+ * RFC 9368 Section 2.3: the version that a server selects among the
+ * Available Versions of the client: the first of its own versions, in the
+ * order of support_version_list, that the client offers and that is
+ * compatible with the version of the client's first flight.
+ */
+xqc_proto_version_t
+xqc_conn_select_version(xqc_connection_t *conn,
+    const xqc_transport_params_t *params)
+{
+    uint32_t *list = conn->engine->config->support_version_list;
+    uint32_t count = conn->engine->config->support_version_count;
+    xqc_proto_version_t v;
+
+    if (!params->version_info_present) {
+        return conn->original_version;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        v = xqc_conn_version_of_value(list[i]);
+        if (v != XQC_IDRAFT_INIT_VER
+            && xqc_conn_versions_compatible(conn->original_version, v)
+            && xqc_uint32_list_find(params->available_versions,
+                                    params->available_versions_count,
+                                    list[i]) != -1)
+        {
+            return v;
+        }
+    }
+
+    return conn->original_version;
+}
+
+
+/*
+ * RFC 9368 Section 2.3 and RFC 9369 Section 4.1: go on in a compatible
+ * version, with its Initial keys, derived from the same connection ID.
+ */
+xqc_int_t
+xqc_conn_switch_version(xqc_connection_t *conn, xqc_proto_version_t version)
+{
+    const xqc_cid_t *cid = (conn->conn_flag
+                            & (XQC_CONN_FLAG_RETRY_SENT
+                               | XQC_CONN_FLAG_RETRY_RECVD))
+                           ? &conn->retry_scid : &conn->original_dcid;
+    xqc_int_t ret;
+
+    xqc_log(conn->log, XQC_LOG_DEBUG,
+            "|compatible version negotiation|from:%xL|to:%xL|",
+            (uint64_t)xqc_proto_version_value[conn->version],
+            (uint64_t)xqc_proto_version_value[version]);
+
+    ret = xqc_tls_switch_version(conn->tls, version, cid);
+    if (ret != XQC_OK) {
+        xqc_log(conn->log, XQC_LOG_ERROR, "|switch version error|ret:%d|",
+                ret);
+        return ret;
+    }
+
+    conn->version = version;
+    return XQC_OK;
+}
+
+
+/*
+ * RFC 9368 Section 3: the versions that a client offers after its Chosen
+ * Version, the original version: the compatible versions of its
+ * support_version_list, if the Chosen Version is in that list. A client
+ * that connects in a version it does not list offers it alone, which
+ * declines compatible version negotiation.
+ */
+static xqc_bool_t
+xqc_conn_client_offers(xqc_connection_t *conn, xqc_proto_version_t v)
+{
+    uint32_t *list = conn->engine->config->support_version_list;
+    uint32_t count = conn->engine->config->support_version_count;
+
+    return v != XQC_IDRAFT_INIT_VER && v != conn->original_version
+           && xqc_conn_versions_compatible(conn->original_version, v)
+           && xqc_uint32_list_find(list, count,
+                  xqc_proto_version_value[conn->original_version]) != -1
+           && xqc_uint32_list_find(list, count,
+                  xqc_proto_version_value[v]) != -1;
+}
+
+
+/*
+ * RFC 9369 Section 4.1: "The client learns the negotiated version by
+ * observing the first long header Version field that differs from the
+ * original version." It goes on in that version if it offered it and has
+ * not received the server's first flight in the original version; it
+ * drops the other packets of another version.
+ */
+xqc_int_t
+xqc_conn_client_on_version(xqc_connection_t *conn, uint32_t value,
+    xqc_pkt_type_t type)
+{
+    xqc_proto_version_t v = xqc_conn_version_of_value(value);
+
+    if (type == XQC_PTYPE_INIT && conn->version == conn->original_version
+        && xqc_conn_client_offers(conn, v)
+        && !xqc_tls_is_key_ready(conn->tls, XQC_ENC_LEV_HSK,
+                                 XQC_KEY_TYPE_RX_READ))
+    {
+        if (xqc_conn_switch_version(conn, v) != XQC_OK) {
+            return -XQC_EILLPKT;
+        }
+
+        conn->version_pending = 1;
+        return XQC_OK;
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|packet of another version|v:%xL|",
+            (uint64_t)value);
+    return -XQC_EILLPKT;
+}
+
+
+/*
+ * A client keeps the version of the server's Initial only if that packet is
+ * read: a packet that fails to parse or to decrypt, which anyone can send,
+ * takes the client back to the original version.
+ */
+void
+xqc_conn_client_version_checked(xqc_connection_t *conn, xqc_bool_t ok)
+{
+    const xqc_cid_t *cid = (conn->conn_flag & XQC_CONN_FLAG_RETRY_RECVD)
+                           ? &conn->retry_scid : &conn->original_dcid;
+
+    if (!conn->version_pending) {
+        return;
+    }
+
+    conn->version_pending = 0;
+    if (ok) {
+        return;
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|version switch undone|v:%xL|",
+            (uint64_t)xqc_proto_version_value[conn->original_version]);
+    if (xqc_tls_switch_version(conn->tls, conn->original_version, cid)
+        != XQC_OK)
+    {
+        XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+        return;
+    }
+    conn->version = conn->original_version;
+}
+
+
+/*
+ * RFC 9369 Section 4: an endpoint that supports QUIC version 2 sends its
+ * Version Information (RFC 9368 Section 3) in its version 1 and version 2
+ * connections, with the version in use as the Chosen Version. A client
+ * offers it first, then the versions of xqc_conn_client_offers, which a
+ * server may switch to (RFC 9368 Section 2.3); a server lists its
+ * versions.
+ */
+void
+xqc_conn_get_local_version_info(xqc_connection_t *conn,
+    xqc_transport_params_t *params)
+{
+    uint32_t *list = conn->engine->config->support_version_list;
+    uint32_t count = conn->engine->config->support_version_count;
+
+    params->version_info_present = 0;
+    params->available_versions_count = 0;
+    if (conn->version != XQC_VERSION_V2
+        && (conn->version != XQC_VERSION_V1
+            || xqc_uint32_list_find(list, count, XQC_VERSION_V2_VALUE) == -1))
+    {
+        return;
+    }
+
+    params->version_info_present = 1;
+    params->chosen_version = xqc_proto_version_value[conn->version];
+    if (conn->conn_type == XQC_CONN_TYPE_CLIENT) {
+        params->available_versions[0] = params->chosen_version;
+        params->available_versions_count = 1;
+        for (uint32_t i = 0; i < count; i++) {
+            xqc_proto_version_t v = xqc_conn_version_of_value(list[i]);
+            if (xqc_conn_client_offers(conn, v)
+                && xqc_uint32_list_find(params->available_versions,
+                                        params->available_versions_count,
+                                        list[i]) == -1)
+            {
+                params->available_versions[
+                    params->available_versions_count++] = list[i];
+            }
+        }
+        return;
+    }
+
+    /* the configured versions that this library implements, once each */
+    for (uint32_t i = 0; i < count; i++) {
+        for (int v = XQC_IDRAFT_INIT_VER + 1; v < XQC_VERSION_MAX; v++) {
+            if (xqc_check_proto_version_valid(v)
+                && xqc_proto_version_value[v] == list[i]
+                && xqc_uint32_list_find(params->available_versions,
+                                        params->available_versions_count,
+                                        list[i]) == -1)
+            {
+                params->available_versions[
+                    params->available_versions_count++] = list[i];
+            }
+        }
+    }
+}
+
+
+/*
+ * RFC 9368 Section 4: the Chosen Version of the peer is the version in use;
+ * a server that has none from the client may complete the handshake, and a
+ * client never acts on a Version Negotiation packet (RFC 9000 Section 6.2)
+ * and offers the version in use only, so it accepts none from the server too.
+ */
+xqc_int_t
+xqc_conn_check_version_info(xqc_connection_t *conn,
+    const xqc_transport_params_t *params)
+{
+    /*
+     * RFC 9368 Section 4: a server checks the client's Chosen Version
+     * against the version of the client's first flight, a client the
+     * server's against the negotiated version
+     */
+    uint32_t version = xqc_proto_version_value[
+        conn->conn_type == XQC_CONN_TYPE_SERVER
+        ? conn->original_version : conn->version];
+
+    if (!params->version_info_present) {
+        return XQC_OK;
+    }
+
+    if (params->chosen_version != version) {
+        xqc_log(conn->log, XQC_LOG_ERROR,
+                "|chosen version differs from the version in use|"
+                "chosen:%xL|version:%xL|", (uint64_t)params->chosen_version,
+                (uint64_t)version);
+        return -XQC_EVERSION;
+    }
+
+    xqc_log(conn->log, XQC_LOG_DEBUG, "|version information|chosen:%xL|"
+            "available:%ud|", (uint64_t)params->chosen_version,
+            params->available_versions_count);
+    return XQC_OK;
+}
+
+
 xqc_int_t
 xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params_t *params)
 {
@@ -6103,6 +6426,8 @@ xqc_conn_get_local_transport_params(xqc_connection_t *conn, xqc_transport_params
     params->extended_ack_features = settings->extended_ack_features;
     params->max_receive_timestamps_per_ack = settings->max_receive_timestamps_per_ack;
     params->receive_timestamps_exponent = settings->receive_timestamps_exponent;
+
+    xqc_conn_get_local_version_info(conn, params);
 
     return XQC_OK;
 }
@@ -6267,6 +6592,31 @@ xqc_conn_tls_transport_params_cb(const uint8_t *tp, size_t len, void *user_data)
     if (ret != XQC_OK) {
         XQC_CONN_ERR(conn, TRA_TRANSPORT_PARAMETER_ERROR);
         return;
+    }
+
+    ret = xqc_conn_check_version_info(conn, &params);
+    if (ret != XQC_OK) {
+        XQC_CONN_ERR(conn, TRA_VERSION_INFORMATION_ERROR);
+        return;
+    }
+
+    /*
+     * RFC 9368 Section 2.3: compatible version negotiation. A TLS library
+     * that resumes a session before the version is selected (BabaSSL) has
+     * checked its ticket against the original version, in which the
+     * connection stays (RFC 9369 Section 5).
+     */
+    if (conn->conn_type == XQC_CONN_TYPE_SERVER
+        && !xqc_tls_is_session_resumed(conn->tls))
+    {
+        xqc_proto_version_t version = xqc_conn_select_version(conn, &params);
+        if (version != conn->version) {
+            if (xqc_conn_switch_version(conn, version) != XQC_OK) {
+                XQC_CONN_ERR(conn, TRA_INTERNAL_ERROR);
+                return;
+            }
+            re_encode_local_tp_flag = 1;
+        }
     }
 
     /*

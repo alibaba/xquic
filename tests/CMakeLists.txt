@@ -117,6 +117,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_tp_test.c
         ${UNIT_TEST_DIR}/xqc_tls_test.c
         ${UNIT_TEST_DIR}/xqc_crypto_test.c
+        ${UNIT_TEST_DIR}/xqc_quic_v2_test.c
         ${UNIT_TEST_DIR}/xqc_h3_test.c
         ${UNIT_TEST_DIR}/xqc_hq_test.c
         ${CMAKE_SOURCE_DIR}/demo/xqc_hq_request.c

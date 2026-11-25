@@ -1818,8 +1818,14 @@ xqc_send_ctl_set_loss_detection_timer(xqc_send_ctl_t *send_ctl)
     xqc_usec_t now = xqc_monotonic_timestamp();
     xqc_usec_t interval = 0;
 
+    /*
+     * A deadline that has passed fires at once, but 1 us from now rather
+     * than at now: when OnLossDetectionTimeout re-arms the timer from its
+     * callback, xqc_timer_expire() unsets a timer that expires at its now,
+     * which left the packets in flight without a loss detection timer.
+     */
     xqc_usec_t loss_time = xqc_send_ctl_get_earliest_loss_time(send_ctl, &pns);
-    interval = (loss_time > now) ? (loss_time - now) : 0;
+    interval = (loss_time > now) ? (loss_time - now) : 1;
     if (loss_time != 0) {
         xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_timer_set|earliest loss time|XQC_TIMER_LOSS_DETECTION|"
                 "conn:%p|path:%ui|pns:%d|expire:%ui|now:%ui|interval:%ui|", conn, path->path_id, pns, loss_time, now, interval);
@@ -1849,7 +1855,7 @@ xqc_send_ctl_set_loss_detection_timer(xqc_send_ctl_t *send_ctl)
 
     /* get PTO timeout and update loss detection timer */
     xqc_usec_t timeout = xqc_send_ctl_get_pto_time_and_space(send_ctl, now, &pns);
-    interval = (timeout > now) ? (timeout - now) : 0;
+    interval = (timeout > now) ? (timeout - now) : 1;
     xqc_timer_set(&send_ctl->path_timer_manager, XQC_TIMER_LOSS_DETECTION, now, interval);
 
     xqc_log(conn->log, XQC_LOG_DEBUG, "|xqc_timer_set|update|PTO|XQC_TIMER_LOSS_DETECTION"

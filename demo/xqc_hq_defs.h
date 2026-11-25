@@ -20,6 +20,7 @@ static const char *const xqc_hq_alpn[] = {
     [XQC_VERSION_V1]             = XQC_ALPN_HQ_INTEROP,     /* QUIC v1 */
     [XQC_IDRAFT_VER_29]          = XQC_ALPN_HQ_29,          /* draft-29 */
     [XQC_IDRAFT_VER_NEGOTIATION] = "",
+    [XQC_VERSION_V2]             = XQC_ALPN_HQ_INTEROP,     /* QUIC v2 */
 };
 
 #define PRINT_LOG(format, ...) printf("%s|%d|"format"\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)

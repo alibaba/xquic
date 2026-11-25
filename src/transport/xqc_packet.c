@@ -152,8 +152,11 @@ xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
         }
 
     } else if (XQC_PACKET_IS_LONG_HEADER(pos)) {    /* long header */
+        xqc_pkt_type_t lh_type = xqc_packet_get_long_header_type(pos,
+            XQC_BUFF_LEFT_SIZE(pos, packet_in->last));
+
         /* buffer packets if key is not ready */
-        if (XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in->pos) == XQC_PTYPE_0RTT) {
+        if (lh_type == XQC_PTYPE_0RTT) {
             /*
              * RFC 9001 Section 5.6: a client MUST NOT attempt to decrypt a
              * received 0-RTT packet and MUST discard it.
@@ -174,14 +177,14 @@ xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
                 return -XQC_EWAITING;
             }
 
-        } else if (XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in->pos) == XQC_PTYPE_HSK
+        } else if (lh_type == XQC_PTYPE_HSK
                    && !xqc_tls_is_key_ready(c->tls, XQC_ENC_LEV_HSK, XQC_KEY_TYPE_RX_READ))
         {
             /* buffer packets */
             xqc_log(c->log, XQC_LOG_INFO, "|delay|buff HSK before hs_rx_key_ready|");
             xqc_conn_buff_undecrypt_packet_in(packet_in, c, XQC_ENC_LEV_HSK);
             return -XQC_EWAITING;
-        } else if (XQC_PTYPE_INIT == XQC_PACKET_LONG_HEADER_GET_TYPE(packet_in->pos)) {
+        } else if (XQC_PTYPE_INIT == lh_type) {
             if (XQC_UNLIKELY(xqc_conn_check_initial_packet_from_cur_state(c->conn_state) == XQC_FALSE)) {
                 xqc_log(c->log, XQC_LOG_INFO, "|initial packet should be discarded"
                         "|curr_stat:%d|", c->conn_state);
@@ -197,7 +200,7 @@ xqc_packet_parse_single(xqc_connection_t *c, xqc_packet_in_t *packet_in)
             return ret;
         }
 
-        if (XQC_PTYPE_INIT == XQC_PACKET_LONG_HEADER_GET_TYPE(pos)) {
+        if (XQC_PTYPE_INIT == lh_type) {
             if (c->conn_type == XQC_CONN_TYPE_SERVER && !(c->conn_flag & XQC_CONN_FLAG_SERVER_ACCEPT)) {
                 return xqc_conn_server_accept(c, packet_in);
             }

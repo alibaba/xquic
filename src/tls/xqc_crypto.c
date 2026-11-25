@@ -104,6 +104,7 @@ xqc_crypto_create(uint32_t cipher_id, xqc_log_t *log)
     crypto->log = log;
     crypto->key_phase = 0;
     crypto->cipher_id = cipher_id;
+    crypto->quic_v2 = XQC_FALSE;
 
     xqc_vec_init(&crypto->keys.tx_hp);
     xqc_vec_init(&crypto->keys.rx_hp);
@@ -424,14 +425,18 @@ xqc_crypto_derive_packet_protection_key(xqc_crypto_t *crypto, uint8_t *dest, siz
     size_t *destlen, const uint8_t *secret, size_t secretlen)
 {
     static uint8_t LABEL[] = "quic key";
+    static uint8_t LABEL_V2[] = "quicv2 key";
 
     size_t keylen = crypto->pp_aead.keylen;
     if (keylen > destcap) {
         return -XQC_TLS_DERIVE_KEY_ERROR;
     }
 
+    const uint8_t *label = crypto->quic_v2 ? LABEL_V2 : LABEL;
+    size_t label_len = crypto->quic_v2 ? xqc_lengthof(LABEL_V2)
+                                       : xqc_lengthof(LABEL);
     xqc_int_t ret = xqc_hkdf_expand_label(dest, keylen, secret, secretlen,
-                                          LABEL, xqc_lengthof(LABEL), &crypto->md);
+                                          label, label_len, &crypto->md);
     if (ret != XQC_OK) {
         return -XQC_TLS_DERIVE_KEY_ERROR;
     }
@@ -445,6 +450,7 @@ xqc_crypto_derive_packet_protection_iv(xqc_crypto_t *crypto, uint8_t *dest, size
     size_t *destlen, const uint8_t *secret, size_t secretlen)
 {
     static uint8_t LABEL[] = "quic iv";
+    static uint8_t LABEL_V2[] = "quicv2 iv";
 
     /* 
      * he Length provided with "quic iv" is the minimum length of the AEAD nonce
@@ -455,8 +461,11 @@ xqc_crypto_derive_packet_protection_iv(xqc_crypto_t *crypto, uint8_t *dest, size
         return -XQC_TLS_DERIVE_KEY_ERROR;
     }
 
+    const uint8_t *label = crypto->quic_v2 ? LABEL_V2 : LABEL;
+    size_t label_len = crypto->quic_v2 ? xqc_lengthof(LABEL_V2)
+                                       : xqc_lengthof(LABEL);
     xqc_int_t ret = xqc_hkdf_expand_label(dest, ivlen, secret, secretlen,
-                                          LABEL, xqc_lengthof(LABEL), &crypto->md);
+                                          label, label_len, &crypto->md);
     if (ret != XQC_OK) {
         return -XQC_TLS_DERIVE_KEY_ERROR;
     }
@@ -470,14 +479,18 @@ xqc_crypto_derive_header_protection_key(xqc_crypto_t *crypto, uint8_t *dest, siz
     size_t *destlen, const uint8_t *secret, size_t secretlen)
 {
     static uint8_t LABEL[] = "quic hp";
+    static uint8_t LABEL_V2[] = "quicv2 hp";
 
     size_t keylen = crypto->hp_cipher.keylen;
     if (keylen > destcap) {
         return -XQC_TLS_DERIVE_KEY_ERROR;
     }
 
+    const uint8_t *label = crypto->quic_v2 ? LABEL_V2 : LABEL;
+    size_t label_len = crypto->quic_v2 ? xqc_lengthof(LABEL_V2)
+                                       : xqc_lengthof(LABEL);
     xqc_int_t ret = xqc_hkdf_expand_label(dest, keylen, secret, secretlen,
-                                          LABEL, xqc_lengthof(LABEL), &crypto->md);
+                                          label, label_len, &crypto->md);
     if (ret != XQC_OK) {
         return -XQC_TLS_DERIVE_KEY_ERROR;
     }
@@ -702,15 +715,19 @@ xqc_crypto_derive_updated_keys(xqc_crypto_t *crypto, xqc_key_type_t type)
 
     /* update application traffic secret */
     static uint8_t LABEL[] = "quic ku";
+    static uint8_t LABEL_V2[] = "quicv2 ku";
     uint8_t dest_buf[XQC_MAX_KNP_LEN];
 
     if (current_ckm->secret.len > XQC_MAX_KNP_LEN) {
         return -XQC_TLS_UPDATE_KEY_ERROR;
     }
 
+    const uint8_t *label = crypto->quic_v2 ? LABEL_V2 : LABEL;
+    size_t label_len = crypto->quic_v2 ? xqc_lengthof(LABEL_V2)
+                                       : xqc_lengthof(LABEL);
     ret = xqc_hkdf_expand_label(dest_buf, current_ckm->secret.len,
                                 current_ckm->secret.base, current_ckm->secret.len,
-                                LABEL, xqc_lengthof(LABEL), &crypto->md);
+                                label, label_len, &crypto->md);
     if (ret != XQC_OK) {
         return -XQC_TLS_UPDATE_KEY_ERROR;
     }

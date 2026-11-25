@@ -132,6 +132,11 @@ typedef struct xqc_packet_out_s {
 
     uint64_t                po_new_cid_seq;
     uint32_t                po_new_cid_path;
+
+    /* the peer's connection ID that the (PATH_)RETIRE_CONNECTION_ID frame
+     * of this packet retires */
+    uint64_t                po_retire_cid_seq;
+    uint64_t                po_retire_cid_path;
 } xqc_packet_out_t;
 
 xqc_bool_t xqc_packet_out_on_specific_path(xqc_connection_t *conn, 

@@ -474,8 +474,9 @@ xqc_parse_crypto_frame(xqc_packet_in_t *packet_in, xqc_connection_t *conn,
     return XQC_OK;
 }
 
-void
-xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
+size_t
+xqc_padding_frame_total_len(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out)
 {
     size_t total_len = XQC_PACKET_INITIAL_MIN_LENGTH - XQC_TLS_AEAD_OVERHEAD_MAX_LEN;
 
@@ -488,6 +489,14 @@ xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
             total_len = packet_out->po_buf_size + XQC_ACK_SPACE;
         }
     }
+
+    return total_len;
+}
+
+void
+xqc_gen_padding_frame(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
+{
+    size_t total_len = xqc_padding_frame_total_len(conn, packet_out);
 
     if (packet_out->po_used_size < total_len) {
         packet_out->po_padding = packet_out->po_buf + packet_out->po_used_size;

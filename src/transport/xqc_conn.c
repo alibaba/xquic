@@ -2534,6 +2534,22 @@ xqc_need_padding(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
     return ret;
 }
 
+/*
+ * A packet that needs padding gets it only when it is encrypted, after the
+ * congestion window and the pacer have let it go: they check the size it
+ * will have then, which it adds to the bytes in flight (RFC 9002 Section 7).
+ */
+size_t
+xqc_conn_padded_size(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
+{
+    if (!xqc_need_padding(conn, packet_out)) {
+        return packet_out->po_used_size;
+    }
+
+    return xqc_max(packet_out->po_used_size,
+                   xqc_padding_frame_total_len(conn, packet_out));
+}
+
 xqc_int_t
 xqc_conn_enc_packet(xqc_connection_t *conn,
     xqc_path_ctx_t *path, xqc_packet_out_t *packet_out,

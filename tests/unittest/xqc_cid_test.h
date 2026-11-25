@@ -52,6 +52,12 @@ void xqc_test_conns_hash_remove_owned_entry();
 /* Removing an equal key with a non-owner must leave all mappings intact. */
 void xqc_test_conns_hash_reject_non_owner();
 
+/* frames about the use of an abandoned path ID are ignored */
+void xqc_test_mp_frames_for_abandoned_path_ignored();
+
+/* every multipath frame rejects a path ID above our limit */
+void xqc_test_mp_frames_path_id_above_limit();
+
 /*
  * MP_NEW_CONNECTION_ID for a path ID within our limit but above the peer's
  * is stored rather than retired, and later MAX_PATH_ID keeps it.

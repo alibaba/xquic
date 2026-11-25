@@ -644,6 +644,8 @@ xqc_conn_init_flow_ctl(xqc_connection_t *conn)
     flow_ctl->fc_max_streams_uni_can_send = settings->max_streams_uni; /* replace with the value specified by peer after handshake */
     flow_ctl->fc_max_streams_uni_can_recv = settings->max_streams_uni;
     flow_ctl->fc_max_streams_uni_recv_wind = settings->max_streams_uni;
+    flow_ctl->fc_streams_blocked_bidi_sent = XQC_MAX_UINT64_VALUE;
+    flow_ctl->fc_streams_blocked_uni_sent = XQC_MAX_UINT64_VALUE;
     flow_ctl->fc_data_sent = 0;
     flow_ctl->fc_data_recved = 0;
     flow_ctl->fc_recv_windows_size = settings->max_data;
@@ -4262,6 +4264,12 @@ xqc_conn_early_data_reject(xqc_connection_t *conn)
             xqc_stream_send_state_update(stream, XQC_SEND_STREAM_ST_READY);
             xqc_stream_recv_state_update(stream, XQC_RECV_STREAM_ST_RECV);
             xqc_stream_write_buffed_data_to_packets(stream);
+            if (!xqc_list_empty(
+                    &stream->stream_write_buff_list.write_buff_list))
+            {
+                /* the rest waits for the server's limits */
+                xqc_stream_ready_to_write(stream);
+            }
         }
     }
 
@@ -4653,6 +4661,36 @@ xqc_conn_buff_1rtt_packets(xqc_connection_t *conn)
 }
 
 
+/*
+ * RFC 9000 Section 4.6: RESET_STREAM, RESET_STREAM_AT and STOP_SENDING
+ * buffered before the handshake can name a local stream that the peer's
+ * transport parameters then put beyond its limit. Each of those frames is
+ * written in a packet of its own.
+ */
+static xqc_bool_t
+xqc_conn_buffed_packet_beyond_peer_limit(xqc_connection_t *conn,
+    xqc_packet_out_t *packet_out)
+{
+    unsigned int i;
+
+    if ((packet_out->po_frame_types & XQC_FRAME_BIT_STOP_SENDING)
+        && xqc_stream_id_beyond_peer_limit(conn, packet_out->po_stream_id))
+    {
+        return XQC_TRUE;
+    }
+
+    for (i = 0; i < packet_out->po_stream_frames_idx; i++) {
+        xqc_po_stream_frame_t *frame = &packet_out->po_stream_frames[i];
+        if ((frame->ps_is_reset || frame->ps_is_reset_at)
+            && xqc_stream_id_beyond_peer_limit(conn, frame->ps_stream_id))
+        {
+            return XQC_TRUE;
+        }
+    }
+
+    return XQC_FALSE;
+}
+
 void
 xqc_conn_write_buffed_1rtt_packets(xqc_connection_t *conn)
 {
@@ -4663,6 +4701,10 @@ xqc_conn_write_buffed_1rtt_packets(xqc_connection_t *conn)
         unsigned total = 0;
         xqc_list_for_each_safe(pos, next, &send_queue->sndq_buff_1rtt_packets) {
             packet_out = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+            if (xqc_conn_buffed_packet_beyond_peer_limit(conn, packet_out)) {
+                /* stays buffered until MAX_STREAMS covers the stream */
+                continue;
+            }
             xqc_send_queue_remove_buff(pos, send_queue);
             xqc_send_queue_insert_send(packet_out, &send_queue->sndq_send_packets, send_queue);
             if (packet_out->po_flag & XQC_POF_DCID_NOT_DONE) {

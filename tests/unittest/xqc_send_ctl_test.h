@@ -14,6 +14,16 @@ void xqc_test_pto_uses_remote_max_ack_delay(void);
 void xqc_test_pto_remote_default_when_unset(void);
 
 /*
+ * An app-limited restart of the pacer gives one timer granularity of data at
+ * the pacing rate after idle time, at least ten packets, and no more than the
+ * pacer earned when it comes less than a granularity after the last send.
+ */
+void xqc_test_pacing_app_limit_restart_high_rate(void);
+void xqc_test_pacing_app_limit_restart_low_rate(void);
+void xqc_test_pacing_app_limit_restart_back_to_back(void);
+void xqc_test_pacing_app_limit_restart_write_patterns(void);
+
+/*
  * xqc_pn_ctl_create() frees the rings of sent ACKs that it already
  * allocated when a later allocation fails.
  */

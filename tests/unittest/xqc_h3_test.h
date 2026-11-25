@@ -30,6 +30,8 @@ void xqc_test_h3_stream_send_buf_error_log(void);
 void xqc_test_h3_frame_created_log_headers(void);
 void xqc_test_h3_frame_created_log_no_headers(void);
 void xqc_test_h3_frame_created_log_truncated(void);
+/* RFC 9218 Section 4: a Priority field value is the bytes given */
+void xqc_test_h3_parse_priority_bounds(void);
 void xqc_test_h3_peer_settings_batch(void);
 void xqc_test_h3_settings_frame_boundaries(void);
 void xqc_test_h3_settings_fragmented(void);

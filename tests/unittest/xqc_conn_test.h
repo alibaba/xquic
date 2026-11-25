@@ -42,6 +42,11 @@ void xqc_test_0rtt_params_each_reduced(void);
 /* RFC 9000 §7.4.1: forbidden remembered fields must be reset (issue #672) */
 void xqc_test_early_params_forbidden_fields_reset(void);
 
+/* RFC 9000 §13.2.1: a pending acknowledgment goes with the next 1-RTT packet */
+void xqc_test_conn_attach_pending_ack(void);
+void xqc_test_conn_attach_pending_ack_skipped(void);
+void xqc_test_conn_rebinding_challenge_keeps_pending_ack(void);
+
 /* issue #672 computation-level coverage: ungated consumers of remote settings */
 void xqc_test_0rtt_calc_pto_ignores_stale_max_ack_delay(void);
 void xqc_test_0rtt_persistent_congestion_default_max_ack_delay(void);

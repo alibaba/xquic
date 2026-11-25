@@ -2306,6 +2306,8 @@ xqc_path_send_burst_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
                 break;
             }
 
+            xqc_conn_attach_pending_ack(conn, path, packet_out, congest, total_bytes_to_send);
+
             /* retransmit 0-RTT packets in 1-RTT if 1-RTT keys are ready. */
             if (XQC_UNLIKELY(packet_out->po_pkt.pkt_type == XQC_PTYPE_0RTT
                 && conn->conn_flag & XQC_CONN_FLAG_CAN_SEND_1RTT))
@@ -2436,6 +2438,8 @@ xqc_path_send_packets(xqc_connection_t *conn, xqc_path_ctx_t *path,
             send_ctl->ctl_conn->send_cc_blocked++;
             break;
         }
+
+        xqc_conn_attach_pending_ack(conn, path, packet_out, congest, 0);
 
         ret = xqc_path_send_one_packet(conn, path, packet_out);
         if (ret < 0) {
@@ -2710,6 +2714,61 @@ xqc_send_packet_with_pn(xqc_connection_t *conn, xqc_path_ctx_t *path, xqc_packet
     xqc_conn_log_sent_packet(conn, packet_out, now);
     xqc_send_ctl_on_packet_sent(path->path_send_ctl, pn_ctl, packet_out, now);
     return sent;
+}
+
+/*
+ * RFC 9000 Section 13.2.1: "An endpoint SHOULD send an ACK frame with other
+ * frames when there are new ack-eliciting packets to acknowledge." Fewer
+ * than ack_frequency of them wait for the delayed-ACK timer of their path;
+ * an ack-eliciting 1-RTT packet that leaves the send queue on that path
+ * before it expires carries the ACK frame when it has room for it, and the
+ * timer stops. congest and schedule_bytes are those of the congestion check
+ * that the packet has just passed.
+ */
+void
+xqc_conn_attach_pending_ack(xqc_connection_t *conn, xqc_path_ctx_t *path,
+    xqc_packet_out_t *packet_out, int congest, uint32_t schedule_bytes)
+{
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+    xqc_bool_t      is_mp_ack = conn->enable_multipath == XQC_CONN_MP_ENABLED;
+    xqc_bool_t      is_ext_ack;
+
+    /*
+     * Without multipath, the ACK frame is the one of the initial path. A
+     * PMTU probe is likely lost. The anti-amplification limit of a server
+     * path and the congestion window were checked without the ACK frame:
+     * the window must also hold the largest one that the packet can take.
+     */
+    if (packet_out->po_pkt.pkt_type != XQC_PTYPE_SHORT_HEADER
+        || send_ctl->ctl_ack_eliciting_pkt[XQC_PNS_APP_DATA] == 0
+        || !XQC_IS_ACK_ELICITING(packet_out->po_frame_types)
+        || (packet_out->po_flag & XQC_POF_PMTUD_PROBING)
+        || (!is_mp_ack && path != conn->conn_initial_path)
+        || (conn->conn_type == XQC_CONN_TYPE_SERVER
+            && (xqc_path_is_initial_path(path)
+                ? !(conn->conn_flag & XQC_CONN_FLAG_ADDR_VALIDATED)
+                : path->path_state < XQC_PATH_STATE_ACTIVE))
+        || !xqc_packet_out_can_attach_ack(packet_out, path,
+                                          XQC_PTYPE_SHORT_HEADER)
+        || (congest
+            && !xqc_send_ctl_can_send(send_ctl, packet_out, schedule_bytes
+                   + xqc_get_po_remained_size_with_ack_spc(packet_out))))
+    {
+        return;
+    }
+
+    is_ext_ack = !is_mp_ack
+                 && (conn->conn_settings.extended_ack_features
+                     & XQC_ACK_EXT_FEATURE_BIT_RECV_TS)
+                 && xqc_recv_timestamps_info_length(path->recv_ts_info) > 0;
+
+    if (xqc_write_ack_or_mp_ack_or_ext_ack_to_one_packet(conn, packet_out,
+            XQC_PNS_APP_DATA, path, is_mp_ack, is_ext_ack, 0) == XQC_OK)
+    {
+        xqc_timer_unset(&send_ctl->path_timer_manager, XQC_TIMER_ACK_01RTT);
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|path:%ui|ack attached|size:%ud|",
+                path->path_id, packet_out->po_used_size);
+    }
 }
 
 ssize_t

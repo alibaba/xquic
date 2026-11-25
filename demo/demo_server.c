@@ -553,6 +553,13 @@ xqc_demo_svr_hq_send_file(xqc_hq_request_t *hqr, xqc_demo_svr_user_stream_t *use
 {
     int ret = 0;
     xqc_demo_svr_resource_t *res = &user_stream->res;
+
+    /* a response without data, for an empty or a missing file: a FIN */
+    if (res->total_len == 0) {
+        ret = xqc_demo_svr_send_rsp_resource(user_stream, "", 0, 1);
+        return ret < 0 ? -1 : 1;
+    }
+
     while (res->total_offset < res->total_len) {   /* still have bytes to be sent */
         char *send_buf = NULL;  /* the buf need to be send */
         int send_len = 0;       /* len of the the buf gonna be sent */
@@ -614,7 +621,9 @@ xqc_demo_svr_handle_hq_request(xqc_demo_svr_user_stream_t *user_stream, xqc_hq_r
         user_stream->res.fp = fopen(file_path, "rb");
         if (NULL == user_stream->res.fp) {
             printf("error open file [%s]\n", file_path);
-            goto handle_error;
+            /* HTTP/0.9 has no status: the response is empty */
+            xqc_demo_svr_hq_send_file(hqr, user_stream);
+            return;
         }
         /* get total len */
         fseek(user_stream->res.fp, 0, SEEK_END);
@@ -947,7 +956,9 @@ xqc_demo_svr_handle_h3_request(xqc_demo_svr_user_stream_t *user_stream,
 
     /* send header first */
     if (user_stream->header_sent == 0) {
-        ret = xqc_h3_request_send_headers(user_stream->h3_request, &rsp_hdrs, 0);
+        /* the headers end the response of an empty file */
+        ret = xqc_h3_request_send_headers(user_stream->h3_request, &rsp_hdrs,
+                                          user_stream->res.total_len == 0);
         if (ret < 0) {
             printf("xqc_h3_request_send_headers error %zd\n", ret);
             return ret;
@@ -965,6 +976,19 @@ xqc_demo_svr_handle_h3_request(xqc_demo_svr_user_stream_t *user_stream,
 
 h3_handle_error:
     xqc_demo_svr_close_user_stream_resource(user_stream);
+
+    /* a 404 or 500 status without content ends the response */
+    if (user_stream->header_sent == 0) {
+        xqc_demo_svr_set_rsp_header_value_int(&rsp_hdrs, H3_HDR_CONTENT_LENGTH,
+                                              0);
+        ret = xqc_h3_request_send_headers(user_stream->h3_request, &rsp_hdrs,
+                                          1);
+        if (ret < 0) {
+            printf("xqc_h3_request_send_headers error %zd\n", ret);
+        } else {
+            user_stream->header_sent = 1;
+        }
+    }
     return -1;
 }
 

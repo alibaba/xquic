@@ -82,4 +82,14 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * The congestion window is 64-bit: a CUBIC window above 2^32 bytes is
+ * compared whole, not by its low 32 bits, when deciding whether a packet
+ * fits, whether the path is cwnd-limited and whether it is
+ * application-limited.
+ */
+void xqc_test_send_ctl_can_send_window(void);
+void xqc_test_send_ctl_can_send_window_above_4g(void);
+void xqc_test_send_ctl_cwnd_limited_window_above_4g(void);
+
 #endif

@@ -1696,7 +1696,13 @@ xqc_stream_send(xqc_stream_t *stream, unsigned char *send_data, size_t send_data
         xqc_stream_shutdown_write(stream);
         return 0;
     }
-    int ret;
+
+    /* no data and no FIN: nothing to write, and nothing that can fail */
+    if (send_data_size == 0 && !fin) {
+        return 0;
+    }
+
+    int ret = XQC_OK;
     xqc_stream_ready_to_write(stream);
     size_t send_data_written = 0;
     size_t offset = 0; /* the written offset in send_data */

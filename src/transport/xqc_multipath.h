@@ -250,6 +250,14 @@ void xqc_set_path_state(xqc_path_ctx_t *path, xqc_path_state_t state);
 /* path state: "ACTIVE" -> "CLOSING" */
 xqc_int_t xqc_path_immediate_close(xqc_path_ctx_t *path);
 
+/*
+ * Abandon a path ID (RFC 10069 Section 3.4): send PATH_ABANDON unless it was
+ * sent or received for the path ID already, and retire the connection IDs
+ * of both sides for it. The path, if any, is the caller's
+ * (xqc_path_immediate_close).
+ */
+void xqc_conn_abandon_path_id(xqc_connection_t *conn, uint64_t path_id);
+
 /* path state: "ACTIVE/CLOSING/DRAINING" -> "CLOSED" */
 xqc_int_t xqc_path_closed(xqc_path_ctx_t *path);
 

@@ -75,6 +75,14 @@ void xqc_test_send_ctl_persistent_congestion_no_rtt_sample_early_return(void);
 void xqc_test_send_ctl_lost_interval_log(void);
 
 /*
+ * A copy queued for retransmission whose original was acknowledged since
+ * takes no congestion window from the data still to send, whether it is
+ * queued or scheduled on a path already.
+ */
+void xqc_test_send_ctl_obsolete_lost_copy_not_scheduled(void);
+void xqc_test_send_ctl_obsolete_scheduled_copy_dropped(void);
+
+/*
  * RFC 9000 14.4: a lost PMTU probe is dropped without a congestion
  * reaction or a loss sample, while an ordinary lost packet still gets
  * both.

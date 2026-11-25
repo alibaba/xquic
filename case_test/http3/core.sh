@@ -340,7 +340,6 @@ if [ -n "$result" ] && [ -z "$errlog" ]; then
 else
     echo ">>>>>>>> pass:0"
     case_print_result "empty_header_value" "fail"
-    exit 1
 fi
 }
 

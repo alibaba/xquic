@@ -203,29 +203,7 @@ run_command()
 
 extract_cunit_summary()
 {
-    awk '
-    {
-        line = $0
-        sub(/^[0-9]+:[[:space:]]*/, "", line)
-        sub(/^[[:space:]]+/, "", line)
-        field_count = split(line, fields, /[[:space:]]+/)
-        is_summary = field_count == 6
-        is_summary = is_summary && fields[1] == "tests"
-        is_summary = is_summary && fields[2] ~ /^[0-9]+$/
-        is_summary = is_summary && fields[3] ~ /^[0-9]+$/
-        is_summary = is_summary && fields[4] ~ /^[0-9]+$/
-        is_summary = is_summary && fields[5] ~ /^[0-9]+$/
-
-        if (is_summary) {
-            summary = fields[2] " " fields[3] " " fields[4] " " fields[5]
-        }
-    }
-    END {
-        if (summary != "") {
-            print summary
-        }
-    }
-    ' "${LOG_FILE}"
+    awk -f "${ROOT_DIR}/scripts/cunit_summary.awk" "${LOG_FILE}"
 }
 
 verify_cunit_summary()

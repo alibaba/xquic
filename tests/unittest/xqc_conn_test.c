@@ -185,6 +185,37 @@ xqc_test_datagram_transport_param_65536(void)
 }
 
 
+/* the public local settings carry both of their fields */
+void
+xqc_test_conn_public_local_trans_settings(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    xqc_conn_public_local_trans_settings_t settings;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->local_settings.max_datagram_frame_size = 1200;
+    conn->conn_settings.datagram_redundancy = 2;
+
+    xqc_test_dirty_stack();
+    settings = xqc_conn_get_public_local_trans_settings(conn);
+    CU_ASSERT_EQUAL(settings.max_datagram_frame_size, 1200);
+    CU_ASSERT_EQUAL(settings.datagram_redundancy, 2);
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/* without a connection, the public local settings are all zero */
+void
+xqc_test_conn_public_local_trans_settings_no_conn(void)
+{
+    xqc_conn_public_local_trans_settings_t settings;
+
+    settings = xqc_conn_get_public_local_trans_settings(NULL);
+    CU_ASSERT_EQUAL(settings.max_datagram_frame_size, 0);
+    CU_ASSERT_EQUAL(settings.datagram_redundancy, 0);
+}
+
+
 void
 xqc_test_datagram_transport_param_varint_max(void)
 {

@@ -2006,14 +2006,17 @@ void xqc_conn_unset_pkt_filter_callback(xqc_connection_t *conn);
 
 
 /**
- * @brief get public local transport settings.
+ * @brief get public local transport settings: the local
+ * max_datagram_frame_size and the connection's datagram_redundancy, or all
+ * zero when conn is NULL.
  */
 XQC_EXPORT_PUBLIC_API
 xqc_conn_public_local_trans_settings_t 
 xqc_conn_get_public_local_trans_settings(xqc_connection_t *conn);
 
 /**
- * @brief set public local transport settings
+ * @brief set public local transport settings. Only max_datagram_frame_size
+ * is applied.
  */
 XQC_EXPORT_PUBLIC_API
 void xqc_conn_set_public_local_trans_settings(xqc_connection_t *conn, 

@@ -29,4 +29,10 @@ void xqc_test_vn_reject_when_state_not_initial_sent(void);
 /* Abort even when the VN list contains multiple foreign versions. */
 void xqc_test_vn_abort_on_multi_unsupported_versions(void);
 
+/* A sent VN lists every configured version in network byte order. */
+void xqc_test_vn_send_lists_versions(void);
+
+/* A sent VN leaves out the versions that do not fit in the packet. */
+void xqc_test_vn_send_truncates_versions(void);
+
 #endif /* XQC_VN_TEST_H */

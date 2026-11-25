@@ -69,8 +69,11 @@ tickets. TLS units also cover default and configured 48/80-byte keys and
 legacy unbound contexts on both BoringSSL and BabaSSL. BabaSSL coverage also
 rejects malformed ticket appdata and checks subsequent refreshed tickets.
 Endpoint cases 909–912 verify
-the [reset ticket contract](reliable-stream-reset/spec.md#0-rtt-session-tickets);
-701/702 retain the existing non-reset parameter checks.
+the [reset ticket contract](reliable-stream-reset/spec.md#0-rtt-session-tickets),
+and 916/917 its RFC 9000 Section 7.4.1 limits: a lowered stream limit rejects
+0-RTT, and an unchanged one keeps it. TLS units lower, keep and raise each
+limit. 701/702 retain the client's check of a reduced remembered limit and the
+rejection after a ticket key change.
 
 Harness-only changes must also run:
 
@@ -115,7 +118,7 @@ its case is retired so later changes cannot reuse it.
 |-------|--------------------|---------------|
 | `[705, 799]` | QUIC Transport core | `705-726`, `739-746` |
 | `[800, 899]` | Recovery and congestion control | `800`, `804-805` |
-| `[900, 999]` | QUIC-TLS | `902-905`, `909-912` |
+| `[900, 999]` | QUIC-TLS | `902-905`, `909-912`, `916-917` |
 | `[1000, 1099]` | HTTP/3 framing, streams, and settings | `1000-1021`, `1026-1027`, `1032-1035` |
 | `[1100, 1149]` | QPACK | None |
 | `[1150, 1199]` | HTTP priority | None |

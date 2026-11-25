@@ -700,6 +700,10 @@ xqc_int_t xqc_conn_set_early_remote_transport_params(xqc_connection_t *conn,
 xqc_int_t xqc_conn_encode_local_tp(xqc_connection_t *conn, uint8_t *dst, size_t dst_cap,
     size_t *dst_len);
 
+/* the advertised limits that bind a server's session tickets for 0-RTT */
+void xqc_conn_get_early_data_limits(const xqc_trans_settings_t *settings,
+    uint64_t limits[XQC_EARLY_DATA_LIMIT_COUNT]);
+
 xqc_int_t xqc_conn_on_recv_retry(xqc_connection_t *conn, xqc_cid_t *retry_scid);
 
 /* exposed for unit tests; validates the peer's transport parameters per RFC 9000 7.3 */

@@ -8,6 +8,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <xquic/xquic.h>
+#include "src/tls/xqc_tls_defs.h"
 
 /**
  * @brief definitions for inner usage
@@ -108,6 +109,16 @@ typedef struct xqc_ssl_session_ticket_key_s {
 
 #define XQC_EARLY_DATA_CONTEXT          "xquic"
 #define XQC_EARLY_DATA_CONTEXT_LEN      (sizeof(XQC_EARLY_DATA_CONTEXT) - 1)
+
+/*
+ * Encoded TP offsets and length shared by context and ticket appdata: the
+ * reset_stream_at byte, then each xqc_tls_early_data_limit_t as a 64-bit
+ * big-endian value.
+ */
+#define XQC_EARLY_DATA_TP_RESET_STREAM_AT   0
+#define XQC_EARLY_DATA_TP_LIMIT(limit)      (1 + (limit) * sizeof(uint64_t))
+#define XQC_EARLY_DATA_TP_LEN               \
+    XQC_EARLY_DATA_TP_LIMIT(XQC_EARLY_DATA_LIMIT_COUNT)
 
 
 

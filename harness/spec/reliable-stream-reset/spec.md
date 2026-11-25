@@ -141,24 +141,29 @@ receive completion or closing notification.
 
 ## 0-RTT Session Tickets
 
-The early-data TP list currently contains only `reset_stream_at`, encoded as
-one byte (0 or 1). Context construction and ticket appdata share this encoding;
-additional TPs must extend both the encoding and the per-parameter checks.
-Either capability mismatch
-rejects only 0-RTT, retains valid session resumption, and lets rejected stream
-data replay in 1-RTT. Matching values add no rejection. Other transport
-parameters keep their existing policy; ticket encoding, authentication and
-keys remain native TLS. Missing or malformed reset bindings reject early data.
+The early-data TP list contains `reset_stream_at`, encoded as one byte (0 or
+1), followed by the seven limits that a server accepting 0-RTT must not reduce
+(RFC 9000 Section 7.4.1), each a 64-bit big-endian value. Context construction
+and ticket appdata share this encoding; additional TPs must extend both the
+encoding and the per-parameter checks. Either capability mismatch, or a limit
+below its remembered value, rejects only 0-RTT, retains valid session
+resumption, and lets rejected stream data replay in 1-RTT. Matching values add
+no rejection. Other transport parameters keep their existing policy; ticket
+encoding, authentication and keys remain native TLS. Missing or malformed
+bindings reject early data.
 
-BoringSSL appends the byte to the `xquic` early-data context. BabaSSL keeps
+BoringSSL appends the encoded TPs to the `xquic` early-data context and
+compares the whole context, so a raised limit also rejects 0-RTT. BabaSSL keeps
 the original fixed native context because it copies that context on renewal;
 its public TP ticket callbacks renew the authenticated TP data in ticket
 appdata, and `xqc_ssl_tp_allow_early_data_cb` validates its length and checks
-each included parameter before acceptance.
+each included parameter before acceptance, which keeps 0-RTT when a limit is
+raised.
 
 Every successful handshake installs and persists the newly received transport
 parameters, replacing the cached reset capability even after 0-RTT rejection.
-New tickets record the current capability for subsequent resumptions.
+New tickets record the current capability and limits for subsequent
+resumptions.
 
 ## Validation Contract
 

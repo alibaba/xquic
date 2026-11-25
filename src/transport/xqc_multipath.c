@@ -1369,7 +1369,7 @@ xqc_conn_server_init_path_addr(xqc_connection_t *conn, uint64_t path_id,
                 xqc_log(conn->engine->log, XQC_LOG_STATS, "|MP|path:%ui|conn:%s|"
                         "cannot activate this path, due to the same IP|curIP:%s|conflictIP:%s|",
                         path_id, xqc_conn_addr_str(conn),
-                        xqc_peer_addr_str(conn->engine, (struct sockaddr*)peer_addr, conn->peer_addrlen),
+                        xqc_peer_addr_str(conn->engine, (struct sockaddr*)peer_addr, peer_addrlen),
                         xqc_local_addr_str(conn->engine, (struct sockaddr*)active_path->peer_addr, active_path->peer_addrlen));
                 return XQC_OK;
             }

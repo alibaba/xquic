@@ -171,6 +171,73 @@ xqc_test_negotiated_multipath_frozen_frame(void)
     xqc_engine_destroy(conn->engine);
 }
 
+typedef struct xqc_test_frame_log_s {
+    char    line[XQC_MAX_LOG_LEN];
+    int     lines;
+} xqc_test_frame_log_t;
+
+static void
+xqc_test_frame_log_write(xqc_log_level_t lvl, const void *buf, size_t size,
+    void *user_data)
+{
+    xqc_test_frame_log_t  *capture = user_data;
+
+    size = xqc_min(size, sizeof(capture->line) - 1);
+    memcpy(capture->line, buf, size);
+    capture->line[size] = '\0';
+    capture->lines++;
+}
+
+/*
+ * A STREAM frame whose Length (a 62-bit integer, RFC 9000 Section 19.8)
+ * exceeds the packet is rejected, and the error line prints the length in
+ * full: 0x100000005, not its low 32 bits.
+ */
+void
+xqc_test_stream_frame_length_error_log(void)
+{
+    xqc_int_t               ret;
+    xqc_stream_id_t         stream_id;
+    xqc_stream_frame_t      frame;
+    xqc_packet_in_t         pi;
+    xqc_connection_t       *conn;
+    xqc_log_callbacks_t    *log_callbacks;
+    void                   *log_user_data;
+    xqc_log_callbacks_t     callbacks = {0};
+    xqc_test_frame_log_t    capture = {0};
+    unsigned char           buf[] = {
+        0x0a, 0x00, 0xc0, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x05,
+        0xaa, 0xbb
+    };
+
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    callbacks.xqc_log_write_err = xqc_test_frame_log_write;
+    log_callbacks = conn->log->log_callbacks;
+    log_user_data = conn->log->user_data;
+    conn->log->log_level = XQC_LOG_ERROR;
+    conn->log->log_callbacks = &callbacks;
+    conn->log->user_data = &capture;
+
+    memset(&pi, 0, sizeof(pi));
+    memset(&frame, 0, sizeof(frame));
+    pi.pos = buf;
+    pi.last = buf + sizeof(buf);
+    ret = xqc_parse_stream_frame(&pi, conn, &frame, &stream_id);
+
+    conn->log->log_callbacks = log_callbacks;
+    conn->log->user_data = log_user_data;
+    CU_ASSERT(ret == -XQC_EILLEGAL_FRAME);
+#ifndef XQC_DISABLE_LOG
+    CU_ASSERT(capture.lines == 1);
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.line,
+        "|parse stream frame error|stream length:4294967301|"
+        "packet length:2"));
+#endif
+
+    xqc_engine_destroy(conn->engine);
+}
+
 void
 xqc_test_parse_padding_frame()
 {

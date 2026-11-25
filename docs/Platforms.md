@@ -7,14 +7,14 @@ XQUIC currently supports `Android` , `iOS` , `HarmonyOS` , `Linux` , `macOS` and
 For Android, iOS and HarmonyOS there is a [ `xqc_build.sh` ](../xqc_build.sh) script in the XQUIC library directory, execute the script to compile to complete the corresponding compilation. All platforms build from the root `CMakeLists.txt` .
 
 ```bash
-sh xqc_build.sh ios/android/harmony <build_dir> <artifact_dir> <ssl_inc_path> <ssl_lib_path> [extra_c_flags]
+bash xqc_build.sh ios/android/harmony <build_dir> <artifact_dir> <ssl_inc_path> <ssl_lib_path> [extra_c_flags]
 ```
 
 `<ssl_inc_path>` is the directory holding `openssl/ssl.h` , and `<ssl_lib_path>` is a
 semicolon-separated list of the libraries to link:
 
 ```bash
-sh xqc_build.sh android build_android artifact_android \
+bash xqc_build.sh android build_android artifact_android \
     ${PWD}/third_party/boringssl/include \
     "${PWD}/third_party/boringssl/build/libssl.a;${PWD}/third_party/boringssl/build/libcrypto.a"
 ```
@@ -30,7 +30,7 @@ often the prefix of a BoringSSL built with `BORINGSSL_PREFIX` , so that its symb
 not clash with the system libssl:
 
 ```bash
-sh xqc_build.sh ios build_ios artifact_ios \
+bash xqc_build.sh ios build_ios artifact_ios \
     ${PWD}/third_party/boringssl/include \
     "${PWD}/third_party/boringssl/build/libssl.a;${PWD}/third_party/boringssl/build/libcrypto.a" \
     "-DBORINGSSL_PREFIX=bs"

@@ -1,5 +1,5 @@
+#!/bin/bash
 # Copyright (c) 2022, Alibaba Group Holding Limited
-#!/bin/sh
 
 android_archs=(armeabi-v7a arm64-v8a)
 ios_archs=(armv7 arm64 x86_64)
@@ -78,10 +78,10 @@ common_configures="-DSSL_TYPE=${ssl_type}
 if [ x"$platform" == xios ] ; then
     if [ x"$IOS_CMAKE_TOOLCHAIN" == x ] ; then
         echo "IOS_CMAKE_TOOLCHAIN MUST be defined"
-        exit 0
+        exit 1
     fi
 
-    archs=${ios_archs[@]}
+    archs=("${ios_archs[@]}")
     configures="${common_configures}
                 -DCMAKE_TOOLCHAIN_FILE=${IOS_CMAKE_TOOLCHAIN}
                 -DDEPLOYMENT_TARGET=10.0
@@ -90,10 +90,10 @@ if [ x"$platform" == xios ] ; then
 elif [ x"$platform" == xandroid ] ; then
     if [ x"$ANDROID_NDK" == x ] ; then
         echo "ANDROID_NDK MUST be defined"
-        exit 0
+        exit 1
     fi
 
-    archs=${android_archs[@]}
+    archs=("${android_archs[@]}")
     configures="${common_configures}
                 -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake
                 -DANDROID_STL=c++_shared
@@ -102,24 +102,24 @@ elif [ x"$platform" == xandroid ] ; then
 elif [ x"$platform" == xharmony ] ; then
     if [ x"$HMOS_CMAKE_TOOLCHAIN" == x ] ; then
         echo "HMOS_CMAKE_TOOLCHAIN MUST be defined"
-        exit 0
+        exit 1
     fi
     echo "HMOS_CMAKE_TOOLCHAIN: ${HMOS_CMAKE_TOOLCHAIN}"
 
     if [ x"$HMOS_CMAKE_PATH" == x ] ; then
         echo "HMOS_CMAKE_PATH MUST be defined"
-        exit 0
+        exit 1
     fi
     echo "HMOS_CMAKE_PATH: ${HMOS_CMAKE_PATH}"
     CMAKE_CMD=${HMOS_CMAKE_PATH}
 
-    archs=${hmos_archs[@]}
+    archs=("${hmos_archs[@]}")
     configures="${common_configures}
                 -DCMAKE_TOOLCHAIN_FILE=${HMOS_CMAKE_TOOLCHAIN}
                 -DDISABLE_WARNINGS=ON"
 else
     echo "no support platform"
-    exit 0
+    exit 1
 fi
 
 
@@ -149,7 +149,7 @@ artifact_dir=$cur_dir/$artifact_dir
 
 cd $build_dir 
 
-for i in ${archs[@]} ;
+for i in "${archs[@]}" ;
 do
     rm -f  CMakeCache.txt
     rm -rf CMakeFiles
@@ -167,7 +167,7 @@ do
         -DLIBRARY_OUTPUT_PATH=`pwd`/outputs/ ..
     make -j 4
     if [ $? != 0 ] ; then
-        exit 0
+        exit 1
     fi
 
     if [ ! -d  ${artifact_dir}/$i ] ; then
@@ -187,7 +187,7 @@ done
 make_fat() {
     lib_name=$1
     lipo_args=
-    for i in ${archs[@]} ;
+    for i in "${archs[@]}" ;
     do
         lipo_args="$lipo_args -arch $i $artifact_dir/$i/$lib_name"
     done

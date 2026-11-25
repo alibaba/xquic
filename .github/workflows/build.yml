@@ -41,6 +41,13 @@ jobs:
           bash harness/scripts/xqc_harness_check.sh
         fi
 
+    - name: Check case-test runners
+      run: |
+        # runner structure, and no case function that assigns a local
+        # variable of case_test_run without declaring it local
+        ruby case_test/lib/architecture_check.rb "$PWD" \
+          --runner-syntax --runner-locals-selftest
+
     - name: Linux Setup
       timeout-minutes: 5
       run: |

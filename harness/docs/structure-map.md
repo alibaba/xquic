@@ -58,7 +58,8 @@ The source boundaries governing both private categories are defined in
 - `case_test/lib/runner.sh`: selected execution scheduler with per-shard work
   directory, port, and shard ID assignment.
 - `case_test/lib/architecture_check.rb`: repeatable checks for parallel
-  scheduling, native ownership, and failed-case reporting.
+  scheduling, native ownership, failed-case reporting, and case functions
+  that assign the runner's local variables.
 - `case_test/<module>/`: module-owned endpoint case runners. New cases are
   registered in the owning group script; not in the manifest.
 

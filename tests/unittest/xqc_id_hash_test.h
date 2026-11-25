@@ -6,5 +6,7 @@
 #define XQC_ID_HASH_H
 
 void xqc_test_id_hash();
+void xqc_test_str_hash_release(void);
+void xqc_test_str_hash_release_after_add_failure(void);
 
 #endif

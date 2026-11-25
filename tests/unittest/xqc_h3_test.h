@@ -13,6 +13,7 @@ void xqc_test_h3_single_vint_frame_length_error();
 void xqc_test_stream();
 void xqc_test_ins();
 void xqc_test_rep();
+void xqc_test_rep_references();
 void xqc_test_h3_critical_stream_close();
 void xqc_test_h3_second_control_stream_rejected();
 void xqc_test_h3_reserved_uni_stream_accepted();

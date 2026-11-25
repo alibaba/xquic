@@ -86,6 +86,13 @@ add_executable(test_h3_qpack
 target_link_libraries(test_h3_qpack ${APP_DEPEND_LIBS})
 target_link_libraries(test_client ${APP_DEPEND_LIBS})
 
+### deterministic in-process transfer benchmark, see scripts/perf_bench.sh ###
+if(NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
+    add_executable(xqc_bench bench/xqc_bench.c)
+    target_link_libraries(xqc_bench xquic-static ${SSL_LIB_PATH}
+        m dl stdc++ pthread)
+endif()
+
 
 # build run_tests
 if(HAVE_CUNIT)

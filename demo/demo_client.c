@@ -40,6 +40,7 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #include <unistd.h>
 #include <netdb.h>
 #endif
@@ -3252,7 +3253,7 @@ xqc_demo_cli_create_socket(xqc_demo_cli_user_path_t *user_path,
         strncpy(ifr.ifr_name, cfg->iflist[path_seq], sizeof(ifr.ifr_name) - 1);
         ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';
 
-#if !defined(__APPLE__)
+#ifdef SO_BINDTODEVICE
         printf("fd: %d. bind to nic: %s\n", fd, cfg->iflist[path_seq]);
         if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, (char *)&ifr, sizeof(ifr)) < 0) {
             printf("bind to nic error: %d, try use sudo\n", errno);

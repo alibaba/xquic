@@ -20,6 +20,7 @@
 #ifndef XQC_SYS_WINDOWS
 #include <unistd.h>
 #include <sys/wait.h>
+#include <netinet/in.h>
 #else
 #include "../tests/getopt.h"
 #pragma comment(lib,"ws2_32.lib")

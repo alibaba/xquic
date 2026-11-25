@@ -82,4 +82,12 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * RFC 9002 Section 5.1: RTT samples come from an ACK frame whose Largest
+ * Acknowledged is newly acknowledged, also when the frame was reordered.
+ */
+void xqc_test_send_ctl_rtt_sample_in_order(void);
+void xqc_test_send_ctl_rtt_sample_reordered_ack(void);
+void xqc_test_send_ctl_rtt_no_sample_old_largest(void);
+
 #endif

@@ -854,6 +854,10 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     xqc_usec_t spurious_loss_sent_time = 0;
     unsigned char need_del_record = 0;
     int stream_frame_acked = 0;
+    /* whether this ACK newly acknowledges the frame's Largest Acknowledged */
+    xqc_bool_t frame_largest_acked = XQC_FALSE;
+    xqc_usec_t frame_largest_sent_time = 0;
+    xqc_bool_t frame_largest_pmtud = XQC_FALSE;
 
     if (xqc_send_ctl_detect_optimistic_ack_attack(send_ctl, pn_ctl, ack_info, ack_recv_time) < 0) {
         XQC_CONN_ERR(conn, TRA_PROTOCOL_VIOLATION);
@@ -924,6 +928,13 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
                 }
             }
 
+            if (packet_out->po_pkt.pkt_num == frame_largest_ack) {
+                frame_largest_acked = XQC_TRUE;
+                frame_largest_sent_time = packet_out->po_sent_time;
+                frame_largest_pmtud =
+                    (packet_out->po_flag & XQC_POF_PMTUD_PROBING) != 0;
+            }
+
             // 更新 largest_ack_both
             if (packet_out->po_largest_ack > pn_ctl->ctl_largest_acked_ack[pns]) {
                 pn_ctl->ctl_largest_acked_ack[pns] = packet_out->po_largest_ack;
@@ -981,10 +992,25 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
         return XQC_OK;
     }
 
+    /*
+     * RFC 9002 Section 5.1: a sample comes from the ACK frame's Largest
+     * Acknowledged when it is newly acknowledged, also when a frame that
+     * arrived earlier acknowledged a larger packet number already. A frame
+     * whose Largest Acknowledged was sent on another path samples this path
+     * from the largest packet it newly acknowledges on it.
+     */
+    if (frame_largest_acked) {
+        update_largest_ack = 1;
+        ignore_rtt = frame_largest_pmtud;
+    }
+
     if (update_largest_ack && has_ack_eliciting && ack_on_same_path) {
         if (!ignore_rtt) {
+            xqc_usec_t sent_time = frame_largest_acked
+                                   ? frame_largest_sent_time
+                                   : send_ctl->ctl_largest_acked_sent_time[pns];
             /* 更新 ctl_latest_rtt */
-            send_ctl->ctl_latest_rtt = ack_recv_time - send_ctl->ctl_largest_acked_sent_time[pns];
+            send_ctl->ctl_latest_rtt = ack_recv_time - sent_time;
             /* 更新rtt */
             xqc_send_ctl_update_rtt(send_ctl, &send_ctl->ctl_latest_rtt, ack_info->ack_delay);
 

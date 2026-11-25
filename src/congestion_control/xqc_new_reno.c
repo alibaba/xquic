@@ -32,7 +32,11 @@
     xqc_min(10 * XQC_kMaxDatagramSize,                                        \
             xqc_max(2 * XQC_kMaxDatagramSize, XQC_kInitialWindowMinBytes))
 
-#define XQC_kLossReductionFactor (0.5f)
+/*
+ * kLossReductionFactor = 0.5 (RFC 9002 Section 7.3.2), as a divisor: a
+ * float product keeps only the 24 high bits of a window of 16 MiB or more.
+ */
+#define XQC_kLossReductionDivisor 2
 
 /*
  * Bounds for cc_params.init_cwnd overrides. Kept consistent with Cubic
@@ -103,7 +107,7 @@ xqc_reno_on_lost(void *cong_ctl, xqc_usec_t lost_sent_time)
         reno->reno_in_recovery = XQC_TRUE;
         /* RFC 9002 Appendix B.6 preserves the pre-clamp reduction. */
         reno->reno_ssthresh =
-            reno->reno_congestion_window * XQC_kLossReductionFactor;
+            reno->reno_congestion_window / XQC_kLossReductionDivisor;
         reno->reno_congestion_window =
             xqc_max(reno->reno_ssthresh, XQC_kMinimumWindow);
     }

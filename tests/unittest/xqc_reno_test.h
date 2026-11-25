@@ -7,6 +7,7 @@
 
 void xqc_test_reno ();
 void xqc_test_reno_loss_ssthresh ();
+void xqc_test_reno_loss_ssthresh_large_window ();
 void xqc_test_reno_loss_ssthresh_min_clamp ();
 void xqc_test_reno_init_cwnd ();
 void xqc_test_reno_init_cwnd_override ();

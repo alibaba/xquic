@@ -811,6 +811,10 @@ xqc_decode_close_dgram_redundancy(xqc_transport_params_t *params, xqc_transport_
 {
     uint64_t ret = 0;
     ssize_t nread = xqc_vint_read(p, end, &ret);
+    if (nread < 0) {
+        /* an empty value, or one cut inside its varint */
+        return -XQC_TLS_MALFORMED_TRANSPORT_PARAM;
+    }
 
     switch (ret) {
     case XQC_RED_SET_CLOSE:

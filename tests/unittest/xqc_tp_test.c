@@ -159,6 +159,56 @@ xqc_test_retry_scid_decode_role(void)
     CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
 }
 
+/*
+ * RFC 9000 Sections 7.4 and 18: close_dgram_redundancy is a varint; an empty
+ * value, or one cut inside its varint, is a TRANSPORT_PARAMETER_ERROR.
+ */
+void
+xqc_test_tp_close_dgram_redundancy(void)
+{
+    uint8_t set_close[] = {
+        XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY, 0x01, XQC_RED_SET_CLOSE
+    };
+    uint8_t not_use[] = {
+        XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY, 0x01, XQC_RED_NOT_USE
+    };
+    uint8_t empty[] = {
+        XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY, 0x00
+    };
+    /* 0x40 starts a varint of two bytes, in a value of one byte */
+    uint8_t truncated[] = {
+        XQC_TRANSPORT_PARAM_CLOSE_DGRAM_REDUNDANCY, 0x01, 0x40
+    };
+    xqc_transport_params_t params;
+    xqc_int_t              ret;
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      set_close, sizeof(set_close));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.close_dgram_redundancy, XQC_RED_SET_CLOSE);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      not_use, sizeof(not_use));
+    CU_ASSERT_EQUAL(ret, XQC_OK);
+    CU_ASSERT_EQUAL(params.close_dgram_redundancy, XQC_RED_NOT_USE);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      empty, sizeof(empty));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+
+    memset(&params, 0, sizeof(params));
+    ret = xqc_decode_transport_params(&params,
+                                      XQC_TP_TYPE_ENCRYPTED_EXTENSIONS,
+                                      truncated, sizeof(truncated));
+    CU_ASSERT_EQUAL(ret, -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
+}
+
 /* RFC 9000 Section 18.2: absent max_ack_delay defaults to 25 milliseconds. */
 void
 xqc_test_max_ack_delay_default_when_absent(void)

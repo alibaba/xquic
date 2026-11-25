@@ -6,6 +6,7 @@
 #define XQC_ENGINE_TEST_H
 
 void xqc_test_engine_create();
+void xqc_test_engine_unregister_alpn();
 void xqc_test_engine_packet_process();
 void xqc_test_engine_drop_small_initial();
 void xqc_test_engine_drop_small_unknown_0rtt();

@@ -833,6 +833,33 @@ xqc_send_ctl_detect_optimistic_ack_attack(xqc_send_ctl_t *send_ctl,
 }
 
 
+/*
+ * For this many PTOs after an acknowledgment of a path came on it, the RTT
+ * is sampled only from the acknowledgments that come on the path.
+ */
+#define XQC_SAME_PATH_ACK_PTO_CNT   3
+
+/*
+ * RFC 10069 Section 5.4: the RTT of a path is sampled from the PATH_ACK
+ * frames received on that path, if any; when the peer sends them on other
+ * paths (Section 5.5), from those, which measure the path and the return
+ * path that the peer chose.
+ */
+static xqc_bool_t
+xqc_send_ctl_ack_path_samples_rtt(xqc_send_ctl_t *send_ctl,
+    xqc_bool_t ack_on_same_path, xqc_usec_t ack_recv_time)
+{
+    if (ack_on_same_path) {
+        send_ctl->ctl_same_path_ack_time = ack_recv_time;
+        return XQC_TRUE;
+    }
+
+    return send_ctl->ctl_same_path_ack_time == 0
+           || ack_recv_time > send_ctl->ctl_same_path_ack_time
+                              + XQC_SAME_PATH_ACK_PTO_CNT
+                                * xqc_send_ctl_calc_pto(send_ctl);
+}
+
 /**
  * OnAckReceived
  */
@@ -870,6 +897,13 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
     xqc_packet_number_t path_largest_pkt_num = 0;
 
     xqc_init_sample_before_ack(&send_ctl->sampler);
+
+    /*
+     * a PATH_ACK received on another path samples the RTT as if received on
+     * this path when none came on this path lately (RFC 10069 Section 5.4)
+     */
+    ack_on_same_path = xqc_send_ctl_ack_path_samples_rtt(send_ctl,
+                           ack_on_same_path, ack_recv_time);
 
     /* detect and remove acked packets */
     xqc_list_for_each_safe(pos, next, &send_queue->sndq_unacked_packets[pns]) {

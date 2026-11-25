@@ -209,6 +209,79 @@ xqc_test_ack_with_timestamp_partial_writing()
     xqc_free(path);
 }
 
+/*
+ * An ACK_EXTENDED frame with Timestamp Ranges of 63 and n Timestamp Deltas
+ * (64 or 65 timestamps in all), parsed with a max_receive_timestamps_per_ack
+ * setting above the 64 entries of xqc_ack_timestamp_info_t.
+ */
+static xqc_int_t
+xqc_test_ack_with_timestamp_parse_count(xqc_connection_t *conn,
+    int second_range, xqc_ack_timestamp_info_t *ack_ts)
+{
+    unsigned char frame[128];
+    size_t n = 0;
+    frame[n++] = 0x40;          /* Type: 0xb1 */
+    frame[n++] = 0xb1;
+    frame[n++] = 0x40;          /* Largest Acknowledged: 200 */
+    frame[n++] = 0xc8;
+    frame[n++] = 0x00;          /* ACK Delay */
+    frame[n++] = 0x00;          /* ACK Range Count */
+    frame[n++] = 0x40;          /* First ACK Range: 199 */
+    frame[n++] = 0xc7;
+    frame[n++] = 0x02;          /* Extended Ack Features: timestamps */
+    frame[n++] = 0x02;          /* Timestamp Range Count */
+    frame[n++] = 0x00;          /* Gap */
+    frame[n++] = 0x3f;          /* Timestamp Delta Count: 63 */
+    for (int i = 0; i < 63; i++) {
+        frame[n++] = 0x01;
+    }
+    frame[n++] = 0x00;          /* Gap */
+    frame[n++] = (unsigned char) second_range;
+    for (int i = 0; i < second_range; i++) {
+        frame[n++] = 0x01;
+    }
+
+    xqc_packet_in_t packet_in;
+    memset(&packet_in, 0, sizeof(packet_in));
+    packet_in.buf = frame;
+    packet_in.pos = frame;
+    packet_in.last = frame + n;
+    packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+
+    xqc_ack_info_t ack_info;
+    ack_ts->report_num = 0;
+    return xqc_parse_ack_ext_frame(&packet_in, conn, &ack_info, ack_ts);
+}
+
+void
+xqc_test_ack_with_timestamp_count_limit()
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    conn->local_settings.extended_ack_features = 2;
+    conn->local_settings.max_receive_timestamps_per_ack = 100;
+    conn->local_settings.receive_timestamps_exponent = 0;
+    conn->conn_create_time = 0;
+
+    /* allocated with its exact size: a sanitizer sees a write past it */
+    xqc_ack_timestamp_info_t *ack_ts =
+        xqc_calloc(1, sizeof(xqc_ack_timestamp_info_t));
+    CU_ASSERT_FATAL(ack_ts != NULL);
+
+    /* 64 timestamps fill the arrays */
+    xqc_int_t ret = xqc_test_ack_with_timestamp_parse_count(conn, 1, ack_ts);
+    CU_ASSERT(ret == XQC_OK);
+    CU_ASSERT(ack_ts->report_num == XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH);
+
+    /* a 65th does not fit */
+    ret = xqc_test_ack_with_timestamp_parse_count(conn, 2, ack_ts);
+    CU_ASSERT(ret == -XQC_EACK_EXT_ABN_VAL);
+    CU_ASSERT(ack_ts->report_num <= XQC_RECV_TIMESTAMPS_INFO_MAX_LENGTH);
+
+    xqc_free(ack_ts);
+    xqc_engine_destroy(conn->engine);
+}
+
 
 void
 xqc_test_ack_with_timestamp()
@@ -216,4 +289,5 @@ xqc_test_ack_with_timestamp()
     xqc_test_ack_with_timestamp_normal();
     xqc_test_ack_with_timestamp_no_buf_space();
     xqc_test_ack_with_timestamp_partial_writing();
+    xqc_test_ack_with_timestamp_count_limit();
 }

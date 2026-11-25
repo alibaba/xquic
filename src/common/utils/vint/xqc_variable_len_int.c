@@ -43,7 +43,7 @@ xqc_vint_read(const unsigned char *p, const unsigned char *end, uint64_t *valp)
             return -1;
         }
         memcpy(&val, p, 8);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
+#if !XQC_HOST_BIG_ENDIAN
         val = bswap_64(val);
 #endif
         val &= (1ULL << 62) - 1;

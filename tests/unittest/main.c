@@ -717,6 +717,8 @@ main(int argc, char *argv[])
                         xqc_test_tls_ctx_alpn_list)
         || !CU_add_test(pSuite, "xqc_test_tls_client_session_ticket",
                         xqc_test_tls_client_session_ticket)
+        || !CU_add_test(pSuite, "xqc_test_tls_client_hello_legacy_session_id",
+                        xqc_test_tls_client_hello_legacy_session_id)
         || !CU_add_test(pSuite, "xqc_test_tls", xqc_test_tls)
         || !CU_add_test(pSuite, "xqc_test_h3_stream", xqc_test_stream)
         || !CU_add_test(pSuite, "xqc_test_h3_critical_stream_close", xqc_test_h3_critical_stream_close)

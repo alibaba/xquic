@@ -432,16 +432,17 @@ xqc_test_conn_pmtud_starts_after_handshake()
 }
 
 /*
- * Addresses and CIDs that make the longest address text: 5-digit ports and
- * 20-byte CIDs, printed in hex. The IPv6 addresses are 26 characters long.
+ * The address text of a connection or a path with two IPv6 addresses of 39
+ * characters (eight groups of 4 hex digits), 5-digit ports and two CIDs of
+ * XQC_MAX_CID_LEN bytes, 2 hex digits per byte: 177 characters.
  */
-#define XQC_TEST_ADDR_STR_LOCAL     "2001:db8:aaaa:bbbb:cccc::1"
-#define XQC_TEST_ADDR_STR_PEER      "2001:db8:dddd:eeee:ffff::2"
-#define XQC_TEST_ADDR_STR_SCID      "000102030405060708090a0b0c0d0e0f10111213"
-#define XQC_TEST_ADDR_STR_DCID      "ecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+#define XQC_TEST_ADDR_STR_LOCAL     "fd12:3456:789a:bcde:f012:3456:789a:bcde"
+#define XQC_TEST_ADDR_STR_PEER      "2001:abcd:aaaa:bbbb:cccc:dddd:eeee:ffff"
+#define XQC_TEST_ADDR_STR_SCID      "1111111111111111111111111111111111111111"
+#define XQC_TEST_ADDR_STR_DCID      "2222222222222222222222222222222222222222"
 #define XQC_TEST_ADDR_STR_EXPECTED                                          \
-    "l-" XQC_TEST_ADDR_STR_LOCAL "-65535-" XQC_TEST_ADDR_STR_SCID           \
-    " p-" XQC_TEST_ADDR_STR_PEER "-65534-" XQC_TEST_ADDR_STR_DCID
+    "l-" XQC_TEST_ADDR_STR_LOCAL "-49152-" XQC_TEST_ADDR_STR_SCID           \
+    " p-" XQC_TEST_ADDR_STR_PEER "-65535-" XQC_TEST_ADDR_STR_DCID
 
 static void
 xqc_test_addr_str_set(unsigned char *local_addr, socklen_t *local_addrlen,
@@ -449,31 +450,28 @@ xqc_test_addr_str_set(unsigned char *local_addr, socklen_t *local_addrlen,
     xqc_cid_t *dcid)
 {
     struct sockaddr_in6 sa;
-    int i;
 
     memset(&sa, 0, sizeof(sa));
     sa.sin6_family = AF_INET6;
-    sa.sin6_port = htons(65535);
+    sa.sin6_port = htons(49152);
     CU_ASSERT(inet_pton(AF_INET6, XQC_TEST_ADDR_STR_LOCAL, &sa.sin6_addr) == 1);
     memcpy(local_addr, &sa, sizeof(sa));
     *local_addrlen = sizeof(sa);
 
-    sa.sin6_port = htons(65534);
+    sa.sin6_port = htons(65535);
     CU_ASSERT(inet_pton(AF_INET6, XQC_TEST_ADDR_STR_PEER, &sa.sin6_addr) == 1);
     memcpy(peer_addr, &sa, sizeof(sa));
     *peer_addrlen = sizeof(sa);
 
     scid->cid_len = XQC_MAX_CID_LEN;
+    memset(scid->cid_buf, 0x11, XQC_MAX_CID_LEN);
     dcid->cid_len = XQC_MAX_CID_LEN;
-    for (i = 0; i < XQC_MAX_CID_LEN; i++) {
-        scid->cid_buf[i] = i;
-        dcid->cid_buf[i] = 0xff - (XQC_MAX_CID_LEN - 1) + i;
-    }
+    memset(dcid->cid_buf, 0x22, XQC_MAX_CID_LEN);
 }
 
-/* the address text of a connection holds both of its CIDs in full */
+/* the address text of a connection holds both addresses and CIDs in full */
 void
-xqc_test_conn_addr_str_full_cids(void)
+xqc_test_conn_addr_str_full_text(void)
 {
     xqc_engine_t *engine = test_create_engine();
     xqc_connection_t *conn;
@@ -494,9 +492,9 @@ xqc_test_conn_addr_str_full_cids(void)
     xqc_engine_destroy(engine);
 }
 
-/* the address text of a path holds both of its CIDs in full */
+/* the address text of a path holds both addresses and CIDs in full */
 void
-xqc_test_path_addr_str_full_cids(void)
+xqc_test_path_addr_str_full_text(void)
 {
     xqc_engine_t *engine = test_create_engine();
     xqc_connection_t *conn;

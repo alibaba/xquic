@@ -402,10 +402,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_pmtud_starts_after_handshake",
                         xqc_test_conn_pmtud_starts_after_handshake)
-        || !CU_add_test(pSuite, "xqc_test_conn_addr_str_full_cids",
-                        xqc_test_conn_addr_str_full_cids)
-        || !CU_add_test(pSuite, "xqc_test_path_addr_str_full_cids",
-                        xqc_test_path_addr_str_full_cids)
+        || !CU_add_test(pSuite, "xqc_test_conn_addr_str_full_text",
+                        xqc_test_conn_addr_str_full_text)
+        || !CU_add_test(pSuite, "xqc_test_path_addr_str_full_text",
+                        xqc_test_path_addr_str_full_text)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_force_enable",
                         xqc_test_conn_pmtud_force_enable)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_legacy_compatibility",

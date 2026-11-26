@@ -6,5 +6,7 @@
 #define _XQC_FEC_TEST_H_INCLUDED_
 
 void xqc_test_fec();
+void xqc_test_fec_final_scheme(void);
+void xqc_test_fec_final_scheme_out_of_range(void);
 
 #endif 

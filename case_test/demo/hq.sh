@@ -6,6 +6,10 @@ source "${ROOT_DIR}/case_test/lib/common.sh"
 case_test_group "demo.hq"
 case_test_case "h3_request_delayed_fin" --id native \
     --run h3_request_delayed_fin --timeout 12
+case_test_case "demo_client_host_resolved" --id 1720 \
+    --run demo_client_host_resolved --timeout 30
+case_test_case "demo_client_host_unresolved" --id 1721 \
+    --run demo_client_host_unresolved --timeout 30
 
 h3_request_delayed_fin()
 {
@@ -35,6 +39,56 @@ h3_request_delayed_fin()
     grep -q 'conn_err:0,' stdlog || return 1
     grep -q 'recv_body_size:1000,.*recv_fin:1,' stdlog || return 1
     grep -q 'recv_fin|' slog || return 1
+}
+
+# Run demo_client, with the options given, on one file of demo_server, which
+# serves demo-resolve-www, with a 10-second life time. The client saves its
+# session ticket, transport parameters and token in the work directory: the
+# run starts without them and removes them.
+demo_client_resolve_run()
+{
+    local build_dir status=0
+
+    build_dir="$(case_test_build_dir "${ROOT_DIR}")"
+    rm -rf demo-resolve-www demo-resolve-dl
+    mkdir -p demo-resolve-www demo-resolve-dl
+    printf 'demo_client resolve test file\n' > demo-resolve-www/f1
+    rm -f session_ticket transport_params token
+    clear_log
+    case_test_start_server \
+        "${CASE_TEST_SERVER_BIN:-${build_dir}/demo/demo_server}" \
+        -p "${CASE_TEST_PORT:-8443}" \
+        -D "${CASE_TEST_WORK_DIR}/demo-resolve-www" \
+        -l d -L slog > /dev/null 2>&1
+    "${build_dir}/demo/demo_client" -l d -L clog -D demo-resolve-dl -K 10 \
+        -A h3 "$@" > stdlog 2>&1 || status=$?
+    case_test_stop_server
+    rm -f session_ticket transport_params token
+    return "${status}"
+}
+
+# 1720 happy path: the server name of the URL resolves, and the client
+# downloads the file and exits with status 0.
+demo_client_host_resolved()
+{
+    demo_client_resolve_run \
+        -U "https://127.0.0.1:${CASE_TEST_PORT:-8443}/f1" || return 1
+    cmp -s demo-resolve-www/f1 demo-resolve-dl/f1
+}
+
+# 1721 abnormal path: the server name does not resolve, here because the
+# client asks for an IPv6 address (-6) of an IPv4 address. The client says
+# so and exits with status 1, instead of reading the address that
+# getaddrinfo() did not return.
+demo_client_host_unresolved()
+{
+    local status=0
+
+    demo_client_resolve_run -6 \
+        -U "https://127.0.0.1:${CASE_TEST_PORT:-8443}/f1" || status=$?
+    [[ "${status}" -eq 1 ]] || return 1
+    grep -q 'get addr info from hostname' stdlog || return 1
+    [[ ! -e demo-resolve-dl/f1 ]]
 }
 
 hq_request_transfer()

@@ -5,6 +5,7 @@
 #include <CUnit/CUnit.h>
 #include <stdint.h>
 #include <string.h>
+#include <arpa/inet.h>
 #include "xquic/xquic.h"
 #include "xquic/xqc_errno.h"
 #include "src/transport/xqc_conn.h"
@@ -149,6 +150,113 @@ xqc_test_conn_create()
 
     const xqc_cid_t *cid = test_cid_connect(engine);
     CU_ASSERT_NOT_EQUAL(cid, NULL);
+
+    xqc_engine_destroy(engine);
+}
+
+/* xqc_connect() to peer, with a client SCID of id followed by zeros */
+static const xqc_cid_t *
+xqc_test_conn_connect_peer(xqc_engine_t *engine, uint8_t id,
+    const struct sockaddr *peer, socklen_t peer_len)
+{
+    xqc_conn_settings_t settings;
+    xqc_conn_ssl_config_t ssl;
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    settings.specify_client_scid = 1;
+    settings.client_scid[0] = id;
+    memset(&ssl, 0, sizeof(ssl));
+    return xqc_connect(engine, &settings, NULL, 0, "", 0, &ssl, peer,
+                       peer_len, "transport", NULL);
+}
+
+/* a client connection keeps the IPv4 or IPv6 peer address given to it */
+void
+xqc_test_conn_client_peer_addr(void)
+{
+    struct sockaddr_in sa4;
+    struct sockaddr_in6 sa6;
+    struct sockaddr_storage addr;
+    socklen_t addr_len;
+    xqc_connection_t *conn;
+    const xqc_cid_t *cid;
+    xqc_engine_t *engine;
+
+    engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+
+    memset(&sa4, 0, sizeof(sa4));
+    sa4.sin_family = AF_INET;
+    sa4.sin_port = htons(4433);
+    sa4.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    cid = xqc_test_conn_connect_peer(engine, 1, (struct sockaddr *)&sa4,
+                                     sizeof(sa4));
+    CU_ASSERT_FATAL(cid != NULL);
+    conn = xqc_engine_get_conn_by_scid(engine, cid);
+    CU_ASSERT_FATAL(conn != NULL);
+    addr_len = 0;
+    CU_ASSERT(xqc_conn_get_peer_addr(conn, (struct sockaddr *)&addr,
+                                     sizeof(addr), &addr_len) == XQC_OK);
+    CU_ASSERT(addr_len == sizeof(sa4));
+    CU_ASSERT(memcmp(&addr, &sa4, sizeof(sa4)) == 0);
+
+    memset(&sa6, 0, sizeof(sa6));
+    sa6.sin6_family = AF_INET6;
+    sa6.sin6_port = htons(4433);
+    sa6.sin6_addr = in6addr_loopback;
+    cid = xqc_test_conn_connect_peer(engine, 2, (struct sockaddr *)&sa6,
+                                     sizeof(sa6));
+    CU_ASSERT_FATAL(cid != NULL);
+    conn = xqc_engine_get_conn_by_scid(engine, cid);
+    CU_ASSERT_FATAL(conn != NULL);
+    addr_len = 0;
+    CU_ASSERT(xqc_conn_get_peer_addr(conn, (struct sockaddr *)&addr,
+                                     sizeof(addr), &addr_len) == XQC_OK);
+    CU_ASSERT(addr_len == sizeof(sa6));
+    CU_ASSERT(memcmp(&addr, &sa6, sizeof(sa6)) == 0);
+
+    xqc_engine_destroy(engine);
+}
+
+/*
+ * A connection keeps a peer address of up to sizeof(struct sockaddr_in6)
+ * bytes. xqc_connect() refuses a longer one, such as the length of a struct
+ * sockaddr_storage, and creates no connection for it.
+ */
+void
+xqc_test_conn_client_peer_addr_too_long(void)
+{
+    struct sockaddr_storage peer;
+    struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)&peer;
+    struct sockaddr *sa = (struct sockaddr *)&peer;
+    xqc_cid_t scid;
+    xqc_engine_t *engine;
+
+    engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+
+    memset(&peer, 0, sizeof(peer));
+    sa6->sin6_family = AF_INET6;
+    sa6->sin6_port = htons(4433);
+    sa6->sin6_addr = in6addr_loopback;
+    memset(&scid, 0, sizeof(scid));
+    scid.cid_len = xqc_engine_config_get_cid_len(engine);
+
+    scid.cid_buf[0] = 1;
+    CU_ASSERT(xqc_test_conn_connect_peer(engine, 1, sa,
+                                         sizeof(struct sockaddr_in6) + 1)
+              == NULL);
+    CU_ASSERT(xqc_engine_get_conn_by_scid(engine, &scid) == NULL);
+
+    scid.cid_buf[0] = 2;
+    CU_ASSERT(xqc_test_conn_connect_peer(engine, 2, sa, sizeof(peer)) == NULL);
+    CU_ASSERT(xqc_engine_get_conn_by_scid(engine, &scid) == NULL);
+
+    /* the same address at its own length */
+    CU_ASSERT(xqc_test_conn_connect_peer(engine, 3, sa,
+                                         sizeof(struct sockaddr_in6))
+              != NULL);
 
     xqc_engine_destroy(engine);
 }

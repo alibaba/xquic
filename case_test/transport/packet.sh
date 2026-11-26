@@ -165,8 +165,8 @@ case_transport_packet_client_initial_scid_corruption()
 {
 
 
-clear_log
 case_test_stop_server
+clear_log
 echo -e "client Initial scid corruption ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e > /dev/null
 sleep 1
@@ -191,8 +191,8 @@ case_transport_packet_server_initial_dcid_corruption()
 {
 
 
-clear_log
 case_test_stop_server
+clear_log
 echo -e "server Initial dcid corruption ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -x 3 > /dev/null
 sleep 1
@@ -213,8 +213,8 @@ case_transport_packet_server_initial_scid_corruption()
 {
 
 
-clear_log
 case_test_stop_server
+clear_log
 echo -e "server Initial scid corruption ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -x 4 > /dev/null
 sleep 1
@@ -234,8 +234,8 @@ case_transport_packet_server_odcid_hash()
 {
 
 
-clear_log
 case_test_stop_server
+clear_log
 echo -e "server odcid hash ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -x 5 > /dev/null
 sleep 1

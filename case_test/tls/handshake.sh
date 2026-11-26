@@ -162,9 +162,9 @@ case_tls_handshake__0RTT_reject()
 {
 
 
+case_test_stop_server
 clear_log
 echo -e "0RTT reject. restart server ....\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l i -e > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 1024000 -l d -t 1 -E > stdlog

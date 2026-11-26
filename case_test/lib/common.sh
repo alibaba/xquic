@@ -71,13 +71,56 @@ case_test_enter_work_dir()
     trap 'case_test_stop_server; case_test_cleanup_udp_port' EXIT
 }
 
+# Stop the server with SIGTERM and wait for it. A server that still runs
+# CASE_TEST_SERVER_STOP_TIMEOUT seconds later (10 by default, 0 waits without a
+# limit), such as one stuck in its signal handler, gets SIGKILL and fails the
+# running case, instead of holding the runner and its shard for ever.
 case_test_stop_server()
 {
-    if [[ -n "${CASE_TEST_SERVER_PID:-}" ]]; then
-        kill "${CASE_TEST_SERVER_PID}" 2> /dev/null || true
-        wait "${CASE_TEST_SERVER_PID}" 2> /dev/null || true
-        CASE_TEST_SERVER_PID=""
+    local pid="${CASE_TEST_SERVER_PID:-}"
+    local timeout_s="${CASE_TEST_SERVER_STOP_TIMEOUT:-10}"
+    local deadline_pid=""
+    local deadline_status=0
+
+    if [[ -z "${pid}" ]]; then
+        return 0
     fi
+    CASE_TEST_SERVER_PID=""
+
+    kill "${pid}" 2> /dev/null || true
+    if [[ "${timeout_s}" -gt 0 ]]; then
+        # The sleep runs in the background so that the TERM below ends it
+        # too: left running, it would keep the inherited descriptors open.
+        # The trap finds it with jobs, as the TERM can come before $! is read.
+        (
+            trap 'kill $(jobs -p) 2> /dev/null; exit 0' TERM
+            sleep "${timeout_s}" &
+            wait
+            # The TERM that follows the kill must not turn the timeout into
+            # a clean stop.
+            trap '' TERM
+            kill -KILL "${pid}" 2> /dev/null || true
+            exit 124
+        ) &
+        deadline_pid="$!"
+    fi
+
+    wait "${pid}" 2> /dev/null || true
+
+    if [[ -z "${deadline_pid}" ]]; then
+        return 0
+    fi
+    kill "${deadline_pid}" 2> /dev/null || true
+    wait "${deadline_pid}" 2> /dev/null || deadline_status="$?"
+    if [[ "${deadline_status}" -ne 124 ]]; then
+        return 0
+    fi
+
+    echo "[case-test] server-stop-timeout group=${CASE_TEST_GROUP:-} case=${CASE_TEST_RUNNING_CASE:-} pid=${pid} limit=${timeout_s}s"
+    if [[ -n "${CASE_TEST_RUNNING_CASE:-}" && -n "${CASE_TEST_EVENT_FILE:-}" ]]; then
+        printf '%s\t%s\n' "${CASE_TEST_RUNNING_CASE}" "fail" >> "${CASE_TEST_EVENT_FILE}"
+    fi
+    return 1
 }
 
 case_test_cleanup_udp_port()
@@ -186,6 +229,8 @@ case_test_case_begin()
     local id="$2"
     local timeout_s="${3:-}"
 
+    # the case that a server stop fails when the server must be killed
+    CASE_TEST_RUNNING_CASE="${name}"
     echo "[case-test] case-start group=${CASE_TEST_GROUP:-} case=${name} id=${id} ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     case_test_case_watchdog_start "${name}" "${id}" "${timeout_s}"
 }

@@ -2,10 +2,11 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require "io/wait"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--background-fd-selftest|--wait-for-log-selftest|--binary-log-selftest|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--server-stop-selftest|--shard-kill-selftest|--shard-orphan-selftest|--background-fd-selftest|--wait-for-log-selftest|--binary-log-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 
 def run!(env, *cmd)
@@ -768,6 +769,221 @@ def case_timeout_selftest(root)
   puts "elapsed_seconds=#{format("%.3f", elapsed)}"
 end
 
+# Runs a group whose case leaves a child that ignores SIGTERM, then a group
+# that passes. The case body runs once the child ignores SIGTERM, with its PID
+# in child_pid. Returns the runner output and status, the run time, and
+# whether the child still runs once the runner has returned.
+def sigterm_ignoring_child_selftest(root, name, case_body, env)
+  work_dir = File.join(root, "build/case_test_arch_check_#{name}")
+  FileUtils.rm_rf(work_dir)
+  FileUtils.mkdir_p(work_dir)
+
+  group_id = "selftest.#{name}"
+  manifest_path = File.join(work_dir, "manifest.yml")
+  runner_path = File.join(work_dir, "selftest_#{name}.sh")
+  after_runner_path = File.join(work_dir, "selftest_after.sh")
+  pid_path = File.join(work_dir, "child.pid")
+  ready_path = File.join(work_dir, "child.ready")
+  # The child holds the only write end of this FIFO: its end of file tells
+  # that the child exited, without a look at the process table.
+  alive_path = File.join(work_dir, "child.alive")
+  File.mkfifo(alive_path)
+  File.write(runner_path, <<~SH)
+    #!/bin/bash
+    set -u
+    source #{File.join(root, "case_test/lib/common.sh").inspect}
+    case_test_group #{group_id.inspect}
+    selftest_run()
+    {
+        mkfifo #{ready_path.inspect}
+        bash -c 'trap "" TERM; exec 3> "$1"; echo ready > "$0"; exec sleep 30' \\
+            #{ready_path.inspect} #{alive_path.inspect} &
+        child_pid="$!"
+        read -r _ < #{ready_path.inspect}
+        echo "${child_pid}" > #{pid_path.inspect}
+    #{case_body.gsub(/^/, "    ")}
+        echo "#{group_id} ...>>>>>>>> pass:1"
+        case_print_result #{group_id.inspect} "pass"
+    }
+    case_test_case #{group_id.inspect} --id native --mode self-reporting --run selftest_run
+    if case_test_is_discovery; then
+        case_test_run
+        exit 0
+    fi
+    case_test_run
+  SH
+  FileUtils.chmod("+x", runner_path)
+  write_selftest_runner(after_runner_path, root, "selftest.after")
+
+  manifest = {
+    "version" => 1,
+    "groups" => [group_id, "selftest.after"].map.with_index do |id, index|
+      {
+        "id" => id,
+        "module" => "common",
+        "source_paths" => ["README.md"],
+        "runner" => "build/case_test_arch_check_#{name}/" \
+                    "#{id == group_id ? "selftest_#{name}" : "selftest_after"}.sh",
+        "execution" => "implemented",
+        "port_offset" => index
+      }
+    end
+  }
+  File.write(manifest_path, manifest.to_yaml)
+
+  File.open(alive_path, File::RDONLY | File::NONBLOCK) do |alive|
+    started_at = Time.now
+    output, status = Open3.capture2e(
+      env.merge("CASE_TEST_MANIFEST" => manifest_path),
+      "bash", File.join(root, "scripts/case_test.sh"),
+      "--execute", "--module", "common"
+    )
+    elapsed = Time.now - started_at
+    raise "#{name} selftest case did not start its child\n#{output}" unless File.exist?(pid_path)
+
+    # A killed child closes the FIFO at once; one left running would hold it
+    # for its 30 seconds.
+    child_running = !(alive.wait_readable(10) && alive.read_nonblock(1, exception: false).nil?)
+    Process.kill("KILL", File.read(pid_path).to_i) if child_running
+    [output, status, elapsed, child_running]
+  end
+end
+
+def server_stop_selftest(root)
+  env = {
+    "CASE_TEST_SERVER_STOP_TIMEOUT" => "1",
+    "CASE_TEST_SHARD_TIMEOUT" => "60",
+    "CASE_TEST_PORT_BASE" => "19500"
+  }
+  output, status, elapsed, child_running = sigterm_ignoring_child_selftest(
+    root, "server_stop",
+    <<~SH,
+      CASE_TEST_SERVER_PID="${child_pid}"
+      case_test_stop_server
+    SH
+    env
+  )
+
+  raise "server stop selftest unexpectedly passed\n#{output}" if status.success?
+  raise "server stop timeout was not reported\n#{output}" unless output.include?("[case-test] server-stop-timeout")
+  unless output.include?("[case-test:selftest.server_stop] selftest.server_stop >>>>>>>> pass:0")
+    raise "case whose server ignored SIGTERM did not fail\n#{output}"
+  end
+  raise "runner did not continue after the stop\n#{output}" unless output.include?("[case-test] selftest.after result=pass")
+  raise "server that ignored SIGTERM still runs\n#{output}" if child_running
+  raise "server stop waited for the server to exit by itself\n#{output}" if elapsed >= 20
+
+  server_stop_race_check(root, env)
+
+  puts "server_stop_selftest=pass"
+  puts "elapsed_seconds=#{format("%.3f", elapsed)}"
+end
+
+# The SIGTERM that the stop sends to its deadline arrives right after the
+# deadline killed the server, before the deadline exits: the stop must still
+# report the server that it had to kill.
+def server_stop_race_check(root, env)
+  output, status, _, child_running = sigterm_ignoring_child_selftest(
+    root, "server_stop_race",
+    <<~SH,
+      kill()
+      {
+          builtin kill "$@"
+          if [[ "${BASHPID}" != "$$" && " $* " == *" ${child_pid} "* ]]; then
+              builtin kill -TERM "${BASHPID}"
+          fi
+      }
+      CASE_TEST_SERVER_PID="${child_pid}"
+      case_test_stop_server
+      unset -f kill
+    SH
+    env
+  )
+
+  raise "server stop race selftest unexpectedly passed\n#{output}" if status.success?
+  unless output.include?("[case-test] server-stop-timeout")
+    raise "server killed at the stop deadline was not reported\n#{output}"
+  end
+  raise "server that ignored SIGTERM still runs\n#{output}" if child_running
+end
+
+def shard_kill_selftest(root)
+  output, status, elapsed, child_running = sigterm_ignoring_child_selftest(
+    root, "shard_kill",
+    <<~SH,
+      # the runner outlives the SIGTERM of the shard timeout
+      trap '' TERM
+      wait "${child_pid}"
+    SH
+    {
+      "CASE_TEST_SHARD_TIMEOUT" => "3",
+      "CASE_TEST_SHARD_KILL_AFTER" => "1",
+      "CASE_TEST_PORT_BASE" => "19600"
+    }
+  )
+
+  raise "shard kill selftest unexpectedly passed\n#{output}" if status.success?
+  unless output.match?(/^\[case-test\] selftest\.shard_kill timeout .* killed_after=1s /)
+    raise "shard killed after its timeout was not reported\n#{output}"
+  end
+  raise "runner did not continue after the shard timeout\n#{output}" unless output.include?("[case-test] selftest.after result=pass")
+  raise "child that ignored SIGTERM still runs\n#{output}" if child_running
+  raise "shard timeout waited for the child to exit by itself\n#{output}" if elapsed >= 20
+
+  puts "shard_kill_selftest=pass"
+  puts "elapsed_seconds=#{format("%.3f", elapsed)}"
+end
+
+def shard_orphan_selftest(root)
+  env = {
+    "CASE_TEST_SHARD_TIMEOUT" => "3",
+    "CASE_TEST_SHARD_KILL_AFTER" => "10",
+    "CASE_TEST_PORT_BASE" => "19940"
+  }
+  output, status, elapsed, child_running = sigterm_ignoring_child_selftest(
+    root, "shard_orphan",
+    <<~SH,
+      # the SIGTERM of the shard timeout ends the runner before the child
+      wait "${child_pid}"
+    SH
+    env
+  )
+
+  raise "shard orphan selftest unexpectedly passed\n#{output}" if status.success?
+  unless output.match?(/^\[case-test\] selftest\.shard_orphan timeout .* limit=3s log=/)
+    raise "shard whose runner the timeout ended was not reported\n#{output}"
+  end
+  unless output.include?("[case-test] selftest.after result=pass")
+    raise "runner did not continue after the shard timeout\n#{output}"
+  end
+  raise "child left by the timed-out runner still runs\n#{output}" if child_running
+  raise "shard timeout waited for the child to exit by itself\n#{output}" if elapsed >= 20
+
+  shard_runner_kill_check(root, env)
+
+  puts "shard_orphan_selftest=pass"
+  puts "elapsed_seconds=#{format("%.3f", elapsed)}"
+end
+
+# A runner that SIGKILL ends before the shard timeout leaves its child behind
+# as well.
+def shard_runner_kill_check(root, env)
+  output, status, elapsed, child_running = sigterm_ignoring_child_selftest(
+    root, "shard_runner_kill",
+    <<~SH,
+      kill -KILL "$$"
+    SH
+    env.merge("CASE_TEST_SHARD_TIMEOUT" => "60")
+  )
+
+  raise "shard runner kill selftest unexpectedly passed\n#{output}" if status.success?
+  unless output.include?("[case-test] selftest.shard_runner_kill result=fail exit=137 ")
+    raise "shard whose runner SIGKILL ended was not reported\n#{output}"
+  end
+  raise "child left by the killed runner still runs\n#{output}" if child_running
+  raise "killed runner waited for the shard timeout\n#{output}" if elapsed >= 20
+end
+
 def background_fd_selftest(root)
   work_dir = File.join(root, "build/case_test_arch_check_background_fd")
   FileUtils.rm_rf(work_dir)
@@ -1049,6 +1265,18 @@ end
 
 if modes.include?("--all") || modes.include?("--case-timeout-selftest")
   case_timeout_selftest(root)
+end
+
+if modes.include?("--all") || modes.include?("--server-stop-selftest")
+  server_stop_selftest(root)
+end
+
+if modes.include?("--all") || modes.include?("--shard-kill-selftest")
+  shard_kill_selftest(root)
+end
+
+if modes.include?("--all") || modes.include?("--shard-orphan-selftest")
+  shard_orphan_selftest(root)
 end
 
 if modes.include?("--all") || modes.include?("--background-fd-selftest")

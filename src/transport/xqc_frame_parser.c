@@ -717,7 +717,11 @@ xqc_try_process_fec_decode(xqc_connection_t *conn, xqc_int_t block_id)
                 goto after_decoder;
 
             } else if (recv_rpr_num > 0) {
+                /* recv_rpr_num counted the symbols that this lookup returns */
                 xqc_fec_rpr_syb_t *rpr_syb = xqc_get_rpr_syb(conn->fec_ctl, block_id);
+                if (rpr_syb == NULL) {
+                    return;
+                }
                 rpr_time = rpr_syb->recv_time;
                 ret = xqc_fec_bc_decoder(conn, block_id, max_src_symbol_num - recv_src_num, rpr_time);
                 if (ret != XQC_OK) {

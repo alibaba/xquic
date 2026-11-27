@@ -403,7 +403,11 @@ xqc_test_dtable_check_indexes(xqc_dtable_t *dt, uint64_t first)
         nlen = xqc_sprintf(name, name + sizeof(name), "name-%02d", i) - name;
         vlen = xqc_sprintf(value, value + sizeof(value), "value-%02d", i)
                - value;
-        CU_ASSERT(xqc_dtable_add(dt, name, nlen, value, vlen, &idx) == XQC_OK);
+        const xqc_int_t ret = xqc_dtable_add(dt, name, nlen, value, vlen, &idx);
+        CU_ASSERT(ret == XQC_OK);
+        if (ret != XQC_OK) {
+            break;
+        }
         CU_ASSERT(idx == first + i);
 
         xqc_var_buf_clear(nbuf);
@@ -467,8 +471,13 @@ xqc_test_dtable_insert_alloc_failure(void)
     dt = xqc_dtable_create(16, &log, 1);
     CU_ASSERT_FATAL(dt != NULL);
     CU_ASSERT_FATAL(xqc_dtable_set_capacity(dt, 250) == XQC_OK);
-    CU_ASSERT(xqc_dtable_add(dt, (unsigned char *) "name-a", 6,
-                             (unsigned char *) "value-a", 7, &idx) == XQC_OK);
+    ret = xqc_dtable_add(dt, (unsigned char *) "name-a", 6,
+                         (unsigned char *) "value-a", 7, &idx);
+    CU_ASSERT(ret == XQC_OK);
+    if (ret != XQC_OK) {
+        xqc_dtable_free(dt);
+        return;
+    }
 
     xqc_test_alloc_failed = 0;
     xqc_test_alloc_fail_at = 1;

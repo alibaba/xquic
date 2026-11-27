@@ -1382,6 +1382,34 @@ end:
 
 
 static void
+xqc_test_ticket_key_rotation(void)
+{
+    char rotated_key[48];
+    def_engine_ssl_config_svr;
+    memset(rotated_key, 0x42, sizeof(rotated_key));
+    engine_ssl_config_svr.session_ticket_key_data = rotated_key;
+    xqc_tls_ctx_t *rotated = xqc_tls_ctx_create(XQC_TLS_TYPE_SERVER,
+        &engine_ssl_config_svr, &tls_test_cbs, test_log);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(rotated);
+    CU_ASSERT_EQUAL(xqc_tls_ctx_register_alpn(rotated, TEST_ALPN_1,
+                    sizeof(TEST_ALPN_1) - 1), XQC_OK);
+
+    /* RFC 8446 Section 4.2.11: ignore a ticket encrypted by an unknown key. */
+    xqc_tls_test_buff_t *old = xqc_test_reset_ticket_handshake(ctx_svr, 0,
+        NULL, 0, 0, 0);
+    xqc_tls_test_buff_t *fresh = xqc_test_reset_ticket_handshake(rotated, 0,
+        old, 0, XQC_TLS_EARLY_DATA_REJECT, 0);
+    xqc_tls_test_buff_t *resumed = xqc_test_reset_ticket_handshake(rotated, 0,
+        fresh, 1, XQC_TLS_EARLY_DATA_ACCEPT, 0);
+
+    xqc_destroy_tls_test_buffer(old);
+    xqc_destroy_tls_test_buffer(fresh);
+    xqc_destroy_tls_test_buffer(resumed);
+    xqc_tls_ctx_destroy(rotated);
+}
+
+
+static void
 xqc_test_reset_ticket_policy(void)
 {
     char key[80];
@@ -1800,6 +1828,7 @@ xqc_test_tls(void)
     
     xqc_test_tls_multiple_crypto_data();
     xqc_test_tls_generic();
+    xqc_test_ticket_key_rotation();
     xqc_test_reset_ticket_policy();
     xqc_test_tls_process_truncated_crypto_handshake();
     xqc_test_tls_failure();

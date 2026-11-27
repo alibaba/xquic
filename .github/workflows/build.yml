@@ -20,7 +20,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v6
       with:
         fetch-depth: 2
         submodules: 'recursive'
@@ -76,7 +76,7 @@ jobs:
         make ssl crypto
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v2
+      uses: github/codeql-action/init@v4
       with:
         languages: cpp
 
@@ -92,7 +92,7 @@ jobs:
         make -j
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v2
+      uses: github/codeql-action/analyze@v4
 
     - name: Test
       timeout-minutes: 30
@@ -164,7 +164,7 @@ jobs:
 
     - name: Upload case-test logs
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: case-test-ubuntu-logs
         path: |
@@ -197,7 +197,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v6
       with:
         fetch-depth: 2
         submodules: 'recursive'
@@ -341,7 +341,7 @@ jobs:
 
     - name: Upload BabaSSL case-test logs
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: case-test-ubuntu-24-babassl-logs
         path: |
@@ -368,7 +368,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v6
       with:
         fetch-depth: 2
         submodules: 'recursive'

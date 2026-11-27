@@ -95,6 +95,30 @@ xqc_test_create_server_role_engine()
 }
 
 
+typedef struct xqc_test_lb_cid_log_s {
+    char    line[XQC_MAX_LOG_LEN];
+    int     lines;
+} xqc_test_lb_cid_log_t;
+
+/* keep the log line that shows a CID before and after its encryption */
+static void
+xqc_test_lb_cid_log_write(xqc_log_level_t lvl, const void *buf, size_t size,
+    void *user_data)
+{
+    xqc_test_lb_cid_log_t  *capture = user_data;
+    char                    line[XQC_MAX_LOG_LEN];
+
+    size = xqc_min(size, sizeof(line) - 1);
+    memcpy(line, buf, size);
+    line[size] = '\0';
+
+    if (strstr(line, "|lb cid encrypted|") != NULL) {
+        memcpy(capture->line, line, size + 1);
+        capture->lines++;
+    }
+}
+
+
 static void
 xqc_test_engine_small_new_conn_packet(unsigned char first_byte)
 {
@@ -179,8 +203,9 @@ xqc_test_engine_min_unknown_0rtt_not_pre_dropped()
  * pass, the others the four-pass cipher, whose truncations shift by more
  * than a byte for the long lengths. Each CID is encrypted into a buffer of
  * exactly its length, followed by a guard byte that must stay intact.
- * Encryption is deterministic and keeps the first octet; lengths and keys
- * out of range are refused.
+ * Encryption is deterministic and keeps the first octet, and its INFO
+ * log line shows the whole CID before and after; lengths and keys out of
+ * range are refused and not logged as encrypted.
  */
 void
 xqc_test_engine_lb_cid_encryption()
@@ -188,6 +213,12 @@ xqc_test_engine_lb_cid_encryption()
     uint8_t key[XQC_LB_CID_KEY_LEN];
     uint8_t in[XQC_MAX_CID_LEN];
     uint8_t out1[XQC_MAX_CID_LEN + 1], out2[XQC_MAX_CID_LEN + 1];
+    unsigned char ori_hex[XQC_MAX_CID_LEN * 2 + 1];
+    unsigned char new_hex[XQC_MAX_CID_LEN * 2 + 1];
+    char expected[sizeof(ori_hex) + sizeof(new_hex) + 16];
+    xqc_log_callbacks_t callbacks = {0};
+    xqc_test_lb_cid_log_t capture = {0};
+    int lines;
     xqc_engine_t *engine = test_create_engine();
 
     CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
@@ -197,6 +228,10 @@ xqc_test_engine_lb_cid_encryption()
     for (size_t i = 0; i < sizeof(in); i++) {
         in[i] = (uint8_t) (0x11 * i + 7);
     }
+    callbacks.xqc_log_write_err = xqc_test_lb_cid_log_write;
+    xqc_engine_set_log_level(engine, XQC_LOG_INFO);
+    engine->log->log_callbacks = &callbacks;
+    engine->log->user_data = &capture;
 
     for (size_t len = 1; len < XQC_MAX_CID_LEN; len++) {
         memcpy(out1, in, len + 1);
@@ -210,15 +245,30 @@ xqc_test_engine_lb_cid_encryption()
         CU_ASSERT(memcmp(out1, out2, len + 1) == 0);
         CU_ASSERT(out1[0] == in[0]);
         CU_ASSERT(out1[len + 1] == 0xa5);
+
+        /* the INFO line shows all len + 1 octets of the CID */
+        xqc_hex_dump(ori_hex, in, len + 1);
+        ori_hex[(len + 1) * 2] = '\0';
+        xqc_hex_dump(new_hex, out2, len + 1);
+        new_hex[(len + 1) * 2] = '\0';
+        snprintf(expected, sizeof(expected), "|ori:%s|new:%s|",
+                 ori_hex, new_hex);
+#if !defined(XQC_DISABLE_LOG) && !defined(XQC_ONLY_ERROR_LOG)
+        CU_ASSERT(capture.lines == 2 * (int) len);
+        CU_ASSERT_PTR_NOT_NULL(strstr(capture.line, expected));
+#endif
     }
 
     /* abnormal: too long, a short output buffer, a wrong key length */
+    lines = capture.lines;
     CU_ASSERT(xqc_lb_cid_encryption(in, XQC_MAX_CID_LEN, out1, sizeof(out1),
                                     key, sizeof(key), engine) == -XQC_EPARAM);
     CU_ASSERT(xqc_lb_cid_encryption(in, 8, out1, 8, key, sizeof(key),
                                     engine) == -XQC_EPARAM);
     CU_ASSERT(xqc_lb_cid_encryption(in, 8, out1, sizeof(out1), key,
                                     sizeof(key) - 1, engine) == -XQC_EPARAM);
+    /* a refused CID is not logged as encrypted */
+    CU_ASSERT(capture.lines == lines);
 
     xqc_engine_destroy(engine);
 }

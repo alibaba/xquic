@@ -366,7 +366,7 @@ struct xqc_connection_s {
     unsigned char                   local_addr[sizeof(struct sockaddr_in6)];
     socklen_t                       local_addrlen;
 
-    char                            addr_str[2 * (XQC_MAX_CID_LEN + INET6_ADDRSTRLEN) + 10];
+    char                            addr_str[XQC_ADDR_STR_SIZE];
     size_t                          addr_str_len;
 
     unsigned char                   conn_token[XQC_MAX_TOKEN_LEN];

@@ -539,6 +539,94 @@ xqc_test_conn_pmtud_starts_after_handshake()
     xqc_engine_destroy(conn->engine);
 }
 
+/*
+ * The address text of a connection or a path with two IPv6 addresses of 39
+ * characters (eight groups of 4 hex digits), 5-digit ports and two CIDs of
+ * XQC_MAX_CID_LEN bytes, 2 hex digits per byte: 177 characters.
+ */
+#define XQC_TEST_ADDR_STR_LOCAL     "fd12:3456:789a:bcde:f012:3456:789a:bcde"
+#define XQC_TEST_ADDR_STR_PEER      "2001:abcd:aaaa:bbbb:cccc:dddd:eeee:ffff"
+#define XQC_TEST_ADDR_STR_SCID      "1111111111111111111111111111111111111111"
+#define XQC_TEST_ADDR_STR_DCID      "2222222222222222222222222222222222222222"
+#define XQC_TEST_ADDR_STR_EXPECTED                                          \
+    "l-" XQC_TEST_ADDR_STR_LOCAL "-49152-" XQC_TEST_ADDR_STR_SCID           \
+    " p-" XQC_TEST_ADDR_STR_PEER "-65535-" XQC_TEST_ADDR_STR_DCID
+
+static void
+xqc_test_addr_str_set(unsigned char *local_addr, socklen_t *local_addrlen,
+    unsigned char *peer_addr, socklen_t *peer_addrlen, xqc_cid_t *scid,
+    xqc_cid_t *dcid)
+{
+    struct sockaddr_in6 sa;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sin6_family = AF_INET6;
+    sa.sin6_port = htons(49152);
+    CU_ASSERT(inet_pton(AF_INET6, XQC_TEST_ADDR_STR_LOCAL, &sa.sin6_addr) == 1);
+    memcpy(local_addr, &sa, sizeof(sa));
+    *local_addrlen = sizeof(sa);
+
+    sa.sin6_port = htons(65535);
+    CU_ASSERT(inet_pton(AF_INET6, XQC_TEST_ADDR_STR_PEER, &sa.sin6_addr) == 1);
+    memcpy(peer_addr, &sa, sizeof(sa));
+    *peer_addrlen = sizeof(sa);
+
+    scid->cid_len = XQC_MAX_CID_LEN;
+    memset(scid->cid_buf, 0x11, XQC_MAX_CID_LEN);
+    dcid->cid_len = XQC_MAX_CID_LEN;
+    memset(dcid->cid_buf, 0x22, XQC_MAX_CID_LEN);
+}
+
+/* the address text of a connection holds both addresses and CIDs in full */
+void
+xqc_test_conn_addr_str_full_text(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_connection_t *conn;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    conn = xqc_calloc(1, sizeof(xqc_connection_t));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->engine = engine;
+    xqc_test_addr_str_set(conn->local_addr, &conn->local_addrlen,
+                          conn->peer_addr, &conn->peer_addrlen,
+                          &conn->scid_set.user_scid,
+                          &conn->dcid_set.current_dcid);
+
+    CU_ASSERT_STRING_EQUAL(xqc_conn_addr_str(conn),
+                           XQC_TEST_ADDR_STR_EXPECTED);
+
+    xqc_free(conn);
+    xqc_engine_destroy(engine);
+}
+
+/* the address text of a path holds both addresses and CIDs in full */
+void
+xqc_test_path_addr_str_full_text(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    conn = xqc_calloc(1, sizeof(xqc_connection_t));
+    path = xqc_calloc(1, sizeof(xqc_path_ctx_t));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    conn->engine = engine;
+    path->parent_conn = conn;
+    xqc_test_addr_str_set(path->local_addr, &path->local_addrlen,
+                          path->peer_addr, &path->peer_addrlen,
+                          &path->path_scid, &path->path_dcid);
+
+    CU_ASSERT_STRING_EQUAL(xqc_path_addr_str(path),
+                           XQC_TEST_ADDR_STR_EXPECTED);
+
+    xqc_free(path);
+    xqc_free(conn);
+    xqc_engine_destroy(engine);
+}
+
 void
 xqc_test_conn_pmtud_force_enable()
 {

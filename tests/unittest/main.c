@@ -406,6 +406,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_pmtud_starts_after_handshake",
                         xqc_test_conn_pmtud_starts_after_handshake)
+        || !CU_add_test(pSuite, "xqc_test_conn_addr_str_full_text",
+                        xqc_test_conn_addr_str_full_text)
+        || !CU_add_test(pSuite, "xqc_test_path_addr_str_full_text",
+                        xqc_test_path_addr_str_full_text)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_force_enable",
                         xqc_test_conn_pmtud_force_enable)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_legacy_compatibility",
@@ -468,6 +472,10 @@ main(int argc, char *argv[])
                         xqc_test_parameters_set_log)
         || !CU_add_test(pSuite, "xqc_test_packet_lost_log",
                         xqc_test_packet_lost_log)
+        || !CU_add_test(pSuite, "xqc_test_addr_str_full_address",
+                        xqc_test_addr_str_full_address)
+        || !CU_add_test(pSuite, "xqc_test_addr_str_no_address",
+                        xqc_test_addr_str_no_address)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
         || !CU_add_test(pSuite, "xqc_test_memory_pool_large_alignment",
                         xqc_test_memory_pool_large_alignment)

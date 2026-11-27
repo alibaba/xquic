@@ -293,7 +293,8 @@ set(
     "src/transport/fec_schemes/xqc_galois_calculation.c"
 )
 
-if(XQC_ENABLE_XOR)
+# the packet mask scheme XORs its symbols with the XOR scheme's code
+if(XQC_ENABLE_XOR OR XQC_ENABLE_PKM)
     set(
         FEC_FRAMEWORK_SOURCE
         ${FEC_FRAMEWORK_SOURCE}

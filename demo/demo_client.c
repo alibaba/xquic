@@ -1950,6 +1950,7 @@ xqc_demo_cli_parse_server_addr(char *url, xqc_demo_cli_net_config_t *cfg)
         int rv = getaddrinfo(cfg->host, s_port, &hints, &result);
         if (rv != 0) {
             printf("get addr info from hostname: %s\n", gai_strerror(rv));
+            exit(1);
         }
         memcpy(&cfg->addr, result->ai_addr, result->ai_addrlen);
         cfg->addr_len = result->ai_addrlen;

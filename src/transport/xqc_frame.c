@@ -116,14 +116,6 @@ xqc_frame_type_2_str(xqc_engine_t *engine, xqc_frame_type_bit_t type_bit)
 }
 
 unsigned int
-xqc_stream_frame_header_size(xqc_stream_id_t stream_id, uint64_t offset, size_t length)
-{
-    return 1 + xqc_vint_len_by_val(stream_id) +
-            offset ? xqc_vint_len_by_val(offset) : 0 +
-            xqc_vint_len_by_val(length);
-}
-
-unsigned int
 xqc_crypto_frame_header_size(uint64_t offset, size_t length)
 {
     return 1 +

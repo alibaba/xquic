@@ -167,6 +167,8 @@ main(int argc, char *argv[])
                         xqc_test_wt_h3_reset_after_short_read)
         || !CU_add_test(pSuite, "xqc_test_wt_draft07_reset_dispatch",
                         xqc_test_wt_draft07_reset_dispatch)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft2_reset_dispatch",
+                        xqc_test_wt_draft2_reset_dispatch)
         || !CU_add_test(pSuite, "xqc_test_wt_draft07_stream_rules",
                         xqc_test_wt_draft07_stream_rules)
         || !CU_add_test(pSuite, "xqc_test_wt_datagram_retirement",
@@ -249,6 +251,24 @@ main(int argc, char *argv[])
                         xqc_test_wt_version_advertisement)
         || !CU_add_test(pSuite, "xqc_test_wt_version_connect_tokens",
                         xqc_test_wt_version_connect_tokens)
+        || !CU_add_test(pSuite, "xqc_test_wt_highest_version_precedence",
+                        xqc_test_wt_highest_version_precedence)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft2_config_rejected",
+                        xqc_test_wt_draft2_config_rejected)
+        || !CU_add_test(pSuite, "xqc_test_wt_draft2_fallback_local_support",
+                        xqc_test_wt_draft2_fallback_local_support)
+        || !CU_add_test(pSuite, "xqc_test_wt_standard_draft2_close_capsule",
+                        xqc_test_wt_standard_draft2_close_capsule)
+        || !CU_add_test(pSuite, "xqc_test_wt_standard_draft2_handshake_headers",
+                        xqc_test_wt_standard_draft2_handshake_headers)
+        || !CU_add_test(pSuite, "xqc_test_wt_standard_draft2_version_header_injection",
+                        xqc_test_wt_standard_draft2_version_header_injection)
+        || !CU_add_test(pSuite, "xqc_test_wt_response_hit_flags",
+                        xqc_test_wt_response_hit_flags)
+        || !CU_add_test(pSuite, "xqc_test_wt_response_hit_flags_errors",
+                        xqc_test_wt_response_hit_flags_errors)
+        || !CU_add_test(pSuite, "xqc_test_wt_response_mixed_case_version",
+                        xqc_test_wt_response_mixed_case_version)
         || !CU_add_test(pSuite, "xqc_test_wt_connect_pseudo_headers",
                         xqc_test_wt_connect_pseudo_headers)
         || !CU_add_test(pSuite, "xqc_test_wt_response_pseudo_headers",
@@ -368,6 +388,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_rebinding_response_mismatch_preserves_state", xqc_test_rebinding_response_mismatch_preserves_state)
         || !CU_add_test(pSuite, "xqc_test_rebinding_sender_error_clears_candidate", xqc_test_rebinding_sender_error_clears_candidate)
         || !CU_add_test(pSuite, "xqc_test_conn_create", xqc_test_conn_create)
+        || !CU_add_test(pSuite, "xqc_test_conn_client_peer_addr",
+                        xqc_test_conn_client_peer_addr)
+        || !CU_add_test(pSuite, "xqc_test_conn_client_peer_addr_too_long",
+                        xqc_test_conn_client_peer_addr_too_long)
         || !CU_add_test(pSuite, "xqc_test_datagram_transport_param_65536",
                         xqc_test_datagram_transport_param_65536)
         || !CU_add_test(pSuite,
@@ -382,6 +406,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_conn_pmtud_starts_after_handshake",
                         xqc_test_conn_pmtud_starts_after_handshake)
+        || !CU_add_test(pSuite, "xqc_test_conn_addr_str_full_text",
+                        xqc_test_conn_addr_str_full_text)
+        || !CU_add_test(pSuite, "xqc_test_path_addr_str_full_text",
+                        xqc_test_path_addr_str_full_text)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_force_enable",
                         xqc_test_conn_pmtud_force_enable)
         || !CU_add_test(pSuite, "xqc_test_conn_pmtud_legacy_compatibility",
@@ -444,6 +472,10 @@ main(int argc, char *argv[])
                         xqc_test_parameters_set_log)
         || !CU_add_test(pSuite, "xqc_test_packet_lost_log",
                         xqc_test_packet_lost_log)
+        || !CU_add_test(pSuite, "xqc_test_addr_str_full_address",
+                        xqc_test_addr_str_full_address)
+        || !CU_add_test(pSuite, "xqc_test_addr_str_no_address",
+                        xqc_test_addr_str_no_address)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
         || !CU_add_test(pSuite, "xqc_test_memory_pool_large_alignment",
                         xqc_test_memory_pool_large_alignment)
@@ -499,6 +531,10 @@ main(int argc, char *argv[])
                         xqc_test_client_discards_received_zero_rtt)
         || !CU_add_test(pSuite, "xqc_test_server_buffers_received_zero_rtt",
                         xqc_test_server_buffers_received_zero_rtt)
+        || !CU_add_test(pSuite, "xqc_test_client_initial_writes_token",
+                        xqc_test_client_initial_writes_token)
+        || !CU_add_test(pSuite, "xqc_test_server_initial_omits_token",
+                        xqc_test_server_initial_omits_token)
         || !CU_add_test(pSuite, "xqc_test_packet_out_remained_size",
                         xqc_test_packet_out_remained_size)
         || !CU_add_test(pSuite, "xqc_test_crypto_frame_flood", xqc_test_crypto_frame_flood)
@@ -799,9 +835,19 @@ main(int argc, char *argv[])
                         xqc_test_h3_empty_data_fin)
         || !CU_add_test(pSuite, "xqc_test_stable", xqc_test_stable)
         || !CU_add_test(pSuite, "xqc_test_dtable", xqc_test_dtable)
+        || !CU_add_test(pSuite, "xqc_test_dtable_capacity_raise_lookup",
+                        xqc_test_dtable_capacity_raise_lookup)
+        || !CU_add_test(pSuite, "xqc_test_dtable_capacity_raise_evicted",
+                        xqc_test_dtable_capacity_raise_evicted)
+        || !CU_add_test(pSuite, "xqc_test_dtable_evicted_entries",
+                        xqc_test_dtable_evicted_entries)
         || !CU_add_test(pSuite, "test_2d_hash_table", test_2d_hash_table)
         || !CU_add_test(pSuite, "test_ring_array", test_ring_array)
         || !CU_add_test(pSuite, "xqc_test_ring_mem", xqc_test_ring_mem)
+        || !CU_add_test(pSuite, "xqc_test_ring_mem_resize_empty",
+                        xqc_test_ring_mem_resize_empty)
+        || !CU_add_test(pSuite, "xqc_test_ring_mem_resize_below_used",
+                        xqc_test_ring_mem_resize_below_used)
         || !CU_add_test(pSuite, "xqc_test_huffman", xqc_test_huffman)
         || !CU_add_test(pSuite, "xqc_test_encoder", xqc_test_encoder)
         || !CU_add_test(pSuite, "xqc_test_h3_ins", xqc_test_ins)
@@ -809,6 +855,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_qpack_test", xqc_qpack_test)
         || !CU_add_test(pSuite, "xqc_test_qpack_create_alloc_failures",
                         xqc_test_qpack_create_alloc_failures)
+        || !CU_add_test(pSuite, "xqc_test_qpack_dtable_cap_raises",
+                        xqc_test_qpack_dtable_cap_raises)
+        || !CU_add_test(pSuite, "xqc_test_qpack_dtable_cap_above_max",
+                        xqc_test_qpack_dtable_cap_above_max)
         || !CU_add_test(pSuite,
                         "xqc_test_qpack_h3_conn_create_alloc_failures",
                         xqc_test_qpack_h3_conn_create_alloc_failures)
@@ -828,6 +878,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
                         "xqc_test_reject_dgram_at_invalid_encryption_level",
                         xqc_test_reject_dgram_at_invalid_encryption_level)
+        || !CU_add_test(pSuite, "xqc_test_dgram_mss_zero_notified_once",
+                        xqc_test_dgram_mss_zero_notified_once)
         || !CU_add_test(pSuite, "xqc_test_h3_ext_frame", xqc_test_h3_ext_frame)
 #ifdef XQC_ENABLE_FEC
         || !CU_add_test(pSuite, "xqc_test_galois_calculation", xqc_test_galois_calculation)

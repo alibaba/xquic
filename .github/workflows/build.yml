@@ -95,6 +95,7 @@ jobs:
       uses: github/codeql-action/analyze@v2
 
     - name: Test
+      timeout-minutes: 30
       run: |
         set -o pipefail
         cd build
@@ -259,6 +260,7 @@ jobs:
         cmake --build build --parallel
 
     - name: Test
+      timeout-minutes: 30
       run: |
         set -o pipefail
         cd build

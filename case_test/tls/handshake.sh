@@ -160,26 +160,34 @@ fi
 
 case_tls_handshake__0RTT_reject()
 {
+    local work_dir
+    local mismatch='ssl session ticket decrypt, key name not match'
+    case_test_stop_server
+    work_dir=$(mktemp -d "${PWD}/ticket-rotation.XXXXXX") || return 1
+    case_test_prepare_work_dir "${PWD}" "${work_dir}" || return 1
+    echo "Ticket rotation logs: ${work_dir}"
 
+    (
+        cd "${work_dir}" || exit 1
+        trap 'case_test_stop_server; case_test_snapshot_case_logs 0RTT_reject' EXIT
+        openssl rand -out session_ticket.key 48 || exit 1
+        case_test_start_server ${SERVER_BIN} -l i -e > /dev/null
+        ${CLIENT_BIN} -s 4096 -l i -t 1 -E -1 > warmup.log || exit 1
+        grep -Fxq '>>>>>>>> pass:1' warmup.log || exit 1
+        [[ -s test_session && -s tp_localhost ]] || exit 1
+        case_test_stop_server
 
-clear_log
-echo -e "0RTT reject. restart server ....\c"
-case_test_stop_server
-case_test_start_server ${SERVER_BIN} -l i -e > /dev/null
-sleep 1
-${CLIENT_BIN} -s 1024000 -l d -t 1 -E > stdlog
-result=`grep ">>>>>>>> pass:" stdlog`
-echo "$result"
-flag=`grep "early_data_flag:2" stdlog`
-errlog=`grep_err_log`
-if [ -n "$flag" ] && [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
-    case_print_result "0RTT_reject" "pass"
-else
-    case_print_result "0RTT_reject" "fail"
-    echo "$flag"
-    echo "$errlog"
-fi
-
+        openssl rand -out session_ticket.key 48 || exit 1
+        clear_log
+        case_test_start_server ${SERVER_BIN} -l i -e > /dev/null
+        ${CLIENT_BIN} -s 4096 -l d -t 1 -E > stdlog || exit 1
+        grep -aFq "${mismatch}" slog \
+            && grep -aEq 'xqc_send_ctl_on_packet_sent.*pkt_type:0RTT\|frame:.*STREAM' clog \
+            && [[ $(grep -c '^0rtt_flag:' stdlog) = 1 ]] \
+            && grep -Fq 'early_data_flag:2, conn_err:0,' stdlog \
+            && grep -Fxq '>>>>>>>> pass:1' stdlog \
+            && [[ -z $(grep_err_log | grep -vF "${mismatch}") ]]
+    )
 }
 
 case_tls_handshake_no_crypto_without_0RTT()
@@ -687,7 +695,7 @@ case_test_case "alpn_negotiation_success" --id native --mode self-reporting --ru
 case_test_case "alpn_negotiation_failure_0x178" --id native --mode self-reporting --run case_tls_handshake_alpn_negotiation_failure_0x178
 case_test_case "without_session_ticket" --id native --mode self-reporting --run case_tls_handshake_without_session_ticket
 case_test_case "0RTT_accept" --id native --mode self-reporting --run case_tls_handshake__0RTT_accept
-case_test_case "0RTT_reject" --id native --mode self-reporting --run case_tls_handshake__0RTT_reject
+case_test_case "0RTT_reject" --id native --run case_tls_handshake__0RTT_reject
 case_test_case "no_crypto_without_0RTT" --id native --mode self-reporting --run case_tls_handshake_no_crypto_without_0RTT
 case_test_case "no_crypto_with_0RTT" --id native --mode self-reporting --run case_tls_handshake_no_crypto_with_0RTT
 case_test_case "no_crypto_with_0RTT_twice" --id native --mode self-reporting --run case_tls_handshake_no_crypto_with_0RTT_twice

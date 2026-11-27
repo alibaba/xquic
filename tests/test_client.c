@@ -1953,12 +1953,6 @@ xqc_client_create_path_socket(xqc_user_path_t *path,
         return XQC_ERROR;
     }
 #ifndef XQC_SYS_WINDOWS
-    if (path_interface != NULL
-        && xqc_client_bind_to_interface(path->path_fd, path_interface) < 0) 
-    {
-        printf("|xqc_client_bind_to_interface error|");
-        return XQC_ERROR;
-    }
 
     if (g_test_case == 103 || g_test_case == 104
         || g_test_case == 800)
@@ -4957,7 +4951,8 @@ xqc_client_socket_read_handler(user_conn_t *user_conn, int fd)
 
         if (user_conn->get_local_addr == 0) {
             user_conn->get_local_addr = 1;
-            socklen_t tmp = sizeof(struct sockaddr_in6);
+            /* the size of local_addr: a sockaddr_in for IPv4 */
+            socklen_t tmp = user_conn->local_addrlen;
             int ret = getsockname(user_conn->fd, (struct sockaddr *) user_conn->local_addr, &tmp);
             if (ret < 0) {
                 printf("getsockname error, errno: %d\n", get_sys_errno());
@@ -6880,7 +6875,9 @@ int main(int argc, char *argv[]) {
     }
 
     if (g_enable_fec) {
+        /* Unset fields must be 0, which the engine replaces by defaults. */
         xqc_fec_params_t fec_params;
+        memset(&fec_params, 0, sizeof(xqc_fec_params_t));
         if (xqc_client_set_fec_scheme(fec_encoder_scheme, &fec_params.fec_encoder_schemes[0]) == XQC_OK) {
             fec_params.fec_encoder_schemes_num = 1;
             // limit repair number if fec scheme is xor

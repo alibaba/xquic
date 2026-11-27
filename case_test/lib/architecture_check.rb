@@ -5,7 +5,7 @@ require "fileutils"
 require "open3"
 require "yaml"
 
-root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--background-fd-selftest|--wait-for-log-selftest|--binary-log-selftest|--all]")
+root = ARGV.shift || abort("usage: architecture_check.rb <repo-root> [--ownership|--runner-syntax|--parallel-selftest|--run-dir-selftest|--case-filter-run-dir-selftest|--case-filter-missing-selftest|--event-dedupe-selftest|--coverage-mismatch-selftest|--build-gate-selftest|--parallel-budget-selftest|--parallel-failure-selftest|--case-timeout-selftest|--background-fd-selftest|--watchdog-selftest|--wait-for-log-selftest|--binary-log-selftest|--all]")
 modes = ARGV.empty? ? ["--all"] : ARGV
 
 def run!(env, *cmd)
@@ -831,6 +831,119 @@ def background_fd_selftest(root)
   puts "elapsed_seconds=#{format("%.3f", elapsed)}"
 end
 
+# Stops the case watchdog at each point a TERM can reach it, and checks that
+# no process of the watchdog keeps a descriptor of the case shell (descriptor
+# 8 here, like the output of a run) once the case shell is done. The sleep of
+# the watchdog is a stand-in that catches TERM and keeps running, as a sleep
+# that bash before 5.2 has just forked can; it reports the TERM on that
+# descriptor. No check waits for time to pass.
+def watchdog_selftest(root)
+  work_dir = File.join(root, "build/case_test_arch_check_watchdog")
+  FileUtils.rm_rf(work_dir)
+  FileUtils.mkdir_p(File.join(work_dir, "bin"))
+
+  started_path = File.join(work_dir, "started")
+  pid_path = File.join(work_dir, "sleep.pid")
+  File.write(File.join(work_dir, "bin/sleep"), <<~SH)
+    #!/bin/sh
+    exec ruby -e '
+      trap("TERM") { IO.for_fd(8, autoclose: false).syswrite("survived-term\\n") }
+      File.write(#{pid_path.inspect}, Process.pid.to_s)
+      File.open(#{started_path.inspect}, "w") { |fifo| fifo.puts(Process.pid) }
+      loop { sleep }'
+  SH
+  FileUtils.chmod("+x", File.join(work_dir, "bin/sleep"))
+
+  driver_path = File.join(work_dir, "driver.sh")
+  log_path = File.join(work_dir, "watchdog.log")
+  File.write(driver_path, <<~SH)
+    #!/bin/bash
+    set -u
+    source #{File.join(work_dir, "common.sh").inspect}
+    case_test_case_watchdog_start selftest.watchdog native 1000 > #{log_path.inspect} 2>&1
+    if [[ "$1" = "sleeping" ]]; then
+        read -r _ < #{started_path.inspect}
+        case_test_case_watchdog_stop
+    else
+        wait "${CASE_TEST_CASE_WATCHDOG_PID}"
+    fi
+  SH
+
+  # A seam TERMs the watchdog subshell from inside, right after (1) or right
+  # before (0) an anchor line of case_test_case_watchdog_start(); "sleeping"
+  # uses the TERM of the stop.
+  self_term = %q(kill -TERM "$(exec sh -c 'echo "${PPID}"')")
+  points = {
+    "sleeping" => nil,
+    "unarmed" => [1, "(", self_term],
+    "forked" => [1, 'sleep "${timeout_s}" &', "read -r _ < #{started_path.inspect}; #{self_term}"],
+    "prefork" => [0, 'sleep "${timeout_s}" &', self_term]
+  }
+  source = File.read(File.join(root, "case_test/lib/common.sh")).lines
+  start = source.index { |line| line.start_with?("case_test_case_watchdog_start()") }
+  failures = []
+
+  points.each do |point, (offset, anchor, seam)|
+    # A stop that relies on TERM can hang at "prefork" instead of failing
+    # (bash before 5.2), so that point runs once the others passed.
+    break if point == "prefork" && !failures.empty?
+
+    lines = source.dup
+    if anchor
+      at = start && lines.each_index.find { |i| i > start && lines[i].strip == anchor }
+      unless at
+        failures << "#{point}: no line #{anchor.inspect} in case_test_case_watchdog_start()"
+        next
+      end
+      lines.insert(at + offset, "#{seam}\n")
+    end
+    File.write(File.join(work_dir, "common.sh"), lines.join)
+    FileUtils.rm_f([started_path, pid_path])
+    File.mkfifo(started_path)
+
+    reader, writer = IO.pipe
+    pid = Process.spawn(
+      { "PATH" => "#{File.join(work_dir, "bin")}:#{ENV.fetch("PATH")}" },
+      "bash", driver_path, point,
+      8 => writer,
+      out: File.join(work_dir, "#{point}.out"),
+      err: [:child, :out]
+    )
+    writer.close
+    done_reader, done_writer = IO.pipe
+    waiter = Thread.new do
+      Process.wait(pid)
+      done_writer.close
+    end
+
+    # Ready on a TERM report, on end of file (no process holds descriptor 8
+    # any more), or when the case shell exits.
+    IO.select([reader, done_reader])
+    report = reader.read_nonblock(64, exception: false)
+    if report == :wait_readable
+      failures << "#{point}: a process of the watchdog outlived the case shell"
+    elsif report
+      failures << "#{point}: the sleep survived a TERM"
+    end
+    if report && File.exist?(pid_path)
+      begin
+        Process.kill("KILL", File.read(pid_path).to_i)
+      rescue Errno::ESRCH
+        nil
+      end
+    end
+    waiter.join
+    reader.close
+    done_reader.close
+  end
+
+  raise "watchdog selftest failed\n#{failures.join("\n")}" unless failures.empty?
+
+  puts "watchdog_selftest=pass"
+  puts "watchdog_points=#{points.keys.join(",")}"
+  puts "watchdog_bash=#{run!({}, "bash", "-c", "echo \"${BASH_VERSION}\"").chomp}"
+end
+
 def wait_for_log_selftest(root)
   work_dir = File.join(root, "build/case_test_arch_check_wait_for_log")
   FileUtils.rm_rf(work_dir)
@@ -1053,6 +1166,10 @@ end
 
 if modes.include?("--all") || modes.include?("--background-fd-selftest")
   background_fd_selftest(root)
+end
+
+if modes.include?("--all") || modes.include?("--watchdog-selftest")
+  watchdog_selftest(root)
 end
 
 if modes.include?("--all") || modes.include?("--wait-for-log-selftest")

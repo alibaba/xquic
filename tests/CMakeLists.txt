@@ -73,6 +73,12 @@ else()
 endif()
 
 target_link_libraries(test_server ${APP_DEPEND_LIBS})
+if(XQC_ENABLE_MOQ)
+    add_executable(test_moqt_negotiation
+        complex_case/test_moqt_negotiation.c
+        complex_case/complex_case_common.c)
+    target_link_libraries(test_moqt_negotiation ${APP_DEPEND_LIBS})
+endif()
 if(XQC_ENABLE_WEBTRANSPORT)
     add_executable(test_webtransport
         complex_case/test_webtransport.c
@@ -143,6 +149,13 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_alloc_wrap.c
     )
 
+    if(XQC_ENABLE_MOQ)
+        list(APPEND test_SOURCES
+            ${UNIT_TEST_DIR}/xqc_moqt_codec_test.c
+            ${UNIT_TEST_DIR}/xqc_moqt_quic_test.c
+            ${UNIT_TEST_DIR}/xqc_moqt_session_test.c)
+    endif()
+
     if(XQC_ENABLE_WEBTRANSPORT)
         list(APPEND test_SOURCES
             ${CMAKE_SOURCE_DIR}/demo/xqc_wt_echo_server.c
@@ -166,6 +179,10 @@ if(HAVE_CUNIT)
     add_executable(run_tests
         ${test_SOURCES}
     )
+
+    if(XQC_ENABLE_MOQ)
+        target_compile_definitions(run_tests PRIVATE XQC_ENABLE_MOQ)
+    endif()
 
     # xqc_alloc_wrap.c makes chosen allocations fail, and counts the
     # allocations not freed yet, through the linker's --wrap (GNU ld and

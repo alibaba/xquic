@@ -4,7 +4,9 @@
 
 #include "xqc_variable_len_int.h"
 
+#define XQC_CHAR_BIT 8
 #define XQC_VINT_MASK ((1 << 6) - 1)
+#define XQC_VI64_PREFIX_BIT (1u << (XQC_CHAR_BIT - 1))
 
 int
 xqc_vint_read(const unsigned char *p, const unsigned char *end, uint64_t *valp)
@@ -98,4 +100,65 @@ xqc_put_varint(uint8_t *p, uint64_t n)
     rv = xqc_put_uint64be(p, n);
     *p |= 0xc0;
     return rv;
+}
+
+size_t
+xqc_vi64_len(uint64_t value)
+{
+    size_t len = 1;
+
+    while (value >= XQC_VI64_PREFIX_BIT && len < XQC_VI64_MAX_LEN) {
+        value >>= XQC_CHAR_BIT - 1;
+        len++;
+    }
+
+    return len;
+}
+
+xqc_int_t
+xqc_vi64_write(uint8_t *p, const uint8_t *end, uint64_t value)
+{
+    size_t len = xqc_vi64_len(value);
+
+    if (p > end || (size_t)(end - p) < len) {
+        return -1;
+    }
+
+    for (size_t i = len - 1; i > 0; i--) {
+        p[i] = (uint8_t)value;
+        value >>= XQC_CHAR_BIT;
+    }
+
+    p[0] = (uint8_t)(UINT8_MAX << (XQC_VI64_MAX_LEN - len))
+           | (uint8_t)value;
+    return (xqc_int_t)len;
+}
+
+xqc_int_t
+xqc_vi64_read(const uint8_t *p, const uint8_t *end, uint64_t *value)
+{
+    if (p >= end) {
+        return -1;
+    }
+
+    uint64_t result = *p;
+    uint8_t mask = XQC_VI64_PREFIX_BIT;
+    size_t len = 1;
+
+    while (result & mask) {
+        result &= ~(uint64_t)mask;
+        mask >>= 1;
+        len++;
+    }
+
+    if ((size_t)(end - p) < len) {
+        return -1;
+    }
+
+    for (size_t i = 1; i < len; i++) {
+        result = (result << XQC_CHAR_BIT) | p[i];
+    }
+
+    *value = result;
+    return (xqc_int_t)len;
 }

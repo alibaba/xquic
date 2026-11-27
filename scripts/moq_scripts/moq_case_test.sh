@@ -82,6 +82,8 @@ fi
 
 
 killall moq_demo_server 2> /dev/null
+# Isolate this server's resumption state (RFC 9221 section 3).
+rm -f test_session tp_localhost xqc_token
 moq/demo/moq_demo_audio_server -c b -p 8443 > /dev/null &
 sleep 1
 clear_log

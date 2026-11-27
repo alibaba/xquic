@@ -16,6 +16,7 @@ option (XQC_NO_PID_PACKET_PROCESS "do not expose path_id in xqc_engine_packet_pr
 option (XQC_PROTECT_POOL_MEM "enable write protection for pool memory (for debug)" OFF)
 option (XQC_COMPAT_DUPLICATE "qpack compat dup" OFF)
 option (XQC_ENABLE_WEBTRANSPORT "enable native WebTransport" OFF)
+option (XQC_ENABLE_MOQ "enable MoQ" OFF)
 option (XQC_ENABLE_WEBTRANSPORT_INTEROP
     "build WebTransport interop applications" OFF)
 if(XQC_ENABLE_WEBTRANSPORT_INTEROP AND NOT XQC_ENABLE_WEBTRANSPORT)

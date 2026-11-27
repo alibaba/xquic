@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+/* Legacy draft-05 API; see xqc_moqt.h for the draft-22 endpoint API. */
 #define XQC_ALPN_MOQ_QUIC         "moq-quic"
 #define XQC_ALPN_MOQ_WEBTRANSPORT "moq-wt"
 

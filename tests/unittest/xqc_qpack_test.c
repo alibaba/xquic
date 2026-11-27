@@ -800,7 +800,7 @@ xqc_qpack_test_name_only_insert(void)
     xqc_log_callbacks_t callbacks;
     xqc_log_t log;
     xqc_qpack_t *qpk;
-#ifdef XQC_ENABLE_EVENT_LOG
+#if defined(XQC_ENABLE_EVENT_LOG) && !defined(XQC_DISABLE_LOG)
     xqc_qpack_test_events_t events;
 
     memset(&events, 0, sizeof(events));

@@ -1,0 +1,63 @@
+# harness           function                       maxlen expect [VAR=value...] [-- cbmc options]
+#
+# Frame parsers (src/transport/xqc_frame_parser.c) and xqc_vint_read().
+frame_parser        harness_vint_read              16  pass
+frame_parser        harness_padding                32  pass
+frame_parser        harness_ping                   32  pass
+frame_parser        harness_handshake_done         32  pass
+frame_parser        harness_stream                 32  pass
+frame_parser        harness_reset_stream           32  pass
+frame_parser        harness_reset_stream_at        32  pass
+frame_parser        harness_stop_sending           32  pass
+frame_parser        harness_max_data               32  pass
+frame_parser        harness_max_stream_data        32  pass
+frame_parser        harness_max_streams            32  pass
+frame_parser        harness_data_blocked           32  pass
+frame_parser        harness_stream_data_blocked    32  pass
+frame_parser        harness_streams_blocked        32  pass
+# Until #1133: NEW_TOKEN compares p + length with the end of the packet.
+frame_parser        harness_new_token              32  xfail
+frame_parser        harness_new_conn_id            48  pass
+frame_parser        harness_retire_conn_id         32  pass
+frame_parser        harness_path_challenge         32  pass
+frame_parser        harness_path_response          32  pass
+frame_parser        harness_conn_close             32  pass
+frame_parser        harness_datagram               32  pass
+frame_parser        harness_path_status            32  pass
+frame_parser        harness_mp_new_conn_id         48  pass
+frame_parser        harness_mp_retire_conn_id      32  pass
+frame_parser        harness_max_path_id            32  pass
+# Until #1133: CRYPTO compares p + length with the end of the packet, a sum
+# that wraps; PATH_ABANDON moves past the packet by its Reason Phrase Length.
+frame_parser        harness_crypto                 32  xfail
+frame_parser        harness_path_abandon           32  xfail
+# FEC frames. Until #1135: REPAIR does not check its key and symbol sizes.
+frame_parser        harness_sid                    32  pass  DEFS=-DXQC_ENABLE_FEC TAG=-fec
+frame_parser        harness_repair                 32  xfail DEFS=-DXQC_ENABLE_FEC TAG=-fec
+# The ACK family, with xqc_vint_read() reduced to its contract
+# (harness_vint_read). Until #1095: ACK_MP stores ranges below zero.
+frame_parser_vc     harness_ack                    12  pass  UNWIND=2 -- --sat-solver cadical --unwindset xqc_parse_ack_frame.6:6,harness_ack.0:7
+frame_parser_vc     harness_ack_mp                 12  xfail UNWIND=2 -- --sat-solver cadical --unwindset xqc_parse_ack_mp_frame.0:6,harness_ack_mp.0:7
+frame_parser_vc     harness_ack_ext                10  pass  UNWIND=2 -- --sat-solver cadical --unwindset xqc_parse_ack_frame.6:3,xqc_parse_timestamps_in_ack_ext.0:5,xqc_parse_timestamps_in_ack_ext.1:3
+#
+# Packet headers (src/transport/xqc_packet_parser.c).
+packet_parser       harness_parse_cid              64  pass
+packet_parser       harness_parse_short_header     64  pass
+packet_parser       harness_parse_stateless_reset  64  pass
+packet_parser       harness_parse_packet_number    8   pass
+packet_parser       harness_decode_packet_number   8   pass
+packet_parser       harness_parse_zero_rtt         24  pass  -- --sat-solver cadical
+packet_parser       harness_parse_handshake        24  pass  -- --sat-solver cadical
+packet_parser       harness_parse_version_negotiation 32 pass -- --unwindset xqc_packet_parse_version_negotiation.0:9,xqc_packet_parse_version_negotiation.1:9,xqc_packet_parse_version_negotiation.2:9,xqc_packet_parse_version_negotiation.3:9,xqc_uint32_list_find.0:9
+#
+# Transport parameters (src/transport/xqc_transport_params.c): every value
+# decoder, and the parameter loop with stub decoders on 64-bit and 32-bit
+# targets. Until #1210: the loop adds the
+# length to a pointer, which wraps.
+transport_params    harness_tp_decoders            64  pass  -- --object-bits 12
+transport_params_vc harness_tp_loop                12  xfail RESTRICT=xqc_decode_one_transport_param.function_pointer_call.1/stub_decoder -- --object-bits 12 --sat-solver cadical --unwindset harness_tp_loop.0:31
+transport_params_vc harness_tp_loop                12  xfail DEFS=-m32 TAG=-m32 RESTRICT=xqc_decode_one_transport_param.function_pointer_call.1/stub_decoder -- --object-bits 12 --sat-solver cadical --unwindset harness_tp_loop.0:31
+#
+# HTTP/3 frames and QPACK.
+http3               harness_prefixed_int_read      16  pass  -- --unwindset xqc_prefixed_int_read.0:11
+http3               harness_huffman_dec            4   pass  -- --sat-solver cadical

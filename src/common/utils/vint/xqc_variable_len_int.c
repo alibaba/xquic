@@ -11,6 +11,10 @@ xqc_vint_read(const unsigned char *p, const unsigned char *end, uint64_t *valp)
 {
     uint64_t val;
 
+    /*
+     * Compare the bytes left with the length of the varint: a pointer past
+     * the end of the buffer, such as p + 7 near its end, is undefined.
+     */
     if (p >= end) {
         return -1;
     }
@@ -21,7 +25,7 @@ xqc_vint_read(const unsigned char *p, const unsigned char *end, uint64_t *valp)
         return 1;
 
     case 1:
-        if (p + 1 >= end) {
+        if (end - p < 2) {
             return -1;
         }
         *valp = (p[0] & XQC_VINT_MASK) << 8
@@ -29,7 +33,7 @@ xqc_vint_read(const unsigned char *p, const unsigned char *end, uint64_t *valp)
         return 2;
 
     case 2:
-        if (p + 3 >= end) {
+        if (end - p < 4) {
             return -1;
         }
         *valp = (p[0] & XQC_VINT_MASK) << 24
@@ -39,7 +43,7 @@ xqc_vint_read(const unsigned char *p, const unsigned char *end, uint64_t *valp)
         return 4;
 
     default:
-        if (p + 7 >= end) {
+        if (end - p < 8) {
             return -1;
         }
         memcpy(&val, p, 8);

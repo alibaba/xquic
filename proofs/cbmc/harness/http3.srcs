@@ -1,0 +1,11 @@
+@XQUIC@/src/http3/frame/xqc_h3_frame.c
+@XQUIC@/src/common/utils/vint/xqc_discrete_int_parser.c
+@XQUIC@/src/common/utils/vint/xqc_variable_len_int.c
+@XQUIC@/src/common/utils/var_buf/xqc_var_buf.c
+@XQUIC@/src/http3/qpack/xqc_prefixed_int.c
+@XQUIC@/src/http3/qpack/xqc_prefixed_str.c
+@XQUIC@/src/common/utils/huffman/xqc_huffman.c
+@XQUIC@/src/common/utils/huffman/xqc_huffman_code.c
+@XQUIC@/src/http3/qpack/xqc_ins.c
+@XQUIC@/src/http3/qpack/xqc_rep.c
+@HERE@/stubs/http3_stubs.c

@@ -930,15 +930,17 @@ xqc_send_ctl_on_ack_received(xqc_send_ctl_t *send_ctl, xqc_pn_ctl_t *pn_ctl, xqc
                 need_del_record = 1;
             }
 
-            xqc_log(conn->log, XQC_LOG_DEBUG,
+            xqc_log(
+                conn->log, XQC_LOG_DEBUG,
                 "|conn:%p|path:%ui|pkt_num:%ui|origin_pktnum:%ui|size:%ud|pns:%d|pkt_type:%s|frame:%s|conn_state:%s|frame_largest_ack:%ui|path_largest_ack:%ui|",
                 conn, send_ctl->ctl_path->path_id, packet_out->po_pkt.pkt_num,
-                (xqc_packet_number_t)packet_out->po_origin ? packet_out->po_origin->po_pkt.pkt_num : 0,
+                packet_out->po_origin ? packet_out->po_origin->po_pkt.pkt_num
+                                      : 0,
                 packet_out->po_used_size, pns,
                 xqc_pkt_type_2_str(packet_out->po_pkt.pkt_type),
                 xqc_frame_type_2_str(conn->engine, packet_out->po_frame_types),
-                xqc_conn_state_2_str(conn->conn_state),
-                frame_largest_ack, send_ctl->ctl_largest_acked[pns]);
+                xqc_conn_state_2_str(conn->conn_state), frame_largest_ack,
+                send_ctl->ctl_largest_acked[pns]);
 
             // 更新sample
             xqc_update_sample(&send_ctl->sampler, packet_out, send_ctl, ack_recv_time);

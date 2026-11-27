@@ -605,20 +605,18 @@ xqc_app_send_callback(int fd, short what, void* arg)
     event_add(user_conn->ev_send_timer, &time);
 }
 
+/*
+ * SIGINT and SIGTERM, run by the event loop: main() destroys the engine
+ * once the loop has returned, never in the middle of an engine call
+ */
 void
-stop(int signo)
+stop(evutil_socket_t signo, short what, void *arg)
 {
     event_base_loopbreak(eb);
-    xqc_engine_destroy(ctx.engine);
-    fflush(stdout);
-    exit(0);
 }
 
 int main(int argc, char *argv[])
 {
-    signal(SIGINT, stop);
-    signal(SIGTERM, stop);
-    
     char c_log_level = 'd';
     int ch = 0;
     char server_addr[64] = TEST_ADDR;
@@ -783,6 +781,12 @@ int main(int argc, char *argv[])
     ctx.ev_engine = event_new(eb, -1, 0, xqc_app_engine_callback, &ctx);
     ctx.ev_socket = event_new(eb, ctx.listen_fd, EV_READ | EV_PERSIST, xqc_server_socket_event_callback, &ctx);
     event_add(ctx.ev_socket, NULL);
+
+    /* SIGINT and SIGTERM leave the event loop through stop() */
+    struct event *ev_sigint = evsignal_new(eb, SIGINT, stop, NULL);
+    struct event *ev_sigterm = evsignal_new(eb, SIGTERM, stop, NULL);
+    event_add(ev_sigint, NULL);
+    event_add(ev_sigterm, NULL);
 
     event_base_dispatch(eb);
 

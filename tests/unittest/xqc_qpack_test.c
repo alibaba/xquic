@@ -810,7 +810,7 @@ xqc_qpack_test_name_only_insert(void)
     memset(&log, 0, sizeof(log));
     log.log_level = XQC_LOG_DEBUG;
     log.log_callbacks = &callbacks;
-#ifdef XQC_ENABLE_EVENT_LOG
+#if defined(XQC_ENABLE_EVENT_LOG) && !defined(XQC_DISABLE_LOG)
     callbacks.xqc_log_write_err = xqc_qpack_test_event_write;
     log.log_event = 1;
     log.qlog_importance = EVENT_IMPORTANCE_SELECTED;

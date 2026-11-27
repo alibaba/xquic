@@ -82,4 +82,11 @@ void xqc_test_send_ctl_lost_interval_log(void);
 void xqc_test_send_ctl_lost_pmtud_probe_no_cc_reaction(void);
 void xqc_test_send_ctl_lost_packet_cc_reaction(void);
 
+/*
+ * Loss detection releases a copy acknowledged through its original and a
+ * dropped datagram, and keeps a packet still waiting for its acknowledgment.
+ */
+void xqc_test_send_ctl_indirect_ack_or_drop_releases(void);
+void xqc_test_send_ctl_indirect_ack_or_drop_keeps(void);
+
 #endif

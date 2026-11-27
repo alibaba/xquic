@@ -75,6 +75,23 @@ xqc_send_ctl_on_dgram_dropped(xqc_connection_t *conn, xqc_packet_out_t *po)
 int
 xqc_send_ctl_indirectly_ack_or_drop_po(xqc_connection_t *conn, xqc_packet_out_t *packet_out)
 {
+    xqc_packet_out_t *origin = packet_out->po_origin;
+    xqc_bool_t acked, dropped;
+
+    /*
+     * Loss detection calls this for every unacked packet of every path. Only
+     * a packet acknowledged, itself or through its original, and a dropped
+     * datagram have something to do here: look the path up, which walks the
+     * path list, for them alone.
+     */
+    acked = packet_out->po_acked || (origin && origin->po_acked);
+    dropped = (packet_out->po_frame_types & XQC_FRAME_BIT_DATAGRAM)
+              && ((packet_out->po_flag & XQC_POF_DROPPED_DGRAM)
+                  || (origin && (origin->po_flag & XQC_POF_DROPPED_DGRAM)));
+    if (!acked && !dropped) {
+        return XQC_FALSE;
+    }
+
     xqc_path_ctx_t *path = xqc_conn_find_path_by_path_id(conn, packet_out->po_path_id);
     if (path == NULL) {
         return XQC_FALSE;
@@ -83,10 +100,8 @@ xqc_send_ctl_indirectly_ack_or_drop_po(xqc_connection_t *conn, xqc_packet_out_t 
     xqc_send_ctl_t *send_ctl = path->path_send_ctl;
     xqc_send_queue_t *send_queue = conn->conn_send_queue;
 
-    if (packet_out->po_acked
-        || (packet_out->po_origin && packet_out->po_origin->po_acked))
-    {
-        if (packet_out->po_origin && packet_out->po_origin->po_acked) {
+    if (acked) {
+        if (origin && origin->po_acked) {
             /* We should not do congestion control here. */
             xqc_send_ctl_on_packet_acked(send_ctl, packet_out, 0, 0);
         }
@@ -94,17 +109,9 @@ xqc_send_ctl_indirectly_ack_or_drop_po(xqc_connection_t *conn, xqc_packet_out_t 
         return XQC_TRUE;
     }
 
-    if (packet_out->po_frame_types & XQC_FRAME_BIT_DATAGRAM) {
-        if ((packet_out->po_flag & XQC_POF_DROPPED_DGRAM)
-            || (packet_out->po_origin && (packet_out->po_origin->po_flag & XQC_POF_DROPPED_DGRAM)))
-        {
-            xqc_send_ctl_on_dgram_dropped(conn, packet_out);
-            xqc_send_queue_maybe_remove_unacked(packet_out, send_queue, path);
-            return XQC_TRUE;
-        }
-    }
-
-    return XQC_FALSE;
+    xqc_send_ctl_on_dgram_dropped(conn, packet_out);
+    xqc_send_queue_maybe_remove_unacked(packet_out, send_queue, path);
+    return XQC_TRUE;
 }
 
 

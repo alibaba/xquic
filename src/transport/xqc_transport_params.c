@@ -1279,7 +1279,7 @@ xqc_read_transport_params(char *tp_data, size_t tp_data_len, xqc_transport_param
     char *e = p + tp_data_len;
     xqc_bool_t reset_stream_at_seen = XQC_FALSE;
     params->reset_stream_at = XQC_FALSE;
-    while (*p != '\0' && p < e) {
+    while (p < e && *p != '\0') {
         if (*p == ' ') {
             p++;
         }

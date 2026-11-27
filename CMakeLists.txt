@@ -225,6 +225,14 @@ set(
     "src/http3/xqc_h3_ext_bytestream.c"
 )
 
+# The symbols of scripts/xquic.lds, or patterns of them, that the switches
+# below leave out of the library. The shared library does not export them.
+set(XQC_UNBUILT_SYMBOLS)
+
+if(NOT XQC_COMPAT_DUPLICATE)
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_h3_engine_set_qpack_compat_duplicate)
+endif()
+
 # Native WebTransport over HTTP/3
 if(XQC_ENABLE_WEBTRANSPORT)
     set(WEBTRANSPORT_SOURCES
@@ -237,6 +245,9 @@ if(XQC_ENABLE_WEBTRANSPORT)
         "src/webtransport/xqc_webtransport_session.c"
         "src/webtransport/xqc_webtransport_stream.c"
     )
+else()
+    # xqc_webtransport_connect and every xqc_wt_* function
+    list(APPEND XQC_UNBUILT_SYMBOLS "xqc_(wt|webtransport)_[a-z0-9_]+")
 endif()
 
 # Transport source
@@ -282,6 +293,8 @@ if(XQC_ENABLE_MP_INTEROP)
         ${TRANSPORT_SOURCES}
         "src/transport/scheduler/xqc_scheduler_interop.c"
     )
+else()
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_interop_scheduler_cb)
 endif()
 
 
@@ -300,6 +313,8 @@ if(XQC_ENABLE_XOR OR XQC_ENABLE_PKM)
         ${FEC_FRAMEWORK_SOURCE}
         "src/transport/fec_schemes/xqc_xor.c"
     )
+else()
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_xor_code_cb)
 endif()
 
 if(XQC_ENABLE_RSC)
@@ -308,6 +323,8 @@ if(XQC_ENABLE_RSC)
         ${FEC_FRAMEWORK_SOURCE}
         "src/transport/fec_schemes/xqc_reed_solomon.c"
     )
+else()
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_reed_solomon_code_cb)
 endif()
 
 if(XQC_ENABLE_PKM)
@@ -316,6 +333,8 @@ if(XQC_ENABLE_PKM)
         ${FEC_FRAMEWORK_SOURCE}
         "src/transport/fec_schemes/xqc_packet_mask.c"
     )
+else()
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_packet_mask_code_cb)
 endif()
 
 if(XQC_ENABLE_FEC)
@@ -324,6 +343,9 @@ if(XQC_ENABLE_FEC)
         ${TRANSPORT_SOURCES}
         ${FEC_FRAMEWORK_SOURCE}
     )
+else()
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_xor_code_cb xqc_reed_solomon_code_cb
+         xqc_packet_mask_code_cb)
 endif()
 
 # TLS source
@@ -388,6 +410,8 @@ if(XQC_ENABLE_RENO)
         ${CONGESTION_CONTROL_SOURCES}
         "src/congestion_control/xqc_new_reno.c"
     )
+else()
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_reno_cb)
 endif()
 
 if(XQC_ENABLE_BBR2)
@@ -396,6 +420,8 @@ if(XQC_ENABLE_BBR2)
         ${CONGESTION_CONTROL_SOURCES}
         "src/congestion_control/xqc_bbr2.c"
     )
+else()
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_bbr2_cb)
 endif()
 
 if(XQC_ENABLE_COPA)
@@ -404,6 +430,8 @@ if(XQC_ENABLE_COPA)
         ${CONGESTION_CONTROL_SOURCES}
         "src/congestion_control/xqc_copa.c"
     )
+else()
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_copa_cb)
 endif()
 
 if(XQC_ENABLE_UNLIMITED)
@@ -412,6 +440,8 @@ if(XQC_ENABLE_UNLIMITED)
         ${CONGESTION_CONTROL_SOURCES}
         "src/congestion_control/xqc_unlimited_cc.c"
     )
+else()
+    list(APPEND XQC_UNBUILT_SYMBOLS xqc_unlimited_cc_cb)
 endif()
 
 
@@ -461,31 +491,24 @@ if(APPLE OR PLATFORM MATCHES "mac")
         ${XQC_CXX_RUNTIME}
     )
 else()
-    # scripts/xquic.lds exports symbols that the feature switches above may have
-    # compiled out (xqc_reno_cb, xqc_copa_cb, the FEC scheme callbacks, ...). GNU
-    # ld only warns about those, while lld rejects them outright, so ask lld to
-    # tolerate them. Older GNU ld does not know the flag, so probe for it (a
-    # probe needs CMake 3.14); Android keeps the flag without one.
-    set(XQC_UNDEFINED_VERSION)
-    if(ANDROID)
-        set(XQC_UNDEFINED_VERSION "-Wl,--undefined-version")
-    elseif(NOT CMAKE_VERSION VERSION_LESS 3.14)
-        include(CheckCSourceCompiles)
-        set(CMAKE_REQUIRED_LINK_OPTIONS "-Wl,--undefined-version")
-        check_c_source_compiles("int main(void) { return 0; }"
-                                XQC_LD_HAS_UNDEFINED_VERSION)
-        unset(CMAKE_REQUIRED_LINK_OPTIONS)
-        if(XQC_LD_HAS_UNDEFINED_VERSION)
-            set(XQC_UNDEFINED_VERSION "-Wl,--undefined-version")
-        endif()
-    endif()
+    # scripts/xquic.lds lists the API of every feature. Link with a copy that
+    # leaves out XQC_UNBUILT_SYMBOLS: GNU ld ignores a version script entry
+    # that names no defined symbol, but lld rejects it.
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds"
+         XQC_VERSION_SCRIPT)
+    foreach(XQC_SYMBOL IN LISTS XQC_UNBUILT_SYMBOLS)
+        string(REGEX REPLACE "\n[ \t]*${XQC_SYMBOL};" ""
+               XQC_VERSION_SCRIPT "${XQC_VERSION_SCRIPT}")
+    endforeach()
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/xquic.lds" "${XQC_VERSION_SCRIPT}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                 "${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds")
 
     target_link_libraries(
         xquic
-        "-ldl -Wl,--whole-archive -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/scripts/xquic.lds"
+        "-ldl -Wl,--whole-archive -Wl,--version-script=${CMAKE_CURRENT_BINARY_DIR}/xquic.lds"
         ${SSL_LIB_PATH}
         "-Wl,--no-whole-archive"
-        ${XQC_UNDEFINED_VERSION}
         -pthread
         ${XQC_CXX_RUNTIME}
     )

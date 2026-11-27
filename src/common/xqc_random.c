@@ -128,7 +128,7 @@ xqc_get_random(xqc_random_generator_t *rand_gen, u_char *buf, size_t need_len)
  
         if (total_read < need_len) {
             xqc_log(rand_gen->log, XQC_LOG_WARN,
-                    "|random|can not generate rand buf|%zu|%zu|", total_read, need_len);
+                    "|random|can not generate rand buf|%uz|%uz|", total_read, need_len);
             return XQC_ERROR;            
         }
         

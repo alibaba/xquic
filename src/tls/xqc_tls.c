@@ -1090,7 +1090,7 @@ xqc_ssl_session_ticket_key_cb(SSL *ssl, uint8_t *key_name, uint8_t *iv,
          */
         if (memcmp(key_name, key->name, 16) != 0) {
             xqc_log(tls->log, XQC_LOG_ERROR, "|ssl session ticket decrypt, key name not match|");
-            return -1;
+            return 0;
         }
 
         if (key->size == 48) {

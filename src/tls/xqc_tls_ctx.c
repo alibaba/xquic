@@ -464,8 +464,10 @@ xqc_tls_ctx_register_alpn(xqc_tls_ctx_t *ctx, const char *alpn, size_t alpn_len)
         }
         ctx->alpn_list_sz = new_alpn_list_sz;
 
-        /* copy alpn_list */
-        xqc_memcpy(alpn_list_new, ctx->alpn_list, ctx->alpn_list_len);
+        /* copy alpn_list, which is NULL before the first registration */
+        if (ctx->alpn_list_len > 0) {
+            xqc_memcpy(alpn_list_new, ctx->alpn_list, ctx->alpn_list_len);
+        }
         alpn_list_new[ctx->alpn_list_len] = '\0';
 
         /* replace */

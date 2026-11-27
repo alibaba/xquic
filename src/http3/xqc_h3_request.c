@@ -637,7 +637,7 @@ xqc_h3_request_send_headers(xqc_h3_request_t *h3_request, xqc_http_headers_t *he
         {
             xqc_log(h3_request->h3_stream->log, XQC_LOG_ERROR,
                     "|forbidden header in h3 send|name:%*s|",
-                    (int)hdr->name.iov_len,
+                    (size_t)hdr->name.iov_len,
                     (char *)hdr->name.iov_base);
             sent = -XQC_H3_INVALID_HEADER;
             goto end;
@@ -865,7 +865,7 @@ xqc_h3_request_on_recv_header(xqc_h3_request_t *h3r)
                         "name:%*s|",
                         h3r->h3_stream->h3c->conn,
                         h3r->h3_stream->stream_id,
-                        (int)hdr->name.iov_len,
+                        (size_t)hdr->name.iov_len,
                         (char *)hdr->name.iov_base);
                 return -XQC_H3_INVALID_HEADER;
             }

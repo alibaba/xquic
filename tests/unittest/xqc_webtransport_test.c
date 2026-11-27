@@ -896,6 +896,8 @@ wt_test_connect_request(int scenario)
     if (scenario == 6) {
         app.h3c_cbs.h3_conn_create_notify = NULL;
     }
+    /* replace the h3 context that test_create_engine() set up */
+    xqc_h3_ctx_destroy(engine);
     CU_ASSERT(xqc_h3_ctx_init(engine, &app) == XQC_OK);
     xqc_webtransport_session_callbacks_t cbs = {
         .webtransport_will_create_session_notify = wt_accept,
@@ -948,7 +950,7 @@ wt_test_connect_request(int scenario)
     }
     xqc_wt_conn_t *wt_conn = xqc_wt_get_conn_from_h3(h3c);
     CU_ASSERT_PTR_NOT_NULL_FATAL(wt_conn);
-    CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 7);
+    CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 8);
     if (scenario == 6) {
         xqc_wt_session_t *session = xqc_wt_session_init(4, wt_conn, NULL);
         CU_ASSERT_PTR_NOT_NULL_FATAL(session);
@@ -1060,7 +1062,7 @@ wt_test_connect_request(int scenario)
         /* QPACK-blocked H3 requests can outlive the WT connection state. */
         xqc_wt_conn_destroy(wt_conn);
         CU_ASSERT_PTR_NULL(xqc_wt_get_conn_from_h3(h3c));
-        CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 7);
+        CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 8);
         CU_ASSERT_PTR_NULL(h3c->extension_data);
         xqc_engine_destroy(engine);
         CU_ASSERT(wt_app_writes == 1 && wt_app_closings == 1);
@@ -1202,6 +1204,7 @@ xqc_test_wt_settings_capacity(void)
     const uint64_t ids[] = {
         XQC_WT_SETTING_DATAGRAM, XQC_WT_SETTING_MAX_SESSIONS,
         XQC_WT_SETTING_CONNECT, XQC_WT_SETTING_ENABLED_16,
+        XQC_WT_SETTING_DRAFT00,
         XQC_WT_SETTING_INITIAL_MAX_STREAMS_UNI,
         XQC_WT_SETTING_INITIAL_MAX_STREAMS_BIDI,
         XQC_WT_SETTING_INITIAL_MAX_DATA,
@@ -1230,9 +1233,9 @@ xqc_test_wt_settings_capacity(void)
                 conn.h3_conn_callbacks = h3->h3_cbs.h3c_cbs;
                 xqc_h3_conn_settings_t settings =
                     default_local_h3_conn_settings;
-                size_t count = (pooled ? 7 : 4) - client;
+                size_t count = (pooled ? 8 : 5) - client;
                 if (mode == 2) {
-                    for (size_t i = 0; i < (pooled ? 7 : 4); i++) {
+                    for (size_t i = 0; i < (pooled ? 8 : 5); i++) {
                         if (client && ids[i] == XQC_WT_SETTING_CONNECT) {
                             continue;
                         }
@@ -1264,7 +1267,12 @@ xqc_test_wt_settings_capacity(void)
                     }
                     CU_ASSERT(memcmp(&before, &settings, sizeof(settings))
                               == 0);
-                    CU_ASSERT(wt_error_logs == 1 && ctx->started);
+                    CU_ASSERT(ctx->started);
+#ifndef XQC_DISABLE_LOG
+                    CU_ASSERT(wt_error_logs == 1);
+#else
+                    CU_ASSERT(wt_error_logs == 0);
+#endif
                     CU_ASSERT(conn.h3_conn_callbacks.h3_conn_create_notify
                               == ctx->app_conn_callbacks.h3_conn_create_notify);
                     xqc_stream_callbacks_t *stream_callbacks =
@@ -1327,6 +1335,12 @@ wt_dgram_destroy_on_read(xqc_wt_session_t *session,
 void
 xqc_test_wt_datagram_retirement(void)
 {
+#if !defined(XQC_DISABLE_LOG) && !defined(XQC_ONLY_ERROR_LOG)
+    const unsigned log_enabled = 1;
+#else
+    const unsigned log_enabled = 0;
+#endif
+
     /* Draft-16 Sections 4.5 and 6: closed sessions retain no early data. */
     xqc_wt_ctx_t ctx;
     xqc_memzero(&ctx, sizeof(ctx));
@@ -1352,13 +1366,15 @@ xqc_test_wt_datagram_retirement(void)
     cbs.datagram_read_notify(&transport, NULL, "\x02x", 2, 1);
     CU_ASSERT(conn->pending_count == 3 && conn->pending_bytes == 3);
     cbs.datagram_read_notify(&transport, NULL, "\x02x", 2, 1);
-    CU_ASSERT(wt_drop_limit == 1 && conn->pending_count == 3);
+    CU_ASSERT(conn->pending_count == 3);
+    CU_ASSERT(wt_drop_limit == log_enabled);
     xqc_wt_session_notify_closed(first);
     CU_ASSERT(conn->pending_count == 1 && conn->pending_bytes == 1);
     cbs.datagram_read_notify(&transport, NULL, "\x01x", 2, 1);
-    CU_ASSERT(wt_drop_normal == 1 && wt_drop_limit == 1);
+    CU_ASSERT(wt_drop_normal == log_enabled && wt_drop_limit == log_enabled);
     cbs.datagram_read_notify(&transport, NULL, "\x3fx", 2, 1);
-    CU_ASSERT(wt_drop_limit == 2 && conn->pending_count == 1);
+    CU_ASSERT(conn->pending_count == 1);
+    CU_ASSERT(wt_drop_limit == 2 * log_enabled);
     xqc_wt_session_t *second = xqc_wt_session_init(8, conn, NULL);
     CU_ASSERT_PTR_NOT_NULL_FATAL(second);
     second->open = XQC_TRUE;

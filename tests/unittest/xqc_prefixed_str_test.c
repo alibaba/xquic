@@ -87,8 +87,11 @@ test_prefixed_str_len()
 
     for (i = 0; i < 1000; i++) {
         len = i;
-        /* generate random n */
-        for (uint8_t n = 1; n <= 8; n++) {
+        /*
+         * every prefix size: RFC 9204 Section 4.1.2 allows N from 2 to 8,
+         * the Huffman flag and an (N-1)-bit length, and n is that N-1
+         */
+        for (uint8_t n = 1; n <= 7; n++) {
             /* generate random buffer with random length */
             for (j = 0; j < len; ++j) {
                 raw[j] = (uint8_t) round(((double) random() / RAND_MAX * 255));
@@ -310,11 +313,49 @@ test_prefixed_str_limit_boundary()
     xqc_var_buf_free(enc_buf_over);
 }
 
+/* a string that Huffman coding shortens sets the flag above the length */
+void
+test_prefixed_str_huffman_prefixes()
+{
+    uint8_t raw[] = "d:24Wh";
+    size_t len = sizeof(raw) - 1;
+    int fin;
+    ssize_t read;
+
+    xqc_var_buf_t *enc_buf = xqc_var_buf_create(64);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(enc_buf);
+    CU_ASSERT(xqc_huffman_enc_len(raw, len) < len);
+
+    for (uint8_t n = 1; n <= 7; n++) {
+        enc_buf->data[0] = 0;
+        CU_ASSERT(xqc_write_prefixed_str(enc_buf, raw, len, n) == XQC_OK);
+        CU_ASSERT(enc_buf->data[0] & (1 << n));
+
+        xqc_prefixed_str_t *pstr = xqc_prefixed_str_pctx_create(256,
+                                       XQC_H3_MAX_FIELD_SECTION_SIZE);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(pstr);
+        xqc_prefixed_str_init(pstr, n);
+        fin = 0;
+        read = xqc_parse_prefixed_str(pstr, enc_buf->data, enc_buf->data_len,
+                                      &fin);
+        CU_ASSERT(fin == 1);
+        CU_ASSERT(read == enc_buf->data_len);
+        CU_ASSERT(pstr->value->data_len == len);
+        CU_ASSERT(memcmp(raw, pstr->value->data, len) == 0);
+
+        xqc_prefixed_str_free(pstr);
+        xqc_var_buf_clear(enc_buf);
+    }
+
+    xqc_var_buf_free(enc_buf);
+}
+
 void
 xqc_test_prefixed_str()
 {
     test_prefixed_str_basic();
     test_prefixed_str_len();
+    test_prefixed_str_huffman_prefixes();
     test_prefixed_str_limit();
     test_prefixed_str_limit_boundary();
 }

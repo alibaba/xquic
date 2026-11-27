@@ -49,6 +49,13 @@ xqc_client_connect(xqc_engine_t *engine, const xqc_conn_settings_t *conn_setting
         return NULL;
     }
 
+    /* the connection keeps the peer address in a struct sockaddr_in6 */
+    if (peer_addrlen > sizeof(struct sockaddr_in6)) {
+        xqc_log(engine->log, XQC_LOG_ERROR, "|peer addr too large|addr_len:%d|",
+                (int)peer_addrlen);
+        return NULL;
+    }
+
     if (conn_settings->specify_client_scid == 1) {
         scid.cid_len = xqc_engine_config_get_cid_len(engine);
         xqc_memcpy(scid.cid_buf, conn_settings->client_scid, scid.cid_len);
@@ -185,8 +192,10 @@ xqc_client_create_tls(xqc_connection_t *conn, const xqc_conn_ssl_config_t *conn_
         ret = -XQC_EMALLOC;
         goto end;
     }
-    xqc_memcpy(cfg.session_ticket, conn_ssl_config->session_ticket_data,
-               conn_ssl_config->session_ticket_len);
+    if (conn_ssl_config->session_ticket_len > 0) {
+        xqc_memcpy(cfg.session_ticket, conn_ssl_config->session_ticket_data,
+                   conn_ssl_config->session_ticket_len);
+    }
     cfg.session_ticket_len = conn_ssl_config->session_ticket_len;
 
     /* copy alpn */

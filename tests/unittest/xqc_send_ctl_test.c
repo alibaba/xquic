@@ -1052,3 +1052,124 @@ xqc_test_send_ctl_lost_packet_cc_reaction(void)
 {
     xqc_test_send_ctl_lost_packet_cc(XQC_FALSE);
 }
+
+
+static xqc_bool_t
+xqc_test_send_ctl_is_unacked(xqc_connection_t *conn, xqc_packet_out_t *po)
+{
+    xqc_list_head_t *head, *pos;
+
+    head = &conn->conn_send_queue->sndq_unacked_packets[XQC_PNS_APP_DATA];
+    xqc_list_for_each(pos, head) {
+        if (xqc_list_entry(pos, xqc_packet_out_t, po_list) == po) {
+            return XQC_TRUE;
+        }
+    }
+
+    return XQC_FALSE;
+}
+
+/* A copy of a lost packet, sent again and still in flight. */
+static xqc_packet_out_t *
+xqc_test_send_ctl_sent_copy(xqc_connection_t *conn, xqc_packet_out_t *origin)
+{
+    xqc_send_queue_t *sq = conn->conn_send_queue;
+    xqc_packet_out_t *copy = xqc_packet_out_get(sq);
+    if (copy == NULL) {
+        return NULL;
+    }
+
+    xqc_packet_out_copy(copy, origin);
+    copy->po_flag |= XQC_POF_IN_FLIGHT;
+    xqc_send_queue_insert_unacked(copy,
+                                  &sq->sndq_unacked_packets[XQC_PNS_APP_DATA],
+                                  sq);
+    return copy;
+}
+
+/*
+ * Loss detection walks the unacked packets of every path, and first asks
+ * xqc_send_ctl_indirectly_ack_or_drop_po() whether a packet is done with:
+ * a copy whose original was acknowledged, and a datagram that was dropped,
+ * or whose original was, leave the unacked list. An acknowledged original
+ * that a copy still refers to is done with too, and leaves with the copy.
+ */
+void
+xqc_test_send_ctl_indirect_ack_or_drop_releases(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_packet_out_t *origin = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
+    CU_ASSERT_FATAL(origin != NULL);
+    origin->po_flag &= ~XQC_POF_IN_FLIGHT;
+    xqc_packet_out_t *copy = xqc_test_send_ctl_sent_copy(conn, origin);
+    CU_ASSERT_FATAL(copy != NULL);
+    origin->po_acked = 1;
+
+    CU_ASSERT(xqc_send_ctl_indirectly_ack_or_drop_po(conn, origin));
+    CU_ASSERT(xqc_test_send_ctl_is_unacked(conn, origin));
+    CU_ASSERT(xqc_send_ctl_indirectly_ack_or_drop_po(conn, copy));
+    CU_ASSERT(!xqc_test_send_ctl_is_unacked(conn, copy));
+    CU_ASSERT(!xqc_test_send_ctl_is_unacked(conn, origin));
+
+    xqc_packet_out_t *dgram = xqc_test_send_ctl_seed_lost_packet(conn, 3, 1);
+    CU_ASSERT_FATAL(dgram != NULL);
+    dgram->po_frame_types = XQC_FRAME_BIT_DATAGRAM;
+    dgram->po_flag |= XQC_POF_DROPPED_DGRAM;
+    CU_ASSERT(xqc_send_ctl_indirectly_ack_or_drop_po(conn, dgram));
+    CU_ASSERT(!xqc_test_send_ctl_is_unacked(conn, dgram));
+
+    origin = xqc_test_send_ctl_seed_lost_packet(conn, 4, 1);
+    CU_ASSERT_FATAL(origin != NULL);
+    origin->po_frame_types = XQC_FRAME_BIT_DATAGRAM;
+    origin->po_flag &= ~XQC_POF_IN_FLIGHT;
+    copy = xqc_test_send_ctl_sent_copy(conn, origin);
+    CU_ASSERT_FATAL(copy != NULL);
+    origin->po_flag |= XQC_POF_DROPPED_DGRAM;
+    CU_ASSERT(xqc_send_ctl_indirectly_ack_or_drop_po(conn, copy));
+    CU_ASSERT(!xqc_test_send_ctl_is_unacked(conn, copy));
+    CU_ASSERT(!xqc_test_send_ctl_is_unacked(conn, origin));
+
+    xqc_engine_destroy(conn->engine);
+}
+
+/*
+ * A packet that still waits for its acknowledgment stays, and so does one
+ * acknowledged through a copy on a path the connection does not have.
+ */
+void
+xqc_test_send_ctl_indirect_ack_or_drop_keeps(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    CU_ASSERT_FATAL(conn->conn_initial_path != NULL);
+
+    xqc_packet_out_t *po = xqc_test_send_ctl_seed_lost_packet(conn, 1, 1);
+    CU_ASSERT_FATAL(po != NULL);
+    CU_ASSERT(!xqc_send_ctl_indirectly_ack_or_drop_po(conn, po));
+    CU_ASSERT(xqc_test_send_ctl_is_unacked(conn, po));
+    CU_ASSERT(po->po_flag & XQC_POF_IN_FLIGHT);
+
+    xqc_packet_out_t *dgram = xqc_test_send_ctl_seed_lost_packet(conn, 2, 1);
+    CU_ASSERT_FATAL(dgram != NULL);
+    dgram->po_frame_types = XQC_FRAME_BIT_DATAGRAM;
+    CU_ASSERT(!xqc_send_ctl_indirectly_ack_or_drop_po(conn, dgram));
+    CU_ASSERT(xqc_test_send_ctl_is_unacked(conn, dgram));
+    CU_ASSERT(dgram->po_flag & XQC_POF_IN_FLIGHT);
+
+    xqc_packet_out_t *origin = xqc_test_send_ctl_seed_lost_packet(conn, 3, 1);
+    CU_ASSERT_FATAL(origin != NULL);
+    origin->po_flag &= ~XQC_POF_IN_FLIGHT;
+    xqc_packet_out_t *copy = xqc_test_send_ctl_sent_copy(conn, origin);
+    CU_ASSERT_FATAL(copy != NULL);
+    copy->po_path_id = 7;
+    origin->po_acked = 1;
+    CU_ASSERT(xqc_conn_find_path_by_path_id(conn, 7) == NULL);
+    CU_ASSERT(!xqc_send_ctl_indirectly_ack_or_drop_po(conn, copy));
+    CU_ASSERT(xqc_test_send_ctl_is_unacked(conn, copy));
+    CU_ASSERT(xqc_test_send_ctl_is_unacked(conn, origin));
+
+    xqc_engine_destroy(conn->engine);
+}

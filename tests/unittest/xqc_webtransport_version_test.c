@@ -22,7 +22,19 @@
 
 static int version_creates, version_closes, version_accepts;
 static xqc_http_headers_t *version_response;
+static size_t version_resp_count;
+static char version_resp_name[2][40];
+static char version_resp_value[2][16];
 static xqc_log_t version_log;
+
+typedef enum {
+    WT_RESPONSE_FEEDBACK_MISSING,
+    WT_RESPONSE_FEEDBACK_PRESENT,
+    WT_RESPONSE_FEEDBACK_DISABLED,
+    WT_RESPONSE_VERSION_MIXED_CASE,
+    WT_RESPONSE_BEFORE_ENCODE_ERROR,
+    WT_RESPONSE_AFTER_ENCODE_ERROR,
+} version_response_case_t;
 
 static xqc_wt_conn_t *version_conn(xqc_wt_ctx_t *ctx,
     xqc_h3_conn_t *h3c, xqc_connection_t *transport,
@@ -49,12 +61,31 @@ static int version_created(xqc_wt_session_t *session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *data);
 static int version_closed(xqc_wt_session_t *session,
     xqc_http_headers_t *headers, const xqc_cid_t *cid, void *data);
+static void version_response_feedback(version_response_case_t test_case);
 
 static int
 version_accept(xqc_http_headers_t *headers, xqc_http_headers_t *response,
     void *data)
 {
     version_accepts++;
+    /* Value-capture the default response for header assertions; the
+     * argument points at stack storage valid only inside this callback. */
+    version_resp_count = 0;
+    if (response->count <= 2) {
+        version_resp_count = response->count;
+        for (size_t i = 0; i < response->count; i++) {
+            size_t n = xqc_min(response->headers[i].name.iov_len,
+                               sizeof(version_resp_name[0]) - 1);
+            memcpy(version_resp_name[i],
+                   response->headers[i].name.iov_base, n);
+            version_resp_name[i][n] = '\0';
+            n = xqc_min(response->headers[i].value.iov_len,
+                        sizeof(version_resp_value[0]) - 1);
+            memcpy(version_resp_value[i],
+                   response->headers[i].value.iov_base, n);
+            version_resp_value[i][n] = '\0';
+        }
+    }
     if (version_response) {
         *response = *version_response;
     }
@@ -317,7 +348,8 @@ xqc_test_wt_version_prerequisites(void)
 void
 xqc_test_wt_version_settings_errors(void)
 {
-    const uint64_t ids[] = {WT_TEST_SETTING_16, 0x33, 0x08,
+    const uint64_t ids[] = {WT_TEST_SETTING_16, XQC_WT_SETTING_DRAFT00,
+                            0x33, 0x08,
                             0x2b64, 0x2b65};
     for (size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
         xqc_wt_ctx_t ctx;
@@ -328,12 +360,13 @@ xqc_test_wt_version_settings_errors(void)
         CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
         xqc_h3_setting_t settings[] = {
             {0x33, 1}, {WT_TEST_SETTING_16, 1},
-            {ids[i], i < 3 ? 2 : (UINT64_C(1) << 60) + 1},
+            {ids[i], i < 4 ? 2 : (UINT64_C(1) << 60) + 1},
         };
         CU_ASSERT(xqc_wt_conn_peer_settings(&h3c, settings, 3, NULL)
                   == XQC_H3_SETTINGS_REJECT);
         CU_ASSERT(!conn->settings_received && !conn->peer_datagram);
-        CU_ASSERT(!conn->peer_draft16 && !conn->negotiated_version);
+        CU_ASSERT(!conn->peer_draft16 && !conn->peer_draft00
+                  && !conn->negotiated_version);
         xqc_wt_conn_destroy(conn);
     }
 }
@@ -361,6 +394,8 @@ version_engine_sessions(xqc_webtransport_draft_version_t version,
         .webtransport_session_create_notify = version_created,
         .webtransport_session_close_notify = version_closed,
     };
+    /* replace the h3 context that test_create_engine() set up */
+    xqc_h3_ctx_destroy(engine);
     CU_ASSERT(xqc_h3_ctx_init(engine, &app) == XQC_OK);
     CU_ASSERT(xqc_wt_ctx_init(engine, NULL, &callbacks, NULL) == XQC_OK);
     xqc_webtransport_conn_settings_t settings =
@@ -414,19 +449,22 @@ xqc_test_wt_version_advertisement(void)
             : XQC_WEBTRANSPORT_DRAFT_VERSION_16, client);
         CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
         xqc_h3_conn_settings_t *settings = &h3c->local_h3_conn_settings;
-        unsigned found07 = 0, found16 = 0, datagram = 0, connect = 0;
+        unsigned found07 = 0, found16 = 0, found00 = 0, datagram = 0,
+                 connect = 0;
         for (size_t i = 0; i < settings->extern_settings_count; i++) {
             uint64_t id = settings->extern_settings[i].identifier;
             CU_ASSERT(settings->extern_settings[i].value == 1);
             found07 += id == WT_TEST_SETTING_07;
             found16 += id == WT_TEST_SETTING_16;
+            found00 += id == XQC_WT_SETTING_DRAFT00;
             datagram += id == 0x33;
             connect += id == 0x08;
         }
         CU_ASSERT(found07 == 1 && found16 == !legacy && datagram == 1);
+        CU_ASSERT(found00 == 1);
         CU_ASSERT(connect == !client);
         CU_ASSERT(settings->extern_settings_count
-                  == (size_t)(4 - legacy - client));
+                  == (size_t)(legacy ? 4 : 5) - client);
         CU_ASSERT(h3c->conn->engine->default_conn_settings
                   .enable_reset_stream_at
                   == !legacy);
@@ -947,7 +985,7 @@ xqc_test_wt_draft16_pooled_sessions(void)
         XQC_WEBTRANSPORT_DRAFT_VERSION_16, XQC_FALSE, 2);
     CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
     xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(h3c);
-    CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 7);
+    CU_ASSERT(h3c->local_h3_conn_settings.extern_settings_count == 8);
     xqc_h3_setting_t settings[] = {
         {0x08, 1},
         {0x33, 1},
@@ -1361,6 +1399,12 @@ version_error_log(xqc_log_level_t level, const void *buf,
 void
 xqc_test_wt_handshake_request_result(void)
 {
+#ifndef XQC_DISABLE_LOG
+    const unsigned log_enabled = 1;
+#else
+    const unsigned log_enabled = 0;
+#endif
+
     /* Draft-16 Section 3.2: defer CONNECT until TLS handshake completion. */
     for (unsigned scenario = 0; scenario < 6; scenario++) {
         unsigned fail = scenario % 2;
@@ -1405,18 +1449,451 @@ xqc_test_wt_handshake_request_result(void)
         CU_ASSERT(session->request_sent == !fail);
         CU_ASSERT(session->closed == fail);
         CU_ASSERT(version_closes == fail);
-        CU_ASSERT(version_send_errors == fail);
-        CU_ASSERT(version_handshake_errors == (fail && trigger == 0));
+        CU_ASSERT(version_send_errors == (fail && log_enabled));
+        CU_ASSERT(version_handshake_errors
+                  == (fail && trigger == 0 && log_enabled));
         CU_ASSERT_PTR_EQUAL(session->request, request);
         CU_ASSERT(conn->session_count == 1 && transport->conn_err == 0);
         if (fail) {
             CU_ASSERT(session->close_error == H3_INTERNAL_ERROR);
             /* No second notification or premature destruction on retry. */
             h3c->h3_conn_callbacks.h3_conn_handshake_finished(h3c, NULL);
-            CU_ASSERT(version_closes == 1 && version_send_errors == 1);
+            CU_ASSERT(version_closes == 1);
+            CU_ASSERT(version_send_errors == log_enabled);
         }
         h3c->log = saved_log;
         xqc_engine_destroy(transport->engine);
         CU_ASSERT(version_closes == 1);
     }
+}
+
+static xqc_engine_t *
+version_settings_engine(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    if (!conn) {
+        return NULL;
+    }
+    xqc_engine_t *engine = conn->engine;
+    xqc_h3_callbacks_t app;
+    xqc_memzero(&app, sizeof(app));
+    CU_ASSERT(xqc_h3_ctx_init(engine, &app) == XQC_OK);
+    CU_ASSERT(xqc_wt_ctx_init(engine, NULL, NULL, NULL) == XQC_OK);
+    return engine;
+}
+
+void
+xqc_test_wt_highest_version_precedence(void)
+{
+    /* Draft-02 Section 6 / draft-07 Section 6 / draft-16 Section 7.1:
+     * DRAFT00 must not preempt a higher jointly supported version. */
+    for (unsigned scenario = 0; scenario < 4; scenario++) {
+        xqc_bool_t draft07 = !!(scenario & 1);
+        xqc_bool_t chrome = !!(scenario & 2);
+        xqc_wt_ctx_t ctx;
+        xqc_h3_conn_t h3c;
+        xqc_connection_t transport;
+        xqc_wt_conn_t *conn = version_conn(&ctx, &h3c, &transport,
+            draft07 ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
+                    : XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+        xqc_h3_setting_t full[] = {
+            {0x08, 1}, {0x33, 1}, {XQC_WT_SETTING_DRAFT00, 1},
+            {WT_TEST_SETTING_07, 1}, {WT_TEST_SETTING_16, 1},
+        };
+        CU_ASSERT(xqc_wt_conn_peer_settings(&h3c, full,
+            chrome ? 3 : sizeof(full) / sizeof(full[0]), NULL)
+            == XQC_H3_SETTINGS_ACCEPT);
+        CU_ASSERT(conn->negotiated_version
+            == (chrome ? XQC_WEBTRANSPORT_DRAFT_VERSION_2
+                : draft07 ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
+                          : XQC_WEBTRANSPORT_DRAFT_VERSION_16));
+        CU_ASSERT(xqc_wt_conn_requirements_met(conn));
+        if (chrome) {
+            CU_ASSERT(xqc_wt_conn_is_draft2(conn));
+            CU_ASSERT(!conn->flow_control_enabled);
+        } else {
+            CU_ASSERT(!xqc_wt_conn_is_draft2(conn));
+        }
+        CU_ASSERT(h3c.flags & XQC_H3_CONN_FLAG_WEBTRANSPORT);
+        xqc_wt_conn_destroy(conn);
+    }
+}
+
+void
+xqc_test_wt_draft2_fallback_local_support(void)
+{
+    /* draft-02 Sections 3.1, 6: both sides advertise the selected version.
+     * Both configured maxima support standard draft-02 on plain h3. */
+    for (unsigned client = 0; client < 2; client++) {
+        for (unsigned scenario = 0; scenario < 4; scenario++) {
+            xqc_bool_t draft07 = !!(scenario & 1);
+            xqc_bool_t peer02 = !!(scenario & 2);
+            xqc_h3_conn_t *h3c = version_engine(draft07
+                ? XQC_WEBTRANSPORT_DRAFT_VERSION_7
+                : XQC_WEBTRANSPORT_DRAFT_VERSION_16, client);
+            CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+            xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(h3c);
+            xqc_h3_conn_settings_t *local = &h3c->local_h3_conn_settings;
+            unsigned advertised02 = 0;
+            for (size_t i = 0; i < local->extern_settings_count; i++) {
+                advertised02 += local->extern_settings[i].identifier
+                    == XQC_WT_SETTING_DRAFT00
+                    && local->extern_settings[i].value == 1;
+            }
+            CU_ASSERT(advertised02 == 1);
+            xqc_wt_session_t *session = NULL;
+            if (client) {
+                int err = 0;
+                session = xqc_wt_client_open_session(
+                    h3c, "localhost", "/wt", "https://localhost", &err);
+                CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+                CU_ASSERT(err == XQC_OK && !session->request_sent);
+            }
+            xqc_h3_setting_t peer[] = {
+                {0x08, 1}, {0x33, 1}, {XQC_WT_SETTING_DRAFT00, peer02},
+            };
+            CU_ASSERT(xqc_wt_conn_peer_settings(h3c, peer, 3, NULL)
+                      == XQC_H3_SETTINGS_ACCEPT);
+            CU_ASSERT(conn->negotiated_version == (peer02
+                ? XQC_WEBTRANSPORT_DRAFT_VERSION_2 : 0));
+            CU_ASSERT(xqc_wt_conn_requirements_met(conn) == peer02);
+            CU_ASSERT(!!(h3c->flags & XQC_H3_CONN_FLAG_WEBTRANSPORT)
+                      == peer02);
+            CU_ASSERT(!conn->flow_control_enabled);
+            CU_ASSERT(h3c->conn->conn_err == 0);
+            if (client) {
+                CU_ASSERT(session->request_sent == peer02);
+                CU_ASSERT(session->closed == !peer02);
+                CU_ASSERT(version_closes == !peer02);
+                if (!peer02) {
+                    CU_ASSERT(session->request->header_sent == 0);
+                    CU_ASSERT(session->close_error
+                              == XQC_WT_REQUIREMENTS_NOT_MET);
+                } else {
+                    CU_ASSERT(session->request->header_sent > 0);
+                    CU_ASSERT(xqc_wt_conn_is_draft2(conn));
+                }
+            }
+            xqc_engine_destroy(h3c->conn->engine);
+        }
+    }
+}
+
+void
+xqc_test_wt_draft2_config_rejected(void)
+{
+    /* The stripped branch keeps draft-02 negotiation-only: configuring it
+     * as the engine's supported maximum is a parameter error, and even a
+     * full valid table fails on the draft_version field alone. */
+    xqc_engine_t *engine = test_create_engine();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    CU_ASSERT(xqc_wt_ctx_init(engine, NULL, NULL, NULL) == XQC_OK);
+    xqc_webtransport_conn_settings_t settings = xqc_wt_ctx_get(engine)
+        ->settings;
+    settings.draft_version = XQC_WEBTRANSPORT_DRAFT_VERSION_2;
+    CU_ASSERT(xqc_wt_engine_set_default_settings(engine, &settings)
+              == -XQC_EPARAM);
+    /* The rejected table never reached the engine state. */
+    CU_ASSERT(xqc_wt_ctx_get(engine)->settings.draft_version
+                  == XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+    xqc_engine_destroy(engine);
+}
+
+void
+xqc_test_wt_standard_draft2_close_capsule(void)
+{
+    /* Standard draft-02 (draft-16 engine, plain h3, DRAFT00 negotiation)
+     * runs the CLOSE_WEBTRANSPORT_SESSION capsule in both directions
+     * (draft-02 Section 5): a received capsule closes without FIN and
+     * preserves error code and reason, and close_with_error encodes the
+     * capsule instead of the legacy bare FIN. */
+    xqc_wt_ctx_t ctx;
+    xqc_h3_conn_t h3c;
+    xqc_connection_t transport;
+    xqc_wt_conn_t *conn = version_conn(&ctx, &h3c, &transport,
+                                       XQC_WEBTRANSPORT_DRAFT_VERSION_16);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_h3_setting_t settings[] = {
+        {0x33, 1}, {XQC_WT_SETTING_DRAFT00, 1},
+    };
+    CU_ASSERT(xqc_wt_conn_peer_settings(
+        &h3c, settings, sizeof(settings) / sizeof(settings[0]), NULL)
+        == XQC_H3_SETTINGS_ACCEPT);
+    CU_ASSERT(conn->negotiated_version == XQC_WEBTRANSPORT_DRAFT_VERSION_2);
+    CU_ASSERT(xqc_wt_conn_is_draft2(conn));
+
+    xqc_wt_session_t *receiver = xqc_wt_session_init(0, conn, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(receiver);
+    receiver->open = XQC_TRUE;
+    unsigned char wire[64];
+    size_t n = xqc_wt_put_varint(UINT64_C(0x2843), wire, sizeof(wire));
+    n += xqc_wt_put_varint(8, wire + n, sizeof(wire) - n);
+    wire[n++] = 0;
+    wire[n++] = 0;
+    wire[n++] = 0;
+    wire[n++] = 17;
+    memcpy(wire + n, "done", 4);
+    n += 4;
+    CU_ASSERT(xqc_wt_session_recv_capsules(receiver, wire, n, 0) == XQC_OK);
+    CU_ASSERT(receiver->closed && receiver->peer_closed
+              && receiver->send_fin);
+    CU_ASSERT(receiver->close_error == 17);
+    CU_ASSERT(strcmp(receiver->close_reason, "done") == 0);
+
+    xqc_wt_session_t *sender = xqc_wt_session_init(4, conn, NULL);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(sender);
+    sender->open = XQC_TRUE;
+    CU_ASSERT(xqc_wt_session_close_with_error(sender, 42, "gone", 4)
+              == -XQC_ESTATE);
+    CU_ASSERT(sender->closed && sender->send_fin && sender->send_len > 0);
+    uint64_t capsule_type = 0;
+    xqc_wt_get_varint(sender->send_buf, sender->send_len, &capsule_type);
+    CU_ASSERT(capsule_type == UINT64_C(0x2843));
+    CU_ASSERT(sender->close_error == 42);
+    CU_ASSERT(strcmp(sender->close_reason, "gone") == 0);
+    xqc_wt_conn_destroy(conn);
+}
+
+void
+xqc_test_wt_standard_draft2_handshake_headers(void)
+{
+    /* Draft-02 Section 6: verify the version offer and response. */
+    xqc_h3_conn_t *h3c = version_engine_sessions(
+        XQC_WEBTRANSPORT_DRAFT_VERSION_16, XQC_FALSE, 2);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+    xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(h3c);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    xqc_h3_setting_t settings[] = {
+        {0x33, 1}, {XQC_WT_SETTING_DRAFT00, 1},
+    };
+    CU_ASSERT(xqc_wt_conn_peer_settings(
+        h3c, settings, sizeof(settings) / sizeof(settings[0]), NULL)
+        == XQC_H3_SETTINGS_ACCEPT);
+    CU_ASSERT(conn->negotiated_version == XQC_WEBTRANSPORT_DRAFT_VERSION_2);
+    CU_ASSERT(xqc_wt_conn_is_draft2(conn));
+
+    xqc_h3_request_t *request = version_request(h3c, "webtransport");
+    CU_ASSERT_PTR_NOT_NULL_FATAL(request);
+    const char *names[] = {":method", ":protocol", ":scheme", ":authority",
+                           ":path", "origin", "sec-webtransport-http3-draft02"};
+    const char *values[] = {"CONNECT", "webtransport", "https", "localhost",
+                            "/wt", "https://localhost", "1"};
+    version_headers(request, names, values, 7);
+    version_resp_count = 0;
+    CU_ASSERT(xqc_h3_request_on_recv_header(request) == XQC_OK);
+    xqc_wt_session_t *session = xqc_wt_conn_find_session(
+        conn, request->h3_stream->stream_id);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+    CU_ASSERT(session->open && !session->closed);
+    CU_ASSERT(version_resp_count == 2);
+    CU_ASSERT(strcmp(version_resp_name[0], ":status") == 0);
+    CU_ASSERT(strcmp(version_resp_value[0], "200") == 0);
+    CU_ASSERT(strcmp(version_resp_name[1], "sec-webtransport-http3-draft")
+              == 0);
+    CU_ASSERT(strcmp(version_resp_value[1], "draft02") == 0);
+
+    const char *bad_values[] = {"CONNECT", "webtransport", "https",
+                                "localhost", "/wt", "https://localhost", "2"};
+    for (size_t count = 6; count <= 7; count++) {
+        xqc_h3_request_t *other = version_request(h3c, "webtransport");
+        CU_ASSERT_PTR_NOT_NULL_FATAL(other);
+        version_headers(other, names, bad_values, count);
+        CU_ASSERT(xqc_h3_request_on_recv_header(other) == XQC_OK);
+        xqc_wt_session_t *rejected = xqc_wt_conn_find_session(
+            conn, other->h3_stream->stream_id);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(rejected);
+        CU_ASSERT(rejected->closed);
+        CU_ASSERT(rejected->close_error == H3_MESSAGE_ERROR);
+    }
+    xqc_engine_destroy(h3c->conn->engine);
+
+    const char *response_names[] = {":status",
+                                    "sec-webtransport-http3-draft"};
+    for (unsigned good = 0; good <= 1; good++) {
+        h3c = version_engine(XQC_WEBTRANSPORT_DRAFT_VERSION_16, XQC_TRUE);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+        CU_ASSERT(xqc_wt_conn_peer_settings(h3c, settings, 2, NULL)
+                  == XQC_H3_SETTINGS_ACCEPT);
+        int err = XQC_OK;
+        session = xqc_wt_client_open_session(
+            h3c, "localhost", "/wt", "https://localhost", &err);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+        CU_ASSERT(err == XQC_OK && session->request_sent);
+        const char *response_values[] = {"200", "draft02"};
+        version_headers(session->request, response_names, response_values,
+                        good ? 2 : 1);
+        CU_ASSERT(xqc_h3_request_on_recv_header(session->request) == XQC_OK);
+        CU_ASSERT(session->open == good);
+        CU_ASSERT(session->closed == !good);
+        if (!good) {
+            CU_ASSERT(session->close_error == H3_MESSAGE_ERROR);
+        }
+        xqc_engine_destroy(h3c->conn->engine);
+    }
+}
+
+void
+xqc_test_wt_standard_draft2_version_header_injection(void)
+{
+    /* draft-02 Section 6 is the server's obligation: an application that
+     * wholesale replaces the response table (e.g. 200 + x-request-id)
+     * must not be able to drop the version echo. */
+    xqc_http_header_t business[2] = {
+        {.name = {(void *)":status", 7}, .value = {(void *)"200", 3}},
+        {.name = {(void *)"x-request-id", 12},
+         .value = {(void *)"req-42", 6}},
+    };
+    xqc_http_headers_t replaced = {.headers = business, .count = 2};
+    xqc_http_header_t merged[3];
+    CU_ASSERT(xqc_wt_version_header_present(&replaced) == XQC_FALSE);
+    xqc_wt_append_version_header(&replaced, merged);
+    CU_ASSERT(replaced.count == 3);
+    CU_ASSERT(strcmp((const char *)replaced.headers[0].name.iov_base,
+                     ":status") == 0);
+    CU_ASSERT(strcmp((const char *)replaced.headers[1].name.iov_base,
+                     "x-request-id") == 0);
+    CU_ASSERT(replaced.headers[2].name.iov_len == 28
+              && memcmp(replaced.headers[2].name.iov_base,
+                       "sec-webtransport-http3-draft", 28) == 0);
+    CU_ASSERT(replaced.headers[2].value.iov_len == 7
+              && memcmp(replaced.headers[2].value.iov_base,
+                       "draft02", 7) == 0);
+
+    /* An application that echoes the header itself stays untouched. */
+    xqc_http_header_t echoed[2] = {
+        {.name = {(void *)":status", 7}, .value = {(void *)"200", 3}},
+        {.name = {(void *)"sec-webtransport-http3-draft", 28},
+         .value = {(void *)"draft02", 7}},
+    };
+    xqc_http_headers_t app_headers = {.headers = echoed, .count = 2};
+    CU_ASSERT(xqc_wt_version_header_present(&app_headers) == XQC_TRUE);
+    CU_ASSERT(app_headers.count == 2 && app_headers.headers == echoed);
+    echoed[1].value.iov_base = (void *)"draft07";
+    CU_ASSERT(xqc_wt_version_header_present(&app_headers) == -XQC_EPARAM);
+}
+
+static void
+version_response_feedback(version_response_case_t test_case)
+{
+    xqc_bool_t present = test_case == WT_RESPONSE_FEEDBACK_PRESENT
+        || test_case == WT_RESPONSE_VERSION_MIXED_CASE;
+    xqc_bool_t feedback = test_case != WT_RESPONSE_FEEDBACK_DISABLED;
+    xqc_bool_t before_encode = test_case == WT_RESPONSE_BEFORE_ENCODE_ERROR;
+    xqc_bool_t after_encode = test_case == WT_RESPONSE_AFTER_ENCODE_ERROR;
+    xqc_bool_t send_error = before_encode || after_encode;
+    xqc_h3_conn_t *h3c = version_engine(
+        XQC_WEBTRANSPORT_DRAFT_VERSION_16, XQC_FALSE);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(h3c);
+    xqc_h3_setting_t settings[] = {
+        {0x33, 1}, {XQC_WT_SETTING_DRAFT00, 1},
+    };
+    CU_ASSERT(xqc_wt_conn_peer_settings(h3c, settings, 2, NULL)
+              == XQC_H3_SETTINGS_ACCEPT);
+    xqc_h3_request_t *request = version_request(h3c, "webtransport");
+    CU_ASSERT_PTR_NOT_NULL_FATAL(request);
+    const char *names[] = {":method", ":protocol", ":scheme", ":authority",
+                           ":path", "origin", "sec-webtransport-http3-draft02"};
+    const char *values[] = {"CONNECT", "webtransport", "https", "localhost",
+                            "/wt", "https://localhost", "1"};
+    version_headers(request, names, values, 7);
+    xqc_http_header_t fields[] = {
+        {.name = {(void *)":status", 7}, .value = {(void *)"200", 3},
+         .save_nv_hit_flags = feedback, .nv_hit_flags = 0xa5},
+        {.name = {(void *)"x-app", 5}, .value = {(void *)"ok", 2},
+         .save_nv_hit_flags = feedback, .nv_hit_flags = 0x5a},
+        {.name = {(void *)"sec-webtransport-http3-draft", 28},
+         .value = {(void *)"draft02", 7}},
+    };
+    if (test_case == WT_RESPONSE_VERSION_MIXED_CASE) {
+        fields[2].name.iov_base = (void *)"Sec-WebTransport-Http3-Draft";
+    }
+    xqc_http_header_t saved[3];
+    memcpy(saved, fields, sizeof(fields));
+    xqc_http_headers_t response = {
+        .headers = fields, .count = present ? 3 : 2,
+    };
+    /* Keep the encoded field section queued for independent decoding. */
+    request->h3_stream->stream->stream_flow_ctl.fc_max_stream_data_can_send = 0;
+    if (before_encode) {
+        h3c->peer_h3_conn_settings.max_field_section_size = 1;
+    }
+    if (after_encode) {
+        request->h3_stream->stream->stream_state_send =
+            XQC_SEND_STREAM_ST_RESET_SENT;
+    }
+    version_response = &response;
+    xqc_int_t ret = xqc_h3_request_on_recv_header(request);
+    version_response = NULL;
+    CU_ASSERT(send_error ? ret < 0 : ret == XQC_OK);
+    xqc_wt_session_t *session = xqc_wt_conn_find_session(
+        xqc_wt_get_conn_from_h3(h3c), request->h3_stream->stream_id);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(session);
+    CU_ASSERT(session->open == !send_error);
+    CU_ASSERT_PTR_EQUAL(response.headers, fields);
+    CU_ASSERT(response.count == (size_t)(present ? 3 : 2));
+    /* xqc_http3.h: opt-in hit flags are outputs even if sending later fails. */
+    if (feedback && !before_encode) {
+        CU_ASSERT(fields[0].nv_hit_flags == XQC_NV_HIT_BOTH);
+        CU_ASSERT(fields[1].nv_hit_flags == XQC_NV_HIT_NONE);
+        saved[0].nv_hit_flags = XQC_NV_HIT_BOTH;
+        saved[1].nv_hit_flags = XQC_NV_HIT_NONE;
+    }
+    CU_ASSERT(memcmp(saved, fields, sizeof(fields)) == 0);
+    if (!send_error) {
+        CU_ASSERT_FALSE_FATAL(xqc_list_empty(&request->h3_stream->send_buf));
+        xqc_list_buf_t *encoded = xqc_list_entry(
+            request->h3_stream->send_buf.prev, xqc_list_buf_t, list_head);
+        xqc_rep_ctx_t *rep = xqc_rep_ctx_create(request->h3_stream->stream_id);
+        CU_ASSERT_PTR_NOT_NULL_FATAL(rep);
+        xqc_http_headers_t decoded = {0};
+        xqc_bool_t blocked = XQC_FALSE;
+        ssize_t consumed = xqc_qpack_dec_headers(h3c->qpack, rep,
+            encoded->buf->data, encoded->buf->data_len, &decoded,
+            UINT64_MAX, XQC_TRUE, &blocked);
+        CU_ASSERT(consumed == (ssize_t)encoded->buf->data_len && !blocked);
+        unsigned versions = 0, custom = 0;
+        for (size_t i = 0; i < decoded.count; i++) {
+            const xqc_http_header_t *field = &decoded.headers[i];
+            if (field->name.iov_len == 28
+                && memcmp(field->name.iov_base,
+                           "sec-webtransport-http3-draft", 28) == 0)
+            {
+                versions++;
+                CU_ASSERT(field->value.iov_len == 7);
+                CU_ASSERT(memcmp(field->value.iov_base, "draft02", 7) == 0);
+            }
+            custom += field->name.iov_len == 5
+                && memcmp(field->name.iov_base, "x-app", 5) == 0
+                && field->value.iov_len == 2
+                && memcmp(field->value.iov_base, "ok", 2) == 0;
+        }
+        /* draft-02 Section 6; RFC 9110 Sections 5.1, 5.3: one version field. */
+        CU_ASSERT(versions == 1 && custom == 1);
+        xqc_h3_headers_free(&decoded);
+        xqc_rep_ctx_free(rep);
+    }
+    xqc_engine_destroy(h3c->conn->engine);
+}
+
+void
+xqc_test_wt_response_hit_flags(void)
+{
+    version_response_feedback(WT_RESPONSE_FEEDBACK_MISSING);
+    version_response_feedback(WT_RESPONSE_FEEDBACK_PRESENT);
+    version_response_feedback(WT_RESPONSE_FEEDBACK_DISABLED);
+}
+
+void
+xqc_test_wt_response_hit_flags_errors(void)
+{
+    version_response_feedback(WT_RESPONSE_BEFORE_ENCODE_ERROR);
+    version_response_feedback(WT_RESPONSE_AFTER_ENCODE_ERROR);
+}
+
+void
+xqc_test_wt_response_mixed_case_version(void)
+{
+    version_response_feedback(WT_RESPONSE_VERSION_MIXED_CASE);
 }

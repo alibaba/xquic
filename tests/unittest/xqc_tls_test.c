@@ -487,6 +487,91 @@ xqc_test_tls_session_ticket_timeout(void)
     xqc_log_release(log);
 }
 
+/*
+ * The ALPN list is kept in wire format (RFC 7301 Section 3.1) and grows as
+ * protocols are registered: the first registration has no list to copy,
+ * later ones keep the protocols already listed when the list is reallocated.
+ */
+void
+xqc_test_tls_ctx_alpn_list(void)
+{
+    static const char     *alpns[] = {
+        "h3", "transport", "hq-interop", "a-much-longer-protocol-name",
+    };
+    xqc_log_callbacks_t    log_cb = xqc_null_log_cb;
+    xqc_log_t             *log;
+    xqc_tls_ctx_t         *ctx;
+    unsigned char          expected[128];
+    size_t                 expected_len = 0;
+    unsigned char         *list;
+    size_t                 list_len;
+    def_engine_ssl_config_cli;
+
+    log = xqc_log_init(0, 0, 0, 0, 0, NULL, &log_cb, NULL);
+    ctx = xqc_tls_ctx_create(XQC_TLS_TYPE_CLIENT, &engine_ssl_config_cli,
+                             &tls_test_cbs, log);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(ctx);
+
+    xqc_tls_ctx_get_alpn_list(ctx, &list, &list_len);
+    CU_ASSERT_EQUAL(list_len, 0);
+
+    for (size_t i = 0; i < sizeof(alpns) / sizeof(alpns[0]); i++) {
+        size_t len = strlen(alpns[i]);
+
+        CU_ASSERT_EQUAL(xqc_tls_ctx_register_alpn(ctx, alpns[i], len), XQC_OK);
+        expected[expected_len++] = (unsigned char)len;
+        memcpy(expected + expected_len, alpns[i], len);
+        expected_len += len;
+
+        xqc_tls_ctx_get_alpn_list(ctx, &list, &list_len);
+        CU_ASSERT_EQUAL(list_len, expected_len);
+        CU_ASSERT(list != NULL && memcmp(list, expected, expected_len) == 0);
+    }
+
+    /* abnormal: an empty protocol name is refused and the list kept */
+    CU_ASSERT_EQUAL(xqc_tls_ctx_register_alpn(ctx, NULL, 0), -XQC_EPARAM);
+    CU_ASSERT_EQUAL(xqc_tls_ctx_register_alpn(ctx, "h3", 0), -XQC_EPARAM);
+    xqc_tls_ctx_get_alpn_list(ctx, &list, &list_len);
+    CU_ASSERT_EQUAL(list_len, expected_len);
+    CU_ASSERT(list != NULL && memcmp(list, expected, expected_len) == 0);
+
+    xqc_tls_ctx_destroy(ctx);
+    xqc_log_release(log);
+}
+
+/*
+ * xqc_connect() copies the application's session ticket for the TLS layer,
+ * which ignores a ticket it cannot resume from: connecting works without a
+ * ticket and with one.
+ */
+void
+xqc_test_tls_client_session_ticket(void)
+{
+    static char             ticket[] = "not a session ticket";
+    xqc_conn_settings_t     settings;
+    xqc_conn_ssl_config_t   ssl_cfg;
+    const xqc_cid_t        *cid;
+
+    xqc_engine_t *engine = test_create_engine();
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    memset(&ssl_cfg, 0, sizeof(ssl_cfg));
+
+    cid = xqc_connect(engine, &settings, NULL, 0, "", 0, &ssl_cfg,
+                      NULL, 0, "transport", NULL);
+    CU_ASSERT_PTR_NOT_NULL(cid);
+
+    ssl_cfg.session_ticket_data = ticket;
+    ssl_cfg.session_ticket_len = sizeof(ticket) - 1;
+    cid = xqc_connect(engine, &settings, NULL, 0, "", 0, &ssl_cfg,
+                      NULL, 0, "transport", NULL);
+    CU_ASSERT_PTR_NOT_NULL(cid);
+
+    xqc_engine_destroy(engine);
+}
+
 void
 xqc_test_create_client_tls_ctx()
 {
@@ -1297,6 +1382,34 @@ end:
 
 
 static void
+xqc_test_ticket_key_rotation(void)
+{
+    char rotated_key[48];
+    def_engine_ssl_config_svr;
+    memset(rotated_key, 0x42, sizeof(rotated_key));
+    engine_ssl_config_svr.session_ticket_key_data = rotated_key;
+    xqc_tls_ctx_t *rotated = xqc_tls_ctx_create(XQC_TLS_TYPE_SERVER,
+        &engine_ssl_config_svr, &tls_test_cbs, test_log);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(rotated);
+    CU_ASSERT_EQUAL(xqc_tls_ctx_register_alpn(rotated, TEST_ALPN_1,
+                    sizeof(TEST_ALPN_1) - 1), XQC_OK);
+
+    /* RFC 8446 Section 4.2.11: ignore a ticket encrypted by an unknown key. */
+    xqc_tls_test_buff_t *old = xqc_test_reset_ticket_handshake(ctx_svr, 0,
+        NULL, 0, 0, 0);
+    xqc_tls_test_buff_t *fresh = xqc_test_reset_ticket_handshake(rotated, 0,
+        old, 0, XQC_TLS_EARLY_DATA_REJECT, 0);
+    xqc_tls_test_buff_t *resumed = xqc_test_reset_ticket_handshake(rotated, 0,
+        fresh, 1, XQC_TLS_EARLY_DATA_ACCEPT, 0);
+
+    xqc_destroy_tls_test_buffer(old);
+    xqc_destroy_tls_test_buffer(fresh);
+    xqc_destroy_tls_test_buffer(resumed);
+    xqc_tls_ctx_destroy(rotated);
+}
+
+
+static void
 xqc_test_reset_ticket_policy(void)
 {
     char key[80];
@@ -1715,6 +1828,7 @@ xqc_test_tls(void)
     
     xqc_test_tls_multiple_crypto_data();
     xqc_test_tls_generic();
+    xqc_test_ticket_key_rotation();
     xqc_test_reset_ticket_policy();
     xqc_test_tls_process_truncated_crypto_handshake();
     xqc_test_tls_failure();

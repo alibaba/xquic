@@ -158,7 +158,11 @@ xqc_moq_target_bitrate(xqc_moq_session_t *session)
     if (session->enable_fec) {
         fec_code_rate = xqc_moq_est_get_target_fec_code_rate(conn, bitrate_alloc->target_bitrate, &session->fec_code_rate);
         bitrate_alloc->target_bitrate = bitrate_alloc->target_bandwidth / (1 + fec_code_rate);
-        xqc_log(session->log, XQC_LOG_INFO, "|quic_test|code_rate:%.3f|saving bitrate: %ud|original bitrate: %ud|", fec_code_rate, bitrate_alloc->target_bandwidth - bitrate_alloc->target_bitrate, bitrate_alloc->target_bandwidth);
+        xqc_log(session->log, XQC_LOG_INFO,
+                "|quic_test|code_rate:%.3f|saving bitrate: %ui"
+                "|original bitrate: %ui|", fec_code_rate,
+                bitrate_alloc->target_bandwidth - bitrate_alloc->target_bitrate,
+                bitrate_alloc->target_bandwidth);
     }
 
 finish:

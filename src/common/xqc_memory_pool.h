@@ -53,6 +53,8 @@ typedef struct xqc_memory_pool_s {
 } xqc_memory_pool_t;
 
 #define XQC_MAX_MALLOC_FROM_POOL (4096)
+#define XQC_ALIGNMENT (16)
+#define xqc_align_ptr(p, a) ((char *) (((uintptr_t)(p) + ((uintptr_t)a - 1)) & ~((uintptr_t)a - 1)))
 
 #ifdef XQC_PROTECT_POOL_MEM
 static inline void *
@@ -61,6 +63,9 @@ xqc_mempool_malloc_protected(size_t size, size_t page_sz)
 #ifndef XQC_SYS_WINDOWS
     int ret;
     void *ptr = NULL;
+    if (size > SIZE_MAX - page_sz) {
+        return NULL;
+    }
     ret = posix_memalign(&ptr, page_sz, page_sz + size);
     if (ret != 0) {
         return NULL;
@@ -192,16 +197,22 @@ xqc_destroy_pool(xqc_memory_pool_t *pool)
 static inline void *
 xqc_palloc_large(xqc_memory_pool_t *pool, size_t size)
 {
+    const size_t overhead = sizeof(xqc_memory_large_t) + XQC_ALIGNMENT - 1;
+    if (size > SIZE_MAX - overhead) {
+        return NULL;
+    }
+    const size_t allocation_size = size + overhead;
+
 #ifdef XQC_PROTECT_POOL_MEM
     xqc_memory_large_t *p;
     if (pool->protect_block) {
-        p = xqc_mempool_malloc_protected(size + sizeof(xqc_memory_large_t), pool->page_size);
+        p = xqc_mempool_malloc_protected(allocation_size, pool->page_size);
         
     } else {
-        p = xqc_malloc(size + sizeof(xqc_memory_large_t));
+        p = xqc_malloc(allocation_size);
     }
 #else
-    xqc_memory_large_t *p = xqc_malloc(size + sizeof(xqc_memory_large_t));
+    xqc_memory_large_t *p = xqc_malloc(allocation_size);
 #endif
 
     if (p == NULL) {
@@ -212,11 +223,8 @@ xqc_palloc_large(xqc_memory_pool_t *pool, size_t size)
     p->next = pool->large;
     pool->large = p;
 
-    return p->data;
+    return xqc_align_ptr(p->data, XQC_ALIGNMENT);
 }
-
-#define XQC_ALIGNMENT (16)
-#define xqc_align_ptr(p, a) ((char *) (((uintptr_t)(p) + ((uintptr_t)a - 1)) & ~((uintptr_t)a - 1)))
 
 static inline void *
 xqc_palloc_block(xqc_memory_pool_t *pool, size_t size)
@@ -323,4 +331,3 @@ xqc_pcalloc(xqc_memory_pool_t *pool, size_t size)
 /* TODO: xqc_pfree is needed */
 
 #endif /*_XQC_MEMORY_POOL_H_INCLUDED_*/
-

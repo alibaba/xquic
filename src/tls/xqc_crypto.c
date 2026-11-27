@@ -215,7 +215,8 @@ xqc_crypto_encrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
     xqc_int_t       ret;
 
     uint8_t         mask[XQC_HP_MASKLEN];
-    size_t          nwrite;
+    /* logged when the mask fails, which leaves it unset */
+    size_t          nwrite = 0;
 
     /* packet number position and sample position */
     size_t   pktno_len  = XQC_PACKET_SHORT_HEADER_PKTNO_LEN(header);
@@ -276,7 +277,8 @@ xqc_crypto_decrypt_header(xqc_crypto_t *crypto, xqc_pkt_type_t pkt_type, uint8_t
     uint8_t *pktno, uint8_t *end)
 {
     xqc_int_t ret;
-    size_t nwrite;
+    /* logged when the mask fails, which leaves it unset */
+    size_t nwrite = 0;
 
     /* header protection cipher and rx hp key */
     xqc_hdr_protect_cipher_t *hp_cipher = &crypto->hp_cipher;

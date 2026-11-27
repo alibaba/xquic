@@ -534,7 +534,7 @@ rm -rf tp_localhost test_session xqc_token
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "h3 MP ping ...\c"
-case_test_sudo ${CLIENT_BIN} -s 1024 -l d -E -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
+${CLIENT_BIN} -s 1024 -l d -E -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
 ret_ping_id=`grep -a "====>ping_id:" clog`
 ret_no_ping_id=`grep -a "====>no ping_id" clog`
 path0_ping=`grep -a -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
@@ -560,7 +560,7 @@ sleep 1
 rm -rf tp_localhost test_session xqc_token
 
 
-case_test_sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
 case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 150 > /dev/null
 sleep 1
@@ -596,7 +596,7 @@ fi
 case_http3_core_h3_engine_set_settings_api_h3_more()
 {
 
-case_test_sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
 case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 151 > /dev/null
 sleep 1
@@ -632,7 +632,7 @@ fi
 case_http3_core_h3_engine_set_settings_api_h3_29()
 {
 
-case_test_sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
 case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 152 > /dev/null
 sleep 1
@@ -668,7 +668,7 @@ fi
 case_http3_core_h3_engine_set_settings_api_h3_29_more()
 {
 
-case_test_sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
 case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 153 > /dev/null
 sleep 1
@@ -706,7 +706,7 @@ case_http3_core_h3_engine_set_settings_api_h3_ext()
 {
 
 
-case_test_sudo rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
+rm -rf tp_localhost test_session xqc_token clog slog stdlog ckeys.log
 case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 150 > /dev/null
 sleep 1
@@ -744,7 +744,7 @@ case_http3_core_h3_engine_set_settings_api_h3_ext_more()
 {
 
 
-case_test_sudo rm -rf tp_localhost test_session xqc_token stdlog ckeys.log
+rm -rf tp_localhost test_session xqc_token stdlog ckeys.log
 case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 151 > /dev/null
 sleep 1
@@ -1535,6 +1535,5 @@ fi
 
 case_test_enter_work_dir
 trap 'case_test_stop_server; case_test_cleanup_udp_port' EXIT
-case_test_require_sudo
 
 case_test_run

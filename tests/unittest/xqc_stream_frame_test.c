@@ -77,6 +77,26 @@ xqc_test_stream_frame()
         offset += ret;
     } while (ret > 0);
 
+    xqc_stream_frame_t *empty_fin = xqc_calloc(1, sizeof(*empty_fin));
+    CU_ASSERT_PTR_NOT_NULL(empty_fin);
+    if (empty_fin != NULL) {
+        empty_fin->data_offset = 40;
+        empty_fin->fin = 1;
+        ret = xqc_insert_stream_frame(conn, stream, empty_fin);
+        CU_ASSERT_EQUAL(ret, XQC_OK);
+        if (ret == XQC_OK) {
+            stream->stream_data_in.stream_determined = XQC_TRUE;
+            stream->stream_data_in.stream_length = 40;
+            stream->stream_state_recv = XQC_RECV_STREAM_ST_DATA_RECVD;
+            fin = 0;
+            ret = xqc_stream_recv(stream, recv_buf, recv_buf_size, &fin);
+            CU_ASSERT_EQUAL(ret, 0);
+            CU_ASSERT_EQUAL(fin, 1);
+        } else {
+            xqc_free(empty_fin);
+        }
+    }
+
     for (int i = 4; i < 10; i++) {
         xqc_destroy_stream_frame(frame[i]);
     }

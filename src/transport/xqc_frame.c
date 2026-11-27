@@ -116,14 +116,6 @@ xqc_frame_type_2_str(xqc_engine_t *engine, xqc_frame_type_bit_t type_bit)
 }
 
 unsigned int
-xqc_stream_frame_header_size(xqc_stream_id_t stream_id, uint64_t offset, size_t length)
-{
-    return 1 + xqc_vint_len_by_val(stream_id) +
-            offset ? xqc_vint_len_by_val(offset) : 0 +
-            xqc_vint_len_by_val(length);
-}
-
-unsigned int
 xqc_crypto_frame_header_size(uint64_t offset, size_t length)
 {
     return 1 +
@@ -2134,7 +2126,7 @@ xqc_process_path_response_frame(xqc_connection_t *conn, xqc_packet_in_t *packet_
         path = xqc_conn_find_path_by_path_id(conn, packet_in->pi_path_id);
         if (path == NULL) {
             xqc_log(conn->log, XQC_LOG_ERROR,
-                    "|ingnore path response|pkt_dcid:%s|path_id:%ui|",
+                    "|ignore path response|pkt_dcid:%s|path_id:%ui|",
                     xqc_scid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid),
                     packet_in->pi_path_id);
             return XQC_OK;

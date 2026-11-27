@@ -1,6 +1,7 @@
 /**
  * @copyright Copyright (c) 2026, Alibaba Group Holding Limited
  */
+#include <string.h>
 #include "src/webtransport/xqc_webtransport_ctx.h"
 #include "src/webtransport/xqc_webtransport_conn.h"
 #include "src/webtransport/xqc_webtransport_session.h"
@@ -9,6 +10,7 @@
 #include "src/webtransport/xqc_webtransport_h3_stream.h"
 #include "src/webtransport/xqc_webtransport_dgram.h"
 #include "src/http3/xqc_h3_ctx.h"
+#include "src/http3/xqc_h3_defs.h"
 #include "src/http3/xqc_h3_conn.h"
 #include "src/http3/xqc_h3_request.h"
 #include "src/transport/xqc_engine.h"
@@ -96,14 +98,19 @@ xqc_wt_h3_init_settings(xqc_h3_conn_t *h3c,
     xqc_h3_conn_settings_t *settings, void *data)
 {
     xqc_wt_ctx_t *ctx = xqc_wt_ctx_get(h3c->conn->engine);
+    if (ctx == NULL) {
+        return;
+    }
     if (ctx->app_conn_callbacks.h3_conn_init_settings) {
         ctx->app_conn_callbacks.h3_conn_init_settings(h3c, settings, data);
     }
-    /* Draft-07 Sections 3.1, 6; draft-16 Sections 3.1, 5.5 and 7.1. */
+    /* Draft-02 Section 6, draft-07 Sections 3.1 and 6,
+     * draft-16 Sections 3.1, 5.5 and 7.1. */
     xqc_h3_setting_t entries[] = {
         {XQC_WT_SETTING_DATAGRAM, 1},
         {XQC_WT_SETTING_MAX_SESSIONS, ctx->settings.max_sessions_count},
         {XQC_WT_SETTING_CONNECT, 1},
+        {XQC_WT_SETTING_DRAFT00, 1},
         {XQC_WT_SETTING_ENABLED_16, 1},
         {XQC_WT_SETTING_INITIAL_MAX_STREAMS_UNI,
          ctx->settings.max_uni_streams},
@@ -290,6 +297,7 @@ xqc_wt_ctx_init(xqc_engine_t *engine,
         return ret;
     }
     xqc_free(h3);
+
     return xqc_wt_engine_set_default_settings(engine, NULL);
 }
 
@@ -304,6 +312,8 @@ xqc_wt_engine_set_default_settings(xqc_engine_t *engine,
     if (!settings) {
         settings = &xqc_wt_defaults;
     }
+    /* Draft-02 is negotiation-only: it is never an engine configuration
+     * target, so configured as such it is a parameter error. */
     if ((settings->draft_version != XQC_WEBTRANSPORT_DRAFT_VERSION_16
          && settings->draft_version != XQC_WEBTRANSPORT_DRAFT_VERSION_7)
         || !settings->enable_datagram || !settings->max_sessions_count

@@ -511,6 +511,9 @@ xqc_test_rep()
     for (int i = 0; i < header.value.iov_len; i++) {
         CU_ASSERT(value[i] == ((char *) header.value.iov_base)[i]);
     }
+    /* the header took over the buffers of the decoded strings */
+    xqc_free(header.name.iov_base);
+    xqc_free(header.value.iov_base);
 
     processed = xqc_rep_decode_field_line(ctx, buf->data + buf->consumed_len, buf->data_len - buf->consumed_len);
     CU_ASSERT(processed > 0);
@@ -601,10 +604,7 @@ xqc_test_stream()
     xqc_h3_stream_destroy(h3s);
     xqc_h3_conn_destroy(h3c);
     xqc_destroy_stream(stream);
-
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -751,10 +751,7 @@ xqc_test_h3_critical_stream_close()
     }
 
     xqc_h3_conn_destroy(h3c);
-
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -802,9 +799,7 @@ xqc_test_h3_second_stream_one(uint64_t stype, uint64_t expected_err_second)
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 static void
@@ -834,9 +829,7 @@ xqc_test_h3_push_stream_rejected(xqc_conn_type_t conn_type,
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 void
@@ -883,9 +876,7 @@ xqc_test_h3_reserved_uni_stream_accepted()
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
 
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1087,10 +1078,7 @@ xqc_test_h3_recv_header_field_section_size()
     xqc_destroy_stream(stream);
 
     xqc_h3_conn_destroy(h3c);
-
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1186,9 +1174,7 @@ xqc_h3_msgerr_teardown(xqc_h3_stream_t *h3s, xqc_h3_conn_t *h3c,
     xqc_h3_stream_destroy(h3s);
     xqc_destroy_stream(stream);
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1414,9 +1400,85 @@ xqc_test_h3_blocked_stream_reject_after_close()
     stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
     xqc_destroy_stream(stream);
     xqc_h3_conn_destroy(h3c);
+    xqc_engine_destroy(conn->engine);
+}
+
+
+/*
+ * A request stream is blocked by QPACK beyond the decoder's
+ * SETTINGS_QPACK_BLOCKED_STREAMS limit, so it is not recorded as blocked.
+ * Its FIN was read with its bytes, and then its transport stream closes.
+ * The h3 stream must be destroyed at once: with no record, a stream left
+ * flagged as blocked is never destroyed, so it leaks with its request and
+ * buffers for the lifetime of the connection and beyond. The request's
+ * close callback counts the destruction.
+ */
+static int xqc_h3_limit_leak_closed;
+
+static int
+xqc_h3_limit_leak_close_notify(xqc_h3_request_t *h3_request, void *user_data)
+{
+    xqc_h3_limit_leak_closed++;
+    return 0;
+}
+
+void
+xqc_test_h3_blocked_stream_limit_leak()
+{
+    /* HEADERS: Required Insert Count 1, Base 1, dynamic index 0 — blocks */
+    static const unsigned char frame[] = { 0x01, 0x03, 0x02, 0x00, 0x80 };
+    unsigned char buf[sizeof(frame)];
+
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
     if (conn->alpn) {
         xqc_free(conn->alpn);
     }
+    conn->alpn_len = strlen(XQC_ALPN_H3);
+    conn->alpn = xqc_calloc(1, conn->alpn_len + 1);
+    CU_ASSERT_FATAL(conn->alpn != NULL);
+    xqc_memcpy(conn->alpn, XQC_ALPN_H3, conn->alpn_len);
+    conn->conn_flow_ctl.fc_max_streams_bidi_can_send = 16;
+    conn->conn_state = XQC_CONN_STATE_ESTABED;
+
+    xqc_h3_conn_t *h3c = xqc_h3_conn_create(conn, NULL);
+    CU_ASSERT_FATAL(h3c != NULL);
+
+    /* the decoder admits no blocked stream: the stream exceeds the limit */
+    h3c->local_h3_conn_settings.qpack_blocked_streams = 0;
+    /* observe the destruction of the rejected request */
+    xqc_h3_limit_leak_closed = 0;
+    h3c->h3_request_callbacks.h3_request_close_notify =
+        xqc_h3_limit_leak_close_notify;
+
+    xqc_stream_t *stream = xqc_create_stream_with_conn(conn,
+            XQC_UNDEFINE_STREAM_ID, XQC_CLI_BID, NULL, NULL);
+    CU_ASSERT_FATAL(stream != NULL);
+    xqc_h3_stream_t *h3s = xqc_h3_stream_create(h3c, stream,
+            XQC_H3_STREAM_TYPE_REQUEST, NULL);
+    CU_ASSERT_FATAL(h3s != NULL);
+
+    /* the request's FIN was read with its bytes */
+    h3s->flags |= XQC_HTTP3_STREAM_FLAG_READ_EOF;
+
+    memcpy(buf, frame, sizeof(frame));
+    xqc_int_t ret = xqc_h3_stream_process_in(h3s, buf, sizeof(buf), XQC_TRUE);
+    CU_ASSERT(ret < 0);
+
+    /* the stream was not recorded, and must not stay flagged as blocked */
+    CU_ASSERT(h3c->block_stream_count == 0);
+    CU_ASSERT(h3s->blocked_stream == NULL);
+    CU_ASSERT(!(h3s->flags & XQC_HTTP3_STREAM_FLAG_QPACK_DECODE_BLOCKED));
+
+    /* the transport stream closes: the h3 stream is destroyed, not kept */
+    CU_ASSERT(xqc_h3_stream_close_notify(stream, h3s) == XQC_OK);
+    CU_ASSERT(xqc_h3_limit_leak_closed == 1);
+    CU_ASSERT(xqc_list_empty(&h3c->block_stream_head));
+
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1522,13 +1584,11 @@ xqc_test_h3_qpack_duplicate_uses_excessive_load()
     xqc_h3_stream_destroy(qdec_h3s);
     xqc_destroy_stream(qdec_stream);
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
 
     xqc_monotonic_timestamp = saved_timestamp;
     xqc_h3_engine_set_max_dtable_capacity(conn->engine,
                                           XQC_QPACK_MAX_TABLE_CAPACITY);
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1633,9 +1693,7 @@ xqc_h3_ctrl_test_teardown(xqc_h3_stream_t *h3s, xqc_h3_conn_t *h3c,
     xqc_h3_stream_destroy(h3s);
     xqc_destroy_stream(stream);
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 /*
@@ -1992,6 +2050,64 @@ xqc_test_h3_settings_validation_log_errors(void)
     xqc_h3_test_validate_local_settings(&settings,
         "|reason:duplicate_identifier|index:1|previous_index:0|"
         "identifier:8|value:2|");
+}
+
+
+/*
+ * The write notification of an h3 stream fails when its transport stream
+ * is gone, and the error line prints the negative int it returns as such.
+ */
+void
+xqc_test_h3_stream_send_buf_error_log(void)
+{
+    int                             ret;
+    xqc_log_t                      *h3s_log;
+    xqc_stream_t                   *stream;
+    xqc_engine_t                   *engine;
+    const xqc_cid_t                *cid;
+    xqc_h3_request_t               *h3r;
+    xqc_h3_stream_t                *h3s;
+    xqc_conn_settings_t             settings;
+    xqc_conn_ssl_config_t           conn_ssl;
+    xqc_h3_test_validation_log_t    capture;
+    xqc_log_callbacks_t             callbacks = {
+        .xqc_log_write_err = xqc_h3_test_validation_log,
+    };
+    xqc_log_t                       log = {
+        .log_level = XQC_LOG_ERROR,
+        .log_callbacks = &callbacks,
+        .user_data = &capture,
+    };
+
+    engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    memset(&conn_ssl, 0, sizeof(conn_ssl));
+    cid = xqc_h3_connect(engine, &settings, NULL, 0, "", 0, &conn_ssl,
+                         NULL, 0, NULL);
+    CU_ASSERT_FATAL(cid != NULL);
+    h3r = xqc_h3_request_create(engine, cid, NULL, NULL);
+    CU_ASSERT_FATAL(h3r != NULL);
+    h3s = h3r->h3_stream;
+
+    memset(&capture, 0, sizeof(capture));
+    h3s_log = h3s->log;
+    h3s->log = &log;
+    stream = h3s->stream;
+    h3s->stream = NULL;
+
+    ret = h3_stream_callbacks.stream_write_notify(stream, h3s);
+
+    h3s->stream = stream;
+    h3s->log = h3s_log;
+    CU_ASSERT(ret == -XQC_ESTATE);
+#ifndef XQC_DISABLE_LOG
+    CU_ASSERT(capture.calls == 2);
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.message, "|send buf error|-612|"));
+#endif
+
+    xqc_engine_destroy(engine);
 }
 
 
@@ -3086,9 +3202,7 @@ xqc_test_h3_missing_settings_one(uint64_t frame_type)
     xqc_h3_stream_destroy(h3s);
     xqc_destroy_stream(stream);
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 void
@@ -3485,7 +3599,17 @@ xqc_test_h3_blocked_stream_limit_uses_local()
     /* Verify peer setting is UINT64_MAX (would have allowed if bug present) */
     CU_ASSERT(h3c->peer_h3_conn_settings.qpack_blocked_streams == XQC_H3_SETTINGS_UNSET);
 
-    /* cleanup: engine_destroy handles full teardown including h3c, h3s, streams */
+    /* the records point at h3s, and the test owns h3s and h3c */
+    if (bs1 != NULL) {
+        xqc_h3_conn_remove_blocked_stream(h3c, bs1);
+    }
+    if (bs2 != NULL) {
+        xqc_h3_conn_remove_blocked_stream(h3c, bs2);
+    }
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
     xqc_engine_destroy(conn->engine);
 }
 
@@ -3524,6 +3648,7 @@ xqc_test_h3_settings_frame_size_limit()
                            &pctx, NULL);
     /* normal-sized SETTINGS frame should parse successfully */
     CU_ASSERT(ret >= 0);
+    xqc_h3_frm_reset_pctx(&pctx);
 }
 
 

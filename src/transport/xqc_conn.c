@@ -3999,16 +3999,18 @@ xqc_conn_check_token(xqc_connection_t *conn, const unsigned char *enc_data, unsi
         pos += sizeof(struct in6_addr);
 
     } else {
-        struct in_addr *in4 = (struct in_addr *)pos;
         struct sockaddr_in *sa4 = (struct sockaddr_in *)sa;
+        char addr_str[INET_ADDRSTRLEN];
         if (token_len != 9) {
             xqc_log(conn->log, XQC_LOG_ERROR, "|token_len error|token_len:%ui|", token_len);
             return XQC_ERROR;
         }
-        xqc_log(conn->log, XQC_LOG_DEBUG, "|peer_addr:%s|", inet_ntoa(sa4->sin_addr));
+        xqc_log(conn->log, XQC_LOG_DEBUG, "|peer_addr:%s|",
+                inet_ntop(AF_INET, &sa4->sin_addr, addr_str, sizeof(addr_str)));
 
         if (memcmp(&sa4->sin_addr, pos, sizeof(struct in_addr)) != 0) {
-            xqc_log(conn->log, XQC_LOG_INFO, "|ipv4 not match|token_addr:%s|", inet_ntoa(*in4));
+            xqc_log(conn->log, XQC_LOG_INFO, "|ipv4 not match|token_addr:%s|",
+                    inet_ntop(AF_INET, pos, addr_str, sizeof(addr_str)));
             return XQC_ERROR;
         }
         pos += sizeof(struct in_addr);
@@ -4728,9 +4730,6 @@ xqc_conn_next_wakeup_time(xqc_connection_t *conn)
     return wakeup_time;
 }
 
-static char g_local_addr_str[INET6_ADDRSTRLEN];
-static char g_peer_addr_str[INET6_ADDRSTRLEN];
-
 char *
 xqc_local_addr_str(xqc_engine_t *engine, const struct sockaddr *local_addr, socklen_t local_addrlen)
 {
@@ -4741,13 +4740,18 @@ xqc_local_addr_str(xqc_engine_t *engine, const struct sockaddr *local_addr, sock
 
     struct sockaddr_in *sa_local = (struct sockaddr_in *)local_addr;
     if (sa_local->sin_family == AF_INET) {
-        if (inet_ntop(sa_local->sin_family, &sa_local->sin_addr, engine->local_addr_str, local_addrlen) == NULL) {
+        if (inet_ntop(sa_local->sin_family, &sa_local->sin_addr,
+                      engine->local_addr_str, sizeof(engine->local_addr_str))
+            == NULL)
+        {
             engine->local_addr_str[0] = '\0';
         }
 
     } else {
-        if (inet_ntop(sa_local->sin_family, &((struct sockaddr_in6*)sa_local)->sin6_addr,
-                      engine->local_addr_str, local_addrlen) == NULL)
+        if (inet_ntop(sa_local->sin_family,
+                      &((struct sockaddr_in6 *)sa_local)->sin6_addr,
+                      engine->local_addr_str, sizeof(engine->local_addr_str))
+            == NULL)
         {
             engine->local_addr_str[0] = '\0';
         }
@@ -4767,13 +4771,18 @@ xqc_peer_addr_str(xqc_engine_t *engine, const struct sockaddr *peer_addr, sockle
 
     struct sockaddr_in *sa_peer = (struct sockaddr_in *)peer_addr;
     if (sa_peer->sin_family == AF_INET) {
-        if (inet_ntop(sa_peer->sin_family, &sa_peer->sin_addr, engine->peer_addr_str, peer_addrlen) == NULL) {
+        if (inet_ntop(sa_peer->sin_family, &sa_peer->sin_addr,
+                      engine->peer_addr_str, sizeof(engine->peer_addr_str))
+            == NULL)
+        {
             engine->peer_addr_str[0] = '\0';
         }
 
     } else {
-        if (inet_ntop(sa_peer->sin_family, &((struct sockaddr_in6*)sa_peer)->sin6_addr,
-                      engine->peer_addr_str, peer_addrlen) == NULL)
+        if (inet_ntop(sa_peer->sin_family,
+                      &((struct sockaddr_in6 *)sa_peer)->sin6_addr,
+                      engine->peer_addr_str, sizeof(engine->peer_addr_str))
+            == NULL)
         {
             engine->peer_addr_str[0] = '\0';
         }
@@ -5530,7 +5539,8 @@ xqc_conn_ptmud_probing(xqc_connection_t *conn)
         }
         ret = xqc_write_pmtud_ping_to_packet(path, probing_size, pkt_type);
         if (ret < 0) {
-            xqc_log(conn->log, XQC_LOG_ERROR, "|genrate PMTUD ping packet error|ret:%d|", ret);
+            xqc_log(conn->log, XQC_LOG_ERROR,
+                    "|generate PMTUD ping packet error|ret:%d|", ret);
         }
     }
 

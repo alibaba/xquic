@@ -295,15 +295,16 @@ xqc_engine_conns_pq_create(xqc_config_t *config, uint8_t is_wakeup)
         capacity, xqc_default_allocator, 
         xqc_pq_revert_cmp, xqc_engine_conn_pq_operator))
     {
-        goto fail;
+        /*
+         * A failed xqc_pq_init() allocated nothing and set no allocator,
+         * so there is nothing for xqc_pq_destroy() to free, and its free
+         * callback is NULL.
+         */
+        xqc_free(q);
+        return NULL;
     }
 
     return q;
-
-fail:
-    xqc_pq_destroy(q);
-    xqc_free(q);
-    return NULL;
 }
 
 

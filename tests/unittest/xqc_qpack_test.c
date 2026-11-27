@@ -467,7 +467,7 @@ xqc_qpack_test_robust()
     xqc_http_header_t header_in[header_in_cnt];
     for (size_t i = 0; i < header_in_cnt; i++) {
         xqc_http_header_t *hdr = header_in + i;
-        hdr->src_header = NULL;
+        memset(hdr, 0, sizeof(*hdr));
 
         size_t nlen = (random() & 255) + 1;
         hdr->name.iov_base = calloc(1, nlen + 1);
@@ -753,6 +753,94 @@ xqc_test_min_ref()
 }
 
 
+#if defined(XQC_ENABLE_EVENT_LOG) && !defined(XQC_DISABLE_LOG)
+
+/* the instruction events of an encoder */
+typedef struct xqc_qpack_test_events_s {
+    char line[XQC_MAX_LOG_LEN];
+    int lines;
+} xqc_qpack_test_events_t;
+
+static void
+xqc_qpack_test_event_write(xqc_log_level_t lvl, const void *buf, size_t size,
+                           void *user_data)
+{
+    xqc_qpack_test_events_t *events = user_data;
+    char line[XQC_MAX_LOG_LEN];
+
+    size = xqc_min(size, sizeof(line) - 1);
+    memcpy(line, buf, size);
+    line[size] = '\0';
+    if (strstr(line, "|insert_without_name_reference|") != NULL) {
+        memcpy(events->line, line, size + 1);
+        events->lines++;
+    }
+}
+
+#endif
+
+/*
+ * A header whose value must never be indexed, with a name of no static
+ * table entry, is inserted by name only; the event of that insertion logs
+ * the name and an empty value.
+ */
+static void
+xqc_qpack_test_name_only_insert(void)
+{
+    xqc_var_buf_t *efs = xqc_var_buf_create(1024);
+    xqc_var_buf_t *enc_ins = xqc_var_buf_create(1024);
+    xqc_var_buf_t *dec_ins = xqc_var_buf_create(1024);
+    xqc_ins_buf_t ins_buf = {enc_ins, dec_ins};
+    xqc_http_header_t header = {
+        .name = {.iov_base = "x-name-only", .iov_len = 11},
+        .value = {.iov_base = "secret", .iov_len = 6},
+        .flags = XQC_HTTP_HEADER_FLAG_NEVER_INDEX_VALUE,
+    };
+    xqc_http_headers_t hdrs = {&header, 1, 1};
+    xqc_log_callbacks_t callbacks;
+    xqc_log_t log;
+    xqc_qpack_t *qpk;
+#if defined(XQC_ENABLE_EVENT_LOG) && !defined(XQC_DISABLE_LOG)
+    xqc_qpack_test_events_t events;
+
+    memset(&events, 0, sizeof(events));
+#endif
+
+    memset(&callbacks, 0, sizeof(callbacks));
+    memset(&log, 0, sizeof(log));
+    log.log_level = XQC_LOG_DEBUG;
+    log.log_callbacks = &callbacks;
+#if defined(XQC_ENABLE_EVENT_LOG) && !defined(XQC_DISABLE_LOG)
+    callbacks.xqc_log_write_err = xqc_qpack_test_event_write;
+    log.log_event = 1;
+    log.qlog_importance = EVENT_IMPORTANCE_SELECTED;
+    log.user_data = &events;
+#endif
+
+    qpk = xqc_qpack_create(4096, 4096, &log, &ins_cb, &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+    CU_ASSERT(xqc_qpack_set_enc_max_dtable_cap(qpk, 4096) == XQC_OK);
+    xqc_qpack_set_enc_insert_limit(qpk, 0.25, 0.75);
+    CU_ASSERT(xqc_qpack_set_max_blocked_stream(qpk, 1) == XQC_OK);
+    CU_ASSERT(xqc_qpack_set_dtable_cap(qpk, 4096) == XQC_OK);
+    xqc_var_buf_clear(enc_ins);
+
+    CU_ASSERT(xqc_qpack_enc_headers(qpk, 0, &hdrs, efs) == XQC_OK);
+    /* the name went into the dynamic table */
+    CU_ASSERT(enc_ins->data_len > 0);
+#if defined(XQC_ENABLE_EVENT_LOG) && !defined(XQC_DISABLE_LOG)
+    CU_ASSERT(events.lines == 1);
+    CU_ASSERT_PTR_NOT_NULL(
+        strstr(events.line,
+               "|insert_without_name_reference|name:x-name-only|value:|"));
+#endif
+
+    xqc_qpack_destroy(qpk);
+    xqc_var_buf_free(efs);
+    xqc_var_buf_free(enc_ins);
+    xqc_var_buf_free(dec_ins);
+}
+
 
 static xqc_usec_t xqc_qpack_test_duplicate_now;
 
@@ -957,6 +1045,7 @@ xqc_qpack_test()
     xqc_qpack_test_duplicate();
     xqc_qpack_test_robust();
     xqc_test_min_ref();
+    xqc_qpack_test_name_only_insert();
     xqc_qpack_test_duplicate_work_limit();
     xqc_qpack_test_field_section_limit();
     xqc_qpack_test_blocked_field_section_limit();
@@ -1176,10 +1265,98 @@ xqc_test_qpack_h3_conn_create_alloc_failures(void)
     CU_ASSERT(n > 1);
 }
 
+/*
+ * RFC 9204 Section 4.3.1: the peer's encoder raises the capacity of the
+ * empty dynamic table step by step up to SETTINGS_QPACK_MAX_TABLE_CAPACITY.
+ * Each raise grows the decoder's table, and once the QPACK handler is
+ * destroyed nothing that the raises allocated is left.
+ */
+void
+xqc_test_qpack_dtable_cap_raises(void)
+{
+    uint64_t cap;
+    xqc_qpack_t *qpk;
+    xqc_engine_t *engine = xqc_qpack_test_h3c_engine();
+    xqc_var_buf_t *ins = xqc_var_buf_create(32);
+    xqc_ins_buf_t ins_buf = {NULL, NULL};
+
+    CU_ASSERT_FATAL(engine != NULL && ins != NULL);
+
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+    qpk = xqc_qpack_create(16 * 1024, 16 * 1024, engine->log, &ins_cb,
+                           &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+
+    for (cap = 1; cap <= 16 * 1024; cap *= 2) {
+        xqc_var_buf_clear(ins);
+        CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, cap) == XQC_OK);
+        CU_ASSERT(xqc_qpack_process_encoder(qpk, ins->data, ins->data_len)
+                  == ins->data_len);
+    }
+
+    xqc_qpack_destroy(qpk);
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(xqc_test_alloc_live == 0);
+
+    xqc_var_buf_free(ins);
+    xqc_engine_destroy(engine);
+}
+
+/*
+ * A capacity above SETTINGS_QPACK_MAX_TABLE_CAPACITY is an encoder stream
+ * error (RFC 9204 Section 4.3.1), after raises that left the table empty,
+ * and destroying the QPACK handler leaves nothing allocated.
+ */
+void
+xqc_test_qpack_dtable_cap_above_max(void)
+{
+    xqc_qpack_t *qpk;
+    xqc_engine_t *engine = xqc_qpack_test_h3c_engine();
+    xqc_var_buf_t *ins = xqc_var_buf_create(32);
+    xqc_ins_buf_t ins_buf = {NULL, NULL};
+
+    CU_ASSERT_FATAL(engine != NULL && ins != NULL);
+
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+    qpk = xqc_qpack_create(16 * 1024, 16 * 1024, engine->log, &ins_cb,
+                           &ins_buf);
+    CU_ASSERT_FATAL(qpk != NULL);
+
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 64) == XQC_OK);
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 1024) == XQC_OK);
+    CU_ASSERT(xqc_qpack_process_encoder(qpk, ins->data, ins->data_len)
+              == ins->data_len);
+
+    xqc_var_buf_clear(ins);
+    CU_ASSERT(xqc_ins_write_set_dtable_cap(ins, 16 * 1024 + 1) == XQC_OK);
+    CU_ASSERT(xqc_qpack_process_encoder(qpk, ins->data, ins->data_len) < 0);
+
+    xqc_qpack_destroy(qpk);
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(xqc_test_alloc_live == 0);
+
+    xqc_var_buf_free(ins);
+    xqc_engine_destroy(engine);
+}
+
 #else
 
 void
 xqc_test_qpack_create_alloc_failures(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_qpack_dtable_cap_raises(void)
+{
+    /* needs the linker's --wrap (see tests/CMakeLists.txt) */
+}
+
+void
+xqc_test_qpack_dtable_cap_above_max(void)
 {
     /* needs the linker's --wrap (see tests/CMakeLists.txt) */
 }

@@ -5,6 +5,7 @@
 #include <CUnit/CUnit.h>
 #include "xqc_ring_mem_test.h"
 #include "src/common/utils/ringmem/xqc_ring_mem.h"
+#include "tests/unittest/xqc_alloc_wrap.h"
 #include <inttypes.h>
 
 
@@ -289,4 +290,79 @@ xqc_test_ring_mem_copy_bounds()
     CU_ASSERT(memcmp(buf, "89ABCDEF", 8) == 0);
 
     xqc_ring_mem_free(rm);
+}
+
+
+/*
+ * Growing an empty ring memory replaces its buffer with a larger one and
+ * frees the old one, as a QPACK decoder does each time its peer raises the
+ * capacity of an empty dynamic table; the bytes enqueued afterwards read
+ * back.
+ */
+void
+xqc_test_ring_mem_resize_empty(void)
+{
+    xqc_ring_mem_idx_t idx;
+    xqc_ring_mem_t *rm;
+    size_t cap;
+    char buf[16];
+
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+#endif
+
+    rm = xqc_ring_mem_create(0);
+    CU_ASSERT_FATAL(rm != NULL);
+
+    for (cap = 1; cap <= 4096; cap *= 2) {
+        CU_ASSERT(xqc_ring_mem_resize(rm, cap) == XQC_OK);
+        CU_ASSERT(xqc_ring_mem_used_size(rm) == 0);
+    }
+
+    CU_ASSERT(xqc_ring_mem_enqueue(rm, STR1_16B, 16, &idx) == XQC_OK);
+    CU_ASSERT(xqc_ring_mem_copy(rm, idx, 16, buf, sizeof(buf)) == XQC_OK
+              && memcmp(buf, STR1_16B, 16) == 0);
+
+    xqc_ring_mem_free(rm);
+
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(xqc_test_alloc_live == 0);
+#endif
+}
+
+
+/*
+ * A resize below the bytes in use is refused and keeps the buffer and its
+ * bytes; a resize that does not grow the capacity keeps the buffer too.
+ */
+void
+xqc_test_ring_mem_resize_below_used(void)
+{
+    xqc_ring_mem_idx_t idx;
+    xqc_ring_mem_t *rm;
+    char buf[32];
+
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_live = 0;
+    xqc_test_alloc_tracking = 1;
+#endif
+
+    rm = xqc_ring_mem_create(64);
+    CU_ASSERT_FATAL(rm != NULL);
+    CU_ASSERT(xqc_ring_mem_enqueue(rm, STR3_32B, 32, &idx) == XQC_OK);
+
+    CU_ASSERT(xqc_ring_mem_resize(rm, 16) == -XQC_EPARAM);
+    CU_ASSERT(xqc_ring_mem_resize(rm, 48) == XQC_OK);
+    CU_ASSERT(xqc_ring_mem_used_size(rm) == 32);
+    CU_ASSERT(xqc_ring_mem_copy(rm, idx, 32, buf, sizeof(buf)) == XQC_OK
+              && memcmp(buf, STR3_32B, 32) == 0);
+
+    xqc_ring_mem_free(rm);
+
+#ifdef XQC_TEST_ALLOC_WRAP
+    xqc_test_alloc_tracking = 0;
+    CU_ASSERT(xqc_test_alloc_live == 0);
+#endif
 }

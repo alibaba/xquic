@@ -32,6 +32,7 @@ static xqc_int_t xqc_wt_raw_stop(xqc_h3_stream_t *stream, uint64_t error);
 static xqc_int_t xqc_wt_raw_pause(xqc_h3_stream_t *stream,
     xqc_bool_t paused);
 static void xqc_wt_stream_release(xqc_wt_stream_base_t *stream);
+static void xqc_wt_stream_close_held(xqc_wt_stream_base_t *stream);
 static void xqc_wt_stream_terminate(xqc_wt_stream_base_t *stream);
 static void xqc_wt_stream_abort(xqc_wt_stream_base_t *stream, uint64_t error);
 static void xqc_wt_stream_buffer(xqc_wt_conn_t *conn,
@@ -476,10 +477,15 @@ xqc_wt_stream_notify_closing(xqc_wt_stream_base_t *stream,
     xqc_wt_stream_release(stream);
 }
 
-void
-xqc_wt_stream_notify_close(xqc_wt_stream_base_t *stream)
+/*
+ * Close the stream and notify the application. The caller holds a callback
+ * reference, so the stream outlives the callback until the caller releases
+ * that reference.
+ */
+static void
+xqc_wt_stream_close_held(xqc_wt_stream_base_t *stream)
 {
-    if (stream == NULL || stream->closed) {
+    if (stream->closed) {
         return;
     }
     stream->closed = XQC_TRUE;
@@ -488,7 +494,6 @@ xqc_wt_stream_notify_close(xqc_wt_stream_base_t *stream)
         stream->listed = XQC_FALSE;
     }
     stream->io->detach(stream->h3_stream);
-    stream->callback_depth++;
     if (stream->session != NULL) {
         if (!stream->outgoing) {
             xqc_wt_session_stream_closed(stream->session, stream->bidi);
@@ -503,6 +508,16 @@ xqc_wt_stream_notify_close(xqc_wt_stream_base_t *stream)
                                            stream->session, stream->user_data);
         }
     }
+}
+
+void
+xqc_wt_stream_notify_close(xqc_wt_stream_base_t *stream)
+{
+    if (stream == NULL || stream->closed) {
+        return;
+    }
+    stream->callback_depth++;
+    xqc_wt_stream_close_held(stream);
     xqc_wt_stream_release(stream);
 }
 
@@ -524,7 +539,7 @@ xqc_wt_stream_abort(xqc_wt_stream_base_t *stream, uint64_t error)
     {
         stream->io->stop(stream->h3_stream, error);
     }
-    xqc_wt_stream_notify_close(stream);
+    xqc_wt_stream_close_held(stream);
     xqc_wt_stream_release(stream);
 }
 
@@ -691,8 +706,11 @@ xqc_wt_stream_bind_reset(xqc_stream_t *raw, uint64_t error)
     xqc_h3_stream_t *h3_stream = raw->user_data;
     xqc_wt_conn_t *conn = xqc_wt_get_conn_from_h3(raw->stream_conn->proto_data);
     xqc_wt_stream_base_t *stream = xqc_wt_h3_stream_get(h3_stream);
-    /* Draft-07 Section 4.3: a sole session can identify a discarded prefix. */
-    if (!conn || conn->negotiated_version != XQC_WEBTRANSPORT_DRAFT_VERSION_7
+    /* Draft-02 and draft-07 Section 4.3: a sole session can identify
+     * a discarded prefix. */
+    if (!conn
+        || (conn->negotiated_version != XQC_WEBTRANSPORT_DRAFT_VERSION_7
+            && conn->negotiated_version != XQC_WEBTRANSPORT_DRAFT_VERSION_2)
         || conn->ctx->settings.max_sessions_count != 1
         || (h3_stream && h3_stream->type != XQC_H3_STREAM_TYPE_UNKNOWN)
         || (stream && (stream->session || stream->session_id_complete))

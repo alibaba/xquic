@@ -3,9 +3,11 @@
  */
 
 #include <CUnit/CUnit.h>
+#include <arpa/inet.h>
 
 #include <xquic/xquic.h>
 #include <xquic/xqc_http3.h>
+#include "src/common/xqc_memory_pool.h"
 #include "xqc_common_test.h"
 #include "src/common/xqc_object_manager.h"
 #include "src/common/xqc_rbtree.h"
@@ -14,6 +16,8 @@
 #include "src/transport/xqc_conn.h"
 #include "src/transport/xqc_multipath.h"
 #include "src/transport/xqc_send_ctl.h"
+#include "src/transport/xqc_stream.h"
+#include "src/transport/xqc_frame.h"
 #include "src/congestion_control/xqc_bbr_common.h"
 
 
@@ -294,6 +298,216 @@ xqc_test_alpn_information_log_truncated(void)
     CU_ASSERT(i == capture.size);
 }
 
+/* a log that writes every qlog event into capture */
+static void
+xqc_test_qlog_init(xqc_log_t *log, xqc_log_callbacks_t *callbacks,
+    xqc_test_log_capture_t *capture)
+{
+    memset(log, 0, sizeof(*log));
+    memset(callbacks, 0, sizeof(*callbacks));
+    memset(capture, 0, sizeof(*capture));
+    callbacks->xqc_qlog_event_write = xqc_test_qlog_write;
+    log->log_event = 1;
+    log->qlog_importance = EVENT_IMPORTANCE_EXTRA;
+    log->log_callbacks = callbacks;
+    log->user_data = capture;
+}
+
+/*
+ * The packet numbers, stream IDs and transport parameters of these events
+ * are 64-bit values: each is printed in full, here above 32 bits.
+ */
+void
+xqc_test_packets_acked_log(void)
+{
+    xqc_test_log_capture_t  capture;
+    xqc_log_callbacks_t     callbacks;
+    xqc_log_t               log;
+    xqc_packet_in_t         packet_in = {0};
+
+    xqc_test_qlog_init(&log, &callbacks, &capture);
+    packet_in.pi_pkt.pkt_pns = XQC_PNS_APP_DATA;
+
+    xqc_log_TRA_PACKETS_ACKED_callback(&log, "xqc_test", &packet_in,
+                                       0x100000005ULL, 0x100000001ULL, 7);
+
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|pkt_space:2|high:4294967301|low:4294967297|path_id:7|");
+}
+
+void
+xqc_test_stream_state_updated_log(void)
+{
+    xqc_test_log_capture_t  capture;
+    xqc_log_callbacks_t     callbacks;
+    xqc_log_t               log;
+    xqc_stream_t            stream = {0};
+
+    xqc_test_qlog_init(&log, &callbacks, &capture);
+    stream.stream_id = 0x100000004ULL;
+    stream.stream_state_send = XQC_SEND_STREAM_ST_SEND;
+    stream.stream_state_recv = XQC_RECV_STREAM_ST_RECV;
+
+    xqc_log_TRA_STREAM_STATE_UPDATED_callback(&log, "xqc_test", &stream,
+        XQC_LOG_STREAM_SEND, XQC_SEND_STREAM_ST_DATA_SENT);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|stream_id:4294967300|send_stream|old:1|new:2|");
+
+    xqc_log_TRA_STREAM_STATE_UPDATED_callback(&log, "xqc_test", &stream,
+        XQC_LOG_STREAM_RECV, XQC_RECV_STREAM_ST_SIZE_KNOWN);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|stream_id:4294967300|recv_stream|old:0|new:1|");
+}
+
+void
+xqc_test_parameters_set_log(void)
+{
+    xqc_test_log_capture_t  capture;
+    xqc_log_callbacks_t     callbacks;
+    xqc_log_t               log;
+    xqc_connection_t        conn = {0};
+
+    xqc_test_qlog_init(&log, &callbacks, &capture);
+    conn.local_settings.disable_active_migration = 1;
+    conn.local_settings.max_idle_timeout = 0x100000000ULL + 30000000;
+    conn.local_settings.max_udp_payload_size = 1500;
+    conn.local_settings.active_connection_id_limit = 8;
+    conn.local_settings.max_data = 0x200000000ULL;
+    conn.remote_settings.max_idle_timeout = 30000000;
+    conn.remote_settings.max_udp_payload_size = 0x100000000ULL + 1350;
+    conn.remote_settings.active_connection_id_limit = 0x100000002ULL;
+    conn.remote_settings.max_data = 16 * 1024 * 1024;
+
+    xqc_log_TRA_PARAMETERS_SET_callback(&log, "xqc_test", &conn,
+                                        XQC_LOG_LOCAL_EVENT);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|local|migration:1|max_idle_timeout:4324967296|"
+        "max_udp_payload_size:1500|active_connection_id_limit:8|"
+        "max_data:8589934592|");
+
+    xqc_log_TRA_PARAMETERS_SET_callback(&log, "xqc_test", &conn,
+                                        XQC_LOG_REMOTE_EVENT);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|remote|migration:0|max_idle_timeout:30000000|"
+        "max_udp_payload_size:4294968646|"
+        "active_connection_id_limit:4294967298|max_data:16777216|");
+}
+
+/* The packet number comes before a string: on a 32-bit target a 32-bit
+   conversion of it moved the string's pointer onto another argument. */
+void
+xqc_test_packet_lost_log(void)
+{
+    xqc_test_log_capture_t  capture;
+    xqc_log_callbacks_t     callbacks;
+    xqc_log_t               log;
+    xqc_packet_out_t        packet_out = {0};
+    xqc_engine_t           *engine;
+
+    /* the event writes the frame types into the engine's buffer */
+    engine = xqc_calloc(1, sizeof(xqc_engine_t));
+    CU_ASSERT_FATAL(engine != NULL);
+    xqc_test_qlog_init(&log, &callbacks, &capture);
+    log.engine = engine;
+    packet_out.po_pkt.pkt_pns = XQC_PNS_APP_DATA;
+    packet_out.po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    packet_out.po_pkt.pkt_num = 0x100000009ULL;
+    packet_out.po_sent_time = 0x10000000aULL;
+    packet_out.po_frame_types = XQC_FRAME_BIT_PING;
+    packet_out.po_path_id = 1;
+
+    xqc_log_REC_PACKET_LOST_callback(&log, "xqc_test", &packet_out,
+                                     0x10000000bULL, 0x10000000cULL,
+                                     0x10000000dULL);
+    CU_ASSERT_STRING_EQUAL(capture.buf,
+        "|xqc_test|pkt_pns:2|pkt_type:4|pkt_num:4294967305|"
+        "lost_pn:4294967307|po_sent_time:4294967306|"
+        "lost_send_time:4294967308|loss_delay:4294967309|frame:PING |"
+        "repair:0|path_id:1|");
+
+    xqc_free(engine);
+}
+
+/* an IPv6 socket address, port 4433, of the address written as text */
+static void
+xqc_test_addr_str_sockaddr_in6(struct sockaddr_in6 *sa6, const char *text)
+{
+    memset(sa6, 0, sizeof(*sa6));
+    sa6->sin6_family = AF_INET6;
+    sa6->sin6_port = htons(4433);
+    CU_ASSERT_FATAL(inet_pton(AF_INET6, text, &sa6->sin6_addr) == 1);
+}
+
+/*
+ * The local and peer address strings of the logs show each address in full.
+ * The text of an IPv6 address takes up to 39 characters, more than the size
+ * of the struct sockaddr_in6 that comes with it.
+ */
+void
+xqc_test_addr_str_full_address(void)
+{
+    static const char    local6[] = "fd12:3456:789a:bcde:f012:3456:789a:bcde";
+    static const char    peer6[] = "2001:db8:aaaa:bbbb:cccc:dddd:eeee:ffff";
+    static const char    peer4[] = "192.168.100.200";
+    struct sockaddr_in6  local_sa6, peer_sa6;
+    struct sockaddr_in   peer_sa4;
+    xqc_engine_t        *engine;
+    char                *local, *peer;
+
+    engine = xqc_calloc(1, sizeof(xqc_engine_t));
+    CU_ASSERT_FATAL(engine != NULL);
+
+    /* both for one log line, each in its own buffer */
+    xqc_test_addr_str_sockaddr_in6(&local_sa6, local6);
+    xqc_test_addr_str_sockaddr_in6(&peer_sa6, peer6);
+    local = xqc_local_addr_str(engine, (struct sockaddr *)&local_sa6,
+                               sizeof(local_sa6));
+    peer = xqc_peer_addr_str(engine, (struct sockaddr *)&peer_sa6,
+                             sizeof(peer_sa6));
+    CU_ASSERT_STRING_EQUAL(local, local6);
+    CU_ASSERT_STRING_EQUAL(peer, peer6);
+
+    memset(&peer_sa4, 0, sizeof(peer_sa4));
+    peer_sa4.sin_family = AF_INET;
+    peer_sa4.sin_port = htons(4433);
+    CU_ASSERT_FATAL(inet_pton(AF_INET, peer4, &peer_sa4.sin_addr) == 1);
+    peer = xqc_peer_addr_str(engine, (struct sockaddr *)&peer_sa4,
+                             sizeof(peer_sa4));
+    CU_ASSERT_STRING_EQUAL(peer, peer4);
+
+    xqc_free(engine);
+}
+
+/*
+ * An address that is missing, or neither IPv4 nor IPv6, gives an empty
+ * string in place of the previous one.
+ */
+void
+xqc_test_addr_str_no_address(void)
+{
+    static const char    text[] = "2001:db8::1";
+    struct sockaddr_in6  sa6;
+    struct sockaddr     *sa = (struct sockaddr *)&sa6;
+    xqc_engine_t        *engine;
+
+    engine = xqc_calloc(1, sizeof(xqc_engine_t));
+    CU_ASSERT_FATAL(engine != NULL);
+    xqc_test_addr_str_sockaddr_in6(&sa6, text);
+
+    CU_ASSERT_STRING_EQUAL(xqc_local_addr_str(engine, sa, sizeof(sa6)), text);
+    CU_ASSERT_STRING_EQUAL(xqc_local_addr_str(engine, sa, 0), "");
+    CU_ASSERT_STRING_EQUAL(xqc_peer_addr_str(engine, sa, sizeof(sa6)), text);
+    CU_ASSERT_STRING_EQUAL(xqc_peer_addr_str(engine, NULL, sizeof(sa6)), "");
+
+    CU_ASSERT_STRING_EQUAL(xqc_local_addr_str(engine, sa, sizeof(sa6)), text);
+    CU_ASSERT_STRING_EQUAL(xqc_peer_addr_str(engine, sa, sizeof(sa6)), text);
+    sa6.sin6_family = AF_UNSPEC;
+    CU_ASSERT_STRING_EQUAL(xqc_local_addr_str(engine, sa, sizeof(sa6)), "");
+    CU_ASSERT_STRING_EQUAL(xqc_peer_addr_str(engine, sa, sizeof(sa6)), "");
+
+    xqc_free(engine);
+}
+
 static inline void
 test_object_manager_cb(xqc_object_t *o)
 {
@@ -456,9 +670,52 @@ xqc_test_common()
     xqc_fifo_release(&fifo);
 }
 
+void
+xqc_test_memory_pool_large_alignment(void)
+{
+#ifdef XQC_PROTECT_POOL_MEM
+    xqc_memory_pool_t *pool = xqc_create_pool(8192, XQC_FALSE);
+#else
+    xqc_memory_pool_t *pool = xqc_create_pool(8192);
+#endif
+    CU_ASSERT_PTR_NOT_NULL(pool);
+    if (pool == NULL) {
+        return;
+    }
+
+    void *allocation = xqc_palloc(pool, XQC_MAX_MALLOC_FROM_POOL);
+    CU_ASSERT_PTR_NOT_NULL(allocation);
+    if (allocation != NULL) {
+        CU_ASSERT_EQUAL((uintptr_t)allocation % XQC_ALIGNMENT, 0);
+        ((unsigned char *)allocation)[XQC_MAX_MALLOC_FROM_POOL - 1] = 0x5a;
+    }
+
+    CU_ASSERT_PTR_NULL(xqc_palloc(pool, SIZE_MAX));
+    xqc_destroy_pool(pool);
+
+#if defined(XQC_PROTECT_POOL_MEM) && !defined(XQC_SYS_WINDOWS)
+    pool = xqc_create_pool(8192, XQC_TRUE);
+    CU_ASSERT_PTR_NOT_NULL(pool);
+    if (pool == NULL) {
+        return;
+    }
+
+    allocation = xqc_palloc(pool, XQC_MAX_MALLOC_FROM_POOL);
+    CU_ASSERT_PTR_NOT_NULL(allocation);
+    if (allocation != NULL) {
+        CU_ASSERT_EQUAL((uintptr_t)allocation % XQC_ALIGNMENT, 0);
+        ((unsigned char *)allocation)[XQC_MAX_MALLOC_FROM_POOL - 1] = 0x5a;
+    }
+
+    const size_t overhead = sizeof(xqc_memory_large_t) + XQC_ALIGNMENT - 1;
+    CU_ASSERT_PTR_NULL(xqc_palloc(pool, SIZE_MAX - overhead));
+    xqc_destroy_pool(pool);
+#endif
+}
+
 
 #define def_engine_ssl_config   \
-xqc_engine_ssl_config_t  engine_ssl_config;             \
+xqc_engine_ssl_config_t  engine_ssl_config = {0};       \
 engine_ssl_config.private_key_file = "./server.key";    \
 engine_ssl_config.cert_file = "./server.crt";           \
 engine_ssl_config.ciphers = XQC_TLS_CIPHERS;            \
@@ -643,4 +900,28 @@ xqc_test_murmur_hash2_high_bytes(void)
 
     CU_ASSERT_EQUAL(xqc_murmur_hash2(all, 4), 0x14acb3daU);
     CU_ASSERT_EQUAL(xqc_murmur_hash2(high, 4), 0x26de7447U);
+}
+
+/*
+ * "%*s" takes a length and a pointer, and an empty string may come with a
+ * NULL pointer, which must not reach memcpy().
+ */
+void
+xqc_test_sprintf_counted_string(void)
+{
+    unsigned char  buf[16];
+    unsigned char *end;
+
+    end = xqc_sprintf(buf, buf + sizeof(buf), "[%*s]",
+                      (size_t) 0, (unsigned char *) NULL);
+    CU_ASSERT(end - buf == 2 && memcmp(buf, "[]", 2) == 0);
+
+    end = xqc_sprintf(buf, buf + sizeof(buf), "[%*s]",
+                      (size_t) 3, (unsigned char *) "abcdef");
+    CU_ASSERT(end - buf == 5 && memcmp(buf, "[abc]", 5) == 0);
+
+    /* abnormal: a string longer than the buffer is cut at its end */
+    end = xqc_sprintf(buf, buf + 4, "[%*s]",
+                      (size_t) 6, (unsigned char *) "abcdef");
+    CU_ASSERT(end - buf == 4 && memcmp(buf, "[abc", 4) == 0);
 }

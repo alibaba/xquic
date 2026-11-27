@@ -605,8 +605,8 @@ xqc_server_h3_ext_datagram_read_callback(xqc_h3_conn_t *conn, const void *data, 
 
     if (data_len >= 13) {
         dgram_type = *(uint8_t*)data;
-        dgram_id = *(uint32_t*)((uint8_t *)data + 1);
-        timestamp = *(uint64_t*)((uint8_t *)data + 5);
+        memcpy(&dgram_id, (uint8_t *)data + 1, sizeof(dgram_id));
+        memcpy(&timestamp, (uint8_t *)data + 5, sizeof(timestamp));
 
         if (dgram_type == 0x32) {
             printf("[h3-dgram-benchmark]|dgram_id:%u|time:%"PRIu64"|\n", dgram_id, xqc_now() - timestamp);
@@ -884,7 +884,7 @@ xqc_server_stream_send(xqc_stream_t *stream, void *user_data)
 
         } else {
             if (g_send_body_size_defined) {
-                user_stream->send_body = malloc(g_send_body_size);
+                user_stream->send_body = calloc(1, g_send_body_size);
                 user_stream->send_body_len = g_send_body_size;
 
             } else if (g_read_body) {
@@ -903,7 +903,7 @@ xqc_server_stream_send(xqc_stream_t *stream, void *user_data)
                     g_send_body_size = get_random_from_cdf();
                     printf("send_request, size_from_cdf:%d\n", g_send_body_size);
                 }
-                user_stream->send_body = malloc(g_send_body_size);
+                user_stream->send_body = calloc(1, g_send_body_size);
                 user_stream->send_body_len = g_send_body_size;
             }
         }
@@ -1533,7 +1533,7 @@ int xqc_h3_ext_bytestream_create_callback(xqc_h3_ext_bytestream_t *h3_ext_bs,
     if (user_stream->send_body == NULL) {
         user_stream->send_body_max = MAX_BUF_SIZE;
         user_stream->send_body_len = user_stream->send_body_max;
-        user_stream->send_body = malloc(user_stream->send_body_len);
+        user_stream->send_body = calloc(1, user_stream->send_body_len);
         user_stream->send_offset = 0;
         user_stream->recv_body_len = 0;
         user_stream->recv_fin = 0;
@@ -1840,7 +1840,7 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
 
         } else {
             if (g_send_body_size_defined) {
-                user_stream->send_body = malloc(g_send_body_size);
+                user_stream->send_body = calloc(1, g_send_body_size);
                 user_stream->send_body_len = g_send_body_size;
 
             } else if (g_read_body) {
@@ -1859,7 +1859,7 @@ xqc_server_request_send(xqc_h3_request_t *h3_request, user_stream_t *user_stream
                     g_send_body_size = get_random_from_cdf();
                     printf("send_request, size_from_cdf:%d\n", g_send_body_size);
                 }
-                user_stream->send_body = malloc(g_send_body_size);
+                user_stream->send_body = calloc(1, g_send_body_size);
                 user_stream->send_body_len = g_send_body_size;
             }
         }

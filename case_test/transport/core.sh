@@ -130,14 +130,22 @@ case_transport_core_verify_token_success()
 
 clear_log
 echo -e "verify Token success ...\c"
+# the client sends the NEW_TOKEN token that verify_token_fail saved
+saved=`[ -s xqc_token ] && echo saved`
 result=`${CLIENT_BIN} -s 1024000 -l d -t 1 -E|grep ">>>>>>>> pass"`
 errlog=`grep_err_log`
+# the server logs a refused token at INFO or WARN level only
+accepted=`grep -a "xqc_conn_check_token|pass|" slog`
+refused=`grep -a "check_token fail" slog`
 echo "$result"
-if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ]; then
+if [ -z "$errlog" ] && [ "$result" == ">>>>>>>> pass:1" ] \
+    && [ -n "$saved" ] && [ -n "$accepted" ] && [ -z "$refused" ]; then
     case_print_result "verify_token_success" "pass"
 else
     case_print_result "verify_token_success" "fail"
     echo "$errlog"
+    echo "$saved"
+    echo "$refused"
 fi
 
 }
@@ -303,9 +311,9 @@ fi
 case_transport_core_active_cid_limit_accept()
 {
 
+case_test_stop_server
 clear_log
 echo -e "active_connection_id_limit accepts in-limit NEW_CONNECTION_ID ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 1 > /dev/null
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog
@@ -326,9 +334,9 @@ fi
 case_transport_core_active_cid_limit_exceeded()
 {
 
+case_test_stop_server
 clear_log
 echo -e "active_connection_id_limit rejects extra NEW_CONNECTION_ID ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 704 > svr_stdlog
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 2 -E > stdlog 2>&1
@@ -353,10 +361,10 @@ fi
 case_transport_core_active_cid_limit_minimum_accept()
 {
 
+case_test_stop_server
 clear_log
 rm -rf tp_localhost test_session xqc_token
 echo -e "active_connection_id_limit accepts minimum value ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 710 > svr_stdlog
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog 2>&1
@@ -380,10 +388,10 @@ fi
 case_transport_core_active_cid_limit_below_minimum()
 {
 
+case_test_stop_server
 clear_log
 rm -rf tp_localhost test_session xqc_token
 echo -e "active_connection_id_limit rejects value below minimum ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 709 > svr_stdlog
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 2 -E > stdlog 2>&1
@@ -410,10 +418,10 @@ rm -rf tp_localhost test_session xqc_token
 case_transport_core_max_ack_delay_valid_boundary()
 {
 
+case_test_stop_server
 clear_log
 rm -rf tp_localhost test_session xqc_token
 echo -e "max_ack_delay accepts the largest valid value ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 714 > svr_stdlog
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 1 -E > stdlog 2>&1
@@ -437,10 +445,10 @@ fi
 case_transport_core_max_ack_delay_invalid_boundary()
 {
 
+case_test_stop_server
 clear_log
 rm -rf tp_localhost test_session xqc_token
 echo -e "max_ack_delay rejects the first invalid value ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 713 > svr_stdlog
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 2 -E > stdlog 2>&1
@@ -466,10 +474,10 @@ rm -rf tp_localhost test_session xqc_token
 case_transport_core_crypto_previous_level_boundary()
 {
 
+case_test_stop_server
 clear_log
 rm -rf tp_localhost test_session xqc_token
 echo -e "previous encryption level CRYPTO accepts received boundary ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 720 > svr_stdlog
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -T 1 -t 1 -E > stdlog 2>&1
@@ -493,10 +501,10 @@ rm -rf tp_localhost test_session xqc_token
 case_transport_core_crypto_previous_level_extension()
 {
 
+case_test_stop_server
 clear_log
 rm -rf tp_localhost test_session xqc_token
 echo -e "previous encryption level CRYPTO rejects extension ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 721 > svr_stdlog
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -T 1 -t 2 -E > stdlog 2>&1
@@ -570,8 +578,8 @@ fi
 case_transport_core_load_balancer_cid_generate()
 {
 
-clear_log
 case_test_stop_server
+clear_log
 echo -e "load balancer cid generate ...\c"
 case_test_start_server ${SERVER_BIN} -l d -e -S "server_id_0" > /dev/null
 sleep 1
@@ -983,7 +991,7 @@ sleep 1
 rm -rf tp_localhost test_session xqc_token
 clear_log
 echo -e "transport MP ping ...\c"
-case_test_sudo ${CLIENT_BIN} -s 1024 -l d -E -T 1 -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
+${CLIENT_BIN} -s 1024 -l d -E -T 1 -e 1 --epoch_timeout 2000000 -t 3 --mp_ping 1 -M -i lo -i lo >> clog
 ret_ping_id=`grep -a "====>ping_id:" clog`
 ret_no_ping_id=`grep -a "====>no ping_id" clog`
 path0_ping=`grep -a -E "xqc_send_packet_with_pn.*path:0.*PING" clog`
@@ -1069,10 +1077,10 @@ rm -f test_session xqc_token tp_localhost
 case_transport_core_retry_invalid_token_close()
 {
 
+case_test_stop_server
 clear_log
 rm -rf tp_localhost test_session xqc_token
 echo -e "retry invalid token closes connection ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 715 > svr_stdlog
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 2 -E -x 715 > stdlog 2>&1
@@ -1095,10 +1103,10 @@ rm -rf tp_localhost test_session xqc_token
 case_transport_core_retry_ignore_old_initial_dcid()
 {
 
+case_test_stop_server
 clear_log
 rm -rf tp_localhost test_session xqc_token
 echo -e "retry ignores old Initial DCID after Retry ...\c"
-case_test_stop_server
 case_test_start_server ${SERVER_BIN} -l d -e -x 716 > svr_stdlog
 sleep 1
 ${CLIENT_BIN} -s 1024 -l d -t 2 -E -x 716 > stdlog 2>&1
@@ -1178,6 +1186,5 @@ fi
 
 case_test_enter_work_dir
 trap 'case_test_stop_server; case_test_cleanup_udp_port' EXIT
-case_test_require_sudo
 
 case_test_run

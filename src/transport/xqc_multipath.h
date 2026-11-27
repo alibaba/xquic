@@ -106,6 +106,16 @@ typedef struct {
     unsigned char         challenge_data[XQC_PATH_CHALLENGE_DATA_LEN];
 } xqc_path_rebinding_t;
 
+/*
+ * Size of the address text of a connection or a path,
+ * "l-<address>-<port>-<scid> p-<address>-<port>-<dcid>" (xqc_conn_addr_str(),
+ * xqc_path_addr_str()): the separators and the terminating NUL, and for each
+ * end an IPv6 address, a 5-digit port and a CID in hex, 2 digits per byte.
+ */
+#define XQC_ADDR_STR_SIZE                                                   \
+    (sizeof("l--- p---")                                                    \
+     + 2 * (INET6_ADDRSTRLEN - 1 + 5 + 2 * XQC_MAX_CID_LEN))
+
 /* path context */
 struct xqc_path_ctx_s {
 
@@ -120,7 +130,7 @@ struct xqc_path_ctx_s {
     socklen_t           peer_addrlen,
                         local_addrlen;
 
-    char                addr_str[2*(XQC_MAX_CID_LEN + INET6_ADDRSTRLEN) + 10];
+    char                addr_str[XQC_ADDR_STR_SIZE];
     socklen_t           addr_str_len;
 
     /* server-side NAT rebinding candidate and validation state */

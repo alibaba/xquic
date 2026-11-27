@@ -5,6 +5,7 @@
 #include <CUnit/CUnit.h>
 #include <stdint.h>
 #include <string.h>
+#include <arpa/inet.h>
 #include "xquic/xquic.h"
 #include "xquic/xqc_errno.h"
 #include "src/transport/xqc_conn.h"
@@ -149,6 +150,113 @@ xqc_test_conn_create()
 
     const xqc_cid_t *cid = test_cid_connect(engine);
     CU_ASSERT_NOT_EQUAL(cid, NULL);
+
+    xqc_engine_destroy(engine);
+}
+
+/* xqc_connect() to peer, with a client SCID of id followed by zeros */
+static const xqc_cid_t *
+xqc_test_conn_connect_peer(xqc_engine_t *engine, uint8_t id,
+    const struct sockaddr *peer, socklen_t peer_len)
+{
+    xqc_conn_settings_t settings;
+    xqc_conn_ssl_config_t ssl;
+
+    memset(&settings, 0, sizeof(settings));
+    settings.proto_version = XQC_VERSION_V1;
+    settings.specify_client_scid = 1;
+    settings.client_scid[0] = id;
+    memset(&ssl, 0, sizeof(ssl));
+    return xqc_connect(engine, &settings, NULL, 0, "", 0, &ssl, peer,
+                       peer_len, "transport", NULL);
+}
+
+/* a client connection keeps the IPv4 or IPv6 peer address given to it */
+void
+xqc_test_conn_client_peer_addr(void)
+{
+    struct sockaddr_in sa4;
+    struct sockaddr_in6 sa6;
+    struct sockaddr_storage addr;
+    socklen_t addr_len;
+    xqc_connection_t *conn;
+    const xqc_cid_t *cid;
+    xqc_engine_t *engine;
+
+    engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+
+    memset(&sa4, 0, sizeof(sa4));
+    sa4.sin_family = AF_INET;
+    sa4.sin_port = htons(4433);
+    sa4.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    cid = xqc_test_conn_connect_peer(engine, 1, (struct sockaddr *)&sa4,
+                                     sizeof(sa4));
+    CU_ASSERT_FATAL(cid != NULL);
+    conn = xqc_engine_get_conn_by_scid(engine, cid);
+    CU_ASSERT_FATAL(conn != NULL);
+    addr_len = 0;
+    CU_ASSERT(xqc_conn_get_peer_addr(conn, (struct sockaddr *)&addr,
+                                     sizeof(addr), &addr_len) == XQC_OK);
+    CU_ASSERT(addr_len == sizeof(sa4));
+    CU_ASSERT(memcmp(&addr, &sa4, sizeof(sa4)) == 0);
+
+    memset(&sa6, 0, sizeof(sa6));
+    sa6.sin6_family = AF_INET6;
+    sa6.sin6_port = htons(4433);
+    sa6.sin6_addr = in6addr_loopback;
+    cid = xqc_test_conn_connect_peer(engine, 2, (struct sockaddr *)&sa6,
+                                     sizeof(sa6));
+    CU_ASSERT_FATAL(cid != NULL);
+    conn = xqc_engine_get_conn_by_scid(engine, cid);
+    CU_ASSERT_FATAL(conn != NULL);
+    addr_len = 0;
+    CU_ASSERT(xqc_conn_get_peer_addr(conn, (struct sockaddr *)&addr,
+                                     sizeof(addr), &addr_len) == XQC_OK);
+    CU_ASSERT(addr_len == sizeof(sa6));
+    CU_ASSERT(memcmp(&addr, &sa6, sizeof(sa6)) == 0);
+
+    xqc_engine_destroy(engine);
+}
+
+/*
+ * A connection keeps a peer address of up to sizeof(struct sockaddr_in6)
+ * bytes. xqc_connect() refuses a longer one, such as the length of a struct
+ * sockaddr_storage, and creates no connection for it.
+ */
+void
+xqc_test_conn_client_peer_addr_too_long(void)
+{
+    struct sockaddr_storage peer;
+    struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *)&peer;
+    struct sockaddr *sa = (struct sockaddr *)&peer;
+    xqc_cid_t scid;
+    xqc_engine_t *engine;
+
+    engine = test_create_engine();
+    CU_ASSERT_FATAL(engine != NULL);
+
+    memset(&peer, 0, sizeof(peer));
+    sa6->sin6_family = AF_INET6;
+    sa6->sin6_port = htons(4433);
+    sa6->sin6_addr = in6addr_loopback;
+    memset(&scid, 0, sizeof(scid));
+    scid.cid_len = xqc_engine_config_get_cid_len(engine);
+
+    scid.cid_buf[0] = 1;
+    CU_ASSERT(xqc_test_conn_connect_peer(engine, 1, sa,
+                                         sizeof(struct sockaddr_in6) + 1)
+              == NULL);
+    CU_ASSERT(xqc_engine_get_conn_by_scid(engine, &scid) == NULL);
+
+    scid.cid_buf[0] = 2;
+    CU_ASSERT(xqc_test_conn_connect_peer(engine, 2, sa, sizeof(peer)) == NULL);
+    CU_ASSERT(xqc_engine_get_conn_by_scid(engine, &scid) == NULL);
+
+    /* the same address at its own length */
+    CU_ASSERT(xqc_test_conn_connect_peer(engine, 3, sa,
+                                         sizeof(struct sockaddr_in6))
+              != NULL);
 
     xqc_engine_destroy(engine);
 }
@@ -431,6 +539,94 @@ xqc_test_conn_pmtud_starts_after_handshake()
     xqc_engine_destroy(conn->engine);
 }
 
+/*
+ * The address text of a connection or a path with two IPv6 addresses of 39
+ * characters (eight groups of 4 hex digits), 5-digit ports and two CIDs of
+ * XQC_MAX_CID_LEN bytes, 2 hex digits per byte: 177 characters.
+ */
+#define XQC_TEST_ADDR_STR_LOCAL     "fd12:3456:789a:bcde:f012:3456:789a:bcde"
+#define XQC_TEST_ADDR_STR_PEER      "2001:abcd:aaaa:bbbb:cccc:dddd:eeee:ffff"
+#define XQC_TEST_ADDR_STR_SCID      "1111111111111111111111111111111111111111"
+#define XQC_TEST_ADDR_STR_DCID      "2222222222222222222222222222222222222222"
+#define XQC_TEST_ADDR_STR_EXPECTED                                          \
+    "l-" XQC_TEST_ADDR_STR_LOCAL "-49152-" XQC_TEST_ADDR_STR_SCID           \
+    " p-" XQC_TEST_ADDR_STR_PEER "-65535-" XQC_TEST_ADDR_STR_DCID
+
+static void
+xqc_test_addr_str_set(unsigned char *local_addr, socklen_t *local_addrlen,
+    unsigned char *peer_addr, socklen_t *peer_addrlen, xqc_cid_t *scid,
+    xqc_cid_t *dcid)
+{
+    struct sockaddr_in6 sa;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sin6_family = AF_INET6;
+    sa.sin6_port = htons(49152);
+    CU_ASSERT(inet_pton(AF_INET6, XQC_TEST_ADDR_STR_LOCAL, &sa.sin6_addr) == 1);
+    memcpy(local_addr, &sa, sizeof(sa));
+    *local_addrlen = sizeof(sa);
+
+    sa.sin6_port = htons(65535);
+    CU_ASSERT(inet_pton(AF_INET6, XQC_TEST_ADDR_STR_PEER, &sa.sin6_addr) == 1);
+    memcpy(peer_addr, &sa, sizeof(sa));
+    *peer_addrlen = sizeof(sa);
+
+    scid->cid_len = XQC_MAX_CID_LEN;
+    memset(scid->cid_buf, 0x11, XQC_MAX_CID_LEN);
+    dcid->cid_len = XQC_MAX_CID_LEN;
+    memset(dcid->cid_buf, 0x22, XQC_MAX_CID_LEN);
+}
+
+/* the address text of a connection holds both addresses and CIDs in full */
+void
+xqc_test_conn_addr_str_full_text(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_connection_t *conn;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    conn = xqc_calloc(1, sizeof(xqc_connection_t));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    conn->engine = engine;
+    xqc_test_addr_str_set(conn->local_addr, &conn->local_addrlen,
+                          conn->peer_addr, &conn->peer_addrlen,
+                          &conn->scid_set.user_scid,
+                          &conn->dcid_set.current_dcid);
+
+    CU_ASSERT_STRING_EQUAL(xqc_conn_addr_str(conn),
+                           XQC_TEST_ADDR_STR_EXPECTED);
+
+    xqc_free(conn);
+    xqc_engine_destroy(engine);
+}
+
+/* the address text of a path holds both addresses and CIDs in full */
+void
+xqc_test_path_addr_str_full_text(void)
+{
+    xqc_engine_t *engine = test_create_engine();
+    xqc_connection_t *conn;
+    xqc_path_ctx_t *path;
+
+    CU_ASSERT_PTR_NOT_NULL_FATAL(engine);
+    conn = xqc_calloc(1, sizeof(xqc_connection_t));
+    path = xqc_calloc(1, sizeof(xqc_path_ctx_t));
+    CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(path);
+    conn->engine = engine;
+    path->parent_conn = conn;
+    xqc_test_addr_str_set(path->local_addr, &path->local_addrlen,
+                          path->peer_addr, &path->peer_addrlen,
+                          &path->path_scid, &path->path_dcid);
+
+    CU_ASSERT_STRING_EQUAL(xqc_path_addr_str(path),
+                           XQC_TEST_ADDR_STR_EXPECTED);
+
+    xqc_free(path);
+    xqc_free(conn);
+    xqc_engine_destroy(engine);
+}
+
 void
 xqc_test_conn_pmtud_force_enable()
 {
@@ -614,6 +810,7 @@ xqc_test_conn_early_data_reject()
     xqc_destroy_stream(s2);
     xqc_destroy_stream(s3);
     xqc_destroy_stream(s4);
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1546,6 +1743,10 @@ xqc_test_alpn_server_cb_propagates_error(void)
 
     xqc_engine_t *engine = conn->engine;
     conn->conn_type = XQC_CONN_TYPE_SERVER;
+    /* a server has no ALPN before the select callback sets it */
+    xqc_free(conn->alpn);
+    conn->alpn = NULL;
+    conn->alpn_len = 0;
 
     xqc_int_t ret;
     ret = xqc_conn_tls_alpn_select_cb("transport", 9, conn);

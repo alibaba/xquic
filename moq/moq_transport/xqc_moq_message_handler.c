@@ -40,7 +40,8 @@ xqc_moq_on_client_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
                 role_found = 1;
                 session->peer_role = *param->value;
                 if (session->peer_role > XQC_MOQ_PUBSUB) {
-                    xqc_log(session->log, XQC_LOG_ERROR, "|illegal role|", param->type);
+                    xqc_log(session->log, XQC_LOG_ERROR,
+                            "|illegal role:0x%xd|", session->peer_role);
                     goto error;
                 }
                 break;
@@ -121,7 +122,8 @@ xqc_moq_on_server_setup(xqc_moq_session_t *session, xqc_moq_stream_t *moq_stream
                 role_found = 1;
                 session->peer_role = *param->value;
                 if (session->peer_role > XQC_MOQ_PUBSUB) {
-                    xqc_log(session->log, XQC_LOG_ERROR, "|illegal role:0x%xi|", param->type);
+                    xqc_log(session->log, XQC_LOG_ERROR,
+                            "|illegal role:0x%xd|", session->peer_role);
                     goto error;
                 }
                 break;

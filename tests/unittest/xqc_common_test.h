@@ -12,14 +12,22 @@
 #include "src/transport/xqc_engine.h"
 
 void xqc_test_common();
+void xqc_test_memory_pool_large_alignment(void);
 void xqc_test_murmur_hash2(void);
 void xqc_test_murmur_hash2_high_bytes(void);
+void xqc_test_sprintf_counted_string(void);
 void xqc_test_metrics_updated_log_bbr(void);
 void xqc_test_metrics_updated_log_no_bbr(void);
 void xqc_test_connection_closed_log_no_error(void);
 void xqc_test_connection_closed_log_with_error(void);
 void xqc_test_alpn_information_log_negotiated(void);
 void xqc_test_alpn_information_log_truncated(void);
+void xqc_test_packets_acked_log(void);
+void xqc_test_stream_state_updated_log(void);
+void xqc_test_parameters_set_log(void);
+void xqc_test_packet_lost_log(void);
+void xqc_test_addr_str_full_address(void);
+void xqc_test_addr_str_no_address(void);
 const xqc_cid_t *test_cid_connect(xqc_engine_t *engine);
 xqc_connection_t *test_engine_connect();
 xqc_engine_t *test_create_engine();

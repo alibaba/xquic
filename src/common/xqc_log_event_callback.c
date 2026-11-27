@@ -208,9 +208,9 @@ xqc_log_TRA_PARAMETERS_SET_callback(xqc_log_t *log, const char *func, xqc_connec
     }
 
     xqc_qlog_implement(log, TRA_PARAMETERS_SET, func,
-                      "|%s|migration:%d|max_idle_timeout:%d|max_udp_payload_size:%d|"
-                      "active_connection_id_limit:%d|max_data:%d|",
-                      local == XQC_LOG_LOCAL_EVENT ? "local" : "remote", setting->disable_active_migration,
+                      "|%s|migration:%d|max_idle_timeout:%ui|max_udp_payload_size:%ui|"
+                      "active_connection_id_limit:%ui|max_data:%ui|",
+                      local == XQC_LOG_LOCAL_EVENT ? "local" : "remote", (int) setting->disable_active_migration,
                       setting->max_idle_timeout, setting->max_udp_payload_size,
                       setting->active_connection_id_limit, setting->max_data);
 }
@@ -258,7 +258,7 @@ void
 xqc_log_TRA_PACKET_BUFFERED_callback(xqc_log_t *log, const char *func, xqc_packet_in_t *packet_in)
 {
     xqc_qlog_implement(log, TRA_PACKET_BUFFERED, func,
-                      "|pkt_num:%ui|pkt_pns:%d|pkt_type:%d|len:%d|",
+                      "|pkt_num:%ui|pkt_pns:%d|pkt_type:%d|len:%uz|",
                       packet_in->pi_pkt.pkt_num, packet_in->pi_pkt.pkt_pns, packet_in->pi_pkt.pkt_type, packet_in->buf_size);
 }
 
@@ -267,7 +267,7 @@ xqc_log_TRA_PACKETS_ACKED_callback(xqc_log_t *log, const char *func, xqc_packet_
     xqc_packet_number_t high, xqc_packet_number_t low, uint64_t path_id)
 {
     xqc_qlog_implement(log, TRA_PACKETS_ACKED, func,
-                      "|pkt_space:%d|high:%d|low:%d|path_id:%ui|",
+                      "|pkt_space:%d|high:%ui|low:%ui|path_id:%ui|",
                       packet_in->pi_pkt.pkt_pns, high, low, path_id);
 }
 
@@ -282,7 +282,7 @@ void
 xqc_log_TRA_DATAGRAMS_RECEIVED_callback(xqc_log_t *log, const char *func, ssize_t size, uint64_t path_id)
 {
     xqc_qlog_implement(log, TRA_DATAGRAMS_RECEIVED, func,
-                      "|size:%d|path_id:%ui|", size, path_id);
+                      "|size:%z|path_id:%ui|", size, path_id);
 }
 
 void
@@ -291,11 +291,11 @@ xqc_log_TRA_STREAM_STATE_UPDATED_callback(xqc_log_t *log, const char *func, xqc_
 {
     if (stream_type == XQC_LOG_STREAM_SEND) {
         xqc_qlog_implement(log, TRA_STREAM_STATE_UPDATED, func,
-                          "|stream_id:%d|send_stream|old:%d|new:%d|",
+                          "|stream_id:%ui|send_stream|old:%d|new:%d|",
                           stream->stream_id, stream->stream_state_send, state);
     } else {
         xqc_qlog_implement(log, TRA_STREAM_STATE_UPDATED, func,
-                          "|stream_id:%d|recv_stream|old:%d|new:%d|",
+                          "|stream_id:%ui|recv_stream|old:%d|new:%d|",
                           stream->stream_id, stream->stream_state_recv, state);
     }
 }
@@ -310,7 +310,7 @@ xqc_log_TRA_FRAMES_PROCESSED_callback(xqc_log_t *log, const char *func, ...)
     case XQC_FRAME_PADDING: {
         uint32_t length = va_arg(args, uint32_t);
         xqc_qlog_implement(log, TRA_FRAMES_PROCESSED, func,
-                          "|type:%d|length:%ui|", frame_type, length);
+                          "|type:%d|length:%ud|", frame_type, length);
         break;
     }
 
@@ -622,8 +622,8 @@ xqc_log_REC_PACKET_LOST_callback(xqc_log_t *log, const char *func, xqc_packet_ou
                                 xqc_packet_number_t lost_pn, xqc_usec_t lost_send_time, xqc_usec_t loss_delay)
 {
     xqc_qlog_implement(log, REC_PACKET_LOST, func,
-                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%d|lost_pn:%ui|po_sent_time:%ui|"
-                      "lost_send_time:%ui|loss_delay:%ui|frame:%s|repair:%d|path_id:%ui|",
+                      "|pkt_pns:%d|pkt_type:%d|pkt_num:%ui|lost_pn:%ui|po_sent_time:%ui|"
+                      "lost_send_time:%ui|loss_delay:%ui|frame:%s|repair:%ui|path_id:%ui|",
                       packet_out->po_pkt.pkt_pns, packet_out->po_pkt.pkt_type, packet_out->po_pkt.pkt_num,
                       lost_pn, packet_out->po_sent_time, lost_send_time, loss_delay,
                       xqc_frame_type_2_str(log->engine, packet_out->po_frame_types), XQC_NEED_REPAIR(packet_out->po_frame_types),
@@ -660,8 +660,9 @@ void
 xqc_log_HTTP_STREAM_TYPE_SET_callback(xqc_log_t *log, const char *func, xqc_h3_stream_t *h3_stream, xqc_int_t local)
 {
     xqc_qlog_implement(log, HTTP_STREAM_TYPE_SET, func,
-                      "|%s|stream_id:%ui|stream_type:%d|",
-                      local == XQC_LOG_LOCAL_EVENT ? "local" : "remote", h3_stream->stream_id, h3_stream->type);
+                      "|%s|stream_id:%ui|stream_type:%i|",
+                      local == XQC_LOG_LOCAL_EVENT ? "local" : "remote", h3_stream->stream_id,
+                      (int64_t) h3_stream->type);
 }
 
 void
@@ -677,7 +678,7 @@ xqc_log_HTTP_FRAME_CREATED_callback(xqc_log_t *log, const char *func, ...)
     case XQC_H3_FRM_DATA: {
         uint64_t size = va_arg(args, uint64_t);
         xqc_qlog_implement(log, HTTP_FRAME_CREATED, func,
-                          "|stream_id:%ui|type:%d|size:%ui|", stream_id, type, size);
+                          "|stream_id:%ui|type:%i|size:%ui|", stream_id, (int64_t) type, size);
         break;
     }
     case XQC_H3_FRM_HEADERS: {
@@ -694,7 +695,8 @@ xqc_log_HTTP_FRAME_CREATED_callback(xqc_log_t *log, const char *func, ...)
             }
         }
         xqc_qlog_implement(log, HTTP_FRAME_CREATED, func,
-                          "|stream_id:%ui|type:%d|%*s", stream_id, type,
+                          "|stream_id:%ui|type:%i|%*s",
+                          stream_id, (int64_t) type,
                           (size_t) (p - log_buf), log_buf);
         break;
     }
@@ -703,15 +705,15 @@ xqc_log_HTTP_FRAME_CREATED_callback(xqc_log_t *log, const char *func, ...)
     case XQC_H3_FRM_MAX_PUSH_ID: {
         uint64_t push_id = va_arg(args, uint64_t);
         xqc_qlog_implement(log, HTTP_FRAME_CREATED, func,
-                          "|stream_id:%ui|type:%d|push_id:%ui|", stream_id, type, push_id);
+                          "|stream_id:%ui|type:%i|push_id:%ui|", stream_id, (int64_t) type, push_id);
         break;
     }
     case XQC_H3_FRM_SETTINGS: {
         xqc_h3_conn_settings_t *settings = va_arg(args, xqc_h3_conn_settings_t*);
         xqc_qlog_implement(log, HTTP_FRAME_CREATED, func,
-                          "|stream_id:%ui|type:%d|max_field_section_size:%ui|max_pushes:%ui|"
+                          "|stream_id:%ui|type:%i|max_field_section_size:%ui|max_pushes:%ui|"
                           "|qpack_max_table_capacity:%ui|qpack_blocked_streams:%ui|",
-                          stream_id, type, settings->max_field_section_size, settings->max_pushes,
+                          stream_id, (int64_t) type, settings->max_field_section_size, settings->max_pushes,
                           settings->qpack_dec_max_table_capacity, settings->qpack_blocked_streams);
         break;
     }
@@ -719,7 +721,7 @@ xqc_log_HTTP_FRAME_CREATED_callback(xqc_log_t *log, const char *func, ...)
         uint64_t push_id = va_arg(args, uint64_t);
         xqc_http_headers_t *headers = va_arg(args, xqc_http_headers_t*);
         xqc_qlog_implement(log, HTTP_FRAME_CREATED, func,
-                          "|stream_id:%ui|type:%d|push_id:%ui|", stream_id, type, push_id);
+                          "|stream_id:%ui|type:%i|push_id:%ui|", stream_id, (int64_t) type, push_id);
         break;
     }
     default:
@@ -738,30 +740,30 @@ xqc_log_HTTP_FRAME_PARSED_callback(xqc_log_t *log, const char *func, xqc_h3_stre
     case XQC_H3_FRM_HEADERS:
     case XQC_H3_FRM_SETTINGS:
         xqc_qlog_implement(log, HTTP_FRAME_PARSED, func,
-                          "|stream_id:%ui|type:%d|length:%ui|", stream_id, frame->type, frame->len);
+                          "|stream_id:%ui|type:%i|length:%ui|", stream_id, (int64_t) frame->type, frame->len);
         break;
     case XQC_H3_FRM_CANCEL_PUSH: {
         xqc_qlog_implement(log, HTTP_FRAME_PARSED, func,
-                          "|stream_id:%ui|type:%d|length:%ui|push_id:%ui|",
-                          stream_id, frame->type, frame->len, frame->frame_payload.cancel_push.push_id.vi);
+                          "|stream_id:%ui|type:%i|length:%ui|push_id:%ui|",
+                          stream_id, (int64_t) frame->type, frame->len, frame->frame_payload.cancel_push.push_id.vi);
         break;
     }
     case XQC_H3_FRM_PUSH_PROMISE: {
         xqc_qlog_implement(log, HTTP_FRAME_PARSED, func,
-                          "|stream_id:%ui|type:%d|length:%ui|push_id:%ui|",
-                          stream_id, frame->type, frame->len, frame->frame_payload.push_promise.push_id.vi);
+                          "|stream_id:%ui|type:%i|length:%ui|push_id:%ui|",
+                          stream_id, (int64_t) frame->type, frame->len, frame->frame_payload.push_promise.push_id.vi);
         break;
     }
     case XQC_H3_FRM_GOAWAY: {
         xqc_qlog_implement(log, HTTP_FRAME_PARSED, func,
-                          "|stream_id:%ui|type:%d|length:%ui|push_id:%ui|",
-                          stream_id, frame->type, frame->len, frame->frame_payload.goaway.stream_id.vi);
+                          "|stream_id:%ui|type:%i|length:%ui|push_id:%ui|",
+                          stream_id, (int64_t) frame->type, frame->len, frame->frame_payload.goaway.stream_id.vi);
         break;
     }
     case XQC_H3_FRM_MAX_PUSH_ID: {
         xqc_qlog_implement(log, HTTP_FRAME_PARSED, func,
-                          "|stream_id:%ui|type:%d|length:%ui|push_id:%ui|",
-                          stream_id, frame->type, frame->len, frame->frame_payload.max_push_id.push_id.vi);
+                          "|stream_id:%ui|type:%i|length:%ui|push_id:%ui|",
+                          stream_id, (int64_t) frame->type, frame->len, frame->frame_payload.max_push_id.push_id.vi);
         break;
     }
     default:
@@ -772,7 +774,7 @@ xqc_log_HTTP_FRAME_PARSED_callback(xqc_log_t *log, const char *func, xqc_h3_stre
 void
 xqc_log_HTTP_PRIORITY_UPDATED_callback(xqc_log_t *log, const char *func, xqc_h3_priority_t *prio, xqc_h3_stream_t *h3s)
 {
-    xqc_qlog_implement(log, HTTP_PRIORITY_UPDATED, func, "|urgency:%ui|incremental:%ui|schedule:%ui|reinject:%ui|fec_bm_mode:%ui|"
+    xqc_qlog_implement(log, HTTP_PRIORITY_UPDATED, func, "|urgency:%ud|incremental:%ud|schedule:%ud|reinject:%ud|fec_bm_mode:%ud|"
             "stream_id:%ui|conn:%p|",
             prio->urgency, prio->incremental, prio->schedule, prio->reinject, h3s->stream->stream_fec_blk_mode,
             h3s->stream_id, h3s->h3c->conn);

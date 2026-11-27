@@ -263,7 +263,8 @@ xqc_reed_solomon_decode(xqc_connection_t *conn, unsigned char **outputs, size_t 
         goto decoder_end;
     }
     if (i != recv_symbols_num) {
-        xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_reed_solomon_decode|recv symbols not enouph to recover lost symbols");
+        xqc_log(conn->log, XQC_LOG_WARN, "|quic_fec|xqc_reed_solomon_decode"
+                "|recv symbols not enough to recover lost symbols");
         ret = -XQC_EFEC_SCHEME_ERROR;
         goto decoder_end;
     }

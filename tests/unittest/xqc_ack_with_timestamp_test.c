@@ -68,6 +68,8 @@ xqc_test_ack_with_timestamp_normal()
     }
     xqc_engine_destroy(conn->engine);
     xqc_packet_out_destroy(packet_out);
+    xqc_recv_record_destroy(
+        &path->path_pn_ctl->ctl_recv_record[XQC_PNS_APP_DATA]);
     xqc_recv_timestamps_info_destroy(recv_timestamp_info);
     xqc_free(packet_in);
     xqc_free(path->path_pn_ctl);
@@ -126,6 +128,8 @@ xqc_test_ack_with_timestamp_no_buf_space()
     CU_ASSERT(ret == -XQC_ENOBUF);
     xqc_engine_destroy(conn->engine);
     xqc_packet_out_destroy(packet_out);
+    xqc_recv_record_destroy(
+        &path->path_pn_ctl->ctl_recv_record[XQC_PNS_APP_DATA]);
     xqc_recv_timestamps_info_destroy(recv_timestamp_info);
     xqc_free(path->path_pn_ctl);
     xqc_free(path->path_send_ctl);
@@ -196,6 +200,8 @@ xqc_test_ack_with_timestamp_partial_writing()
     CU_ASSERT(ack_timestamp.report_num == 0);
     xqc_engine_destroy(conn->engine);
     xqc_packet_out_destroy(packet_out);
+    xqc_recv_record_destroy(
+        &path->path_pn_ctl->ctl_recv_record[XQC_PNS_APP_DATA]);
     xqc_recv_timestamps_info_destroy(recv_timestamp_info);
     xqc_free(packet_in);
     xqc_free(path->path_pn_ctl);

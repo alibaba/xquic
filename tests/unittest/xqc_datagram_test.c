@@ -152,10 +152,9 @@ xqc_test_record_mss_times(xqc_connection_t *conn, int times)
 }
 
 /*
- * An MSS of zero tells the application that the peer takes no DATAGRAM
- * frames. It is reported once, however often the MSS is computed again,
- * e.g. on a connection ID or path MTU change, and once more after an MSS
- * above zero.
+ * When the peer advertises a max_datagram_frame_size of zero, repeated
+ * MSS calculations notify the application only once. If the MSS becomes
+ * positive and later returns to zero, the application is notified again.
  */
 void
 xqc_test_dgram_mss_zero_notified_once()

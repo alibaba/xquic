@@ -448,6 +448,14 @@ main(int argc, char *argv[])
                         xqc_test_conn_close_reason_no_space)
         || !CU_add_test(pSuite, "xqc_test_conn_close_reason_too_long",
                         xqc_test_conn_close_reason_too_long)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_closing_state_from_close_sent",
+                        xqc_test_conn_closing_state_from_close_sent)
+        || !CU_add_test(pSuite,
+                        "xqc_test_conn_close_sent_after_closing_period",
+                        xqc_test_conn_close_sent_after_closing_period)
+        || !CU_add_test(pSuite, "xqc_test_conn_close_blocked_until_sent",
+                        xqc_test_conn_close_blocked_until_sent)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_first_writer_wins", xqc_test_conn_tls_error_first_writer_wins)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_alert_zero", xqc_test_conn_tls_error_cb_alert_zero)
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_max_alert", xqc_test_conn_tls_error_cb_max_alert)

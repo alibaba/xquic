@@ -753,7 +753,7 @@ xqc_test_min_ref()
 }
 
 
-#ifdef XQC_ENABLE_EVENT_LOG
+#if defined(XQC_ENABLE_EVENT_LOG) && !defined(XQC_DISABLE_LOG)
 
 /* the instruction events of an encoder */
 typedef struct xqc_qpack_test_events_s {

@@ -841,26 +841,53 @@ def watchdog_selftest(root)
   work_dir = File.join(root, "build/case_test_arch_check_watchdog")
   FileUtils.rm_rf(work_dir)
   FileUtils.mkdir_p(File.join(work_dir, "bin"))
+  write_watchdog_selftest_scripts(work_dir)
 
+  # A seam TERMs the watchdog subshell from inside, right after (1) or right
+  # before (0) an anchor line of case_test_case_watchdog_start(); "sleeping"
+  # uses the TERM of the stop.
+  self_term = %q(kill -TERM "$(exec sh -c 'echo "${PPID}"')")
+  started = File.join(work_dir, "started").inspect
+  points = {
+    "sleeping" => nil,
+    "unarmed" => [1, "(", self_term],
+    "forked" => [1, 'sleep "${timeout_s}" &', "read -r _ < #{started}; #{self_term}"],
+    "prefork" => [0, 'sleep "${timeout_s}" &', self_term]
+  }
+  source = File.read(File.join(root, "case_test/lib/common.sh")).lines
+  failures = []
+  points.each do |point, seam|
+    # A stop that relies on TERM can hang at "prefork" instead of failing
+    # (bash before 5.2), so that point runs once the others passed.
+    break if point == "prefork" && !failures.empty?
+
+    failure = run_watchdog_selftest_point(work_dir, point, watchdog_seamed_script(source, seam))
+    failures << failure if failure
+  end
+  raise "watchdog selftest failed\n#{failures.join("\n")}" unless failures.empty?
+
+  puts "watchdog_selftest=pass"
+  puts "watchdog_points=#{points.keys.join(",")}"
+  puts "watchdog_bash=#{run!({}, "bash", "-c", "echo \"${BASH_VERSION}\"").chomp}"
+end
+
+def write_watchdog_selftest_scripts(work_dir)
   started_path = File.join(work_dir, "started")
-  pid_path = File.join(work_dir, "sleep.pid")
   File.write(File.join(work_dir, "bin/sleep"), <<~SH)
     #!/bin/sh
     exec ruby -e '
       trap("TERM") { IO.for_fd(8, autoclose: false).syswrite("survived-term\\n") }
-      File.write(#{pid_path.inspect}, Process.pid.to_s)
+      File.write(#{File.join(work_dir, "sleep.pid").inspect}, Process.pid.to_s)
       File.open(#{started_path.inspect}, "w") { |fifo| fifo.puts(Process.pid) }
       loop { sleep }'
   SH
   FileUtils.chmod("+x", File.join(work_dir, "bin/sleep"))
 
-  driver_path = File.join(work_dir, "driver.sh")
-  log_path = File.join(work_dir, "watchdog.log")
-  File.write(driver_path, <<~SH)
+  File.write(File.join(work_dir, "driver.sh"), <<~SH)
     #!/bin/bash
     set -u
     source #{File.join(work_dir, "common.sh").inspect}
-    case_test_case_watchdog_start selftest.watchdog native 1000 > #{log_path.inspect} 2>&1
+    case_test_case_watchdog_start selftest.watchdog native 1000 > #{File.join(work_dir, "watchdog.log").inspect} 2>&1
     if [[ "$1" = "sleeping" ]]; then
         read -r _ < #{started_path.inspect}
         case_test_case_watchdog_stop
@@ -868,80 +895,64 @@ def watchdog_selftest(root)
         wait "${CASE_TEST_CASE_WATCHDOG_PID}"
     fi
   SH
+end
 
-  # A seam TERMs the watchdog subshell from inside, right after (1) or right
-  # before (0) an anchor line of case_test_case_watchdog_start(); "sleeping"
-  # uses the TERM of the stop.
-  self_term = %q(kill -TERM "$(exec sh -c 'echo "${PPID}"')")
-  points = {
-    "sleeping" => nil,
-    "unarmed" => [1, "(", self_term],
-    "forked" => [1, 'sleep "${timeout_s}" &', "read -r _ < #{started_path.inspect}; #{self_term}"],
-    "prefork" => [0, 'sleep "${timeout_s}" &', self_term]
-  }
-  source = File.read(File.join(root, "case_test/lib/common.sh")).lines
-  start = source.index { |line| line.start_with?("case_test_case_watchdog_start()") }
-  failures = []
+# Returns common.sh with the seam line inserted next to its anchor line in
+# case_test_case_watchdog_start(), or nil when that anchor is missing.
+def watchdog_seamed_script(source, seam)
+  return source.join unless seam
 
-  points.each do |point, (offset, anchor, seam)|
-    # A stop that relies on TERM can hang at "prefork" instead of failing
-    # (bash before 5.2), so that point runs once the others passed.
-    break if point == "prefork" && !failures.empty?
+  offset, anchor, line = seam
+  start = source.index { |text| text.start_with?("case_test_case_watchdog_start()") }
+  at = start && (start...source.length).find { |i| source[i].strip == anchor }
+  at && source.dup.insert(at + offset, "#{line}\n").join
+end
 
-    lines = source.dup
-    if anchor
-      at = start && lines.each_index.find { |i| i > start && lines[i].strip == anchor }
-      unless at
-        failures << "#{point}: no line #{anchor.inspect} in case_test_case_watchdog_start()"
-        next
-      end
-      lines.insert(at + offset, "#{seam}\n")
-    end
-    File.write(File.join(work_dir, "common.sh"), lines.join)
-    FileUtils.rm_f([started_path, pid_path])
-    File.mkfifo(started_path)
+# Runs one point; returns its failure, or nil when it passed.
+def run_watchdog_selftest_point(work_dir, point, script)
+  return "#{point}: no anchor line for its seam in case_test_case_watchdog_start()" unless script
 
-    reader, writer = IO.pipe
-    pid = Process.spawn(
-      { "PATH" => "#{File.join(work_dir, "bin")}:#{ENV.fetch("PATH")}" },
-      "bash", driver_path, point,
-      8 => writer,
-      out: File.join(work_dir, "#{point}.out"),
-      err: [:child, :out]
-    )
-    writer.close
-    done_reader, done_writer = IO.pipe
-    waiter = Thread.new do
-      Process.wait(pid)
-      done_writer.close
-    end
+  File.write(File.join(work_dir, "common.sh"), script)
+  started_path = File.join(work_dir, "started")
+  FileUtils.rm_f([started_path, File.join(work_dir, "sleep.pid")])
+  File.mkfifo(started_path)
 
-    # Ready on a TERM report, on end of file (no process holds descriptor 8
-    # any more), or when the case shell exits.
-    IO.select([reader, done_reader])
-    report = reader.read_nonblock(64, exception: false)
-    if report == :wait_readable
-      failures << "#{point}: a process of the watchdog outlived the case shell"
-    elsif report
-      failures << "#{point}: the sleep survived a TERM"
-    end
-    if report && File.exist?(pid_path)
-      begin
-        Process.kill("KILL", File.read(pid_path).to_i)
-      rescue Errno::ESRCH
-        nil
-      end
-    end
-    waiter.join
-    reader.close
-    done_reader.close
+  reader, writer = IO.pipe
+  pid = Process.spawn(
+    { "PATH" => "#{File.join(work_dir, "bin")}:#{ENV.fetch("PATH")}" },
+    "bash", File.join(work_dir, "driver.sh"), point,
+    8 => writer,
+    out: File.join(work_dir, "#{point}.out"),
+    err: [:child, :out]
+  )
+  writer.close
+  done_reader, done_writer = IO.pipe
+  waiter = Thread.new do
+    Process.wait(pid)
+    done_writer.close
   end
 
-  raise "watchdog selftest failed\n#{failures.join("\n")}" unless failures.empty?
+  # Ready on a TERM report, on end of file (no process holds descriptor 8
+  # any more), or when the case shell exits.
+  IO.select([reader, done_reader])
+  report = reader.read_nonblock(64, exception: false)
+  kill_watchdog_stand_in(work_dir) if report
+  waiter.join
+  reader.close
+  done_reader.close
+  return nil if report.nil?
+  return "#{point}: a process of the watchdog outlived the case shell" if report == :wait_readable
 
-  puts "watchdog_selftest=pass"
-  puts "watchdog_points=#{points.keys.join(",")}"
-  puts "watchdog_bash=#{run!({}, "bash", "-c", "echo \"${BASH_VERSION}\"").chomp}"
+  "#{point}: the sleep survived a TERM"
+end
+
+def kill_watchdog_stand_in(work_dir)
+  pid_path = File.join(work_dir, "sleep.pid")
+  return unless File.exist?(pid_path)
+
+  Process.kill("KILL", File.read(pid_path).to_i)
+rescue Errno::ESRCH
+  nil
 end
 
 def wait_for_log_selftest(root)

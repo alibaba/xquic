@@ -828,7 +828,7 @@ xqc_qpack_test_name_only_insert(void)
     CU_ASSERT(xqc_qpack_enc_headers(qpk, 0, &hdrs, efs) == XQC_OK);
     /* the name went into the dynamic table */
     CU_ASSERT(enc_ins->data_len > 0);
-#ifdef XQC_ENABLE_EVENT_LOG
+#if defined(XQC_ENABLE_EVENT_LOG) && !defined(XQC_DISABLE_LOG)
     CU_ASSERT(events.lines == 1);
     CU_ASSERT_PTR_NOT_NULL(
         strstr(events.line,

@@ -239,12 +239,15 @@ xqc_test_reliable_reset_transport_params(void)
     CU_ASSERT(xqc_decode_transport_params(&decoded, XQC_TP_TYPE_CLIENT_HELLO,
         duplicate, sizeof(duplicate)) < 0);
     char stored[512];
+    params.max_datagram_frame_size = 1200;
     xqc_init_transport_params(&decoded);
     int n = xqc_write_transport_params(stored, sizeof(stored), &params);
     CU_ASSERT_FATAL(n > 0 && n < sizeof(stored));
     CU_ASSERT(strstr(stored, "reset_stream_at=1\n") != NULL);
     CU_ASSERT(xqc_read_transport_params(stored, n, &decoded) == XQC_OK);
     CU_ASSERT(decoded.reset_stream_at == XQC_TRUE);
+    CU_ASSERT(decoded.max_datagram_frame_size
+        == params.max_datagram_frame_size);
     xqc_connection_t *conn = xqc_reset_test_conn();
     CU_ASSERT_FATAL(conn != NULL);
     CU_ASSERT(xqc_conn_set_early_remote_transport_params(conn, &decoded)
@@ -266,7 +269,8 @@ xqc_test_reliable_reset_transport_params(void)
     char *reset_value = strstr(stored, "reset_stream_at=0\n");
     CU_ASSERT_FATAL(reset_value != NULL);
     reset_value[xqc_lengthof("reset_stream_at=")] = '2';
-    CU_ASSERT(xqc_read_transport_params(stored, n + appended, &decoded) < 0);
+    CU_ASSERT(xqc_read_transport_params(stored, n + appended, &decoded)
+        == -XQC_TLS_MALFORMED_TRANSPORT_PARAM);
 
     /* Match the internal decimal parser and reset-only cache validation. */
     const char *valid_reset = "reset_stream_at=0001\n";

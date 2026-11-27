@@ -155,7 +155,30 @@ case_test_case_watchdog_start()
     fi
 
     (
-        sleep "${timeout_s}"
+        # The sleep runs in the background so that the TERM of
+        # case_test_case_watchdog_stop() can end it too: left running, it
+        # would keep the inherited descriptors open until the timeout. It
+        # gets KILL, not TERM: before bash 5.2, a child forked a moment ago
+        # could catch a TERM with the trap it inherited and still exec.
+        cancel_sleep()
+        {
+            trap '' TERM
+            kill -KILL "${sleep_pid}" 2> /dev/null || true
+            wait "${sleep_pid}" 2> /dev/null || true
+            exit 0
+        }
+
+        # Remember an early TERM until we have the child's PID.
+        cancel_pending=0
+        trap 'cancel_pending=1' TERM
+        sleep "${timeout_s}" &
+        sleep_pid="$!"
+        trap cancel_sleep TERM
+        if [[ "${cancel_pending}" -eq 1 ]]; then
+            cancel_sleep
+        fi
+        wait "${sleep_pid}"
+        trap 'exit 0' TERM
         if kill -0 "${owner_pid}" 2> /dev/null; then
             echo "[case-test] case-timeout group=${CASE_TEST_GROUP:-} case=${name} id=${id} elapsed=${timeout_s}s"
             if [[ -n "${CASE_TEST_EVENT_FILE:-}" ]]; then

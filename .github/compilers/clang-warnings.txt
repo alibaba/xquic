@@ -1,0 +1,116 @@
+# The warnings of the Compilers workflow's Clang job "with warnings": a
+# Release build of the library, its tests and its examples with -Werror, the
+# hardening flags and the flags below, which come after the -Wno-* flags of
+# CMakeLists.txt. Main builds without any of these warnings.
+
+# -Wextra, but for the warnings of -Wextra listed at the end.
+-Wextra
+-Wno-unused-parameter
+-Wno-sign-compare
+-Wno-missing-field-initializers
+
+# Format strings: -Wformat=2 adds -Wformat-security and -Wformat-y2k.
+-Wformat=2
+-Wno-format-nonliteral
+-Wformat-non-iso
+-Wformat-pedantic
+-Wformat-type-confusion
+-Wmissing-format-attribute
+
+# Memory, objects and pointers.
+-Warray-bounds-pointer-arithmetic
+-Wcast-function-type
+-Wcast-function-type-strict
+-Wnull-dereference
+-Wpacked
+-Wpointer-arith
+
+# Conversions.
+-Wbitfield-enum-conversion
+-Wliteral-conversion
+-Wnull-conversion
+-Wshift-sign-overflow
+-Wstring-conversion
+
+# Conditions, loops and unreachable code.
+-Widiomatic-parentheses
+-Wloop-analysis
+-Wtautological-constant-in-range-compare
+-Wno-tautological-unsigned-zero-compare
+-Wtautological-overlap-compare
+-Wunreachable-code-aggressive
+
+# Declarations and the rest.
+-Wdate-time
+-Wduplicate-enum
+-Wextra-semi
+-Wfour-char-constants
+-Wmissing-include-dirs
+-Wunused-local-typedef
+
+# Not turned on yet, each with its findings on main under Clang 21: distinct
+# locations in all, and in the library (src/ and include/). A warning comes
+# here when its count reaches zero. -Wthread-safety needs the capability
+# annotations, which XQUIC does not use.
+#
+#   -Wunused-parameter                   788  249
+#   -Wsign-compare                       209  118
+#   -Wmissing-field-initializers         141   97
+#   -Wformat-nonliteral                    1    0
+#   -Wtautological-unsigned-zero-compare   7    7
+#   -Wuninitialized-const-pointer          7    0  on by default in Clang
+#                                                 21; reported without
+#                                                 failing until the tests
+#                                                 stop passing uninitialized
+#                                                 CIDs and addresses
+#   -Wconditional-uninitialized            3    3  ret in xqc_stream_send()
+#   -Wcomma                                3    0
+#   -Wshadow                              48   10
+#   -Wsign-conversion                   1127  794
+#   -Wshorten-64-to-32                   315  204
+#   -Wimplicit-int-conversion            131   68
+#   -Wimplicit-int-float-conversion       47   47
+#   -Wfloat-conversion                    29   29
+#   -Wimplicit-float-conversion           18   16
+#   -Wenum-enum-conversion                 3    3
+#   -Wassign-enum                         51   38
+#   -Wcast-align                         421  379
+#   -Wcast-qual                          151  120
+#   -Wincompatible-function-pointer-types-strict 224 15
+#   -Wbad-function-cast                   16    2
+#   -Wdouble-promotion                    15   11
+#   -Wfloat-equal                          9    9
+#   -Wstrict-prototypes                  547   22
+#   -Wmissing-prototypes                 941  315
+#   -Wmissing-variable-declarations      191   46
+#   -Wswitch-enum                         54   51
+#   -Wswitch-default                      33   33
+#   -Wcovered-switch-default              23   20
+#   -Wimplicit-fallthrough                27   26
+#   -Wmissing-noreturn                     1    0
+#   -Wundef                                3    3
+#   -Wvla                                  7    1
+#   -Wpedantic                             4    2
+#   -Wzero-length-array                    4    4
+#   -Wgnu-zero-variadic-macro-arguments    4    2
+#   -Wc23-extensions                       3    2
+#   -Wc23-compat                           2    2
+#   -Wreserved-identifier                 23   12
+#   -Wreserved-macro-identifier          116   96  the _XQC_*_H_INCLUDED_
+#                                                 guards
+#   -Wdocumentation                       87   87
+#   -Wdocumentation-deprecated-sync        3    3
+#   -Wdocumentation-unknown-command        1    1
+#   -Wnewline-eof                         70   50
+#   -Wextra-semi-stmt                   5145   29
+#   -Wused-but-marked-unused            1138   33
+#   -Wdisabled-macro-expansion             9    0
+#   -Wpointer-sign                       521  275  -Wno-pointer-sign of
+#                                                 CMakeLists.txt
+#   -Wunused-variable                    216  131  these seven: off by
+#   -Wunused-but-set-variable             43   23  default or by -Wno-unused
+#   -Wunused-macros                       36    9  of CMakeLists.txt
+#   -Wunused-label                        12    7
+#   -Wunused-function                      7    3
+#   -Wunused-value                         5    1
+#   -Wunused-const-variable                1    1

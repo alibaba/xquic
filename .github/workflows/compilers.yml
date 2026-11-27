@@ -1,0 +1,222 @@
+name: Compilers
+
+# Builds XQUIC, its tests and its examples with every GCC and Clang release
+# that the hosted Ubuntu images package, from the oldest to the newest, and
+# runs the CUnit suite with each build. The project's -Wall -Werror flags make
+# a new warning of any of these compilers fail its job. The jobs alternate
+# between Debug and Release, and some of them select another GNU C language
+# mode than the gnu11 of CMakeLists.txt: CMAKE_C_STANDARD adds its -std flag
+# after the project's own.
+#
+# Two more jobs build with the newest GCC and Clang in Release, with the
+# hardening flags of a distribution package (_FORTIFY_SOURCE=3, the stack
+# protector, stack clash protection and control-flow protection) and with
+# the warnings of .github/compilers/<compiler>-warnings.txt, which main builds
+# without; those files also list the warnings that main does not pass yet,
+# with their number of findings. A Release build takes these flags from
+# CMAKE_C_FLAGS_RELEASE, which comes after the project's own -Wno-* flags.
+#
+# BoringSSL is built with the image's default compiler, so that a compiler
+# that BoringSSL itself no longer supports still builds XQUIC. ccache keeps
+# both builds short; the caches are saved by pushes only, so pull requests
+# reuse the cache of the main branch without adding their own.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The BoringSSL release that the jobs build: a tag, not BoringSSL's main
+  # branch, so that a BoringSSL commit cannot break the jobs on its own.
+  # Raise it to a newer tag of https://github.com/google/boringssl/tags
+  # once the jobs pass with it.
+  XQC_BORINGSSL_TAG: 0.20261105.0
+
+jobs:
+
+  compilers:
+
+    name: ${{ matrix.cc }} ${{ matrix.build-type }} gnu${{ matrix.std }}${{ matrix.warnings && ' with warnings' || '' }}
+
+    runs-on: ${{ matrix.os }}
+
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # cflags lists the warnings that a job reports without failing,
+        # each until the change in its comment.
+        include:
+        - { cc: gcc-9, packages: g++-9, os: ubuntu-24.04, build-type: Debug, std: 11 }
+        # until xqc_client_bind_to_interface() in tests/test_client.c copies
+        # the interface name without a truncation that GCC 10 can see
+        - { cc: gcc-10, packages: g++-10, os: ubuntu-24.04, build-type: Release, std: 11,
+            cflags: -Wno-error=stringop-truncation }
+        - { cc: gcc-11, packages: g++-11, os: ubuntu-24.04, build-type: Debug, std: 17 }
+        # until xqc_wt_stream_abort() no longer touches a stream that the
+        # callback-depth release it calls may have freed
+        - { cc: gcc-12, packages: g++-12, os: ubuntu-24.04, build-type: Release, std: 17,
+            cflags: -Wno-error=use-after-free }
+        - { cc: gcc-13, packages: g++-13, os: ubuntu-24.04, build-type: Release, std: 11 }
+        - { cc: gcc-14, packages: g++-14, os: ubuntu-24.04, build-type: Debug, std: 17 }
+        - { cc: gcc-15, packages: g++-15, os: ubuntu-26.04, build-type: Release, std: 17 }
+        - { cc: clang-14, packages: clang-14, os: ubuntu-24.04, build-type: Release, std: 11 }
+        - { cc: clang-15, packages: clang-15, os: ubuntu-24.04, build-type: Debug, std: 11 }
+        - { cc: clang-16, packages: clang-16, os: ubuntu-24.04, build-type: Release, std: 17 }
+        - { cc: clang-17, packages: clang-17, os: ubuntu-24.04, build-type: Debug, std: 17 }
+        - { cc: clang-18, packages: clang-18, os: ubuntu-24.04, build-type: Release, std: 11 }
+        - { cc: clang-19, packages: clang-19, os: ubuntu-24.04, build-type: Debug, std: 17 }
+        - { cc: clang-20, packages: clang-20, os: ubuntu-24.04, build-type: Release, std: 17 }
+        # until the tests stop passing uninitialized CIDs and addresses
+        - { cc: clang-21, packages: clang-21, os: ubuntu-26.04, build-type: Debug, std: 17,
+            cflags: -Wno-error=uninitialized-const-pointer }
+        # with the hardening flags and the warnings of
+        # .github/compilers/<warnings>-warnings.txt
+        - { cc: gcc-15, packages: g++-15, os: ubuntu-26.04, build-type: Release, std: 17,
+            warnings: gcc }
+        # the same, and until the tests stop passing uninitialized CIDs and
+        # addresses
+        - { cc: clang-21, packages: clang-21, os: ubuntu-26.04, build-type: Release, std: 17,
+            warnings: clang, cflags: -Wno-error=uninitialized-const-pointer }
+
+    env:
+      XQC_CC: ${{ matrix.cc }}
+      XQC_CC_PACKAGES: ${{ matrix.packages }}
+      XQC_BUILD_TYPE: ${{ matrix.build-type }}
+      XQC_C_STANDARD: ${{ matrix.std }}
+      XQC_CFLAGS: ${{ matrix.cflags }}
+      XQC_WARNINGS: ${{ matrix.warnings }}
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 400M
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        # shellcheck disable=SC2086
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            ${XQC_CC_PACKAGES} \
+            build-essential \
+            ccache \
+            libcunit1-dev \
+            libevent-dev \
+            openssl
+
+    - name: Restore ccache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .ccache
+        key: ccache-${{ matrix.os }}-${{ matrix.cc }}-${{ matrix.build-type }}-${{ matrix.std }}${{ matrix.warnings && '-warnings' || '' }}-${{ github.sha }}
+        restore-keys: |
+          ccache-${{ matrix.os }}-${{ matrix.cc }}-${{ matrix.build-type }}-${{ matrix.std }}${{ matrix.warnings && '-warnings' || '' }}-
+
+    - name: Build BoringSSL
+      run: |
+        git clone --depth 1 --branch "$XQC_BORINGSSL_TAG" \
+          https://github.com/google/boringssl.git ./third_party/boringssl
+        cmake -S third_party/boringssl -B third_party/boringssl/build \
+          -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
+          -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        cmake --build third_party/boringssl/build --parallel "$(nproc)" --target ssl crypto
+
+    - name: Build XQUIC
+      run: |
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        release_flags=()
+        if [ -n "${XQC_WARNINGS}" ]; then
+          hardening="-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 -fstack-protector-strong"
+          hardening+=" -fstack-clash-protection -fcf-protection"
+          warnings=$(sed 's/#.*//' ".github/compilers/${XQC_WARNINGS}-warnings.txt" | xargs)
+          release_flags=(-DCMAKE_C_FLAGS_RELEASE="-O2 -DNDEBUG ${hardening} ${warnings}")
+        fi
+        cmake -S . -B build \
+          "${release_flags[@]}" \
+          -DCMAKE_C_COMPILER="${XQC_CC}" \
+          -DCMAKE_BUILD_TYPE="${XQC_BUILD_TYPE}" \
+          -DCMAKE_C_STANDARD="${XQC_C_STANDARD}" \
+          -DCMAKE_C_EXTENSIONS=ON \
+          -DCMAKE_C_FLAGS="${XQC_CFLAGS}" \
+          -DXQC_ENABLE_TESTING=1 \
+          -DXQC_PRINT_SECRET=1 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DXQC_ENABLE_UNLIMITED=1 \
+          -DXQC_ENABLE_COPA=1 \
+          -DXQC_COMPAT_DUPLICATE=1 \
+          -DXQC_ENABLE_FEC=1 \
+          -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 \
+          -DXQC_ENABLE_PKM=1 \
+          -DXQC_ENABLE_WEBTRANSPORT=1 \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        cmake --build build --parallel "$(nproc)"
+        ccache --show-stats
+
+    - name: Test
+      run: |
+        set -o pipefail
+        cd build
+        openssl req -newkey rsa:2048 -x509 -nodes \
+          -keyout server.key \
+          -new \
+          -out server.crt \
+          -subj /CN=test.xquic.com
+        ./tests/run_tests 2>&1 | tee ../xquic_compilers_unit.log
+        unit_summary=$(awk '
+          $1 == "tests" && NF == 6 && $2 ~ /^[0-9]+$/ \
+            && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ && $5 ~ /^[0-9]+$/ {
+            summary = $2 " " $3 " " $4 " " $5
+          }
+          END {print summary}
+        ' ../xquic_compilers_unit.log)
+        read -r unit_total unit_ran unit_passed unit_failed \
+          <<< "${unit_summary:-0 0 0 1}"
+        echo "unit test total:$unit_total ran:$unit_ran" \
+          "passed:$unit_passed failed:$unit_failed"
+        if [ "$unit_total" -gt 0 ] \
+          && [ "$unit_ran" -eq "$unit_total" ] \
+          && [ "$unit_passed" -eq "$unit_total" ] \
+          && [ "$unit_failed" -eq 0 ]; then
+          echo "===== All unit tests passed! ====="
+        else
+          echo "===== Unit test failed! ====="
+          exit 1
+        fi
+
+    - name: Save ccache
+      if: github.event_name == 'push'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .ccache
+        key: ccache-${{ matrix.os }}-${{ matrix.cc }}-${{ matrix.build-type }}-${{ matrix.std }}${{ matrix.warnings && '-warnings' || '' }}-${{ github.sha }}

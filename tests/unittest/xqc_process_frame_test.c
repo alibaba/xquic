@@ -2317,3 +2317,157 @@ xqc_test_stream_frame_on_local_closed_stream_tolerated(void)
 
     xqc_engine_destroy(conn->engine);
 }
+
+
+typedef struct xqc_test_event_log_s {
+    char    text[4 * XQC_MAX_LOG_LEN];
+    size_t  len;
+} xqc_test_event_log_t;
+
+static void
+xqc_test_event_log_write(xqc_log_level_t lvl, const void *buf, size_t size,
+    void *user_data)
+{
+    xqc_test_event_log_t  *capture = user_data;
+
+    size = xqc_min(size, sizeof(capture->text) - capture->len - 1);
+    memcpy(capture->text + capture->len, buf, size);
+    capture->len += size;
+    capture->text[capture->len] = '\0';
+}
+
+/*
+ * The frames_processed events of NEW_CONNECTION_ID (RFC 9000 Section 19.15),
+ * its multipath variant and MAX_STREAMS (Section 19.11) show the fields the
+ * parsers read: Retire Prior To, not the address it was read into, up to
+ * its largest value, and a MAX_STREAMS frame as such, not as
+ * MAX_STREAM_DATA with its direction read as a 64-bit stream ID. A frame
+ * that fails to parse logs no event.
+ */
+void
+xqc_test_frame_event_log_fields(void)
+{
+    char                    expected[128];
+    uint64_t                retire_prior_to, path_id, max_streams;
+    xqc_int_t               ret;
+    xqc_cid_t               new_cid;
+    xqc_packet_in_t         pi;
+    unsigned char           buf[64], *p;
+    xqc_connection_t       *conn;
+    xqc_log_callbacks_t    *log_callbacks;
+    void                   *log_user_data;
+    xqc_log_callbacks_t     callbacks = {0};
+    xqc_test_event_log_t    capture = {0};
+    int                     bidirectional;
+
+    conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    callbacks.xqc_log_write_err = xqc_test_event_log_write;
+    log_callbacks = conn->log->log_callbacks;
+    log_user_data = conn->log->user_data;
+    conn->log->log_callbacks = &callbacks;
+    conn->log->user_data = &capture;
+    conn->log->log_level = XQC_LOG_DEBUG;
+    conn->log->log_event = 1;
+    conn->log->qlog_importance = EVENT_IMPORTANCE_SELECTED;
+
+    /* NEW_CONNECTION_ID: sequence number 5, Retire Prior To 3 */
+    p = buf;
+    *p++ = 0x18;
+    *p++ = 0x05;
+    *p++ = 0x03;
+    *p++ = 8;
+    memset(p, 0x11, 8);
+    p += 8;
+    memset(p, 0xaa, XQC_STATELESS_RESET_TOKENLEN);
+    p += XQC_STATELESS_RESET_TOKENLEN;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = buf;
+    pi.last = p;
+    ret = xqc_parse_new_conn_id_frame(&pi, &new_cid, &retire_prior_to, conn);
+    CU_ASSERT(ret == XQC_OK && retire_prior_to == 3);
+
+    /* MP_NEW_CONNECTION_ID: path ID 1, sequence number 6, RPT 4 */
+    p = buf;
+    xqc_vint_write(p, XQC_TRANS_FRAME_TYPE_MP_NEW_CONN_ID, 2, 4);
+    p += 4;
+    *p++ = 0x01;
+    *p++ = 0x06;
+    *p++ = 0x04;
+    *p++ = 8;
+    memset(p, 0x22, 8);
+    p += 8;
+    memset(p, 0xbb, XQC_STATELESS_RESET_TOKENLEN);
+    p += XQC_STATELESS_RESET_TOKENLEN;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = buf;
+    pi.last = p;
+    ret = xqc_parse_mp_new_conn_id_frame(&pi, &new_cid, &retire_prior_to,
+                                         &path_id, conn);
+    CU_ASSERT(ret == XQC_OK && retire_prior_to == 4 && path_id == 1);
+
+    /* boundary: the largest Retire Prior To, 2^62 - 1, logged in full */
+    p = buf;
+    *p++ = 0x18;
+    memset(p, 0xff, 8);
+    p += 8;
+    memset(p, 0xff, 8);
+    p += 8;
+    *p++ = 8;
+    memset(p, 0x33, 8);
+    p += 8;
+    memset(p, 0xcc, XQC_STATELESS_RESET_TOKENLEN);
+    p += XQC_STATELESS_RESET_TOKENLEN;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = buf;
+    pi.last = p;
+    ret = xqc_parse_new_conn_id_frame(&pi, &new_cid, &retire_prior_to, conn);
+    CU_ASSERT(ret == XQC_OK && retire_prior_to == 4611686018427387903ULL);
+
+    /* abnormal: a frame cut in its token is rejected, and not logged */
+    p = buf;
+    *p++ = 0x18;
+    *p++ = 0x07;
+    *p++ = 0x01;
+    *p++ = 8;
+    memset(p, 0x44, 8);
+    p += 8;
+    memset(p, 0xdd, 4);
+    p += 4;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = buf;
+    pi.last = p;
+    ret = xqc_parse_new_conn_id_frame(&pi, &new_cid, &retire_prior_to, conn);
+    CU_ASSERT(ret == -XQC_EPROTO);
+
+    /* MAX_STREAMS (bidirectional): 100, a 2-byte variable-length integer */
+    buf[0] = 0x12;
+    buf[1] = 0x40;
+    buf[2] = 0x64;
+    memset(&pi, 0, sizeof(pi));
+    pi.pos = buf;
+    pi.last = buf + 3;
+    ret = xqc_parse_max_streams_frame(&pi, &max_streams, &bidirectional,
+                                      conn);
+    CU_ASSERT(ret == XQC_OK && max_streams == 100 && bidirectional == 1);
+
+    conn->log->log_callbacks = log_callbacks;
+    conn->log->user_data = log_user_data;
+
+#if !defined(XQC_DISABLE_LOG) && defined(XQC_ENABLE_EVENT_LOG)
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.text,
+        "|sequence_number:5|retire_prior_to:3|connection_id_length:8|"));
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.text,
+        "|sequence_number:6|retire_prior_to:4|connection_id_length:8|"));
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.text,
+        "|sequence_number:4611686018427387903|"
+        "retire_prior_to:4611686018427387903|"));
+    CU_ASSERT_PTR_NULL(strstr(capture.text, "|sequence_number:7|"));
+    snprintf(expected, sizeof(expected),
+             "|type:%d|stream_type:bidirectional|maximum:100|",
+             (int) XQC_FRAME_MAX_STREAMS);
+    CU_ASSERT_PTR_NOT_NULL(strstr(capture.text, expected));
+#endif
+
+    xqc_engine_destroy(conn->engine);
+}

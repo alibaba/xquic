@@ -1,0 +1,25 @@
+# UndefinedBehaviorSanitizer reports that main still has, suppressed by the
+# Sanitizers workflow (.github/workflows/sanitizers.yml). Each entry names a
+# check and the function that reports it. Delete an entry with the change
+# that fixes its report: the workflow then fails if the report comes back.
+
+# memcpy() from a NULL pointer with a zero length: the ALPN list before the
+# first registration, an absent session ticket.
+nonnull-attribute:xqc_tls_ctx_register_alpn
+nonnull-attribute:xqc_client_create_tls
+
+# memcmp() of an empty body or datagram in the test client's echo checks.
+nonnull-attribute:xqc_client_stream_close_notify
+nonnull-attribute:xqc_client_request_close_notify
+nonnull-attribute:xqc_client_timeout_callback
+
+# The payload of a STREAM frame that only carries FIN is NULL (#1055).
+nonnull-attribute:xqc_stream_recv
+pointer-overflow:xqc_stream_recv
+
+# A send that only carries FIN adds a zero offset to a NULL data pointer.
+pointer-overflow:xqc_stream_send
+pointer-overflow:xqc_h3_ext_bytestream_send
+
+# 1 << end_idx overflows int from slot 31 of the receive timestamp ring.
+shift-base:xqc_recv_timestamps_info_add_pkt

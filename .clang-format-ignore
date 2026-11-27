@@ -1,0 +1,4 @@
+# tests/unittest/main.c registers the unit tests in a single condition of
+# some 900 lines, which clang-format formats as a whole when one of its
+# lines changes.
+tests/unittest/main.c

@@ -1,0 +1,66 @@
+---
+# clang-format 21.1.8 settings for the XQUIC code style of CONTRIBUTING.md:
+# the Nginx style with four-space indentation and 80 columns. They follow the
+# existing code as closely as clang-format can, yet reformatting src/ and
+# include/ with them would still change 18% of their lines, so only the lines
+# that a change touches are formatted: `git clang-format <base>` before a
+# commit, as the Lint workflow checks on pull requests.
+BasedOnStyle: LLVM
+ColumnLimit: 80
+IndentWidth: 4
+ContinuationIndentWidth: 4
+UseTab: Never
+
+# Function definitions: the name starts a line, the braces have their own.
+BreakAfterReturnType: TopLevelDefinitions
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  # The brace of a condition that takes several lines has its own line.
+  AfterControlStatement: MultiLine
+AllowShortFunctionsOnASingleLine: None
+AllowShortEnumsOnASingleLine: false
+# The body of every if, else, for, while and do has braces.
+InsertBraces: true
+IndentCaseLabels: false
+IndentGotoLabels: false
+
+# Wrapped arguments line up after the opening parenthesis; a wrapped
+# expression breaks before its binary operator.
+AlignAfterOpenBracket: Align
+BreakBeforeBinaryOperators: All
+PenaltyBreakBeforeFirstCallParameter: 1000
+PenaltyBreakAssignment: 10000
+PenaltyReturnTypeOnItsOwnLine: 200
+PenaltyIndentedWhitespace: 0
+BreakStringLiterals: false
+
+# Declarations, assignments and macro values are not aligned in columns: the
+# existing code aligns some of them only, and aligning changes more lines.
+AlignConsecutiveMacros: None
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+
+# Left as written: macro bodies, trailing comments, the text of comments and
+# the order of the includes.
+SkipMacroDefinitionBody: true
+AlignEscapedNewlines: DontAlign
+AlignTrailingComments:
+  Kind: Leave
+ReflowComments: Never
+SortIncludes: Never
+MaxEmptyLinesToKeep: 2
+KeepEmptyLines:
+  AtEndOfFile: true
+
+BracedInitializerIndentWidth: 4
+# The list iteration macros open a loop body: xqc_list_for_each(pos, head) {
+SpaceBeforeParens: ControlStatementsExceptControlMacros
+ForEachMacros:
+  - xqc_list_for_each
+  - xqc_list_for_each_from
+  - xqc_list_for_each_reverse
+  - xqc_list_for_each_reverse_safe
+  - xqc_list_for_each_safe
+  - xqc_queue_foreach
+...

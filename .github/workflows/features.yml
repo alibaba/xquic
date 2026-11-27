@@ -1,0 +1,216 @@
+name: Features
+
+# Builds XQUIC with each optional feature switched on alone, with all of
+# them switched on, and with each logging switch, then runs the CUnit suite
+# of every build that has its tests enabled. A combination that no other
+# job builds would otherwise break unnoticed. Each build must also leave no
+# XQUIC symbol undefined in the shared library, which only fails when an
+# application links it.
+#
+# A configuration starts from every optional feature off. Each job builds its
+# configurations one after the other in one checkout, because configuring
+# rewrites include/xquic/xqc_configure.h in the source tree.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The BoringSSL release that the jobs build: a tag, not BoringSSL's main
+  # branch, so that a BoringSSL commit cannot break the jobs on its own.
+  # Raise it to a newer tag of https://github.com/google/boringssl/tags
+  # once the jobs pass with it.
+  XQC_BORINGSSL_TAG: 0.20261105.0
+
+jobs:
+
+  features:
+
+    name: Features (${{ matrix.group }})
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - group: congestion control
+          configs: |
+            minimal
+            bbr2 -DXQC_ENABLE_BBR2=ON
+            copa -DXQC_ENABLE_COPA=ON
+            reno -DXQC_ENABLE_RENO=ON
+            unlimited -DXQC_ENABLE_UNLIMITED=ON
+            mp-interop -DXQC_ENABLE_MP_INTEROP=ON
+        - group: transport and HTTP/3
+          configs: |
+            no-pid -DXQC_NO_PID_PACKET_PROCESS=ON
+            protect-pool -DXQC_PROTECT_POOL_MEM=ON
+            compat-duplicate -DXQC_COMPAT_DUPLICATE=ON
+            ping-protect -DXQC_PING_ATTACK_PROTECT=ON
+            webtransport -DXQC_ENABLE_WEBTRANSPORT=ON -DXQC_ENABLE_WEBTRANSPORT_INTEROP=ON
+            moq -DXQC_ENABLE_MOQ=ON
+        # The FEC unit tests use every scheme, so the builds with only some
+        # of the schemes leave the tests out until the tests follow the
+        # scheme switches. The packet-mask scheme alone stays out until it
+        # no longer needs the XOR scheme's code.
+        - group: FEC
+          configs: |
+            fec -DXQC_ENABLE_FEC=ON -DXQC_ENABLE_XOR=ON -DXQC_ENABLE_RSC=ON -DXQC_ENABLE_PKM=ON
+            fec-xor -DXQC_ENABLE_TESTING=OFF -DXQC_ENABLE_FEC=ON -DXQC_ENABLE_XOR=ON
+            fec-rsc -DXQC_ENABLE_TESTING=OFF -DXQC_ENABLE_FEC=ON -DXQC_ENABLE_RSC=ON
+            fec-xor-pkm -DXQC_ENABLE_TESTING=OFF -DXQC_ENABLE_FEC=ON -DXQC_ENABLE_XOR=ON -DXQC_ENABLE_PKM=ON
+        # disable-log leaves the tests out until the header protection mask
+        # test stops reading log lines that XQC_DISABLE_LOG compiles out.
+        # mobile follows the switches of xqc_build.sh.
+        - group: logging and profiles
+          configs: |
+            disable-log -DXQC_ENABLE_TESTING=OFF -DXQC_DISABLE_LOG=ON
+            only-error-log -DXQC_ONLY_ERROR_LOG=ON
+            event-log -DXQC_ENABLE_EVENT_LOG=ON
+            print-secret -DXQC_PRINT_SECRET=ON
+            compat-sr -DXQC_COMPAT_GENERATE_SR_PKT=ON
+            sendmmsg -DXQC_SUPPORT_SENDMMSG_BUILD=ON
+            mobile -DCMAKE_BUILD_TYPE=Minsizerel -DXQC_ENABLE_TESTING=OFF -DXQC_ENABLE_BBR2=ON -DXQC_ONLY_ERROR_LOG=ON -DXQC_COMPAT_GENERATE_SR_PKT=ON
+            all -DXQC_ENABLE_BBR2=ON -DXQC_ENABLE_COPA=ON -DXQC_ENABLE_RENO=ON -DXQC_ENABLE_UNLIMITED=ON -DXQC_ENABLE_MP_INTEROP=ON -DXQC_PROTECT_POOL_MEM=ON -DXQC_COMPAT_DUPLICATE=ON -DXQC_PING_ATTACK_PROTECT=ON -DXQC_ENABLE_WEBTRANSPORT=ON -DXQC_ENABLE_WEBTRANSPORT_INTEROP=ON -DXQC_ENABLE_MOQ=ON -DXQC_ENABLE_FEC=ON -DXQC_ENABLE_XOR=ON -DXQC_ENABLE_RSC=ON -DXQC_ENABLE_PKM=ON -DXQC_ENABLE_EVENT_LOG=ON -DXQC_PRINT_SECRET=ON -DXQC_COMPAT_GENERATE_SR_PKT=ON -DXQC_SUPPORT_SENDMMSG_BUILD=ON
+
+    env:
+      XQC_CONFIGS: ${{ matrix.configs }}
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 400M
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            build-essential \
+            ccache \
+            libcunit1-dev \
+            libevent-dev
+
+    - name: Restore ccache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .ccache
+        key: ccache-features-${{ matrix.group }}-${{ github.sha }}
+        restore-keys: |
+          ccache-features-${{ matrix.group }}-
+
+    - name: Build BoringSSL
+      run: |
+        git clone --depth 1 --branch "$XQC_BORINGSSL_TAG" \
+          https://github.com/google/boringssl.git ./third_party/boringssl
+        cmake -S third_party/boringssl -B third_party/boringssl/build \
+          -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        cmake --build third_party/boringssl/build --parallel "$(nproc)" --target ssl crypto
+
+    - name: Build and test each configuration
+      run: |
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        openssl req -newkey rsa:2048 -x509 -nodes \
+          -keyout server.key \
+          -new \
+          -out server.crt \
+          -subj /CN=test.xquic.com
+        all_off=(
+          -DXQC_ENABLE_BBR2=OFF -DXQC_ENABLE_COPA=OFF -DXQC_ENABLE_RENO=OFF
+          -DXQC_ENABLE_UNLIMITED=OFF -DXQC_ENABLE_MP_INTEROP=OFF
+          -DXQC_NO_PID_PACKET_PROCESS=OFF -DXQC_PROTECT_POOL_MEM=OFF
+          -DXQC_COMPAT_DUPLICATE=OFF -DXQC_ENABLE_WEBTRANSPORT=OFF
+          -DXQC_ENABLE_WEBTRANSPORT_INTEROP=OFF -DXQC_ENABLE_FEC=OFF
+          -DXQC_ENABLE_XOR=OFF -DXQC_ENABLE_RSC=OFF -DXQC_ENABLE_PKM=OFF
+          -DXQC_PING_ATTACK_PROTECT=OFF -DXQC_ENABLE_MOQ=OFF
+          -DXQC_DISABLE_LOG=OFF -DXQC_ONLY_ERROR_LOG=OFF
+          -DXQC_ENABLE_EVENT_LOG=OFF -DXQC_PRINT_SECRET=OFF
+          -DXQC_COMPAT_GENERATE_SR_PKT=OFF -DXQC_SUPPORT_SENDMMSG_BUILD=OFF
+        )
+        failed=()
+        while read -r name flags; do
+          [ -n "$name" ] || continue
+          echo "::group::$name"
+          build="build-$name"
+          result=0
+          # shellcheck disable=SC2086
+          if ! cmake -S . -B "$build" \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DXQC_ENABLE_TESTING=ON \
+            "${all_off[@]}" \
+            $flags \
+            -DSSL_TYPE=boringssl \
+            -DSSL_PATH="${SSL_PATH_STR}" \
+            -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+            -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a" \
+            > "$build.configure.log" 2>&1; then
+            cat "$build.configure.log"
+            result=1
+          elif ! cmake --build "$build" --parallel "$(nproc)"; then
+            result=1
+          fi
+          if [ "$result" -eq 0 ]; then
+            undefined=$(nm -D --undefined-only "$build/libxquic.so" \
+              | awk '$2 ~ /^xqc_/ {print $2}')
+            if [ -n "$undefined" ]; then
+              echo "undefined in libxquic.so: $undefined"
+              result=1
+            fi
+          fi
+          if [ "$result" -eq 0 ] && [ -x "$build/tests/run_tests" ]; then
+            cp server.key server.crt "$build/"
+            (cd "$build" && ./tests/run_tests) > "$build.unit.log" 2>&1 || true
+            summary=$(awk '$1 == "tests" && NF == 6 {print $2, $3, $4, $5}' "$build.unit.log")
+            read -r total ran passed unit_failed <<< "${summary:-0 0 0 1}"
+            echo "unit test total:$total ran:$ran passed:$passed failed:$unit_failed"
+            if [ "$total" -eq 0 ] || [ "$ran" -ne "$total" ] \
+              || [ "$passed" -ne "$total" ] || [ "$unit_failed" -ne 0 ]; then
+              grep -E -A3 'FAILED' "$build.unit.log" | head -40
+              result=1
+            fi
+          fi
+          echo "::endgroup::"
+          if [ "$result" -eq 0 ]; then
+            echo "$name: passed"
+          else
+            echo "::error::$name: failed"
+            failed+=("$name")
+          fi
+        done <<< "$XQC_CONFIGS"
+        ccache --show-stats
+        if [ "${#failed[@]}" -ne 0 ]; then
+          echo "failed configurations: ${failed[*]}"
+          exit 1
+        fi
+
+    - name: Save ccache
+      if: github.event_name == 'push'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .ccache
+        key: ccache-features-${{ matrix.group }}-${{ github.sha }}

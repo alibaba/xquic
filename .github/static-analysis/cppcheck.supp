@@ -1,0 +1,122 @@
+# Cppcheck findings on main, suppressed until they are fixed. Static
+# analysis runs cppcheck 2.13 with these. A check that reports defects has
+# one entry per file, so that the same kind of defect in another file still
+# fails; a style-scale check has one entry for all files. Each comment gives
+# the number of findings on main and what they report.
+
+# Style-scale: 184 parameters and 169 variables that could point to const,
+# 171 variables whose scope could be smaller, 106 values never read and 88
+# variables never used.
+constParameterPointer
+constVariablePointer
+variableScope
+unreadVariable
+unusedVariable
+
+# BoringSSL, which the workflow clones at its latest commit.
+*:third_party/*
+
+# The threadsafety addon: 10 members named encrypt, taken for the encrypt()
+# of libc, and 8 static const tables.
+threadsafety-unsafe-call:src/tls/xqc_crypto.c
+threadsafety-unsafe-call:src/tls/xqc_crypto.h
+threadsafety-unsafe-call:src/tls/xqc_null_crypto.c
+threadsafety-unsafe-call:src/tls/xqc_ssl_cbs.h
+threadsafety-unsafe-call:src/tls/xqc_tls.c
+threadsafety-threadsafety:src/common/xqc_log.c
+threadsafety-threadsafety:src/tls/xqc_crypto.c
+threadsafety-threadsafety:src/transport/xqc_conn.c
+
+# 28 tests of an unsigned value for less than zero, among them the nread of
+# the receive_timestamps_exponent parameter, which accepts a truncated one.
+unsignedLessThanZero:src/congestion_control/xqc_bbr.c
+unsignedLessThanZero:src/congestion_control/xqc_bbr2.c
+unsignedLessThanZero:src/http3/xqc_h3_request.c
+unsignedLessThanZero:src/tls/xqc_crypto.c
+unsignedLessThanZero:src/tls/xqc_tls.c
+unsignedLessThanZero:src/transport/fec_schemes/xqc_packet_mask.c
+unsignedLessThanZero:src/transport/xqc_fec.c
+unsignedLessThanZero:src/transport/xqc_fec_scheme.c
+unsignedLessThanZero:src/transport/xqc_packet_parser.c
+unsignedLessThanZero:src/transport/xqc_send_ctl.c
+unsignedLessThanZero:src/transport/xqc_transport_params.c
+# 2 tests of an unsigned value for not being negative, and the unsigned
+# urgency that xqc_parse_http_priority() compares with 0.
+unsignedPositive:src/congestion_control/xqc_bbr2.c
+unsignedPositive:src/transport/xqc_conn.c
+compareValueOutOfTypeRangeError:src/http3/xqc_h3_request.c
+
+# 16 conditions that are always true or always false.
+knownConditionTrueFalse:src/common/utils/var_buf/xqc_var_buf.c
+knownConditionTrueFalse:src/congestion_control/xqc_copa.c
+knownConditionTrueFalse:src/tls/xqc_crypto.c
+knownConditionTrueFalse:src/transport/fec_schemes/xqc_packet_mask.c
+knownConditionTrueFalse:src/transport/xqc_conn.c
+knownConditionTrueFalse:src/transport/xqc_frame_parser.c
+knownConditionTrueFalse:src/transport/xqc_multipath.c
+knownConditionTrueFalse:src/transport/xqc_packet_out.c
+knownConditionTrueFalse:src/transport/xqc_recv_record.c
+knownConditionTrueFalse:src/transport/xqc_stream.c
+knownConditionTrueFalse:src/transport/xqc_transport_params.c
+knownConditionTrueFalse:src/webtransport/xqc_webtransport_h3_stream.c
+
+# xqc_fec_cc_decoder() tests the symbol size with && where it needs ||.
+incorrectLogicOperator:src/transport/xqc_fec_scheme.c
+
+# xqc_set_final_scheme() shifts 1 by a peer's scheme value of up to 32.
+shiftTooManyBits:src/transport/xqc_fec.c
+integerOverflowCond:src/transport/xqc_fec.c
+
+# xqc_conn_get_public_local_trans_settings() returns datagram_redundancy
+# uninitialized.
+uninitvar:src/transport/xqc_conn.c
+
+# xqc_conn_path_metrics_print() checks a path for NULL after reading it.
+nullPointerRedundantCheck:src/transport/xqc_multipath.c
+
+# A name-only QPACK insertion logs its absent value as a variadic NULL.
+varFuncNullUB:src/http3/qpack/xqc_encoder.c
+
+# 3 release functions clear their own pointer argument after freeing it.
+uselessAssignmentPtrArg:src/common/xqc_log.h
+uselessAssignmentPtrArg:src/tls/xqc_tls_ctx.c
+uselessAssignmentPtrArg:src/transport/xqc_transport_params.c
+
+# xqc_int_2_str() starts a for loop with an expression that does nothing.
+constStatement:src/common/xqc_str.h
+
+# 3 expressions to parenthesize: one of them, in the unused
+# xqc_stream_frame_header_size(), computes the wrong size.
+clarifyCalculation:src/transport/xqc_conn.c
+clarifyCalculation:src/transport/xqc_frame.c
+clarifyCalculation:src/transport/xqc_frame_parser.c
+
+# 9 local variables that shadow an outer one, and 1 that shadows a
+# parameter.
+shadowVariable:src/http3/xqc_h3_request.c
+shadowVariable:src/transport/xqc_conn.c
+shadowVariable:src/transport/xqc_stream.c
+shadowVariable:src/transport/xqc_transport_params.c
+shadowArgument:src/transport/xqc_conn.c
+
+# 2 bitwise ors with zero, 2 values overwritten before they are read, and an
+# int expression returned as int64_t by xqc_get_varint_fb().
+badBitmaskCheck:src/transport/xqc_conn.c
+badBitmaskCheck:src/transport/xqc_packet_parser.c
+redundantAssignment:src/transport/xqc_conn.c
+redundantAssignment:src/transport/xqc_engine.c
+truncLongCastReturn:src/common/utils/vint/xqc_variable_len_int.h
+
+# 7 labels never jumped to, the enc_pkt_array of
+# xqc_path_send_burst_packets(), which cppcheck sees as never written, and 5
+# callback parameters that could point to const.
+unusedLabel:src/http3/qpack/xqc_rep.c
+unusedLabel:src/transport/xqc_engine.c
+unusedLabel:src/transport/xqc_frame_parser.c
+unusedLabel:src/transport/xqc_packet_out.c
+unassignedVariable:src/transport/xqc_conn.c
+constVariable:src/transport/xqc_conn.c
+constParameterCallback:src/congestion_control/xqc_cubic.c
+constParameterCallback:src/congestion_control/xqc_new_reno.c
+constParameterCallback:src/tls/xqc_tls.c
+constParameterCallback:src/transport/xqc_engine.c

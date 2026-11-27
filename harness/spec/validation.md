@@ -249,6 +249,23 @@ backends, optional modules, and platform matrices remain additional checks.
 They should be selected by change risk or CI policy rather than hidden inside
 an issue-specific build.
 
+### Fuzzing
+
+`tests/fuzz/` holds libFuzzer targets for the packet, frame, transport
+parameter, token, QPACK, HTTP/3, WebTransport and MoQ parsers, and one that
+connects a client and a server engine in memory. They build only with clang
+and `-DXQC_ENABLE_FUZZ=ON`, which leaves every other build unchanged; the
+[fuzzing README](../../tests/fuzz/README.md) lists the targets and the build
+and run commands. The Fuzz workflow runs each target for a minute from its
+seed corpus in `tests/fuzz/corpus/`:
+
+```bash
+scripts/fuzz_smoke.sh <build-dir> 60
+```
+
+Fuzzing is an additional check: a defect that it finds is fixed with paired
+unit tests like any other, and its input may join the target's seed corpus.
+
 ## Mandatory Local Pre-PR Gate
 
 Before creating or moving a production code pull request to review:

@@ -371,6 +371,23 @@ modules:
     validation:
       level: test
 
+  fuzz:
+    paths:
+      - tests/fuzz/*
+      - scripts/fuzz_smoke.sh
+      - .github/workflows/fuzz.yml
+    read:
+      - tests/fuzz/README.md
+      - harness/spec/validation.md
+    update_when:
+      fuzz_target_or_build_changed:
+        - tests/fuzz/README.md
+        - harness/spec/validation.md
+    validation:
+      level: build
+      command: bash scripts/fuzz_smoke.sh build/fuzz 60
+      hints: [fuzz, sanitizer]
+
   build:
     paths:
       - CMakeLists.txt

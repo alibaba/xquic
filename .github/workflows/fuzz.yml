@@ -1,0 +1,125 @@
+name: Fuzz
+
+# Builds the libFuzzer targets of tests/fuzz with AddressSanitizer and
+# UndefinedBehaviorSanitizer, and runs each of them for a minute from its
+# seed corpus with scripts/fuzz_smoke.sh. A crash, a leak, a timeout or a
+# sanitizer report fails the job and uploads the input that caused it.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The BoringSSL release that the job builds: a tag, not BoringSSL's main
+  # branch, so that a BoringSSL commit cannot break the job on its own.
+  XQC_BORINGSSL_TAG: 0.20261105.0
+
+jobs:
+
+  fuzz:
+
+    name: Fuzz smoke test
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 40
+
+    env:
+      CC: clang-20
+      CXX: clang++-20
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 400M
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            ccache \
+            clang-20 \
+            libclang-rt-20-dev
+
+    - name: Restore ccache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .ccache
+        key: ccache-fuzz-${{ github.sha }}
+        restore-keys: |
+          ccache-fuzz-
+
+    - name: Build BoringSSL
+      run: |
+        git clone --depth 1 --branch "$XQC_BORINGSSL_TAG" \
+          https://github.com/google/boringssl.git ./third_party/boringssl
+        cmake -S third_party/boringssl -B third_party/boringssl/build \
+          -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        cmake --build third_party/boringssl/build --parallel "$(nproc)" --target ssl crypto
+
+    - name: Build the fuzz targets
+      run: |
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        cmake -S . -B build \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DXQC_ENABLE_FUZZ=ON \
+          -DXQC_ENABLE_EVENT_LOG=ON \
+          -DXQC_ENABLE_BBR2=ON \
+          -DXQC_ENABLE_COPA=ON \
+          -DXQC_ENABLE_RENO=ON \
+          -DXQC_ENABLE_UNLIMITED=ON \
+          -DXQC_ENABLE_WEBTRANSPORT=ON \
+          -DXQC_ENABLE_MOQ=ON \
+          -DXQC_ENABLE_FEC=ON \
+          -DXQC_ENABLE_XOR=ON \
+          -DXQC_ENABLE_RSC=ON \
+          -DXQC_ENABLE_PKM=ON \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        cmake --build build --parallel "$(nproc)"
+        ccache --show-stats
+
+    - name: Run each fuzz target for a minute
+      run: |
+        XQC_FUZZ_ARTIFACT_DIR="${PWD}/fuzz-artifacts" \
+          bash scripts/fuzz_smoke.sh build 60
+
+    - name: Upload the failing inputs
+      if: failure()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: fuzz-artifacts
+        path: fuzz-artifacts
+        retention-days: 7
+
+    - name: Save ccache
+      if: github.event_name == 'push'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .ccache
+        key: ccache-fuzz-${{ github.sha }}

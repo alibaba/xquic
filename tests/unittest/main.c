@@ -834,6 +834,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_empty_data_fin",
                         xqc_test_h3_empty_data_fin)
         || !CU_add_test(pSuite, "xqc_test_stable", xqc_test_stable)
+        || !CU_add_test(pSuite, "xqc_test_dtable_insert_alloc_failure",
+                        xqc_test_dtable_insert_alloc_failure)
         || !CU_add_test(pSuite, "xqc_test_dtable", xqc_test_dtable)
         || !CU_add_test(pSuite, "xqc_test_dtable_capacity_raise_lookup",
                         xqc_test_dtable_capacity_raise_lookup)

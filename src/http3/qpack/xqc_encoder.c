@@ -571,6 +571,7 @@ xqc_encoder_insert(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_var_buf_t *
 {
     uint64_t idx = XQC_INVALID_INDEX;
     uint64_t base_idx = xqc_dtable_get_insert_cnt(enc->dtable);
+    size_t ins_len = ins->data_len;
     xqc_int_t ret = XQC_OK;
 
     switch (info->insertion) {
@@ -599,6 +600,14 @@ xqc_encoder_insert(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_var_buf_t *
     ret = xqc_encoder_write_insert_ins(enc, ins, info, base_idx);
     if (ret != XQC_OK) {
         xqc_log(enc->log, XQC_LOG_ERROR, "|write insertion ins failed|ret:%d|", ret);
+
+        /*
+         * the decoder will not insert the entry: take it back, with any part
+         * of its instruction, so that both tables keep the same absolute
+         * indices (RFC 9204 3.2.4)
+         */
+        ins->data_len = ins_len;
+        xqc_dtable_pop_back(enc->dtable);
         return ret;
     }
 
@@ -651,6 +660,9 @@ xqc_encoder_try_duplicate(xqc_encoder_t *enc, xqc_hdr_enc_rule_t *info, xqc_var_
         ret = xqc_ins_write_dup(ins, xqc_abs2brel(base_index, info->index));
         if (ret != XQC_OK) {
             xqc_log(enc->log, XQC_LOG_ERROR, "|write duplicate instruction error|ret:%d|", ret);
+
+            /* the decoder will not insert the copy: take it back */
+            xqc_dtable_pop_back(enc->dtable);
             return ret;
         }
         xqc_log_event(enc->log, QPACK_INSTRUCTION_CREATED, XQC_LOG_ENCODER_EVENT,
